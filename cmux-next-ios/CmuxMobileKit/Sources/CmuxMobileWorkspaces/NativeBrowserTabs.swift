@@ -40,6 +40,13 @@ public final class NativeBrowserTabs {
     /// Whether a Mac serves `localhost` (its `version` says `localhost-forward-v1`).
     @ObservationIgnored public var macForwardsLocalhost: @MainActor (_ macID: String?) -> Bool = { _ in false }
     public static let forwardCapability = "localhost-forward-v1"
+    /// The Mac's hand-off of a tab's site data on Open on iPhone (`site-data`): its
+    /// frame for (Mac, tab key, address), or nil. Nil: pages open signed out.
+    @ObservationIgnored public var siteData: (@MainActor (_ macID: String?, _ tab: String, _ url: String) async -> Data?)?
+    /// Whether a Mac hands over sign-ins (its `version` says `site-data-handoff-v1`,
+    /// listed only while the person turned it on on the Mac).
+    @ObservationIgnored public var macHandsSiteData: @MainActor (_ macID: String?) -> Bool = { _ in false }
+    public static let siteDataCapability = "site-data-handoff-v1"
     /// Reads an HTML file on a Mac (`file:///…/report.html`) over its link's `file-preview`
     /// service, for a tab that shows it on this iPhone (nil: such pages stay on the Mac).
     @ObservationIgnored public var readMacHTML: (@MainActor (_ url: URL, _ macID: String?) async throws -> String)?
@@ -248,22 +255,39 @@ public final class NativeBrowserTabs {
         return makeModel(key: key, url: entries[key]?.url.flatMap(URL.init(string:)))
     }
 
-    /// Shows the tab on this iPhone at the Mac's current address.
+    /// Shows the tab on this iPhone at the Mac's current address. When the Mac hands
+    /// over sign-ins, the tab's site data goes into the phone's store first, then the
+    /// page loads (`onHandOff` says whether any came).
     @discardableResult
-    func open(tab: String, macID: String?, at url: URL?) -> BrowserTabModel {
+    func open(tab: String, macID: String?, at url: URL?,
+              onHandOff: (@MainActor (Bool) -> Void)? = nil) -> BrowserTabModel {
         let key = Self.key(tab: tab, macID: macID)
         let start = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
         entries[key] = Entry(url: start?.absoluteString)
         nativeKeys.insert(key)
         save()
-        if let model = models[key] {
+        let model: BrowserTabModel
+        if let existing = models[key] {
             // Back on the phone after mirroring: the page follows the Mac, keeping
             // the phone's own history behind it.
-            model.clearProblem()
+            existing.clearProblem()
+            model = existing
+        } else {
+            model = makeModel(key: key, url: nil)
+        }
+        guard let start, let siteData, macHandsSiteData(macID), ["http", "https"].contains(start.scheme?.lowercased()) else {
             if let start, model.url != start { model.load(start) }
             return model
         }
-        return makeModel(key: key, url: start)
+        Task { @MainActor [weak self, weak model] in
+            let handOff = await siteData(macID, tab, start.absoluteString).flatMap(SiteDataHandOff.decode)
+            guard let model, self?.nativeKeys.contains(key) == true else { return }
+            if let handOff { await handOff.apply(to: model.webView) }
+            onHandOff?(handOff != nil)
+            // Reload even when already there: the page now has the Mac's sign-in.
+            model.load(start)
+        }
+        return model
     }
 
     /// Back to the mirror. Returns the address the Mac should go to: the phone's
