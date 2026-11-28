@@ -1617,6 +1617,33 @@ const codexHeadersSnapshot = chat(
   { harness: "codex", model: "gpt-6-astra" },
 );
 
+
+// TEMP (cmux#53268 before/after capture, never committed): task notifications, a peer message and an
+// inbox relay the harness wrote after the turn's answer.
+const PROOF_STEER = { steer: "landed" };
+const proofNotice = (i: number, at: number) =>
+  user(`<task-notification><summary>Background command "lane ${i} tests" completed</summary></task-notification>`, at, {
+    ...PROOF_STEER,
+    incoming: { kind: "notice", text: `Background command "lane ${i} tests" completed`, lineOrigin: "task-notification" },
+  });
+const proofSnapshot = chat(
+  [
+    user("Land the three lanes", 9, { id: "proof-prompt" }),
+    activity([tool("bun test", "execute", "completed", { command: "bun test", output: "212 passed" })], 8.9),
+    user("Also check lane 9", 8.5, { ...PROOF_STEER }),
+    assistant("All three lanes landed; lane 9 is green.", 8, { id: "proof-answer" }),
+    summary(7.9, { status: "completed", durationMs: 66_000, toolCount: 1 }),
+    proofNotice(1, 7.8),
+    proofNotice(2, 7.7),
+    proofNotice(3, 7.6),
+    user("Lane is green.", 7.5, {
+      ...PROOF_STEER,
+      incoming: { kind: "message", message: { name: "lane-4", text: "Lane is green.", raw: "Lane is green.", lineOrigin: "peer" } },
+    }),
+  ],
+  { harness: "claude" },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1710,6 +1737,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "proof-53268": { height: 560, note: "TEMP capture", snapshot: proofSnapshot },
     "grid-rhythm": {
       height: 900,
       note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
