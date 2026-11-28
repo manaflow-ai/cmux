@@ -30,6 +30,7 @@
   let t0 = now();
   const reset = () => { for (const k in sums) { sums[k] = 0; counts[k] = 0; } perFrame.length = 0; t0 = now(); };
   window.__jsReset = reset;
+  let keyed = false; window.addEventListener("keydown", () => { if (!keyed) { keyed = true; reset(); } }, true);
   window.__jstime = () => {
     const s = perFrame.slice().sort((a, b) => a - b);
     const q = (p) => s.length ? +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(1) : null;
