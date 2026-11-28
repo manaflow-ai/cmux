@@ -314,6 +314,36 @@ function withRecovered(
   return { ...listed, ...(name ? { name } : {}), ...(error ? { error } : {}) };
 }
 
+/// The person's own rows that show acpmux's list preview of a long prompt (cut, ending "…") instead
+/// of its whole text: a reload whose page holds no `queued` record of it. Their editor would open
+/// from the cut copy, and a save would drop everything past the cut, so the pane reads each whole
+/// (`_acpmux/queue_text`, hub/queue_text.rs) and the edit names the text it opened with (`base`).
+export function cutQueueRows(queue: readonly QueuedPrompt[]): QueuedPrompt[] {
+  return queue.filter(
+    (entry) =>
+      entry.prompt.endsWith("…") &&
+      !entry.message &&
+      !entry.inbox &&
+      !entry.author &&
+      !entry.retry &&
+      !entry.system &&
+      !entry.awaitingOwner,
+  );
+}
+
+/// `queue` with row `id`'s whole text `whole` (`_acpmux/queue_text`) in place of the cut copy `cut`
+/// it was read for; unchanged when the row is gone or shows other text by now (an edit, a record).
+export function withWholeText(
+  queue: readonly QueuedPrompt[],
+  id: string,
+  cut: string,
+  whole: string,
+): readonly QueuedPrompt[] {
+  const at = queue.findIndex((entry) => entry.id === id);
+  if (at < 0 || queue[at].prompt !== cut || !whole || whole === cut) return queue;
+  return queue.map((entry, index) => (index === at ? { ...entry, prompt: whole } : entry));
+}
+
 export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],

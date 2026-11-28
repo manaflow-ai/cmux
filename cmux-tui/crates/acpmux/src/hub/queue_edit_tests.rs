@@ -1,5 +1,20 @@
-use super::{Edit, checked_display_parts, moved_display_parts};
+use super::{Edit, checked_display_parts, moved_display_parts, same_words, stale_base};
 use serde_json::{Value, json};
+
+/// A long prompt edited from the list preview is rejected with its whole text.
+#[test]
+fn an_edit_from_a_cut_preview_is_stale() {
+    let whole = format!("{}\n\nand the end that matters", "word ".repeat(60));
+    let preview = crate::hub::session::short_text(&whole, 200);
+    assert!(!same_words(&preview, &whole));
+    assert!(!same_words(preview.trim_end_matches('…'), &whole));
+    assert!(same_words(&whole, &whole));
+    assert!(same_words(&format!("  {}\n", whole.trim()), &whole));
+    let error = stale_base("p1", &whole);
+    let data = error.data.clone().unwrap_or_default();
+    assert_eq!(data["reason"], "queue.stale");
+    assert_eq!(data["text"], whole.as_str());
+}
 
 /// Image bytes `bytes` as an ACP image block, and its attachment id.
 fn image(bytes: &[u8], name: &str) -> (Value, String) {
