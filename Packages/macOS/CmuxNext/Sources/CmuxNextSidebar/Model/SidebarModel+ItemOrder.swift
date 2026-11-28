@@ -37,22 +37,20 @@ extension SidebarModel {
     }
 
     /// Where `id` draws among `order.rows` when it is the active workspace: the index after the last stop drawn
-    /// before it. Nil when the list draws it nowhere even then (a member of a collapsed parent's subgroup).
+    /// before it. Nil when the list draws it nowhere even then (a member of a collapsed parent's subgroup), or when
+    /// the reducer refuses (the step then goes on from the order's own sequence). Rust `sidebar_item_order`
+    /// `drawn_place`, over the stops laid out with it active (`make`).
     private func drawnPlace(of id: WorkspaceID, in order: SidebarItemOrder) -> Int? {
         var source = orderSource()
         source.options.activeWorkspaceID = id
-        let drawn = orderRows(source).rows
-        guard let at = drawn.firstIndex(of: .workspace(id)) else { return nil }
-        var index: [SidebarItem: Int] = [:]
-        for (i, item) in order.rows.enumerated() where index[item] == nil { index[item] = i }
-        return drawn[..<at].reversed().lazy.compactMap { index[$0] }.first.map { $0 + 1 } ?? 0
+        guard let drawn = RustSidebarItemOrder.make(orderRequest(source)) else { return nil }
+        return RustSidebarItemOrder.drawnPlace(of: id, orderRows: order.rows, drawn: drawn.rows)
     }
 
+    /// Rust `sidebar_item_order` `make`: the stops among the laid-out rows and the band items before the list. An
+    /// empty order (no Cmd-1...9, no step) when the reducer refuses.
     private func makeItemOrder() -> SidebarItemOrder {
-        let source = orderSource()
-        let (rows, stops) = orderRows(source)
-        let topItems = source.top.filter { item in !source.listed.contains(source.inBlock.first { $0.value.contains(item) }?.key ?? "") }
-        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops)
+        RustSidebarItemOrder.make(orderRequest(orderSource())) ?? SidebarItemOrder(topItems: [], rows: [])
     }
 
     /// What the order lays out: the top items, the blocks they draw in, and the list's row options.
@@ -90,30 +88,22 @@ extension SidebarModel {
         return OrderSource(top: top, inBlock: inBlock, listed: listed, options: options)
     }
 
-    /// The list's selectable rows in drawn order, and the stop that stands for each collapsed group's members.
-    private func orderRows(_ source: OrderSource) -> (rows: [SidebarItem], stops: [WorkspaceID: SidebarItem]) {
-        let selectable = Set(selectableWorkspaces.map(\.id))
-        var rows: [SidebarItem] = []
-        var stops: [WorkspaceID: SidebarItem] = [:]
+    /// The list laid out as it draws, and what the rules read of it: the row keys, the selectable workspaces, the
+    /// collapsed blocks, each drawn group's collapse and members, and the band items and the blocks they draw in.
+    private func orderRequest(_ source: OrderSource) -> RustSidebarItemOrder.Make {
+        var rows: [RustSidebarItemOrder.RowKey] = []
+        var groups: [String: RustSidebarItemOrder.Group] = [:]
         for row in SidebarLayout.make(sections: sections, metrics: .standard, options: source.options).rows {
-            switch row.key {
-            case let .workspace(id) where selectable.contains(id):
-                rows.append(.workspace(id))
-            case let .item(id):
-                rows.append(.topItem(LayoutItemID(id))) // a link, tab or app row is a stop like a band item
-            case let .block(id) where !collapsedLayoutSections.contains(LayoutSectionID(id)):
-                rows += (source.inBlock[id] ?? []).map { .topItem($0.id) }
-            case let .group(id):
-                guard let group = group(id), group.isCollapsed else { continue }
-                let members = group.workspaces.map(\.id).filter(selectable.contains)
-                guard !members.isEmpty else { continue }
-                rows.append(.group(id))
-                for member in members { stops[member] = .group(id) }
-            default:
-                continue
+            guard let key = RustSidebarItemOrder.RowKey(row.key) else { continue }
+            rows.append(key)
+            if case let .group(id) = row.key, groups[id.rawValue] == nil, let group = group(id) {
+                groups[id.rawValue] = .init(collapsed: group.isCollapsed, members: group.isCollapsed ? group.workspaces.map(\.id.rawValue) : [])
             }
         }
-        return (rows, stops)
+        return RustSidebarItemOrder.Make(
+            rows: rows, selectable: selectableWorkspaces.map(\.id.rawValue), collapsed_blocks: collapsedLayoutSections.map(\.rawValue),
+            groups: groups, top: source.top.map(\.id.rawValue), in_block: source.inBlock.mapValues { $0.map(\.id.rawValue) },
+            listed: Array(source.listed))
     }
 }
 

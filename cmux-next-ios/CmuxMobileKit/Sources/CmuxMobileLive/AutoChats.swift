@@ -180,6 +180,9 @@ public final class AutoChatsModel {
         case chat(AutoChatRow)
         /// The account has no Cloud machine for Auto chats.
         case noMachine
+        /// The Cloud has no GitHub access to the repository (`seed.needs_github`): Sign in with
+        /// GitHub, then start again.
+        case needsGitHub(GitHubSignInNeed)
         case failed
     }
 
@@ -235,8 +238,16 @@ public final class AutoChatsModel {
     /// Starts a chat in `repo` with a first message. `messageID` is made once per message, so
     /// sending the same sheet again reaches the same chat.
     public func start(repo: AutoChatRepo, text: String, messageID: String) async -> Started {
-        guard let json = try? await service.start(remote: repo.remote, branch: repo.branch, messageID: messageID, text: text),
-              let value = JSONValue(jsonData: Data(json.utf8)) else { return .failed }
+        let json: String
+        do {
+            json = try await service.start(remote: repo.remote, branch: repo.branch, messageID: messageID, text: text)
+        } catch AutoChatFailure.refused(_, let code) {
+            if let need = GitHubSignInNeed(startCode: code, details: nil, repo: repo.remote) { return .needsGitHub(need) }
+            return .failed
+        } catch {
+            return .failed
+        }
+        guard let value = JSONValue(jsonData: Data(json.utf8)) else { return .failed }
         switch value["outcome"]?.stringValue {
         case "chat":
             guard let row = AutoChatRow(value["chat"]) else { return .failed }

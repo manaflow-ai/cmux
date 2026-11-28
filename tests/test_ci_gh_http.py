@@ -186,7 +186,7 @@ class JobDeadline(unittest.TestCase):
     4)` at 04:48:16Z and GitHub cancelled the job at 04:53:22Z: a wait past the job's bound turned a readable 403
     into a silent cancel. GH_HTTP_DEADLINE_S caps every wait at the job's bound and gives up loudly instead."""
 
-    def call(self, env, answers, started_ago=0.0):
+    def call(self, env, answers, started_ago=0.0, **kwargs):
         clock, slept, lines, calls = [100.0], [], [], []
 
         def fake(request, seconds, **_):
@@ -202,7 +202,8 @@ class JobDeadline(unittest.TestCase):
             for name in (gh_http.DEADLINE_ENV, gh_http.DEADLINE_AT_ENV):
                 if name not in env:
                     os.environ.pop(name, None)
-            result = gh_http.request(URL, sleep=sleep, clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append)
+            result = gh_http.request(URL, sleep=sleep, clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append,
+                                     **kwargs)
         return result, slept, lines, calls
 
     def limited(self):
@@ -215,7 +216,8 @@ class JobDeadline(unittest.TestCase):
                             for l in lines), lines)
 
     def test_without_a_bound_the_same_wait_is_taken(self):
-        (status, _, _), slept, _, _ = self.call({}, [self.limited(), answer(200)])
+        # A caller that opts in to the long rate budget (#64150 made the default the caller's own budget_s).
+        (status, _, _), slept, _, _ = self.call({}, [self.limited(), answer(200)], rate_budget_s=gh_http.RATE_BUDGET_S)
         self.assertEqual((status, slept), (200, [406.0]))
 
     def test_a_wait_inside_the_bound_is_still_taken(self):
@@ -304,6 +306,53 @@ class WorkflowsBoundTheirReaders(unittest.TestCase):
     def test_the_cancelled_resolve_job_is_bounded(self):
         jobs = {(wf, job): body for wf, job, _, body in bounded_jobs()}
         self.assertIn('GH_HTTP_DEADLINE_S: "240"', jobs[("ios-fast-verdict-dispatch.yml", "resolve")])
+
+
+class RequestThroughRateLimit(unittest.TestCase):
+    POST = urllib.request.Request("https://api.github.com/repos/o/r/statuses/abc", data=b"{}", method="POST")
+
+    def run_with(self, answers, **kwargs):
+        clock, calls, slept = [0.0], [], []
+
+        def fake(request, seconds, **_):
+            calls.append(request.get_method())
+            return answers[len(calls) - 1]
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(deadline_http, "request", fake):
+            result = gh_http.request_through_rate_limit(self.POST, sleep=sleep, clock=lambda: clock[0],
+                                                        now=lambda: 1000.0, log=lambda _: None, **kwargs)
+        return result, calls, slept
+
+    def test_a_rate_limited_post_is_asked_again_until_it_goes_through(self):
+        limited = answer(403, b'{"message": "API rate limit exceeded for installation"}')
+        (status, _, _), calls, slept = self.run_with([limited, limited, answer(201)])
+        self.assertEqual((status, calls, slept), (201, ["POST"] * 3, [5.0, 15.0]))
+
+    def test_the_wait_follows_the_reset(self):
+        limited = answer(403, b"{}", x_ratelimit_remaining="0", x_ratelimit_reset="1030")
+        (status, _, _), _, slept = self.run_with([limited, answer(201)])
+        self.assertEqual((status, slept), (201, [31.0]))
+
+    def test_it_gives_up_at_the_budget_and_returns_the_refusal(self):
+        limited = answer(429)
+        (status, _, _), calls, _ = self.run_with([limited] * 40, budget_s=30)
+        self.assertEqual(status, 429)
+        self.assertLess(len(calls), 40)
+
+    def test_the_job_deadline_caps_the_budget(self):
+        limited = answer(403, b"{}", x_ratelimit_remaining="0", x_ratelimit_reset="1030")
+        with mock.patch.dict(os.environ, {gh_http.DEADLINE_AT_ENV: "1010"}):
+            (status, _, _), calls, slept = self.run_with([limited, answer(201)])
+        self.assertEqual((status, len(calls), slept), (403, 1, []))
+
+    def test_a_permission_403_and_a_5xx_are_returned_at_once(self):
+        for refusal in (answer(403, b'{"message": "Resource not accessible by integration"}'), answer(502)):
+            (status, _, _), calls, slept = self.run_with([refusal, answer(201)])
+            self.assertEqual((status, len(calls), slept), (refusal[0], 1, []))
 
 
 if __name__ == "__main__":

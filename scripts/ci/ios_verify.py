@@ -150,6 +150,51 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def sign_in(step: dict) -> str | None:
+    """The `cmux-ci run --sign-in` profile a step needs. pair-e2e signs both apps in to the dev Cloud; with no
+    session it falls back to CMUX_UITEST_STACK_EMAIL/PASSWORD or ~/.secrets/cmuxterm-dev.env, which fleet Macs
+    do not hold, so an unsigned pair-e2e exits 1 at pairing ("DEBUG dev credential: set ...") after a
+    45-minute Mac build (#59658 attempt 7, step 9c79c4ec8782598d8441941a).
+    The session is minted on the submitting machine (cmux-ci's signin_session), so this signs in only where that
+    machine holds the agent account. main() stops before any step when a pair-e2e would go unsigned
+    (unsigned_pair), so no Mac build is spent on a step that can only fail at pairing; the automatic run
+    (cmux-next-ios-verify-auto.yml) holds the account from the repository's CMUX_DOGFOOD_STACK_* pair."""
+    if step["mode"] != "pair-e2e":
+        return None
+    return "agent" if has_agent_account() else None
+
+
+AGENT_KEYS = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+AGENT_FILES = (".secrets/cmuxterm-dev.env", ".secrets/cmux.env")  # cmux-ci signin_session.SECRET_FILES
+
+
+def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
+    """Whether `cmux-ci run --sign-in agent` can mint a session here: both agent keys in the environment, or in
+    one of the secrets files it reads. Reads names only; never returns a value."""
+    if all(environ.get(k) for k in AGENT_KEYS):
+        return True
+    for rel in AGENT_FILES:
+        try:
+            text = (Path(home or Path.home()) / rel).read_text()
+        except OSError:
+            continue
+        names = {line.split("=", 1)[0].strip().removeprefix("export ").strip()
+                 for line in text.splitlines() if "=" in line and line.split("=", 1)[1].strip()}
+        if all(k in names for k in AGENT_KEYS):
+            return True
+    return False
+
+
+UNSIGNED_EXIT = 3  # main(): a pair-e2e would go unsigned; nothing ran and nothing is posted
+
+
+def unsigned_pair(steps: list[dict], reused: dict) -> list[str]:
+    """The pair-e2e steps this run would send unsigned (not read back with --from-step). Each builds the Mac app
+    (45-60 min on a fleet Mac) and then exits 1 at pairing, so a proof with one can only fail: cmux#59658 attempt 7
+    and cmux#56372 (step bc44f3331ab09c7100d021ea) each spent a Mac build and hours of simulator queue to learn it."""
+    return [s["name"] for s in steps if s["mode"] == "pair-e2e" and s["name"] not in reused and not sign_in(s)]
+
+
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
     """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
 
@@ -159,7 +204,10 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str 
     The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
     queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    work = [SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt]
+    if sign_in(step):  # a signed-in step is new work: never reuse the unsigned step that failed on its credential
+        work.append(f"sign-in={sign_in(step)}")
+    workload = json.dumps(work, separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
     pinned = f"-{step['worker']}" if strict else ""
     return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
@@ -239,6 +287,12 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
         cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
+    if sign_in(step):
+        cmd += ["--sign-in", sign_in(step)]
+    elif step["mode"] == "pair-e2e":
+        print(f"ios verify: {step['name']}: no agent account on this machine, so the step goes unsigned and fails "
+              "at pairing on a fleet Mac with no dev credential; run it from a machine with "
+              "~/.secrets/cmuxterm-dev.env (CMUX_UITEST_STACK_EMAIL/_PASSWORD)", file=sys.stderr, flush=True)
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
@@ -249,12 +303,35 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
             "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
+def finished_step(step: dict, head: str, ids: list[str]) -> dict | None:
+    """STEP's result read from a simulator step that already ran (--from-step), or None when no ID ran this work.
+
+    A proof whose poster died after its step finished (cmux#38805: 12/12 green on aws-m4pro-4, then the caller's
+    timeout, exit 124) could not be posted again: re-sending the step answered HTTP 409 "step_key already names a
+    different step" once the controller had dropped the pin, and a changed key queues the whole run again. Each ID is
+    read with `cmux-ci status`. It counts only when it ran this tool's script at HEAD with STEP's args, so another
+    head's or another shard's pass is never borrowed."""
+    for sid in ids:
+        p = subprocess.run(["cmux-ci", "status", sid], capture_output=True, text=True, timeout=120)
+        try:
+            job = json.loads(p.stdout) if p.returncode == 0 else {}
+        except ValueError:
+            job = {}
+        if job.get("ref") != head or job.get("script") != SIM_SCRIPT or job.get("args") != step["args"]:
+            continue
+        ok = job.get("state") == "done" and job.get("exit_code") == 0
+        return {"name": step["name"], "mode": step["mode"], "worker": job.get("worker") or step["worker"],
+                "args": step["args"], "step": sid, "result": "pass" if ok else "fail",
+                "exit": job.get("exit_code"), "seconds": 0, "tail": f"read from finished step {sid} ({job.get('state')})"}
+    return None
+
+
 # Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
 # head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
 # auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
 # token in their environment (SCRUBBED): head code never sees the token that posts the record.
 SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
-            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", *AGENT_KEYS)
 SCRIPTS_AT: Path | None = None
 
 
@@ -465,8 +542,10 @@ def rerun_gate(repo: str, sha: str) -> str:
             jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
             for j in jobs.get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    sh("gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo)
-                    return f"reran {GATE_JOB} (job {j['id']})"
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
     except SystemExit as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the proof when it does"
@@ -496,6 +575,59 @@ def scrub_hosts(body: str, hosts: list[str]) -> str:
     for n in sorted(names, key=len, reverse=True):
         body = re.sub(rf"(?<![\w.-]){re.escape(n)}(?![\w-])", "a fleet worker", body)
     return body
+
+
+VISUAL_DIFF_START = "<!-- cmux-ios-visual-diff:start -->"
+VISUAL_DIFF_END = "<!-- cmux-ios-visual-diff:end -->"
+VISUAL_DIFF_URL = re.compile(r"https://github\.com/[^\s]+#issuecomment-\d+")
+
+
+def visual_diff_line(record: dict, proof_url: str | None) -> str | None:
+    """A claim only for a passing proof with measured comparisons against NIGHTLY."""
+    baseline = record.get("baseline") or {}
+    captures = record.get("captures") or []
+    if record.get("verdict") != "pass" or baseline.get("source") != "nightly" or not captures:
+        return None
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(baseline.get("nightly_sha") or ""))
+            or proof_record.problems(record) or not proof_url or not VISUAL_DIFF_URL.fullmatch(proof_url)):
+        return None
+    if not all(c.get("verdict") in ("same", "changed")
+               and type(c.get("diff_ratio")) in (int, float) and 0 <= c["diff_ratio"] <= 1 for c in captures):
+        return None
+    changed = sum(c["verdict"] == "changed" for c in captures)
+    return (f"Visual-diff: {proof_url} ({changed} changed, {len(captures) - changed} unchanged "
+            f"vs NIGHTLY at `{baseline.get('nightly_sha', '')[:10]}`; head `{record['head_sha']}`)")
+
+
+def visual_diff_body(body: str, line: str | None) -> str:
+    """Replace only our prepended block; keep user text and the final footer intact."""
+    block = re.compile(rf"(?ms)^{re.escape(VISUAL_DIFF_START)}\n.*?^{re.escape(VISUAL_DIFF_END)}\n?")
+    clean = block.sub("", body)
+    if not line:
+        return clean
+    return f"{VISUAL_DIFF_START}\n{line}\n{VISUAL_DIFF_END}\n" + clean
+
+
+def post_proof(repo: str, number: int, head: str, record: dict, body: str, work: Path) -> bool:
+    """Check the head before publishing and again before updating its current body."""
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    comment = work / "comment.md"
+    comment.write_text(body)
+    output = sh("gh", "pr", "comment", str(number), "--repo", repo, "--body-file", str(comment))
+    urls = VISUAL_DIFF_URL.findall(output)
+    proof_url = urls[-1] if urls else None
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    original = current.get("body") or ""
+    updated = visual_diff_body(original, visual_diff_line(record, proof_url))
+    if updated != original:
+        description = work / "pr-body.md"
+        description.write_text(updated)
+        sh("gh", "pr", "edit", str(number), "--repo", repo, "--body-file", str(description))
+    return True
 
 
 def summary_md(record: dict) -> str:
@@ -542,6 +674,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
     ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
+    ap.add_argument("--from-step", action="append", default=[], metavar="ID",
+                    help="post from this finished simulator step instead of running it again (repeatable)")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -570,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
-    selection = select_flows.select(manifest, changed)
+    selection = select_flows.select(manifest, changed, edited=select_flows.edited_flows(manifest, base_sha, head))
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
     if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
@@ -588,9 +722,24 @@ def main(argv: list[str] | None = None) -> int:
         runs = [no_flows_run(changed)]
         video, base_meta, captures = None, None, []
     else:
-        leased = set() if a.pin_strict or not workers else leased_hosts()
+        reused = {}
+        for s in steps if a.from_step else []:
+            got = finished_step(s, head, a.from_step)
+            if got is None:
+                raise SystemExit(f"ios verify: no --from-step ran {s['name']} at {head[:12]}")
+            reused[s["name"]] = got
+        unsigned = unsigned_pair(steps, reused)
+        if unsigned:
+            print(f"ios verify: {', '.join(unsigned)} needs the agent account to sign both apps in, and this machine "
+                  f"has none ({'/'.join(AGENT_KEYS)} in the environment, or ~/{AGENT_FILES[0]}); an unsigned step "
+                  "builds the Mac app and then fails at pairing. Nothing ran and nothing was posted. Run this from a "
+                  "machine with the account (a coordinator Mac), or let cmux-next-ios-verify-auto.yml run it",
+                  file=sys.stderr, flush=True)
+            return UNSIGNED_EXIT
+        leased = set() if a.pin_strict or not workers or reused else leased_hosts()
         with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-            futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+            futs = [pool.submit(lambda r: r, reused[s["name"]]) if s["name"] in reused else
+                    pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
                     for s in steps]
             futs += [pool.submit(run_script, s) for s in selection["scripts"]]
             runs = [f.result() for f in futs]
@@ -632,9 +781,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
-        f = work / "comment.md"
-        f.write_text(body)
-        sh("gh", "pr", "comment", str(view["number"]), "--repo", repo, "--body-file", str(f))
+        if not post_proof(repo, view["number"], head, record, body, work):
+            print("ios verify: PR head moved; proof was not applied to the new head", file=sys.stderr)
+            return 1
         print(rerun_gate(repo, head), file=sys.stderr)
     else:
         print(body)

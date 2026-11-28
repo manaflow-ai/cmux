@@ -66,7 +66,8 @@ jobs:
   phones:
     name: The last 3 TestFlight phone builds
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # resolve may wait up to 20 min for the token quota to reset (RESET_WAIT_MAX_S in mobile_old_phones.py).
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -82,7 +83,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
       # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
-      # resolve then answers with the last list it read, carried here between runs.
+      # resolve then answers with the last list it read, carried here between runs. The repo's caches sit at GitHub's
+      # 10 GB limit, so a list this small is evicted within the hour (46137212890's was gone for 46141489174);
+      # without one it waits for the reset.
       - name: The last phone list read
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -136,8 +139,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
+          bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 

@@ -2631,7 +2631,7 @@ fn the_scope_default_is_one_constant_and_the_switch_overrides_it() {
     assert!(!activation::gate_with(false, "27.0.1", &[]));
     assert!(activation::gate_with(false, "27.0.1", &["1"]));
     assert!(!activation::gate_with(false, "27.0.1", &["1", "0"]));
-    assert!(!activation::gate_with(false, "26.5", &["1"]), "unverified macOS stays off");
+    assert!(!activation::gate_with(false, "26.4", &["1"]), "unverified macOS stays off");
 }
 
 /// A button's digit: its title (or description) is exactly one digit.
