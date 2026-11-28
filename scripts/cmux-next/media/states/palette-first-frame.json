@@ -1,0 +1,16 @@
+{
+ "title": "Palette first frame (Lawrence, 2026-11-26: \"on cmd p, the workspace pill takes an additional frame to come in. prob similar with other things like cmd shift A\"): the app records every display frame from its first window frame (recordLaunch 12 s, panels included) while Cmd-P, Cmd-Shift-A, and Cmd-P over the open Cmd-Shift-P palette are pressed. The scope pill must be in the first frame the panel is.",
+ "recordLaunch": 12,
+ "steps": [
+  {"title": "Launch", "wait": 1.0, "shot": false},
+  {"title": "A second workspace", "cmux": ["workspace", "new", "--name", "Docs"], "wait": 0.6, "shot": false},
+  {"title": "Cmd-P", "rpc": {"method": "debug.key", "params": {"key": "p", "modifiers": ["cmd"]}}, "record": true, "wait": 1.2, "shot": false},
+  {"title": "Close", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 0.7, "shot": false},
+  {"title": "Cmd-Shift-A", "rpc": {"method": "debug.key", "params": {"key": "a", "modifiers": ["cmd", "shift"]}}, "record": true, "wait": 1.2, "shot": false},
+  {"title": "Close", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 0.7, "shot": false},
+  {"title": "Cmd-Shift-P", "rpc": {"method": "debug.key", "params": {"key": "p", "modifiers": ["cmd", "shift"]}}, "record": true, "wait": 0.9, "shot": false},
+  {"title": "Cmd-P over the open palette", "rpc": {"method": "debug.key", "params": {"key": "p", "modifiers": ["cmd"]}}, "record": true, "wait": 1.2, "shot": false},
+  {"title": "Close", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 2.5, "shot": false},
+  {"title": "Settled"}
+ ]
+}
