@@ -10,7 +10,7 @@ nonisolated enum ChiefRules {
     /// predates it), so debug builds stop and release builds answer `fallback`.
     static func rule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
         do {
-            return try HomeEngineRules.call(op, input)
+            return try call(op, input)
         } catch {
             assertionFailure(String(describing: error))
             return fallback()
@@ -18,7 +18,8 @@ nonisolated enum ChiefRules {
     }
 
     static func call<In: Encodable, Out: Decodable>(_ op: String, _ input: In) throws -> Out {
-        try HomeEngineRules.call(op, input)
+        // The Rust router takes `AREA.NAME`: these ops live in the `cloud` area.
+        try HomeEngineRules.call("cloud." + op, input)
     }
 
     // MARK: Chiefs
