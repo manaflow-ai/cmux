@@ -53,7 +53,8 @@ struct PaletteFooterKeycapShots {
         footer.layoutSubtreeIfNeeded()
         let keys = Self.descendants(of: footer).compactMap { $0 as? PaletteKeycapsView }.filter { !$0.isHiddenOrHasHiddenAncestor }
         let union = keys.map { footer.convert($0.bounds, from: $0) }.reduce(NSRect.null) { $0.union($1) }
-        let crop = NSRect(x: max(0, union.minX - 8), y: 0, width: min(footer.bounds.width, union.width + 16), height: footer.bounds.height)
+        let minX = max(0, union.minX - 8), maxX = min(footer.bounds.width, union.maxX + 8)
+        let crop = NSRect(x: minX, y: 0, width: maxX - minX, height: footer.bounds.height)
         let scale: CGFloat = 2, zoom: CGFloat = 4
         let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(footer.bounds.width * scale),
                                                 pixelsHigh: Int(footer.bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
