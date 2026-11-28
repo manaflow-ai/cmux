@@ -31,7 +31,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressurePopover.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/PromptBarView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHost/BrowserHost/AgentRenderWindows.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift	visible-only-eager-stack-in-scroll	1
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupContent.swift	visible-only-subviews-teardown	2
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupContent.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes/Playground/AllThemesPlaygroundView.swift	visible-only-reload-data	1
 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileIconGridView.swift	visible-only-reload-data	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileListView.swift	visible-only-reload-data	1

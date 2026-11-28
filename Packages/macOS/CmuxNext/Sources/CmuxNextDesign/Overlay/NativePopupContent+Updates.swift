@@ -29,12 +29,15 @@ extension NativePopupContent {
               incoming.columns == shown.columns, incoming.searchAccessory == shown.searchAccessory else { return false }
         let rows = next.allRows
         for row in rows where row.kind == .slider {
-            if let view = rowView(id: row.id) as? NativePopupSliderView { view.update(row: row) }
+            if let view = mounted[row.id]?.view as? NativePopupSliderView { view.update(row: row) }
             else if let slider = editableControls[row.id] as? NativePopupTrackingSlider, !slider.isInteracting {
                 slider.doubleValue = Double(row.value ?? "") ?? row.minimum ?? 0
             }
         }
-        rowViews = rowViews.map { current in (rows.first { $0.id == current.0.id } ?? current.0, current.1) }
+        let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        rowViews = rowViews.map { (byID[$0.0.id] ?? $0.0, $0.1) }
+        shownRows = shownRows.map { byID[$0.id] ?? $0 }
+        listRows = listRows.map { byID[$0.id] ?? $0 }
         return true
     }
 

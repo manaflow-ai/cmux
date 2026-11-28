@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxVisibleRows
 
 /// A page's menu drawn past its window's edge (cx-6k6cg). A page menu that has no room above or
 /// below its anchor inside the web view hands its rows here: they show in a child panel of the
@@ -274,6 +275,8 @@ public final class WebPopupPanel: ContentChildPanel {
         setAccessibilityElement(false)
         // Rows the screen cannot fit scroll, as a Mac menu's do.
         let scroll = OverlayScrollView()
+        // Scrolls and resizes reach the rows, which draw only the ones in view.
+        scroll.contentView = PopupClipView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
@@ -291,15 +294,23 @@ public final class WebPopupPanel: ContentChildPanel {
 
 /// The menu's rows, each a shared ``PopupRowView`` (a check column, the title, the shortcut);
 /// separators as hairlines. The page owns the one highlight: the pointer reports it (`onHover`).
+/// Only the rows in and around the viewport (one viewport above and below) have views; an
+/// unchanged row keeps its view across updates.
 final class WebPopupRows: NSView {
     private let onPick: (String) -> Void
     private let onHover: (String) -> Void
     private var items: [WebPopupHost.Item] = []
-    private var rows: [(item: WebPopupHost.Item, view: NSView)] = []
-    var itemCount: Int { items.filter { !$0.separator }.count }
+    /// Each item's top; the last entry is the list's bottom.
+    private var tops: [CGFloat] = []
+    /// Row views alive, by item index.
+    private(set) var mounted: [Int: (item: WebPopupHost.Item, view: NSView)] = [:]
+    private(set) var itemCount = 0
+    private var indexByID: [String: Int] = [:]
     private var highlighted: String?
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
+    /// The rows' work, for the visible-rows contract (NativePopupVisibleRowsTests).
+    let listWork = ListWorkMeter()
 
     init(onPick: @escaping (String) -> Void, onHover: @escaping (String) -> Void) {
         self.onPick = onPick
@@ -313,50 +324,71 @@ final class WebPopupRows: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    var contentHeight: CGFloat {
-        2 * style.padding + items.reduce(0) { $0 + ($1.separator ? Self.separatorHeight : style.rowHeight) }
-    }
+    var contentHeight: CGFloat { 2 * style.padding + (tops.last ?? 0) }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if rows.isEmpty != items.isEmpty || items != self.items {
+        // The page sends every item each time: comparing them reads each one (no views).
+        listWork.walked(items.count)
+        if self.items.isEmpty != items.isEmpty || items != self.items {
             rebuild(items)
         }
         self.highlighted = highlighted
-        for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
+        paintHighlight()
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
         needsLayout = true
         layoutSubtreeIfNeeded()
         scrollToHighlight()
     }
 
+    /// Takes the new items; a mounted row whose item did not change keeps its view.
     private func rebuild(_ items: [WebPopupHost.Item]) {
         self.items = items
-        rows.forEach { $0.view.removeFromSuperview() }
+        listWork.walked(items.count)
+        itemCount = items.filter { !$0.separator }.count
+        indexByID = Dictionary(items.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var y: CGFloat = 0
+        tops = items.map { item in
+            defer { y += item.separator ? Self.separatorHeight : style.rowHeight }
+            return y
+        } + [y]
+        for (index, entry) in mounted where !items.indices.contains(index) || items[index] != entry.item {
+            entry.view.removeFromSuperview()
+            mounted[index] = nil
+        }
+        realizeVisibleRows()
+    }
+
+    private func makeRow(_ item: WebPopupHost.Item) -> NSView {
+        listWork.configured()
+        guard !item.separator else { return WebPopupSeparator() }
         var layout = PopupRowView.Layout()
         layout.leadingColumn = 15
         layout.hoverFills = false
-        rows = items.map { item -> (item: WebPopupHost.Item, view: NSView) in
-            guard !item.separator else { return (item, WebPopupSeparator()) }
-            let row = PopupRowView(leading: PopupRowView.checkMark(item.checked), title: item.label,
-                                   trailing: item.shortcut.flatMap { $0.isEmpty ? nil : PopupRowView.shortcut($0) },
-                                   layout: layout)
-            row.isEnabled = !item.disabled
-            // The page keeps its own menu for accessibility.
-            row.hideFromAccessibility()
-            row.onHover = { [weak self] in self?.hovered(item.id) }
-            row.onActivate = { [weak self] in self?.onPick(item.id) }
-            return (item, row)
-        }
-        for (_, view) in rows {
-            view.translatesAutoresizingMaskIntoConstraints = true
-            addSubview(view)
+        let row = PopupRowView(leading: PopupRowView.checkMark(item.checked), title: item.label,
+                               trailing: item.shortcut.flatMap { $0.isEmpty ? nil : PopupRowView.shortcut($0) },
+                               layout: layout)
+        row.isEnabled = !item.disabled
+        // The page keeps its own menu for accessibility.
+        row.hideFromAccessibility()
+        row.onHover = { [weak self] in self?.hovered(item.id) }
+        row.onActivate = { [weak self] in self?.onPick(item.id) }
+        row.isHighlighted = item.id == highlighted
+        return row
+    }
+
+    /// Draws the highlight on the rows whose state changed: the one that had it and the one that has it.
+    private func paintHighlight() {
+        for (_, entry) in mounted {
+            guard let row = entry.view as? PopupRowView, row.isHighlighted != (entry.item.id == highlighted) else { continue }
+            row.isHighlighted.toggle()
+            listWork.configured()
         }
     }
 
     private func hovered(_ id: String) {
         guard id != highlighted else { return }
         highlighted = id
-        for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == id }
+        paintHighlight()
         onHover(id)
     }
 
@@ -367,17 +399,69 @@ final class WebPopupRows: NSView {
 
     override func layout() {
         super.layout()
-        var y = style.padding
-        for (item, view) in rows {
-            let height = item.separator ? Self.separatorHeight : style.rowHeight
-            view.frame = CGRect(x: style.padding, y: y, width: max(0, bounds.width - 2 * style.padding), height: height)
-            y += height
+        for (index, entry) in mounted { place(entry.view, index) }
+        realizeVisibleRows()
+    }
+
+    private func frame(_ index: Int) -> CGRect {
+        CGRect(x: style.padding, y: style.padding + tops[index], width: max(0, bounds.width - 2 * style.padding),
+               height: tops[index + 1] - tops[index])
+    }
+
+    private func place(_ view: NSView, _ index: Int) {
+        let frame = frame(index)
+        guard view.frame != frame else { return }
+        view.frame = frame
+        listWork.laidOut()
+    }
+
+    /// The band rows are drawn in: the viewport and one viewport each side; every row when
+    /// nothing scrolls them.
+    private var band: NSRect {
+        guard let scroll = enclosingScrollView, scroll.documentView === self else { return bounds }
+        let visible = scroll.documentVisibleRect
+        return visible.insetBy(dx: 0, dy: -visible.height)
+    }
+
+    /// Mounts the rows in the band and drops the rows that left it.
+    private func realizeVisibleRows() {
+        guard !items.isEmpty else {
+            mounted.values.forEach { $0.view.removeFromSuperview() }
+            mounted = [:]
+            return
+        }
+        let band = band.offsetBy(dx: 0, dy: -style.padding)
+        var low = 0, high = items.count
+        while low < high {
+            let mid = (low + high) / 2
+            if tops[mid + 1] <= band.minY { low = mid + 1 } else { high = mid }
+        }
+        var wanted: [Int] = []
+        while low < items.count, tops[low] < band.maxY { wanted.append(low); low += 1 }
+        let keep = Set(wanted)
+        for (index, entry) in mounted where !keep.contains(index) {
+            entry.view.removeFromSuperview()
+            mounted[index] = nil
+        }
+        var added = false
+        for index in wanted where mounted[index] == nil {
+            let view = makeRow(items[index])
+            view.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(view)
+            mounted[index] = (items[index], view)
+            place(view, index)
+            added = true
+        }
+        if added {
+            // Reading order: top to bottom.
+            let ordered = mounted.keys.sorted().compactMap { mounted[$0]?.view }
+            if !zip(subviews, ordered).allSatisfy({ $0 === $1 }) || subviews.count != ordered.count { subviews = ordered }
         }
     }
 
     private func scrollToHighlight() {
-        guard let highlighted, let row = rows.first(where: { $0.item.id == highlighted })?.view else { return }
-        scrollToVisible(row.frame)
+        guard let highlighted, let index = indexByID[highlighted] else { return }
+        scrollToVisible(frame(index))
     }
 }
 
@@ -389,4 +473,9 @@ private final class WebPopupSeparator: NSView {
             NSRect(x: 6, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 12), height: 1).fill()
         }
     }
+}
+
+extension WebPopupRows: PopupViewportFollowing, VisibleRowsList {
+    var rowViewsAlive: Int { mounted.count }
+    func viewportDidChange() { realizeVisibleRows() }
 }

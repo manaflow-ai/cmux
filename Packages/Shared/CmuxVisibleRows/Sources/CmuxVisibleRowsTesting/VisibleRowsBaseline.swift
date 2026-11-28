@@ -16,6 +16,10 @@ public enum VisibleRowsBaseline {
     public static let knownFailures: [String: Known] = [
         "notifications panel": Known("the daemon answers each change with the whole ledger (up to 256 entries), and the panel reads "
             + "all of it to find what changed (macOS NotificationsPanelList.show; fix: visible-only-macos-lists)", only: "items walked"),
+        "page popup": Known("rows are windowed and kept by id, but the page sends the whole model each revision, so the diff "
+            + "reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
+        "page menu": Known("rows are windowed and kept by index, but the page sends every item each time, so the diff "
+            + "reads every item (macOS WebPopupRows.update; fix: item deltas on the popup wire)", only: "items walked"),
         "sidebar pinned band": Known("its item views are windowed, but each change lays every item of the band out again and "
             + "indexes them (macOS SidebarRegionView.update, indexItems; fix: visible-only-macos-sidebar-bands)", only: "items walked per"),
         "sidebar chats": Known("the page draws a row for every chat in its block: rows alive grow until the page windows "
