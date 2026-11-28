@@ -52,7 +52,7 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }, goneAttempt: Int = 1) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
         let scope = account
         let checkScope: @MainActor @Sendable () throws -> Void = { [weak self] in
@@ -104,13 +104,13 @@ extension CloudService {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
-            throw failure
+            guard persistSent == nil, !Task.isCancelled, CloudStartCore().createMachineGoneRetries(failure, attempt: goneAttempt) else { throw failure } // else its machine was gone before it answered: a new key asks again (`cloud.machine.create`'s contract), never "no such machine in this team"
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: pinned.renewed, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer, goneAttempt: goneAttempt + 1)
         } catch is CloudPersonCreate.Unavailable where !pinned.wasSent && creation?.request.answeringRequest == nil && !Task.isCancelled && persistSent == nil {
             // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
             try checkScope()
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
@@ -176,23 +176,20 @@ extension CloudService {
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the way the feed does, in `team` (`x-cmux-team`)
     /// when given: only to answer a G8 approval after the person's native confirmation, and for a person's own create
-    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. Every call carries this build's
-    /// space (a misconfigured dev build's call throws).
+    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. The bundled `cmux cloud install-post`
+    /// sends it. A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
     private func sessionCall(team: String? = nil, checking check: (@MainActor @Sendable () throws -> Void)? = nil) -> CloudApprovalAnswer.Call {
-        let base = FeedService.apiBaseURL(auth: auth)
-        // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
-        let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
-        let buildSpace = configuration.buildSpace
+        let base = FeedService.apiBaseURL(auth: auth), auth = auth, io = auth.machineIO, space = configuration.buildSpace
+        let wait = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
         return { path, body in
             let bearer = try await auth.tokens().access
             try await check?()
-            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: bearer, team: team, timeout: timeout)
-            try buildSpace.apply(to: &request)
-            return try await CloudConnectHedge().data(for: request, on: session).0
+            let reply = try await InstallHTTPTransport(baseURL: base, buildSpace: space, machineIO: io)
+                .send(path, json: body, bearer: bearer, headers: team.flatMap { $0.isEmpty ? nil : ["x-cmux-team": $0] } ?? [:], attempt: wait)
+            if reply.resent { CloudPersonCreate.resends?.note() }
+            return reply.body
         }
     }
-
-    private static let sessionTransport = CloudPersonCreate.session(), createTransport = CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout)
 }
 
 extension CloudPresenter {

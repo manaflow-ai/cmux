@@ -18,6 +18,12 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024;
 pub const MAX_METADATA_BYTES: usize = 16 * 1024;
 pub const MAX_PAGE_SIZE: usize = 100;
 const SCHEMA: &str = "acpmux.mailbox.v1";
+/// Bound on what the mailbox keeps: acknowledged messages (nobody reads them again) leave oldest
+/// first past `MAX_ACKED`; any message leaves oldest first past `MAX_KEPT`. Every send clones and
+/// rewrites the whole state, so an unbounded list made each send, and the daemon's RSS, grow with
+/// its history.
+pub const MAX_ACKED: usize = 500;
+pub const MAX_KEPT: usize = 5_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -160,6 +166,8 @@ impl Mailbox {
                 bail!("unsupported mailbox schema {}", state.schema);
             }
             validate_state(&state)?;
+            let mut state = state;
+            trim_state(&mut state);
             state
         } else {
             PersistedState {
@@ -242,6 +250,7 @@ impl Mailbox {
         candidate.next_seq = next_seq;
         candidate.messages.push(message.clone());
         candidate.deliveries.push(receipt.clone());
+        trim_state(&mut candidate);
         persist_state(inner.path.as_ref(), &candidate)?;
         inner.state = candidate;
         drop(inner);
@@ -378,6 +387,34 @@ impl Mailbox {
             hook();
         }
     }
+}
+
+/// Cut the state to `MAX_ACKED` acknowledged and `MAX_KEPT` messages in all, oldest first.
+fn trim_state(state: &mut PersistedState) {
+    let acked: std::collections::HashSet<&str> = state
+        .deliveries
+        .iter()
+        .filter(|d| d.state == DeliveryState::Acknowledged)
+        .map(|d| d.message_id.as_str())
+        .collect();
+    let mut drop_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut acked_left = acked.len();
+    let mut kept_left = state.messages.len();
+    for m in &state.messages {
+        let is_acked = acked.contains(m.id.as_str());
+        if (is_acked && acked_left > MAX_ACKED) || kept_left > MAX_KEPT {
+            drop_ids.insert(m.id.clone());
+            kept_left -= 1;
+            if is_acked {
+                acked_left -= 1;
+            }
+        }
+    }
+    if drop_ids.is_empty() {
+        return;
+    }
+    state.messages.retain(|m| !drop_ids.contains(&m.id));
+    state.deliveries.retain(|d| !drop_ids.contains(&d.message_id));
 }
 
 fn validate_state(state: &PersistedState) -> Result<()> {

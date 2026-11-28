@@ -223,6 +223,10 @@ const createRecorded = <C, S, M = never>(
  * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
  * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
  * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
+ * Why a sent create failed, numbers and fixed tokens only: `failStatus` the provider's HTTP status ("none": no answer),
+ * `failKind` its classification (capacity_overloaded), `createCut` given up unanswered at CREATE_SEND_TIMEOUT_MS, and
+ * `send` what the provider answered the POST (live-http.ts CallTrail: first status and ms, a cut's timeout or network
+ * error, a 202's polls). A recovered create keeps the failure it recovered from.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -240,6 +244,8 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
     ...(phases["admission"] === undefined ? {} : { admission: phases["admission"], admitRetryAfterMs: phases["admitRetryAfterMs"] ?? null }),
   } : {}),
   createMs: phases["createMs"] ?? null,
+  ...("send" in phases ? { send: phases["send"] } : {}),
+  ...("failStatus" in phases ? { failStatus: phases["failStatus"], ...(phases["failKind"] === undefined ? {} : { failKind: phases["failKind"] }), createCut: phases["createCut"] ?? false } : {}),
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
   recordMs: phases["recordMs"] ?? null,
@@ -643,14 +649,24 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
  * Runs a start or resume and logs its vm_start line once the provider's start was called (success or failure): the
  * state before when the route read it (resume does; start does not, and a read only for the log would cost a provider
  * round trip), the start call's time, and the handler's total including its caller gate, ownership read and audit.
+ * ownMs is entry to proven ownership (scope, rate limit, ownership read); gateMs is a budgeted key's running and spend
+ * check (it reads the VM and the key's live VMs only when the key sets a cap), so totalMs - startMs names its step.
  */
+/** Records ownMs: the time from the handler's entry to proven ownership, once the route is inside withOwnedVm. */
+const ownedAt = (phases: TimedPhases) =>
+  Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => {
+    if (typeof phases["enteredAt"] === "number") phases["ownMs"] = at - phases["enteredAt"];
+  }));
+
 const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhases) => Effect.Effect<A, E, R>) =>
   Effect.flatMap(Clock.currentTimeMillis, (entered) => {
-    const phases: TimedPhases = {};
+    const phases: TimedPhases = { enteredAt: entered };
     return run(phases).pipe(Effect.onExit((exit) => "startMs" in phases
       ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_start", {
           vmId: phases["vmId"] ?? null, route, ok: Exit.isSuccess(exit), stateBefore: phases["stateBefore"] ?? null, stateAfter: phases["stateAfter"] ?? null,
-          ...("readMs" in phases ? { readMs: phases["readMs"] } : {}), startMs: phases["startMs"], totalMs: at - entered,
+          ...("readMs" in phases ? { readMs: phases["readMs"] } : {}),
+          ...("ownMs" in phases ? { ownMs: phases["ownMs"] } : {}), ...("gateMs" in phases ? { gateMs: phases["gateMs"] } : {}),
+          startMs: phases["startMs"], totalMs: at - entered,
         }))
       : Effect.void));
   });
@@ -962,9 +978,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
+            yield* ownedAt(phases);
             phases["vmId"] = vm.value;
             // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
-            yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
+            yield* timedPhase(phases, "gateMs", agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead))));
             const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
               tenant: caller.value.tenantId,
               background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
@@ -983,13 +1000,14 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
+            yield* ownedAt(phases);
             const current = yield* timedPhase(phases, "readMs", upstream.getVmForWrite(vm, proofs)).pipe(Effect.mapError(onRead));
             if (current.state !== "paused") {
               return yield* Effect.fail(conflict("Only a paused VM can be resumed; use start to boot a stopped VM"));
             }
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
-            yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
+            yield* timedPhase(phases, "gateMs", agentStartAllows(caller, proofs.scope, Effect.succeed(current)));
             const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
               tenant: caller.value.tenantId,
               background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
