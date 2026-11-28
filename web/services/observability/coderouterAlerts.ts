@@ -425,59 +425,70 @@ function isUpstreamFailure(row: RouteEventRow): boolean {
     (row.failure_stage === "credential_refresh" || row.failure_stage === "upstream_transport");
 }
 
+function addCount(map: Map<string, number>, key: string, count: number): void {
+  map.set(key, (map.get(key) ?? 0) + count);
+}
+
+function isNoUsableAccount(row: RouteEventRow): boolean {
+  return row.outcome === "no_usable_account" &&
+    (row.failure_stage === "account_selection" || row.failure_stage === "provider_config");
+}
+
+/** RouteEventCounts while aggregateRouteEvents fills it (route crashes are counted on their own). */
+type MutableRouteEventCounts = {
+  total: number;
+  operatorFailures: number;
+  upstreamFailures: number;
+  upstreamByProvider: Map<string, number>;
+  upstreamByStage: Map<string, number>;
+  upstreamByStatus: Map<string, number>;
+  noUsableAccount: number;
+  authRejected: number;
+  noUsableAccountTeams: Set<string>;
+  noUsableAccountByStage: Map<string, number>;
+  noUsableAccountByProvider: Map<string, number>;
+};
+
+function addUpstreamFailure(counts: MutableRouteEventCounts, row: RouteEventRow, count: number): void {
+  counts.upstreamFailures += count;
+  addCount(counts.upstreamByProvider, row.provider || "unknown", count);
+  addCount(counts.upstreamByStage, `${row.outcome}/${row.failure_stage || "unknown"}`, count);
+  addCount(counts.upstreamByStatus, typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown",
+    count);
+}
+
+function addNoUsableAccount(counts: MutableRouteEventCounts, row: RouteEventRow, count: number): void {
+  counts.noUsableAccount += count;
+  addCount(counts.noUsableAccountByStage, row.failure_stage || "unknown", count);
+  addCount(counts.noUsableAccountByProvider, row.provider || "unknown", count);
+  if (counts.noUsableAccountTeams.size >= 10) return;
+  const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
+  if (teamId) counts.noUsableAccountTeams.add(teamId);
+}
+
 function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts {
-  let total = 0;
-  let operatorFailures = 0;
-  let upstreamFailures = 0;
-  const upstreamByProvider = new Map<string, number>();
-  const upstreamByStage = new Map<string, number>();
-  const upstreamByStatus = new Map<string, number>();
-  let noUsableAccount = 0;
-  let authRejected = 0;
-  const noUsableAccountTeams = new Set<string>();
-  const noUsableAccountByStage = new Map<string, number>();
-  const noUsableAccountByProvider = new Map<string, number>();
+  const counts: MutableRouteEventCounts = {
+    total: 0,
+    operatorFailures: 0,
+    upstreamFailures: 0,
+    upstreamByProvider: new Map(),
+    upstreamByStage: new Map(),
+    upstreamByStatus: new Map(),
+    noUsableAccount: 0,
+    authRejected: 0,
+    noUsableAccountTeams: new Set(),
+    noUsableAccountByStage: new Map(),
+    noUsableAccountByProvider: new Map(),
+  };
   for (const row of rows) {
     const count = Number.isFinite(row.c) ? row.c : 0;
-    total += count;
-    if (isOperatorFailure(row)) operatorFailures += count;
-    if (isUpstreamFailure(row)) {
-      upstreamFailures += count;
-      const provider = row.provider || "unknown";
-      const stage = `${row.outcome}/${row.failure_stage || "unknown"}`;
-      const status = typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown";
-      upstreamByProvider.set(provider, (upstreamByProvider.get(provider) ?? 0) + count);
-      upstreamByStage.set(stage, (upstreamByStage.get(stage) ?? 0) + count);
-      upstreamByStatus.set(status, (upstreamByStatus.get(status) ?? 0) + count);
-    }
-    if (row.outcome === "no_usable_account" &&
-      (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
-      noUsableAccount += count;
-      const stage = row.failure_stage || "unknown";
-      const provider = row.provider || "unknown";
-      noUsableAccountByStage.set(stage, (noUsableAccountByStage.get(stage) ?? 0) + count);
-      noUsableAccountByProvider.set(provider, (noUsableAccountByProvider.get(provider) ?? 0) + count);
-      if (noUsableAccountTeams.size < 10) {
-        const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
-        if (teamId) noUsableAccountTeams.add(teamId);
-      }
-    }
-    if (row.outcome === "unauthorized") authRejected += count;
+    counts.total += count;
+    if (isOperatorFailure(row)) counts.operatorFailures += count;
+    if (isUpstreamFailure(row)) addUpstreamFailure(counts, row, count);
+    if (isNoUsableAccount(row)) addNoUsableAccount(counts, row, count);
+    if (row.outcome === "unauthorized") counts.authRejected += count;
   }
-  return {
-    total,
-    routeCrashes: aggregateRouteCrashes(rows),
-    operatorFailures,
-    upstreamFailures,
-    upstreamByProvider,
-    upstreamByStage,
-    upstreamByStatus,
-    noUsableAccount,
-    authRejected,
-    noUsableAccountTeams,
-    noUsableAccountByStage,
-    noUsableAccountByProvider,
-  };
+  return { ...counts, routeCrashes: aggregateRouteCrashes(rows) };
 }
 
 /**
