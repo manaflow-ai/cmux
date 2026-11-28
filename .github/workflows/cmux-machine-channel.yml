@@ -484,6 +484,10 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # RFD 0224 phase 3, staged rollout: unset (the default), no rollout field is signed and every machine
+          # takes the build, as before. Set, the build starts at this share or its predecessor's (first-pct).
+          CLOUD_MACHINE_FIRST_PCT: ${{ vars.CLOUD_MACHINE_FIRST_PCT }}
+          CLOUD_MACHINE_INVENTORY_URL: ${{ vars.CLOUD_MACHINE_INVENTORY_URL }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -493,9 +497,11 @@ jobs:
           scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
           [[ $rc == 3 ]] && exit 0
           [[ $rc == 0 ]] || exit "$rc"
+          rollout=()
+          [[ -z "$CLOUD_MACHINE_FIRST_PCT" ]] || rollout=(--rollout-pct "$(scripts/ci/cmux-machine-channel-first-pct.sh "$dir")")
           python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
             --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-            --download-dir "$dir/binaries" --out "$dir/payload.json" --target x86_64-unknown-linux-musl
+            --download-dir "$dir/binaries" --out "$dir/payload.json" --target x86_64-unknown-linux-musl "${rollout[@]}"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
@@ -566,6 +572,10 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          # Staged rollout (RFD 0224 phase 3), as point-x86_64: unset, no rollout field. Set, this commit keeps the
+          # share point-x86_64 signed (first-pct: the same commit's own share), so adding aarch64 never narrows it.
+          CLOUD_MACHINE_FIRST_PCT: ${{ vars.CLOUD_MACHINE_FIRST_PCT }}
+          CLOUD_MACHINE_INVENTORY_URL: ${{ vars.CLOUD_MACHINE_INVENTORY_URL }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -575,9 +585,11 @@ jobs:
           scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
           [[ $rc == 3 ]] && exit 0
           [[ $rc == 0 ]] || exit "$rc"
+          rollout=()
+          [[ -z "$CLOUD_MACHINE_FIRST_PCT" ]] || rollout=(--rollout-pct "$(scripts/ci/cmux-machine-channel-first-pct.sh "$dir")")
           python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
             --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-            --download-dir "$dir/binaries" --out "$dir/payload.json"
+            --download-dir "$dir/binaries" --out "$dir/payload.json" "${rollout[@]}"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
