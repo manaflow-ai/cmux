@@ -303,7 +303,12 @@ export const everythingPatterns = () => EVERYTHING.map((pattern) => pattern.sour
 /** git in the checkout; undefined when it fails. */
 function gitOut(args: string[], cwd: string, input?: string): Buffer | undefined {
   // No lazy fetch: a blob the clone lacks is no base inputs, not a fetch on the look's path.
-  const run = spawnSync("git", args, { cwd, input, maxBuffer: 1 << 30, env: { ...process.env, GIT_NO_LAZY_FETCH: "1" } });
+  const run = spawnSync("git", args, {
+    cwd,
+    input,
+    maxBuffer: 1 << 30,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+  });
   return run.status === 0 ? run.stdout : undefined;
 }
 
@@ -420,5 +425,6 @@ if (import.meta.main) {
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);
-  if (values.changed) console.error(`gallery: ${result.all ? "every entry" : `${(result.entries as string[]).length} entries`} touched`);
+  if (values.changed)
+    console.error(`gallery: ${result.all ? "every entry" : `${(result.entries as string[]).length} entries`} touched`);
 }

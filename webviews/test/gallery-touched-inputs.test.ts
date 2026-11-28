@@ -47,7 +47,9 @@ test("a cover widens the inputs; a file nothing reaches stays out", () => {
 test("the base reader reads what the base differs in from git and refuses a base whose gallery differs", () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "touched-base-"));
   const git = (...args: string[]) =>
-    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: repo }).toString().trim();
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: repo })
+      .toString()
+      .trim();
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     fs.writeFileSync(path.join(repo, rel), text);
