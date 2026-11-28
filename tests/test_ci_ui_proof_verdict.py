@@ -74,7 +74,7 @@ class PathsTest(unittest.TestCase):
                      "Packages/macOS/Tests/CmuxNextTests/RowTests.swift", "Packages/macOS/Sources/X/Localizable.xcstrings",
                      "scripts/ci/pr_router.py", ".github/workflows/pr-router.yml", "cmux-tui/crates/x/src/lib.rs",
                      "cmux-next-ios/App/Root.swift", "Packages/iOS/Kit/Sources/A.swift", "webviews/bench/a.bench.ts",
-                     "release-notes/next/x.md", "Resources/Info.plist"):
+                     "release-notes/next/x.md", "Resources/Info.plist", "Packages/macOS/CmuxNext/app-ffi-pin.json"):
             with self.subTest(path=path):
                 self.assertEqual(u.affects([path]), "")
 
@@ -197,6 +197,60 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+class SwiftDrawsTest(unittest.TestCase):
+    """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
+    `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
+    feel like there's more we can simplify/etc". A Swift file that imports nothing that draws is not visual."""
+    P = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionArgument.swift"
+
+    def affects(self, text, base=None):
+        texts = [text] + ([base] if base is not None else [])
+        return u.affects([self.P], read=lambda p: texts)
+
+    def test_ffi_pin_roll_is_not_visual(self) -> None:
+        # The release bot's pin PR (cmux#60965): the pin JSON and a Package.swift that imports only PackageDescription.
+        files = {"Packages/macOS/CmuxNext/Package.swift": ["// swift-tools-version: 6.0\nimport PackageDescription\n"]}
+        self.assertEqual(u.affects(["Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"],
+                                   read=lambda p: files[p]), "")
+
+    def test_stdlib_only_imports_are_not_visual(self) -> None:
+        self.assertEqual(self.affects("import Foundation\nimport os\npublic struct A { nonisolated static let x = 1 }"), "")
+        self.assertEqual(self.affects("@preconcurrency import Foundation\nimport struct Darwin.Foo\n"), "")
+
+    def test_a_drawing_or_local_import_is_visual(self) -> None:
+        for mod in ("SwiftUI", "AppKit", "CoreGraphics", "QuartzCore", "WebKit", "CmuxNextDesign", "GhosttyKit"):
+            with self.subTest(mod=mod):
+                self.assertEqual(self.affects(f"import Foundation\nimport {mod}\n"), "app")
+
+    def test_no_import_unread_or_a_dropped_ui_import_stays_visual(self) -> None:
+        self.assertEqual(self.affects("struct A {}"), "app")
+
+        def unread(path):
+            raise OSError(path)
+        self.assertEqual(u.affects([self.P], read=unread), "app")
+        self.assertEqual(u.affects([self.P]), "app")
+        self.assertEqual(self.affects("import Foundation\n", base="import SwiftUI\nstruct V: View {}"), "app")
+
+    def test_only_swift_under_a_visual_root_is_read(self) -> None:
+        def boom(path):
+            raise AssertionError(path)
+        self.assertEqual(u.affects(["webviews/src/a.tsx"], read=boom), "web")
+        self.assertEqual(u.affects(["Assets.xcassets/I.imageset/Contents.json"], read=boom), "app")
+        self.assertEqual(u.affects(["Packages/iOS/X.swift"], read=boom), "")
+
+    def test_one_drawing_file_makes_the_head_visual(self) -> None:
+        texts = {"A.swift": "import Foundation\n", "B.swift": "import AppKit\n"}
+        root = "Packages/macOS/CmuxNext/Sources/M/"
+        read = lambda p: [texts[p[len(root):]]]  # noqa: E731
+        self.assertEqual(u.affects([root + "A.swift", root + "B.swift"], read=read), "app")
+        self.assertEqual(u.affects([root + "A.swift"], read=read), "")
+
+    def test_declared_none_still_passes_a_drawing_file(self) -> None:
+        state, why = u.verdict("app", "Visual: none (logging only)", {}, [], 7)
+        self.assertEqual(state, "success")
+        self.assertIn("logging only", why)
+
+
 class RevertedHistoryTest(unittest.TestCase):
     """Before -> after on the data the gate was added on (cmuxterm-hq docs/findings/ui-regressions.md): the 25
     desktop UI PRs reverted or fixed forward 2026-10-16..11-27. Before: none carried a look at its head, all merged.
@@ -252,7 +306,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        self.assertEqual(module.main(argv), 0)
+                        # proof_record's gate exits UNREAD so its job fails rerunnable (pr-router.yml); ui proof posts.
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())

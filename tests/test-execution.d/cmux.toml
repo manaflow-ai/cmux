@@ -139,6 +139,11 @@ path = "tests/test_cmux_next_dispatch_heavy_compiles.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_exemption_ratchet.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_exemption_ratchet.py"
+
+[[test]]
 path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
@@ -566,4 +571,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_takeover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_vmd_autocloud_template.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_vmd_host_artifacts.py"
 lane = "linux-guard"
