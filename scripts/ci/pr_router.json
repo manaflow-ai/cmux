@@ -422,6 +422,25 @@
    ],
    "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
    "skip_docs_only": true
+  },
+  "bench-relevance-pr.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    "webviews/src/**",
+    "webviews/bench/**",
+    "webviews/package.json",
+    "webviews/bun.lock",
+    "scripts/bench/**",
+    "docs/benches/**",
+    ".github/workflows/bench-relevance-pr.yml"
+   ],
+   "affects_why": "cmux-bench for-paths --run measures only the areas of docs/benches/relevance-map.toml with a Linux `run` bench: New Tab (web), Diff view and Model picker search under webviews/src (benches in webviews/bench, run with the webviews packages), and Bench tooling (scripts/bench, docs/benches). A change touching none of those has no bench to compare with its nightly baseline.",
+   "skip_docs_only": true
   }
  }
 }

@@ -476,6 +476,16 @@ jobs:
       # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
       actions: write
 
+  # Leo, 2026-11-27: "A PR fetches only the baselines for its own areas". Not required: red only on 3 of 3 repeats
+  # >15% over the area's nightly baseline; a missing baseline or store warns and passes.
+  bench-baselines:
+    name: bench baselines
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'bench-relevance-pr.yml') }}
+    uses: ./.github/workflows/bench-relevance-pr.yml
+    permissions:
+      contents: read
+
   transcript-replay-perf-report:
     name: transcript-replay perf report
     needs: route

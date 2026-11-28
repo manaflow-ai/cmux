@@ -190,7 +190,7 @@ tests = ["bash scripts/ci/run-webviews-tests.sh src/sidebar"]
 
 [[area]]
 name = "New Tab (web)"
-paths = ["webviews/src/agent-session/acpmux/NewTabPage.tsx", "webviews/src/agent-session/acpmux/newTabModel.ts", "webviews/src/agent-session/acpmux/newtab", "webviews/src/agent-session/acpmux/projectRepos.ts", "webviews/src/agent-session/acpmux/ProjectChooser.tsx", "webviews/src/agent-session/acpmux/lastPick.ts"]
+paths = ["webviews/src/agent-session/acpmux/NewTabPage.tsx", "webviews/src/agent-session/acpmux/newTabModel.ts", "webviews/src/agent-session/acpmux/newtab", "webviews/src/agent-session/acpmux/projectRepos.ts", "webviews/src/agent-session/acpmux/ProjectChooser.tsx", "webviews/src/agent-session/acpmux/lastPick.ts", "webviews/bench/project-picker-open.bench.ts"]
 situations = ["visible-ui"]
 benches = ["webviews/bench/project-picker-open.bench.ts", "webviews/bench/new-tab-scale.bench.tsx", "webviews/bench/new-tab-omnibar-keystroke.bench.ts"]
 tests = ["bash scripts/ci/run-webviews-tests.sh test/new-tab- acpmux/newtab/ projectRepos.test lastPick.chip.test"]
@@ -204,14 +204,14 @@ tests = ["bash scripts/ci/run-webviews-tests.sh sessionListCost.test sessionList
 
 [[area]]
 name = "Model picker search"
-paths = ["webviews/src/agent-session/acpmux/modelSearch.ts", "webviews/src/agent-session/acpmux/modelQuery.ts", "webviews/src/agent-session/acpmux/ModelPicker.tsx", "webviews/src/agent-session/acpmux/QuickModelMenu.tsx", "webviews/src/agent-session/acpmux/quickModelMenuModel.ts", "webviews/src/agent-session/acpmux/modelPicker*.ts"]
+paths = ["webviews/src/agent-session/acpmux/modelSearch.ts", "webviews/src/agent-session/acpmux/modelQuery.ts", "webviews/src/agent-session/acpmux/ModelPicker.tsx", "webviews/src/agent-session/acpmux/QuickModelMenu.tsx", "webviews/src/agent-session/acpmux/quickModelMenuModel.ts", "webviews/src/agent-session/acpmux/modelPicker*.ts", "webviews/bench/model-picker-search.bench.ts"]
 benches = []
 tests = ["bash scripts/ci/run-webviews-tests.sh modelSearch.test modelQuery.test QuickModelMenu.test"]
 budget = "per keystroke at most 2 ms at 5,000 models"
 
 [[area]]
 name = "Diff view"
-paths = ["webviews/src/diff-viewer", "webviews/src/find", "webviews/src/diff-stream.ts"]
+paths = ["webviews/src/diff-viewer", "webviews/src/find", "webviews/src/diff-stream.ts", "webviews/bench/diff-stream.bench.ts"]
 benches = ["webviews/bench/diff-stream.bench.ts"]
 tests = ["bash scripts/ci/run-webviews-tests.sh src/diff-viewer src/find"]
 run = ["cd webviews && bun bench/diff-stream.bench.ts"]
@@ -317,7 +317,7 @@ budget_s = 2.0
 
 [[area]]
 name = "Diff view"
-paths = ["webviews/src/diff-viewer", "webviews/src/find", "webviews/src/diff-stream.ts"]
+paths = ["webviews/src/diff-viewer", "webviews/src/find", "webviews/src/diff-stream.ts", "webviews/bench/diff-stream.bench.ts"]
 situations = ["main-thread", "visible-ui"]
 benches = ["diff-stream", "diff-find-scale"]
 tests = ["cd webviews && bun test test/diff-find-scale.test.ts"]
@@ -334,6 +334,7 @@ paths = [
   "webviews/src/agent-session/acpmux/ModelPicker.tsx",
   "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
   "webviews/src/agent-session/acpmux/modelPicker*.ts",
+  "webviews/bench/model-picker-search.bench.ts",
 ]
 situations = ["main-thread", "visible-ui"]
 benches = ["model-picker-search"]

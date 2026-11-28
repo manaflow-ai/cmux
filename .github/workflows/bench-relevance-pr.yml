@@ -1,0 +1,92 @@
+name: Bench baselines (pull request)
+
+# Leo, 2026-11-27: "A PR fetches only the baselines for its own areas, which takes milliseconds. A wall-clock
+# result blocks only if it's more than ~15% worse on 3 repeats. If the baseline is missing, no Mac is free or the
+# infrastructure is flaky, the check posts a warning and passes. That's what makes it fail-open."
+#
+# The step table's `bench-relevance` advisory step runs from the base's checkout (never the pull request's code)
+# and is not among the steps pr-checks.yml picks, so no pull request ran its benches. This job runs the benches
+# of the pull request's own areas (docs/benches/relevance-map.toml `run`) on the merge commit, 3 repeats each, on
+# the runner label bench-baselines-nightly.yml records on (a baseline is only comparable on its own machine
+# class), and compares each with its area's nightly baseline read from the public R2 URL with no credential.
+# Bun is set up only when one of the areas' benches is a `bun` command.
+#
+# Red only when all 3 repeats are more than 15% over the baseline (or a bench is over its area's budget_s). A
+# missing baseline, an unreachable store, a bench that cannot run or a broken map warns and passes. The check is
+# not required: it informs a pull request and the landing tools, it does not gate a merge.
+on:
+  # Started only by pr-router.yml (one router per push, RFD 0023), which lists the changed files once and calls
+  # this workflow when the change touches an area whose benches run on Linux (scripts/ci/pr_router.json `affects`).
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  bench:
+    name: Benches against nightly baselines (not required)
+    # The same label as bench-baselines-nightly.yml: its baselines are recorded per machine class.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: List the pull request's paths and whether a bench needs bun
+        id: plan
+        run: |
+          set -uo pipefail
+          paths="$RUNNER_TEMP/paths.txt"
+          if ! git diff --name-only HEAD^1 HEAD > "$paths" || [ ! -s "$paths" ]; then
+            echo "::warning title=Bench baselines::could not list the merge commit's paths; nothing measured (fail open)"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "paths=$paths" >> "$GITHUB_OUTPUT"
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          bun="$(python3 -I scripts/bench/cmux-bench for-paths --stdin --json < "$paths" 2>/dev/null | python3 -I -c '
+          import json, sys
+          try:
+              doc = json.load(sys.stdin)
+          except Exception:
+              print("false"); sys.exit()
+          cmds = [c for a in doc.get("areas", []) for c in (a.get("run") or [])]
+          print("true" if any(" bun " in f" {c} " for c in cmds) else "false")
+          ')" || bun=false
+          echo "bun=$bun" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.plan.outputs.bun == 'true'
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.plan.outputs.bun == 'true'
+        continue-on-error: true
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install the webviews packages the benches import
+        if: steps.plan.outputs.bun == 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: cd webviews && bun install --frozen-lockfile
+
+      - name: Run the areas' benches (3 repeats) against their nightly baselines
+        if: steps.plan.outputs.run == 'true'
+        env:
+          PATHS: ${{ steps.plan.outputs.paths }}
+        run: |
+          set -uo pipefail
+          python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 150 --repeats 3 --baselines \
+            < "$PATHS" | tee -a "$GITHUB_STEP_SUMMARY"
+          code=${PIPESTATUS[0]}
+          if [ "$code" -eq 1 ]; then
+            echo "::error title=Bench baselines::3 of 3 repeats are >15% over the area's nightly baseline, or a bench is over its budget_s; see the Bench runs above"
+            exit 1
+          elif [ "$code" -ne 0 ]; then
+            echo "::warning title=Bench baselines::for-paths --run exited $code; fail open"
+          fi

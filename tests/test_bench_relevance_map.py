@@ -102,6 +102,26 @@ paths = ["**/*.rs"]
         self.assertEqual(idx.match("a/bc").area.name, "wide", "a bare path covers its folder, not a name prefix")
         self.assertIsNone(idx.match("b/x").area)
 
+    def test_an_area_filed_twice_is_one_area(self):
+        # Model picker search was filed twice; a path matching the first entry got none of the second's `run`.
+        rules = rel.parse('''
+[[area]]
+name = "picker"
+paths = ["a/search.ts"]
+tests = ["t1"]
+[[area]]
+name = "picker"
+paths = ["a/search.ts", "bench/picker.ts"]
+tests = ["t2"]
+run = ["bun bench/picker.ts"]
+budget_s = 20.0
+''')
+        idx = rel.Index(rules)
+        for path in ("a/search.ts", "bench/picker.ts"):
+            (a,) = rel.plan(idx, [path])["areas"]
+            self.assertEqual((a["run"], a["tests"], a["budget_s"]), (["bun bench/picker.ts"], ["t1", "t2"], 20.0), path)
+        self.assertEqual([r["cmd"] for r in rel.runs_for(rel.plan(idx, ["a/search.ts"]))], ["bun bench/picker.ts"])
+
     def test_step_ignore_last_match_decides(self):
         rules = rel.parse_steps('''
 [step.s]
