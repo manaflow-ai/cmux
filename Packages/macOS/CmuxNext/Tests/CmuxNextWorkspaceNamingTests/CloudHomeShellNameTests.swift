@@ -66,4 +66,21 @@ struct CloudHomeShellNameTests {
         #expect(names.row == "dev")
         #expect(names.titlebar == "dev")
     }
+
+    /// On this Mac only this account's home reads "Terminal": a shell at another account's `/Users/<name>` keeps its
+    /// folder in the row and the titlebar (first-run findings row 19, the review of its fix).
+    @Test func onThisMacOnlyThisAccountsHomeReadsTerminal() throws {
+        let reader = WorkspaceAutoNameReader(
+            enabled: { true }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
+            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
+            turns: AgentTurnStateStore(), hold: WorkspaceAutoNameHold(), homeShellTitle: { _ in "Terminal" }, onThisMac: { _ in true })
+        for (cwd, expected) in [(SidebarMapping.shared.home, "Terminal"), ("/Users/cmux-someone-else", "cmux-someone-else")] {
+            let workspace = try Self.workspace(cwd: cwd)
+            let row = SidebarMapping.shared.row(workspace, machine: .local,
+                                                pageFace: { workspace, tab, work in .init(title: reader.label(workspace, front: tab, work: work)) },
+                                                homeShellTitle: "Terminal")
+            #expect(row.title == expected, "the row at \(cwd)")
+            #expect(reader.titlebarName(workspace) { _ in nil } == expected, "the titlebar at \(cwd)")
+        }
+    }
 }
