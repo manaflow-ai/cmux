@@ -543,9 +543,11 @@ async fn one_pool_record(daemon: &Daemon) -> Value {
     }
 }
 
-/// Only a bound chat may hold a Claude setup token so Disconnect can withdraw it.
+/// A Claude token naming its connection binding is warmed, and its start takes the warmed agent
+/// (cmux#64930); Disconnect withdraws the binding from the chat, and a withdrawal before any start
+/// ends the pooled agent warmed with it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
+async fn a_bound_claude_token_is_warmed_taken_and_withdrawable() {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let fakeb =
         json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
@@ -555,15 +557,24 @@ async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
     let binding = format!("claude-token:{}", "a".repeat(64));
     let credentials =
         json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-fixture"}, "connection": binding});
-    let warmed = rpc
-        .call(
-            "_acpmux/prewarm",
-            json!({"harness": "fakeb", "cwd": daemon.home, "wait": true, "credentials": credentials}),
-        )
-        .await;
-    assert_eq!(warmed["accepted"], false);
-    assert!(daemon.pool_records().is_empty());
+    let prewarm = json!({"harness": "fakeb", "cwd": daemon.home, "wait": true,
+        "credentials": credentials});
+    let method = "agent/credentials.update";
 
+    // Withdrawn before any start: the warmed agent ends.
+    let warmed = rpc.call("_acpmux/prewarm", prewarm.clone()).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    one_pool_record(&daemon).await;
+    rpc.call(method, json!({"withdrawBindings": [binding]})).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !daemon.pool_records().is_empty() {
+        assert!(Instant::now() < deadline, "the withdrawn binding's pooled agent still runs");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Warmed again, then the bound start takes it.
+    let warmed = rpc.call("_acpmux/prewarm", prewarm).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
     let started = rpc
         .call(
             "session/new",
@@ -573,9 +584,8 @@ async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
         )
         .await;
     let session = started["sessionId"].as_str().expect("session id");
-    assert!(!taken(&daemon, session));
+    assert!(taken(&daemon, session), "the bound start takes the agent warmed with its token");
 
-    let method = "agent/credentials.update";
     let status = rpc.call(method, json!({"sessionId": session})).await;
     assert_eq!(status["connection"], binding);
     assert_eq!(status["held"], true);
