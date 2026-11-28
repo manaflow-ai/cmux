@@ -30,7 +30,7 @@ final class ResumeNoConnectionChromeUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        let bar = app.buttons["Reply to Claude"]
+        let bar = app.buttons["agentChat.composer.collapsed"]
         XCTAssertTrue(bar.waitForExistence(timeout: 30), "the chat opens with its rows\n\(app.debugDescription)")
         attach(app, "before-background")
 
@@ -77,7 +77,7 @@ final class ResumeNoConnectionChromeUITests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments += ["-cmux-mobile-recovery-gallery", "notsent", "-cmux-mobile-gallery-appearance", look]
             app.launch()
-            XCTAssertTrue(app.descendants(matching: .any)["recoveryGallery.notsent.variants"].waitForExistence(timeout: 30))
+            XCTAssertTrue(app.descendants(matching: .any)["notSentGallery.a"].waitForExistence(timeout: 30))
             attach(app, "notsent-gallery-\(look)")
             app.terminate()
         }

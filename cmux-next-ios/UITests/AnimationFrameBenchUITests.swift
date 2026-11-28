@@ -200,8 +200,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
     private func composerFocusTarget(_ app: XCUIApplication) -> XCUICoordinate {
         // The demo's question card can collapse the field into a Reply button.
         let target = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier == %@ OR (elementType == %d AND label == %@)",
-            "chat.composer.field", XCUIElement.ElementType.button.rawValue, "Reply to Claude"
+            format: "identifier == %@ OR identifier == %@",
+            "chat.composer.field", "agentChat.composer.collapsed"
         )).firstMatch
         return center(target, in: app)
     }
