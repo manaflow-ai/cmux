@@ -32,6 +32,8 @@ public final class LaunchShell {
     private var framedWaiters: [CheckedContinuation<Void, Never>] = []
     private var isFramed = false
     private let backstopTimer = DemandTimer(owner: "LaunchShell.backstop")
+    /// Stage 0 closed at the backstop while it held key: the real window takes key when it comes.
+    private var keyLeftForReal = false
     private let framedTimer = DemandTimer(owner: "LaunchShell.framed")
     private let bareTimer = DemandTimer(owner: "LaunchShell.bareBound")
     private let contentTimer = DemandTimer(owner: "LaunchShell.contentBound")
@@ -194,7 +196,13 @@ public final class LaunchShell {
         guard let real, self.real == nil else { return }
         self.real = real
         // Stage 0 went first (the backstop): what it held goes to this window now.
-        guard let frame, let window else { return replay(to: real) }
+        guard let frame, let window else {
+            if keyLeftForReal, NSApp.keyWindow == nil {
+                FocusRoute(.system, "stage 0 closed at the backstop holding key; the real launch window takes it").makeKey(real)
+            }
+            keyLeftForReal = false
+            return replay(to: real)
+        }
         if real.frame != frame { real.setFrame(frame, display: false) }
         // Over the saved image the real window waits below until what it shows
         // matches stage 0 (every visible region has its saved or live content: `contentReady`), at
@@ -239,10 +247,26 @@ public final class LaunchShell {
 
     /// The real launch window took over: this one goes, and the input it held is posted to `real`
     /// in arrival order (`replay`). `front`: `real` waited below this one.
+    /// Not `front` (the plain image swap at the real window's first commit, or `onSwapNeeded`), stage
+    /// 0 still holds the key it took at `show`: it hands it to `real` without ordering or activating
+    /// anything, so a background launch stays in the background and the app's key window is never
+    /// the closed stage 0 (app 4236d7e5: Settings never showed, bring_to_front failed).
     public func swap(to real: NSWindow, front: Bool = false) {
-        if front { FocusRoute(.system, "the real launch window takes over from stage 0").makeKey(real, front: true) }
+        if front {
+            FocusRoute(.system, "the real launch window takes over from stage 0").makeKey(real, front: true)
+        } else if let window, Self.handsKey(from: window, keyWindow: NSApp.keyWindow) {
+            FocusRoute(.system, "stage 0 held key; the real launch window takes it at the swap").makeKey(real)
+        }
         dismiss(swappedTo: real)
         replay(to: real)
+    }
+
+    /// Whether stage 0 (`stage0`) gives key to the real window at a swap that does not order it
+    /// front: when stage 0 is key, or no window is (an inactive app keeps none, and stage 0 made
+    /// itself key at `show`, so it holds the key for when the app is activated). Another key window
+    /// (a panel the person opened) keeps it.
+    static func handsKey(from stage0: NSWindow, keyWindow: NSWindow?) -> Bool {
+        keyWindow == nil || keyWindow === stage0
     }
 
     /// Posts the held input to `real`, in arrival order: every key, and a click, drag or scroll
@@ -264,6 +288,7 @@ public final class LaunchShell {
         backstopTimer.cancel()
         if showsBare, let view = window.contentView { content.handoff?(view) }
         heldForReal += window.takeHeld()
+        if real == nil { keyLeftForReal = Self.handsKey(from: window, keyWindow: NSApp.keyWindow) }
         mismatched = real?.frame != window.frame || !contentMatched
         let kind = real == nil ? "dismissed" : mismatched ? "swapped.mismatch" : "swapped"
         window.orderOut(nil)
