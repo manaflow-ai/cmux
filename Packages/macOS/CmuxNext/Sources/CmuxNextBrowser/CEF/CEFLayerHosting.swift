@@ -103,8 +103,9 @@ final class CEFLayerHosting {
     /// The first fork version with `cmux_browser_resize_fence` (API 32) on the Chromium 157 line: version 33 shipped
     /// there without 32, so a check for 32 would pass an engine that lacks it (the fork's CMUX-API.md).
     static let resizeFenceForkAPI: Int32 = 34
-    /// `CMUX_CEF_RESIZE_FENCE=0` keeps the fence off with an engine that has it (an A/B run on one engine).
-    nonisolated static let resizeFenceAllowed = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE"] != "0"
+    /// Off in this try build (in-tree-pages-try2): no window or pane resize waits on a page's frame. `CMUX_CEF_RESIZE_FENCE=1`
+    /// turns the fence on with an engine that has it.
+    nonisolated static let resizeFenceAllowed = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE"] == "1"
     /// The GPU's deadline for a page's frame at its new size, in ms (`CMUX_CEF_RESIZE_FENCE_MS`); 0 takes one refresh of
     /// the fastest display, at least 8 ms. The window's commit waits at most this and one refresh more, in the render
     /// server, never on the main thread.

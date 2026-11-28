@@ -92,9 +92,9 @@ final class CEFMessagePump {
         fire()
     }
 
-    /// The pump also runs at the start of each live resize step (``ResizeStepStart``). On in this try build
-    /// (in-tree-pages-try1), where no launch can pass `CMUX_NEXT_CEF_PUMP_AT_STEP`: `=0` turns it off.
-    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] != "0"
+    /// `CMUX_NEXT_CEF_PUMP_AT_STEP=1`: the pump also runs at the start of each live resize step (``ResizeStepStart``).
+    /// Off in this try build (in-tree-pages-try2): it costs 7-8% of a resize's steps.
+    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "1"
 
     /// The start of a live resize step, before its layout: one pass when work CEF already asked for is due (a request
     /// whose deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the
