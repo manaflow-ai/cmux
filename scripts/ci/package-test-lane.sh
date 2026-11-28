@@ -53,9 +53,9 @@
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
 #             changed target, and the lane's packages whose sources or path
-#             dependencies changed). fleet-test-compile.yml runs it on pull
-#             requests as an advisory check (fleet/compile-check compiles only
-#             the app, which links no test target: #23360, #23163). Exit 0
+#             dependencies changed). tip-test-compile.sh runs it after merge
+#             (fleet/compile-check compiles only the app, which links no test
+#             target: #23360, #23163). Exit 0
 #             when every planned target compiled (or none was
 #             planned), 1 after "compile-tests: a test target did not
 #             compile", anything else when there is no verdict. The marker is
@@ -827,6 +827,14 @@ expand_each_filters() {
   SWIFT_BACKTRACE=enable=no python3 scripts/ci/run_with_timeout.py --timeout-seconds "${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}" \
     -- swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build \
     < /dev/null > "$list" 2> "$discovery_log" || discovery_status=$?
+  # A toolchain/SDK mismatch first shows in discovery, whatever its exit: name it, as the test step does, before
+  # its lines read as "unrecognized Swift test discovery record" (base run 46008833629).
+  if cat "$list" >> "$discovery_log" && toolchain_mismatch "$discovery_log" "$package (swift test list)"; then
+    cat "$discovery_log" >&2
+    [ "$discovery_status" -ne 0 ] || discovery_status=1
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   if [ "$discovery_status" -ne 0 ]; then
     cat "$discovery_log" >&2
     exit "$discovery_status"

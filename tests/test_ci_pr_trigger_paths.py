@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 _git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
 git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+sys.modules[_git_fixture_spec.name] = git_fixture_env
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 if str(ROOT / "scripts" / "ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "ci"))

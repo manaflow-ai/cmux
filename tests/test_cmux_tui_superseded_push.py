@@ -385,6 +385,17 @@ def check_verdicts():
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            # A rate-limited dispatch lookup is not a request: the head builds nothing (11-26: every sampled
+            # branch build was this fail-open). CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN=1 keeps the run as before.
+            git(remote, "update-ref", "refs/pull/7/head", head)
+            for code in (403, 429):
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head, over_git)
+                _check(got == "true", f"over git: a {code} dispatch lookup skips an on-request head ({got!r})")
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head,
+                                dict(over_git, CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN="1"))
+                _check(got == "false", f"over git: the undo keeps the run on a {code} lookup ({got!r})")
             # CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule: that head runs, read over git only.
             git(remote, "update-ref", "refs/pull/7/head", head)
             api.reset({})

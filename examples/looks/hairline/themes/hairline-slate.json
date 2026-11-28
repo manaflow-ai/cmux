@@ -2,7 +2,7 @@
 // Radius 6 px for panes, tabs, cards and popovers (layout.paneCornerRadius); buttons and tabs sit 2 px inside it.
 {
   "name": "Hairline Slate",
-  "description": "Flat and quiet, dark: cool slate grays, tighter 6 px corners, one-pixel borders and no shadows, no glass.",
+  "description": "Dark: cool slate grays, tighter corners, thin borders.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

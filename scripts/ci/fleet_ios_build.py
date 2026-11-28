@@ -11,6 +11,13 @@ It submits the same job `cmux-ci ios-build` does and hands back the output once 
   POST ROUTE  {"op": "submit", "what": "ffi"|"sim-products"|"kit-products"}  -> {"job", "state"}
   POST ROUTE  {"op": "status", "job": ID}                     -> {"job", "state"[, "verdict", "reason",
                                                                   "get_url", "get_until"]}
+  POST ROUTE  {"op": "queue"}                                 -> {"queued", "oldest_queued_s"}
+
+Before it submits, it asks for the queue a submit joins: when the oldest job there has already waited
+--queue-timeout, it exits 2 at once instead of holding this runner that long for a job that would wait behind it
+(run 45996304968, 2026-11-27: the kit-sim-fleet job held a cmux-linux runner 604 s, "job 862b085e... still queued
+after 600 s", and built nothing). A route that does not answer the queue (an older controller, no route) is no
+answer: it submits as before.
 
 Exit codes are the same as `cmux-ci ios-build`'s, so the callers did not change:
   0  every output is in --out (a pass)
@@ -140,6 +147,14 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
     if not bearer[0]:
         log("no OIDC token (the job needs permissions: id-token: write)")
         return 2
+    status, ans, _ = ask({"op": "queue"})
+    oldest = ans.get("oldest_queued_s") if status == 200 else None
+    if isinstance(oldest, (int, float)) and oldest >= queue_timeout:
+        log(f"queue full: {ans.get('queued')} job(s) queued, the oldest {int(oldest)} s, past --queue-timeout "
+            f"{queue_timeout} s; not submitting (the caller builds it itself)")
+        return 2
+    if status == 200 and isinstance(oldest, (int, float)):
+        log(f"queue: {ans.get('queued')} job(s) queued, the oldest {int(oldest)} s")
     # A controller that is restarting answers 503 "the controller is starting; retry" for a few seconds; the
     # kit run 45926512987 (2026-11-27) gave up on its first 503 and the Mac built instead. Retry a submit that
     # got no answer, a 5xx or a 429 for up to SUBMIT_RETRY_S (the Mac fallback waits on this), except a route

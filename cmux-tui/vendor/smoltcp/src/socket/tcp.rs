@@ -952,6 +952,12 @@ pub struct Socket<'a> {
     /// that reached us before its SYN|ACK. The SYN goes again at once, and
     /// bare: the peer has the data.
     syn_data_taken: bool,
+    /// cmux patch: how long a held SYN waits after the first write for the
+    /// writes right behind it (`set_syn_data_coalesce`).
+    syn_data_coalesce: Duration,
+    /// cmux patch: when that wait ends, set by the first dispatch to see a
+    /// write before the SYN.
+    syn_coalesce_until: Option<Instant>,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -1065,6 +1071,8 @@ impl<'a> Socket<'a> {
             syn_data_acked: false,
             syn_data_hold: Duration::ZERO,
             syn_data_taken: false,
+            syn_data_coalesce: Duration::ZERO,
+            syn_coalesce_until: None,
             syn_hold_until: None,
         }
     }
@@ -1242,15 +1250,38 @@ impl<'a> Socket<'a> {
         self.syn_data_hold = hold;
     }
 
+    /// cmux patch: with a hold (`set_syn_data_hold`), a SYN that carries the
+    /// first write waits up to `coalesce` past it for the writes right behind
+    /// it, within the hold. An owner that writes a request as two writes (a
+    /// channel open, then its first request) gets both on the SYN, so the
+    /// peer answers the request a round trip sooner. Zero (the default)
+    /// sends the SYN on the first write.
+    pub fn set_syn_data_coalesce(&mut self, coalesce: Duration) {
+        self.syn_data_coalesce = coalesce;
+    }
+
     /// cmux patch: the connect's SYN is waiting for the first write
-    /// (`set_syn_data_hold`).
+    /// (`set_syn_data_hold`), or for the writes behind it
+    /// (`set_syn_data_coalesce`).
     fn syn_held(&self, now: Instant) -> Option<Instant> {
-        match self.syn_hold_until {
-            Some(until) if self.syn_data_open() && self.tx_buffer.is_empty() && now < until => {
-                Some(until)
-            }
+        let until = self.syn_hold_until?;
+        if !self.syn_data_open() || now >= until {
+            return None;
+        }
+        if self.tx_buffer.is_empty() {
+            return Some(until);
+        }
+        match self.syn_coalesce_until {
+            Some(coalesce) if now < coalesce && !self.syn_data_full() => Some(coalesce.min(until)),
             _ => None,
         }
+    }
+
+    /// cmux patch: the transmit buffer fills a default-sized segment less the
+    /// SYN's options, so the SYN goes rather than wait for more writes. (The
+    /// SYN may carry more on a tunnel with a larger MTU; the wait is short.)
+    fn syn_data_full(&self) -> bool {
+        self.tx_buffer.len() >= self.remote_mss.saturating_sub(SYN_OPTIONS_MAX)
     }
 
     /// cmux patch: a listening socket took data from the peer's SYN and its
@@ -2110,6 +2141,7 @@ impl<'a> Socket<'a> {
         self.syn_data_acked = false;
         self.syn_hold_until = None;
         self.syn_data_taken = false;
+        self.syn_coalesce_until = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -3866,6 +3898,17 @@ impl<'a> Socket<'a> {
             self.remote_last_ts = Some(cx.now());
         }
 
+        // cmux patch: the first write before a held SYN starts the wait for
+        // the writes right behind it (`set_syn_data_coalesce`).
+        if self.syn_coalesce_until.is_none()
+            && self.syn_data_coalesce > Duration::ZERO
+            && self.syn_hold_until.is_some()
+            && self.syn_data_open()
+            && !self.tx_buffer.is_empty()
+        {
+            self.syn_coalesce_until = Some(cx.now() + self.syn_data_coalesce);
+        }
+
         self.congestion_controller
             .inner_mut()
             .pre_transmit(cx.now());
@@ -5382,6 +5425,71 @@ mod test {
         client.cx.set_now(start + Duration::from_millis(20));
         let syn = hop(&mut client, &mut server).unwrap();
         assert_eq!(syn, (TcpControl::Syn, vec![]));
+    }
+
+    /// The relay miss (#61583's rtt-400 relay cell): the owner's first
+    /// request reaches the socket as two writes, and a poll between them
+    /// sends the SYN with the first alone. The second waits for the
+    /// handshake, so its answer costs a round trip more.
+    #[test]
+    fn test_syn_data_split_write_without_coalesce_leaves_the_rest_behind() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(30));
+        assert_eq!(client.socket.send_slice(b"open"), Ok(4));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"open".to_vec()));
+        // The request behind it no longer rides on anything.
+        assert!(!client.socket.may_send());
+        assert!(client.socket.send_slice(b"request").is_err());
+    }
+
+    #[test]
+    fn test_syn_data_coalesce_puts_a_split_write_on_one_syn() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(30));
+        client
+            .socket
+            .set_syn_data_coalesce(Duration::from_millis(5));
+        assert_eq!(client.socket.send_slice(b"open"), Ok(4));
+        // A poll between the two writes holds the SYN for the second.
+        assert!(hop(&mut client, &mut server).is_none());
+        assert_eq!(
+            client.socket.poll_at(&mut client.cx),
+            PollAt::Time(start + Duration::from_millis(5))
+        );
+        client.cx.set_now(start + Duration::from_millis(1));
+        assert!(hop(&mut client, &mut server).is_none());
+        assert_eq!(client.socket.send_slice(b"request"), Ok(7));
+        client.cx.set_now(start + Duration::from_millis(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"openrequest".to_vec()));
+        // The peer took both, so it answers the request behind its SYN|ACK.
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert!(server.socket.syn_data_acked());
+        assert_eq!(drain(&mut server), b"openrequest".to_vec());
+    }
+
+    #[test]
+    fn test_syn_data_coalesce_ends_within_the_hold() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(3));
+        client
+            .socket
+            .set_syn_data_coalesce(Duration::from_millis(5));
+        assert_eq!(client.socket.send_slice(b"open"), Ok(4));
+        assert!(hop(&mut client, &mut server).is_none());
+        // The hold ends first: the SYN goes with what it has.
+        assert_eq!(
+            client.socket.poll_at(&mut client.cx),
+            PollAt::Time(start + Duration::from_millis(3))
+        );
+        client.cx.set_now(start + Duration::from_millis(3));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"open".to_vec()));
     }
 
     #[test]

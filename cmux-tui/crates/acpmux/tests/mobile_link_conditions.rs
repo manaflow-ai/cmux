@@ -48,6 +48,10 @@ const KEPT: &[&str] = &[
     "NETCOND_ATTACH_SENDS",
     "NETCOND_ATTACH_BYTES",
     "NETCOND_ATTACH_ROWS",
+    "NETCOND_CANCEL_SENDS",
+    "NETCOND_CANCEL_BYTES",
+    "NETCOND_CANCEL_AFTER",
+    "NETCOND_CANCEL_ROWS",
     "NETCOND_AWAY",
     "NETCOND_LOADS",
     "NETCOND_CHAT_MAX_TURNS",
@@ -160,6 +164,16 @@ fn emit_error(k: &Key, metric: &str, why: &str) {
         "NETCOND-ERROR {}",
         json!({"surface": "chat", "profile": k.profile, "phase": k.phase, "scale": k.scale,
                "metric": metric, "run": k.run, "seed": k.seed, "error": why})
+    );
+}
+
+/// Legs a row does not run, and why: not a miss and not a failure, so no `NETCOND-ERROR` and no
+/// null value (the report reads a null as a send that did not show within its bound).
+fn emit_skip(k: &Key, metrics: &[&str], why: &str) {
+    println!(
+        "NETCOND-SKIP {}",
+        json!({"surface": "chat", "profile": k.profile, "phase": k.phase, "scale": k.scale,
+               "metrics": metrics, "seed": k.seed, "why": why})
     );
 }
 
@@ -931,7 +945,7 @@ async fn reconnect(
     let path_change = matches!(disruption, Some(Disruption::AddressChange { .. }));
     let dark_ms = match disruption {
         Some(Disruption::Blackout { duration_ms }) => duration_ms,
-        Some(Disruption::AddressChange { stall_ms }) => stall_ms[1],
+        Some(Disruption::AddressChange { stall_ms, .. }) => stall_ms[1],
         // The LAN link this bench dials never drops; nothing here rides the internet path yet.
         Some(Disruption::InternetDown) | None => return,
     };
@@ -1961,8 +1975,10 @@ async fn chat_send_with(
                     if let Some(seq) = event_seq(&v) {
                         *last = (*last).max(seq);
                     }
+                    // A frame already queued is handed out even past the deadline (timeout_at polls
+                    // first): one that came after the bound is a miss, not a value over it.
                     if is_echo(&v, prompt_id) {
-                        return (Some(ms(at - tap)), retries);
+                        return (Some(ms(at - tap)).filter(|_| at <= deadline), retries);
                     }
                     continue;
                 }
@@ -2271,7 +2287,11 @@ async fn chat_attach_under_link_conditions() {
             Err(_) => None,
         };
         let tag = std::process::id();
+        // The bound guards each send (tap to its record showing), not the row: a row is `sends`
+        // of them back to back, so it may run for `sends` times the bound. A send past it is a
+        // miss (a NETCOND-ERROR); the row's line names the slowest and how many missed.
         let bound = attach_bound(bytes);
+        let (mut slowest, mut missed) = (0.0_f64, 0_u64);
         let row_started = Instant::now();
         let dropped_before = control.dropped_bytes();
         // The inline legs send the image as base64 in one WebSocket message; past the listener's
@@ -2289,15 +2309,16 @@ async fn chat_attach_under_link_conditions() {
                  base64), over the WebSocket message cap WS_MAX_MESSAGE_BYTES of \
                  {WS_MAX_MESSAGE_BYTES} bytes; only the upload leg runs"
             );
-            for metric in [
+            // One line for the row, not an error per leg: past the cap the phone sends by
+            // reference (AcpmuxHub `needsUpload`), so these legs have nothing to measure.
+            let legs = [
                 "attach_written_ms",
                 "attach_visible_ms",
                 "text_behind_attach_visible_ms",
                 "queue_attach_visible_ms",
                 "queue_text_beside_attach_visible_ms",
-            ] {
-                emit_error(&k, metric, &why);
-            }
+            ];
+            emit_skip(&k, &legs, &why);
         }
         for i in 0..sends {
             let k =
@@ -2334,6 +2355,8 @@ async fn chat_attach_under_link_conditions() {
                 upload_leg(&mut link, &session, &image_id, &text_id, &mut last, tap, bytes).await;
             emit(&k, "upload_attach_visible_ms", image);
             emit(&k, "upload_text_beside_attach_visible_ms", text);
+            slowest = slowest.max(image.unwrap_or(0.0)).max(text.unwrap_or(0.0));
+            missed += u64::from(image.is_none()) + u64::from(text.is_none());
             if image.is_none() {
                 emit_error(&k, "upload_attach_visible_ms", "the referenced image did not show");
             }
@@ -2344,8 +2367,9 @@ async fn chat_attach_under_link_conditions() {
             link.pending.clear();
         }
         eprintln!(
-            "netcond: attach row {row}: {sends} runs of {bytes} B in {:?} (bound {bound:?}); the control connection read and dropped {} notification bytes",
+            "netcond: attach row {row}: {sends} runs of {bytes} B in {:?} (no row limit); each upload send's bound {bound:?}, slowest {:.1}s, {missed} over it; the control connection read and dropped {} notification bytes",
             row_started.elapsed(),
+            slowest / 1000.0,
             control.dropped_bytes() - dropped_before
         );
     }
@@ -2406,6 +2430,9 @@ async fn inline_legs(
     )
     .await;
     emit(k, "text_behind_attach_visible_ms", text_visible);
+    if text_visible.is_none() {
+        emit_error(k, "text_behind_attach_visible_ms", "the text did not show");
+    }
     tokio::time::sleep(Duration::from_millis(400)).await;
     link.pending.clear();
 
@@ -2458,6 +2485,9 @@ async fn inline_legs(
     *last = (*last).max(upload_last);
     emit(k, "queue_attach_visible_ms", upload.0);
     emit(k, "queue_text_beside_attach_visible_ms", text.0);
+    if upload.0.is_none() {
+        emit_error(k, "queue_attach_visible_ms", "the image prompt's user_message did not show");
+    }
     if text.0.is_none() {
         emit_error(k, "queue_text_beside_attach_visible_ms", "the text did not show");
     }
@@ -2489,6 +2519,18 @@ fn attach_bound_and_inline_cap_by_size() {
 /// The phone's image bytes in one upload chunk (`file_uploads::CHUNK_BYTES`, AcpmuxHub's).
 const UPLOAD_CHUNK: usize = 512 << 10;
 
+/// `Link::post`, given up at `deadline`.
+async fn post_by(
+    link: &mut Link,
+    m: &str,
+    params: Value,
+    deadline: Instant,
+) -> Result<i64, String> {
+    tokio::time::timeout_at(deadline, link.post(m, params))
+        .await
+        .unwrap_or_else(|_| Err(format!("{m}: past the send's bound")))
+}
+
 /// One image sent by reference beside a text on the same link, as the phone does it: begin, the
 /// first chunk, the text (the outbox hands it out at once: it waits on no upload), the rest of
 /// the chunks one in flight, finish, then the prompt naming the upload. Returns the ms from the
@@ -2507,7 +2549,9 @@ async fn upload_leg(
     let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
     let name = "photo.png";
     let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
-    let Ok(begin) = link.post(method::MUX_FILE_PUT_BEGIN, begin).await else { return (None, None) };
+    let Ok(begin) = post_by(link, method::MUX_FILE_PUT_BEGIN, begin, deadline).await else {
+        return (None, None);
+    };
     let Ok((_, began)) = link.answer(begin, deadline).await else { return (None, None) };
     let (Some(upload), owner) = (
         began["uploadId"].as_str().map(str::to_owned),
@@ -2521,14 +2565,13 @@ async fn upload_leg(
         (end, json!({"sessionId": session, "uploadId": upload, "offset": offset, "data": data}))
     };
     let (mut sent_to, first) = chunk(0);
-    let Ok(mut waiting) = link.post(method::MUX_FILE_PUT_CHUNK, first).await else {
+    let Ok(mut waiting) = post_by(link, method::MUX_FILE_PUT_CHUNK, first, deadline).await else {
         return (None, None);
     };
-    if link
-        .post(method::SESSION_PROMPT, prompt_params(session, "after", text_id, false))
-        .await
-        .is_err()
-    {
+    // Every write waits at most until the bound too: a write the shaped link holds past it is a
+    // miss, not a send that shows later with a value over its bound.
+    let text = prompt_params(session, "after", text_id, false);
+    if post_by(link, method::SESSION_PROMPT, text, deadline).await.is_err() {
         return (None, None);
     }
     let (mut image, mut text) = (None, None);
@@ -2536,12 +2579,15 @@ async fn upload_leg(
     // Notifications that came while the begin's answer was read.
     let early: Vec<(Instant, Value)> = link.pending.drain(..).collect();
     for (at, v) in early {
-        if is_echo(&v, text_id) {
+        if is_echo(&v, text_id) && at <= deadline {
             text = Some(ms(at - tap));
         }
     }
     while image.is_none() || text.is_none() {
         let Next::Frame(at, v) = link.frame(deadline).await else { break };
+        if at > deadline {
+            break;
+        }
         if v.get("method").is_some() {
             if let Some(seq) = event_seq(&v) {
                 *last = (*last).max(seq);
@@ -2562,11 +2608,15 @@ async fn upload_leg(
             if sent_to < bytes {
                 let (end, next) = chunk(sent_to);
                 sent_to = end;
-                let Ok(posted) = link.post(method::MUX_FILE_PUT_CHUNK, next).await else { break };
+                let Ok(posted) = post_by(link, method::MUX_FILE_PUT_CHUNK, next, deadline).await
+                else {
+                    break;
+                };
                 waiting = posted;
             } else {
                 let params = json!({"sessionId": session, "uploadId": upload, "fileName": name, "size": bytes});
-                let Ok(posted) = link.post(method::MUX_FILE_PUT_FINISH, params).await else {
+                let Ok(posted) = post_by(link, method::MUX_FILE_PUT_FINISH, params, deadline).await
+                else {
                     break;
                 };
                 finish = Some(posted);
@@ -2583,7 +2633,9 @@ async fn upload_leg(
                 "prompt": [{"type": "text", "text": "photo"},
                            {"type": "image", "name": name, "_meta": {"acpmux": {"upload": reference}}}],
                 "_meta": {"acpmux": {"promptId": image_id, "steer": false, "resend": false}}});
-            let Ok(posted) = link.post(method::SESSION_PROMPT, params).await else { break };
+            let Ok(posted) = post_by(link, method::SESSION_PROMPT, params, deadline).await else {
+                break;
+            };
             finish = None;
             referenced = Some(posted);
             waiting = -1;
@@ -2595,6 +2647,215 @@ async fn upload_leg(
         }
     }
     (image, text)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cancel mid-send (Leo, 2026-11-24 08:29Z: "i also couldnt cancel out of the send. i need to be
+// able to do that otherwise i cant edit or anything to retry or delete and remove."). The phone
+// taps Send on a text with a large attachment (NETCOND_CANCEL_BYTES, 100 MiB), its bytes go up a
+// chunk at a time as AcpmuxHub's prompt upload does (one in flight), and once
+// NETCOND_CANCEL_AFTER bytes are on the Mac the person taps Stop on the pending bubble: the Rust
+// outbox (`PromptOutbox::cancel`) hands the draft back and names the upload to cancel, and the
+// phone sends `_acpmux/file_put_cancel` with its owner token. A late chunk for the same upload
+// follows (the one a slow uploader still had queued) to check the Mac takes no more bytes.
+// Metrics, phase `cancel`, scale = the row (lte, duress: lte with a loaded Mac):
+// - `cancel_tap_to_cancelled_ms`: the tap to the Mac's answer to the cancel (the upload gone).
+// - `cancel_bytes_after`: bytes the Mac accepted after it answered the cancel (want 0).
+// - `cancel_inflight_bytes`: the chunk already on the wire at the tap that the Mac took.
+// - `cancel_draft_restored`: 1 when the outbox gave back the draft's text and attachment and
+//   named the upload to cancel, else 0.
+// Env: `NETCOND_CANCEL_SENDS` (20), `NETCOND_CANCEL_ROWS` (lte,duress).
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the cancel bench: cargo test -p acpmux --test mobile_link_conditions chat_cancel -- --ignored"]
+async fn chat_cancel_mid_upload_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-cancel");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_CANCEL_SENDS", 20);
+    let bytes = env_u64("NETCOND_CANCEL_BYTES", 100 << 20) as usize;
+    let after =
+        (env_u64("NETCOND_CANCEL_AFTER", 2 << 20) as usize).min(bytes.saturating_sub(UPLOAD_CHUNK));
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let rows_wanted = env_list("NETCOND_CANCEL_ROWS", &["lte", "duress"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let (profile, loaded) = match row.as_str() {
+            "idle" => (None, false),
+            "duress" => (file.get("lte").cloned(), true),
+            other => (file.get(other).cloned(), false),
+        };
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("cancel-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        let _spin = if loaded {
+            control.seed(&session, 0, 100).await;
+            let other = control
+                .call(
+                    method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "cancel-stream"}}}),
+                )
+                .await;
+            let other = other["result"]["sessionId"].as_str().unwrap().to_owned();
+            let _ = control.prompt(&other, "ticking:6000:20").await;
+            Some(Spin::start())
+        } else {
+            control.seed(&session, 0, BASE_TURNS).await;
+            None
+        };
+        let shaper = match &profile {
+            Some(p) => Shaper::start(upstream, p.clone(), seed_base, &trace).await.ok(),
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else {
+            let k = Key { profile: &label, phase: "cancel", scale: row, run: 0, seed: seed_base };
+            emit_error(&k, "cancel_tap_to_cancelled_ms", "the link did not open");
+            continue;
+        };
+        let _ = link.attach(&session, None, opened).await;
+        let tag = std::process::id();
+        let row_started = Instant::now();
+        for i in 0..sends {
+            let k =
+                Key { profile: &label, phase: "cancel", scale: row, run: i, seed: seed_base + i };
+            match cancel_leg(
+                &mut link,
+                &session,
+                &format!("cancel-{row}-{tag}-{i}"),
+                bytes,
+                after,
+                k.seed,
+            )
+            .await
+            {
+                Ok(r) => {
+                    emit(&k, "cancel_tap_to_cancelled_ms", Some(r.tap_to_cancelled_ms));
+                    emit(&k, "cancel_bytes_after", Some(r.bytes_after as f64));
+                    emit(&k, "cancel_inflight_bytes", Some(r.inflight_bytes as f64));
+                    emit(&k, "cancel_draft_restored", Some(if r.restored { 1.0 } else { 0.0 }));
+                }
+                Err(why) => emit_error(&k, "cancel_tap_to_cancelled_ms", &why),
+            }
+            link.pending.clear();
+        }
+        eprintln!(
+            "netcond: cancel row {row}: {sends} cancels of a {bytes} B upload after {after} B in {:?}",
+            row_started.elapsed()
+        );
+    }
+}
+
+struct CancelRun {
+    tap_to_cancelled_ms: f64,
+    bytes_after: u64,
+    inflight_bytes: u64,
+    restored: bool,
+}
+
+/// The bytes of a synthetic attachment at `[from, to)`, as base64 (made per chunk: a 100 MiB
+/// file is never held whole).
+fn synthetic_chunk(from: usize, to: usize) -> String {
+    use base64::Engine as _;
+    let data: Vec<u8> = (from..to).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    base64::engine::general_purpose::STANDARD.encode(data)
+}
+
+/// One cancel run: begin, chunks one in flight until `after` bytes are on the Mac, the next chunk
+/// posted, then the tap: the outbox's Stop, the Mac's cancel, and a late chunk.
+async fn cancel_leg(
+    link: &mut Link,
+    session: &str,
+    prompt_id: &str,
+    bytes: usize,
+    after: usize,
+    seed: u64,
+) -> Result<CancelRun, String> {
+    let deadline = Instant::now() + attach_bound(after + 2 * UPLOAD_CHUNK) + BOUND;
+    let name = "video.mov";
+    let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
+    let begin = link.post(method::MUX_FILE_PUT_BEGIN, begin).await?;
+    let (_, began) = link.answer(begin, deadline).await?;
+    let upload = began["uploadId"].as_str().ok_or("begin named no uploadId")?.to_owned();
+    let owner = began["ownerToken"].as_str().map(str::to_owned);
+
+    // The tap on Send: the draft goes into the one send queue, waiting on its upload.
+    let draft = format!("draft {prompt_id}");
+    let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed);
+    let sent_at = std::time::Instant::now();
+    outbox.set_link(true, sent_at);
+    outbox.push(prompt_id, &draft, vec![upload.clone()], false, sent_at, sent_at);
+
+    let chunk = |offset: usize| {
+        let end = (offset + UPLOAD_CHUNK).min(bytes);
+        let params = json!({"sessionId": session, "uploadId": upload, "offset": offset,
+                            "data": synthetic_chunk(offset, end)});
+        (end, params)
+    };
+    let mut sent_to = 0;
+    while sent_to < after {
+        let (end, params) = chunk(sent_to);
+        let id = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+        link.answer(id, deadline).await?;
+        outbox.upload_progressed(&upload, std::time::Instant::now());
+        sent_to = end;
+    }
+    // The next chunk is on the wire when the person taps Stop.
+    let (inflight_end, params) = chunk(sent_to);
+    let inflight = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+    let inflight_len = (inflight_end - sent_to) as u64;
+
+    let tap = Instant::now();
+    let restored = match outbox.cancel(prompt_id) {
+        Some(chat::CancelStep::Returned(done)) => {
+            done.outcome == chat::PromptOutcome::Cancelled
+                && done.text == draft
+                && done.attachments.iter().any(|a| a.id == upload)
+                && done.cancel_uploads.contains(&upload)
+                && outbox.pending(std::time::Instant::now()).is_empty()
+        }
+        _ => false,
+    };
+    let mut cancel = json!({"sessionId": session, "uploadId": upload});
+    if let Some(owner) = &owner {
+        cancel["ownerToken"] = json!(owner);
+    }
+    let cancel = link.post(method::MUX_FILE_PUT_CANCEL, cancel).await?;
+    let inflight_bytes =
+        if link.answer(inflight, deadline).await.is_ok() { inflight_len } else { 0 };
+    let (cancelled_at, _) = link.answer(cancel, deadline).await?;
+    let tap_to_cancelled_ms = ms(cancelled_at - tap);
+
+    // A late chunk (and the one after it) for the cancelled upload: the Mac must refuse both.
+    let mut bytes_after = 0;
+    let mut offset = inflight_end;
+    for _ in 0..2 {
+        if offset >= bytes {
+            break;
+        }
+        let (end, params) = chunk(offset);
+        let id = link.post(method::MUX_FILE_PUT_CHUNK, params).await?;
+        if link.answer(id, deadline).await.is_ok() {
+            bytes_after += (end - offset) as u64;
+        }
+        offset = end;
+    }
+    Ok(CancelRun { tap_to_cancelled_ms, bytes_after, inflight_bytes, restored })
 }
 
 // ---------------------------------------------------------------------------------------------

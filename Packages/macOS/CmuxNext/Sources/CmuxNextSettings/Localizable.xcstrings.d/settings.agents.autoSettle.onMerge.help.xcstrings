@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.autoSettle.onMerge.help" : {
+      "comment" : "Settings > Agents > Settle Chats: help for the settle-on-merge toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves a chat to Settled once every pull request it opened is merged or closed. Your next message brings it back."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ينقل المحادثة إلى «المسوّاة» بعد دمج كل طلبات السحب التي فتحتها أو إغلاقها. رسالتك التالية تعيدها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješta razgovor u Smireno kada je svaki pull request koji je otvorio spojen ili zatvoren. Vaša sljedeća poruka ga vraća."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Afsluttet, når alle de pull requests, den åbnede, er merget eller lukket. Din næste besked henter den tilbage."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verschiebt einen Chat nach „Abgelegt“, sobald jeder von ihm geöffnete Pull Request gemergt oder geschlossen ist. Deine nächste Nachricht holt ihn zurück."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueve un chat a Archivados cuando todos los pull requests que abrió se fusionaron o cerraron. Tu siguiente mensaje lo recupera."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplace un chat vers Classés dès que chaque pull request qu’il a ouverte est fusionnée ou fermée. Votre prochain message le ramène."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta una chat in Archiviate quando ogni pull request che ha aperto è stata unita o chiusa. Il tuo prossimo messaggio la riporta indietro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いたすべてのプルリクエストがマージまたはクローズされたら、チャットを「整理済み」に移動します。次のメッセージで元に戻ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្លាស់ការជជែកទៅ «បានបញ្ចប់» នៅពេល Pull Request ទាំងអស់ដែលវាបានបើកត្រូវបាន merge ឬបិទ។ សាររបស់អ្នកបន្ទាប់នាំវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "연 모든 풀 리퀘스트가 병합되거나 닫히면 채팅을 정리됨으로 옮깁니다. 다음 메시지를 보내면 돌아옵니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Avsluttet når alle pull requestene den åpnet er merget eller lukket. Den neste meldingen din henter den tilbake."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przenosi czat do Odłożonych, gdy każdy otwarty przez niego pull request zostanie scalony lub zamknięty. Twoja następna wiadomość go przywraca."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move um chat para Arquivados quando todos os pull requests que ele abriu forem mesclados ou fechados. Sua próxima mensagem o traz de volta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перемещает чат в «Убранные», когда все открытые им пул-реквесты слиты или закрыты. Ваше следующее сообщение вернёт его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายแชตไปที่ จัดเก็บแล้ว เมื่อ Pull Request ทุกรายการที่แชตเปิดถูก merge หรือปิด ข้อความถัดไปของคุณจะนำแชตกลับมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açtığı her pull request birleştirildiğinde ya da kapatıldığında sohbeti Kaldırılanlar’a taşır. Sonraki mesajınız onu geri getirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переміщує чат до «Прибраних», коли всі відкриті ним пул-реквести злито або закрито. Ваше наступне повідомлення поверне його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chuyển cuộc trò chuyện sang Đã xếp gọn khi mọi pull request nó mở đã được merge hoặc đóng. Tin nhắn tiếp theo của bạn sẽ đưa nó trở lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当它打开的每个拉取请求都已合并或关闭时，将聊天移到“已归档”。你的下一条消息会把它带回来。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "當它開啟的每個拉取請求都已合併或關閉時，將聊天移到「已歸檔」。你的下一則訊息會把它帶回來。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

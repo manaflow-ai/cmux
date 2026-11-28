@@ -7,6 +7,13 @@
  * exec API's 300 s cap, with no status and no step name; StepLog.detachedStep (guest.ts) records the same class for
  * the image inventory (rolls 45829777164, 45883186922). Here a lost poll costs one poll: the next one asks again.
  *
+ * Two clocks, as a CDN keeps an origin timeout apart from its retry window: the budget bounds the guest's command
+ * (its own `timeout` ends it and writes `status` to disk), and the outage window bounds how long the provider's exec
+ * API may stay unreachable. Rebake run 45960390204 (2026-11-27, Freestyle "start capacity overloaded") lost
+ * `media-apt` at 546 s with every poll timing out: a failing poll says nothing about the guest, so past the budget
+ * the step keeps asking until the provider has been unreachable for the outage window. A poll that answers with no
+ * status past the budget still fails at once: that guest lost the command.
+ *
  * The guest runs the command under `timeout` (status 124 at the budget), in bash, as the start call's user and env.
  */
 
@@ -35,6 +42,8 @@ export type DetachedExecOptions = {
   maxPollMs?: number;
   /** Past the budget: the guest's kill, the status write and a slow poll. */
   graceMs?: number;
+  /** Past the budget, polls that keep failing go on until none has answered for this long. */
+  outageMs?: number;
   sleep?: (ms: number) => Promise<unknown>;
   now?: () => number;
 };
@@ -43,6 +52,7 @@ export const DETACHED_EXEC_CALL_MS = 30_000;
 export const DETACHED_EXEC_FIRST_POLL_MS = 250;
 export const DETACHED_EXEC_MAX_POLL_MS = 5_000;
 export const DETACHED_EXEC_GRACE_MS = 60_000;
+export const DETACHED_EXEC_OUTAGE_MS = 600_000;
 const STDERR_MARK = "--cmux-detached-exec-stderr--";
 
 const defaultSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -101,7 +111,9 @@ export async function detachedExec(vm: DetachedExecVm, command: string, options:
   if (!started) throw new DetachedExecLost(`never started after 3 tries: ${String(lastError)}`, lastError);
 
   const deadline = t0 + options.budgetMs + (options.graceMs ?? DETACHED_EXEC_GRACE_MS);
+  const outageMs = options.outageMs ?? DETACHED_EXEC_OUTAGE_MS;
   let pollMs = options.firstPollMs ?? DETACHED_EXEC_FIRST_POLL_MS;
+  let lastAnswerAt = now();
   lastError = undefined;
   for (;;) {
     await wait(pollMs);
@@ -109,6 +121,7 @@ export async function detachedExec(vm: DetachedExecVm, command: string, options:
     try {
       const r = await call(`if [ -s ${dir}/status ]; then cat ${dir}/status; cat ${dir}/out; echo ${STDERR_MARK}; tail -c 3000 ${dir}/err; fi`);
       lastError = undefined;
+      lastAnswerAt = now();
       if (r.stdout !== "") {
         const newline = r.stdout.indexOf("\n");
         const code = Number(r.stdout.slice(0, newline).trim());
@@ -121,12 +134,12 @@ export async function detachedExec(vm: DetachedExecVm, command: string, options:
     } catch (error) {
       lastError = error;
     }
-    if (now() > deadline) {
+    if (now() > deadline && (lastError === undefined || now() - lastAnswerAt > outageMs)) {
       const secs = ((now() - t0) / 1000).toFixed(1);
       throw new DetachedExecLost(
         lastError === undefined
           ? `no status after ${secs}s (budget ${budgetSecs}s): the guest lost the command`
-          : `no status after ${secs}s (budget ${budgetSecs}s); last poll failed: ${String(lastError)}`,
+          : `no status after ${secs}s (budget ${budgetSecs}s); no poll answered for ${((now() - lastAnswerAt) / 1000).toFixed(1)}s; last poll failed: ${String(lastError)}`,
         lastError,
       );
     }

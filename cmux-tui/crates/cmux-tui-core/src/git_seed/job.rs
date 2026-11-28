@@ -374,6 +374,7 @@ impl GitSeedService {
         match cmd {
             "git.seed.start" => self.start(params),
             "git.seed.export" => self.export(params),
+            "git.seed.borrowable" => run::borrow::borrowable(&self.config.git, &self.roots, params),
             "git.seed.hold" => self.hold(params),
             "git.seed.hold.head" => self.hold_head(params),
             "git.seed.hold.end" => self.hold_end(params),

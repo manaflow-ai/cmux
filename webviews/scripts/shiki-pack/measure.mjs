@@ -37,7 +37,7 @@ async function files(root, prefix = "") {
     if (entry.isDirectory()) result.push(...(await files(root, relative)));
     else if (entry.isFile()) result.push(relative);
   }
-  return result.sort();
+  return result.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 execFileSync("bun", ["scripts/pages/gen-strings.mjs"], { cwd: webviews, stdio: "inherit", timeout: 120_000 });
@@ -233,7 +233,7 @@ try {
                         else for (const child of Object.values(value)) visit(child);
                       };
                       visit(module);
-                      return [...new Set(values)].sort();
+                      return [...new Set(values)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
                     };
                     const original = grammars(before);
                     const packed = grammars(after);

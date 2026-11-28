@@ -102,6 +102,10 @@ fn trim_spaces(text: &str) -> &str {
 }
 
 /// `text` without the ASCII `prefix` (any case), or `None`.
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
     head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
@@ -317,6 +321,10 @@ fn read_bool(value: Option<&Value>, key: &str, field: &mut bool, problems: &mut 
 
 /// Classic's host normalizer (`RemoteLoopbackProxyAlias.normalizeHost`):
 /// lowercase, no scheme, path, port, brackets or outer dots, IDN as punycode.
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn normalized_host(raw: &str) -> Option<String> {
     let mut value = raw.trim().to_lowercase();
     if value.is_empty() {
@@ -392,6 +400,10 @@ pub const PRESETS: [(&str, &str); 6] = [
 
 impl Target {
     /// Reads a target from its settings text; `None` when it names none.
+    #[allow(
+        clippy::string_slice,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     pub fn parse(text: &str) -> Option<Self> {
         let trimmed = text.trim();
         let lower = trimmed.to_lowercase();
@@ -533,6 +545,10 @@ impl Rule {
 }
 
 /// `*` and `?` over the whole name.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn glob_matches(pattern: &str, name: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let n: Vec<char> = name.chars().collect();
@@ -611,6 +627,10 @@ impl Opener {
     /// The target for `url` opened by the process chain `callers`, and the
     /// index of the rule that decided (`None`: the default). With no rule
     /// matching, a sign-in page `routing` keeps in cmux opens in cmux.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     pub fn decide<S: AsRef<str>>(
         &self,
         url: &str,

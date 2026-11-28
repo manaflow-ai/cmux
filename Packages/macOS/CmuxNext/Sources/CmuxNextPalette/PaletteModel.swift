@@ -374,9 +374,35 @@ public final class PaletteModel {
         frecency = remembersSearches ? usage.history : usage.history.keepingOnlyHidden()
     }
 
+    /// Whether `effect` runs and closes the palette (decided now; a deferred effect is decided when it runs).
+    private static func closes(_ effect: PaletteEffect) -> Bool {
+        if case .perform = effect { return true }
+        return false
+    }
+
+    /// The shown page's item `id` as its providers list it now (the last search's rows may be older).
+    private func providerItem(id: String) -> PaletteItem? {
+        guard let current else { return nil }
+        for items in current.providerItems.values {
+            if let item = items.first(where: { $0.id == id }) { return item }
+        }
+        return nil
+    }
+
     /// Runs `command` for `item`, recording usage.
     public func run(_ command: PaletteCommand, of item: PaletteItem) {
         guard item.isEnabled else { return }
+        // A row run before the open's after-frame load (type-ahead in the opening turn) runs on the full read. The
+        // first frame's reads are the state before the run: a toggle's reload after the run would list them again (its
+        // old value), and a family row's page would list only the members the first frame read. A row that closes the
+        // palette lists nothing after it: the close drops the load.
+        if !deferredLoads.isEmpty, !Self.closes(command.effect) {
+            flushDeferredLoads()
+            if case .deferred = command.effect, let fresh = providerItem(id: item.id),
+               let same = fresh.allCommands.first(where: { $0.id == command.id && $0.title == command.title }) {
+                return run(same, of: fresh)
+            }
+        }
         if item.enters != nil, command.id == item.primary.id {
             // A scope row: the reducer enters the scope.
             send(.activate(item.id))

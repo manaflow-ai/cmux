@@ -139,7 +139,7 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     }
 }
 
-extension ActionArgument {
+nonisolated extension ActionArgument {
     /// The `theme` argument value that resets to the Ghostty config.
     public nonisolated static let themeConfigValue = "config"
 

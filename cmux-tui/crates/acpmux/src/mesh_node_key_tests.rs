@@ -277,3 +277,26 @@ fn concurrent_first_use_keeps_one_public_identity() {
     });
     assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
 }
+
+/// A sign-out archives the app's link (no adoption record), then a test records a temporary
+/// link dir on the same home and deletes it. The app's link, still naming this home, serves:
+/// the deleted one recorded last does not hide it from the hub carrier's handoff.
+#[test]
+fn a_deleted_link_dir_recorded_last_never_hides_the_live_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("acpmux");
+    load_or_create_at(&home).unwrap();
+    let (app, temp) = (dir.path().join("app"), dir.path().join("temp"));
+    for link in [&app, &temp] {
+        std::fs::create_dir_all(link).unwrap();
+    }
+    record_link_home(&app, Some(&home)).unwrap();
+    record_link_home(&temp, Some(&home)).unwrap();
+    assert_eq!(recorded_link_dir(&home), Some(temp.clone()), "the last live one serves");
+    std::fs::remove_dir_all(&temp).unwrap();
+    assert_eq!(recorded_link_dirs(&home), vec![app.clone(), temp]);
+    assert_eq!(recorded_link_dir(&home), Some(app.clone()), "a deleted dir hid the app's");
+    // Signed back in: the app's link serves the key, so the carrier hands its lease over.
+    std::fs::write(app.join("config.json"), r#"{"install":"inst_a","port":0}"#).unwrap();
+    assert!(link_serves_node_key(recorded_link_dir(&home).as_deref(), &home));
+}

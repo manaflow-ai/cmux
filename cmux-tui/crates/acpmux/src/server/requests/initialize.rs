@@ -26,6 +26,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_AUTO_SESSION_SET,
     method::MUX_AUTO_SESSION_TRANSCRIPT,
     method::MUX_AUTO_SESSION_WAKE,
+    method::MUX_BG_REARM,
     method::MUX_BOOKMARK_GET,
     method::MUX_BOOKMARK_SET,
     method::MUX_BRIEFS,
@@ -48,6 +49,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_EVENTS,
     method::MUX_EXPORT,
     method::MUX_FELT_SNAPSHOT,
+    method::MUX_WATCHDOG_HOLD,
     method::MUX_FILE_PUT,
     method::MUX_FILE_PUT_BEGIN,
     method::MUX_FILE_PUT_CANCEL,
@@ -122,6 +124,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_SESSION_AUTH,
     method::MUX_SESSION_FILES,
     method::MUX_SESSION_HOLD,
+    method::MUX_SESSION_RESOURCES,
     method::MUX_SET_DIRECTORIES,
     method::MUX_SET_POLICY,
     method::MUX_SET_TOOLS,
@@ -142,6 +145,9 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TASKS,
     method::MUX_TASK_NEW,
     method::MUX_TEAM_ACK,
+    method::MUX_TEAM_CUSTOMIZATION,
+    method::MUX_TEAM_CUSTOMIZE,
+    method::MUX_TEAM_HANDOFF,
     method::MUX_TEAM_INBOX,
     method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_NAVIGATOR,
@@ -152,6 +158,8 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TRANSCRIPT_OFFLOAD,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
+    method::MUX_LIVE,
+    method::MUX_LIVE_LIST,
     method::MUX_ROOMS,
     method::MUX_FOLLOW,
     method::MUX_TYPING,
@@ -183,6 +191,7 @@ const FEATURES: &[&str] = &[
     "eventPaging",
     "eventStream",
     "harnessInventory",
+    crate::cli::last_reply::LAST_REPLY_FEATURE,
     "messageSuperseded",
     "permissionGroups",
     "personChallenge",
@@ -219,6 +228,7 @@ const FEATURES: &[&str] = &[
     crate::hub::fork_subagent::FEATURE,
     crate::hub::journal_restore::PAGES_FEATURE,
     crate::hub::pause::FEATURE,
+    crate::hub::presence::PEER_FEATURE,
     crate::hub::register::AUTO_FEATURE,
     crate::hub::release_to_watch::FEATURE,
     crate::hub::require_asking::FEATURE,
@@ -230,6 +240,7 @@ const FEATURES: &[&str] = &[
     crate::prompt_uploads::FEATURE,
     crate::request_cancel::FEATURE,
     crate::sender_token::FEATURE,
+    super::super::bg_rearm::FEATURE,
     super::super::client_features::UNSENT_FEATURE,
     super::super::dual_requests::FEATURE,
     super::super::fork_through::FORK_REQUEST_FEATURE,
@@ -259,6 +270,9 @@ pub(super) fn initialize(
     }
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
+    // Its ABI hello, counted once here for `_acpmux/status` (`note_initialize` runs twice per
+    // `initialize`); nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
     // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
@@ -419,6 +433,9 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
     // The features it reads (`client_features.rs`); none listed: a client from before the list.
     conn.client_features.note(params);
+    // The revision its events and replies are written at (`abi_compat.rs`): its own, when older.
+    let down = crate::abi_compat::target(crate::abi_hello::read(params).abi);
+    conn.abi_down.store(down.unwrap_or(0), Ordering::SeqCst);
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);

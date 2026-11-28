@@ -44,11 +44,13 @@ pub mod never_delete;
 pub mod owner;
 mod park;
 pub mod pass;
+pub mod paused_clean;
 pub mod policy;
 pub mod procs;
 pub mod restore;
 pub mod schedule;
 pub mod store;
+pub mod walk_memo;
 
 pub use inventory::{Facts, Repo, Worktree};
 pub use policy::{Action, Pressure, Verdict};

@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
@@ -291,6 +292,22 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
     }
+    /// `scan_back` for a reader that wants only some records: a line `may_match(line, dir, kind)`
+    /// is false for holds none of them, and a file store passes it without parsing it (a store
+    /// that holds parsed records may ignore it; `visit` still decides on the rest). A subagent
+    /// pane's newest page of a long chat parsed every line back to that subagent's records (Leo,
+    /// 2026-11-27: "these take way too long to load").
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        _may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -423,6 +440,15 @@ pub trait Store: Send + Sync {
     /// Saves `bytes` as `id`'s restore point, whole or not at all. A store that keeps none
     /// drops it.
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
+    /// The inbox point `id`'s last inbox restore saved (`hub/inbox_point.rs`), as saved. None in
+    /// a store that keeps none.
+    fn inbox_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s inbox point, whole or not at all. A store that keeps none drops it.
+    fn save_inbox_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
     /// Records used by the whole-store search, including an archive without thawing it.
@@ -715,6 +741,11 @@ pub trait Store: Send + Sync {
     fn audit_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where each chat's usage tracker is saved (`hub/usage_view.rs`): `usage-trackers/` beside
+    /// `sessions/`, or none (in memory, read over by each daemon) for the memory store.
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
@@ -813,6 +844,7 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+const INBOX_POINT: &str = "inbox-point.json";
 /// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
 const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
 
@@ -1703,6 +1735,19 @@ impl Store for LocalStore {
         write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(INBOX_POINT)).ok()
+    }
+
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As the restore point's: a deleted chat's folder is not made again (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        write_atomic(&dir.join(INBOX_POINT), bytes)
+    }
+
     fn text_entries(
         &self,
         id: &str,
@@ -1740,7 +1785,19 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, false)
+        self.scan_back_in(id, after, before, skip, None, visit, false)
+    }
+
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, Some(may_match), visit, false)
     }
 
     fn scan_back_indexed(
@@ -1751,7 +1808,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, true)
+        self.scan_back_in(id, after, before, skip, None, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
@@ -2003,6 +2060,10 @@ impl Store for LocalStore {
 
     fn audit_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("audit"))
+    }
+
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("usage-trackers"))
     }
 }
 

@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: cmux-rd-windows-host-build-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

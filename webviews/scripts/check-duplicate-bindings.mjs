@@ -187,7 +187,7 @@ async function main(argv) {
   );
   const bad = results.flat();
   const files = paths.length;
-  bad.sort();
+  bad.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (bad.length) {
     console.error("a module binds one name twice (the web build fails on it, or tsc does):\n  " + bad.join("\n  "));
     return 1;
