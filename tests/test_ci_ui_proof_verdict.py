@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 import zlib
 from pathlib import Path
 from unittest import mock
@@ -93,6 +94,17 @@ class PathsTest(unittest.TestCase):
 class VerdictTest(unittest.TestCase):
     def v(self, need="app", body="", records=None, ui=(), off=False):
         return u.verdict(need, body, records or {}, list(ui), 7, off=off)
+
+    def test_fix_title_without_new_ui_needs_no_look(self) -> None:
+        # Leo, 2026-11-28 (c-601949839a): "you dont need to be waiting for screenshots in these cases if logically it
+        # shoul go as you expect".
+        for title in ("fix(next): preserve New Tab composer through lazy screen loading", "fix: row gap",
+                      "Fix sidebar caret jump"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        self.assertEqual(u.verdict("app", "", {}, [], 7, title="Split New Tab: composer pre-rendered")[0], "pending")
+        self.assertEqual(u.verdict("app", "", {}, ["webviews/src/New.tsx"], 7, title="fix: add panel")[0], "pending")
+        failed = {"verdict": "fail", "suite": "gui-flows", "runs": [{"name": "tabs", "result": "fail"}]}
+        self.assertEqual(u.verdict("app", "", {"gui-flows": failed}, [], 7, title="fix: row gap")[0], "failure")
 
     def test_nothing_visual_passes_at_once(self) -> None:
         self.assertEqual(self.v(need="")[0], "success")
@@ -196,6 +208,22 @@ class RecordTest(unittest.TestCase):
             rec = u.build_record(out, repo="o/r", pr=7, head=HEAD)
             self.assertEqual((rec["suite"], rec["verdict"]), ("web-flows", "fail"))
             self.assertFalse(rec["visual"]["diffed"])
+
+    def test_a_look_without_after_light_names_the_missing_file_and_the_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "after").mkdir()
+            (out / "after" / "split-open.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            look = rec["runs"][0]
+            self.assertEqual((look["name"], look["result"], rec["verdict"]), ("look", "fail", "fail"))
+            self.assertIn("missing after/light.png", look["note"])
+            self.assertIn("split-open.png", look["note"])
+            self.assertIn("after/{light,dark}.png", look["note"])
+            (out / "after" / "light.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            self.assertEqual(rec["runs"][0]["result"], "pass")
+            self.assertNotIn("note", rec["runs"][0])
 
 
     def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
@@ -686,6 +714,79 @@ class LookFailedTest(unittest.TestCase):
         self.assertEqual(sj["permissions"].get("statuses"), "write")
         self.assertIn("ui_proof_verdict.py sweep", sj["steps"][-1]["run"])
 
+
+
+class BaseMergeCarryTest(unittest.TestCase):
+    """cmux#46235: a look at 0bbdc46b, the train's base merges to cca4e6ce and 4abda3b6, and each head waited 2 h for
+    a new look."""
+    OLD, MID, NEW, B1, B2 = ("1" * 40, "2" * 40, "3" * 40, "c" * 40, "d" * 40)
+    FILES = ["webviews/src/a.tsx", "README.md"]
+
+    def carry(self, chain, blobs=None, files=None):
+        """CHAIN: sha -> parents. BLOBS: ref -> {path: blob} (default: the same blobs at every ref)."""
+        blobs = blobs or {}
+
+        def call(path, token):
+            if "/git/commits/" in path:
+                sha = path.rsplit("/", 1)[1]
+                return {"parents": [{"sha": p} for p in chain.get(sha, [])]}
+            d, ref = path.split("/contents/", 1)[1].split("?ref=")
+            have = blobs.get(ref, {"webviews/src/a.tsx": "x", "README.md": "y"})
+            return [{"path": p, "sha": v} for p, v in have.items() if p.rpartition("/")[0] == urllib.parse.unquote(d)]
+        return u.base_merge_carry("o/r", self.OLD, self.NEW, files or self.FILES, "t", call)
+
+    def test_one_base_merge_carries(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.OLD, self.B1]}), "")
+
+    def test_two_base_merges_carry(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.MID, self.B2], self.MID: [self.OLD, self.B1]}), "")
+
+    def test_a_push_of_its_own_does_not_carry(self) -> None:
+        self.assertIn("not a merge", self.carry({self.NEW: [self.OLD]}))
+        self.assertIn("not a merge", self.carry({self.NEW: [self.MID, self.B1], self.MID: [self.OLD]}))
+
+    def test_a_changed_pr_file_does_not_carry(self) -> None:
+        moved = {self.NEW: {"webviews/src/a.tsx": "z", "README.md": "y"}}
+        self.assertIn("webviews/src/a.tsx", self.carry({self.NEW: [self.OLD, self.B1]}, moved))
+        gone = {self.OLD: {"README.md": "y"}}  # added by the merge resolution: absent at the look
+        self.assertIn("differ", self.carry({self.NEW: [self.OLD, self.B1]}, gone))
+
+    def test_caps_and_unread_carry_nothing(self) -> None:
+        far = {self.NEW: [self.MID, self.B1], self.MID: [self.MID, self.B2]}  # never reaches OLD
+        self.assertIn("within", self.carry(far))
+        self.assertIn("directories", self.carry({self.NEW: [self.OLD, self.B1]},
+                                                files=[f"d{i}/f" for i in range(u.CARRY_MAX_DIRS + 1)]))
+        self.assertIn("unread", u.base_merge_carry("o/r", self.OLD, self.NEW, [], "t", lambda *a: {}))
+
+    def gate(self, carry_why: str) -> tuple[str, str]:
+        rec = record(suite="web-flows", head=self.OLD)
+        comment = {"body": f"<!-- {proof_record.KIND} web-flows {self.OLD} -->", "html_url": "u"}
+
+        def find(comments, suite, sha, *a):
+            return rec if (sha == self.OLD and suite == "web-flows") else None
+
+        def api(path, token, *a, **k):
+            return {"statuses": []} if "/status" in path else {"body": ""}
+        with mock.patch.dict(os.environ, {"CI_UI_PROOF": ""}), \
+                mock.patch.object(u, "changed_files", return_value=self.FILES), \
+                mock.patch.object(u, "added_files", return_value=[]), \
+                mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u, "base_merge_carry", return_value=carry_why), \
+                mock.patch.object(u.proof_record, "writer_check", return_value=lambda login: True), \
+                mock.patch.object(u.proof_record, "pr_comments", return_value=[comment]), \
+                mock.patch.object(u.proof_record, "find", side_effect=find), \
+                contextlib.redirect_stderr(io.StringIO()):
+            return u.gate_now("manaflow-ai/cmux", "7", self.NEW, "t", [])
+
+    def test_gate_carries_an_older_heads_look(self) -> None:
+        state, desc = self.gate("")
+        self.assertEqual(state, "success")
+        self.assertIn(f"carried from {self.OLD[:12]} (base merges only)", desc)
+
+    def test_gate_without_a_carry_still_waits(self) -> None:
+        state, desc = self.gate("x is not a merge commit")
+        self.assertEqual(state, "pending")
+        self.assertTrue(desc.startswith(u.NO_LOOK))
 
 if __name__ == "__main__":
     unittest.main()

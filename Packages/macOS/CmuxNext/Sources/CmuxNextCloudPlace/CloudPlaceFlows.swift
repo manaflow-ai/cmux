@@ -211,9 +211,18 @@ public final class CloudPlaceFlows {
                                 "from": from, "to": to, "cargo": cargo.json, "atMs": nowMs])
     }
 
-    /// `step` starts (the steps before it are done).
+    /// `step` starts (the steps before it are done). `kept` is where the step it leaves spent its time (``phases(_:_:_:)``).
     @discardableResult
-    public func step(_ session: String?, _ step: String) -> Next { session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
+    public func step(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) -> Next {
+        if let kept { phases(session, kept.step, kept.phases) }
+        return session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go
+    }
+
+    /// Where `step`'s time went (its CLI's ``CloudMoveCLI/Answer/phases``), kept with the step in the view's `steps`.
+    public func phases(_ session: String?, _ step: String, _ phases: [String: Int]?) {
+        guard let session, let phases, !phases.isEmpty else { return }
+        _ = report(session, ["event": "phases", "step": step, "phases": phases])
+    }
 
     /// The machine got its name.
     @discardableResult
@@ -248,11 +257,11 @@ public final class CloudPlaceFlows {
     }
 
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
-    /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
-    public func advance(_ session: String?, _ step: String) throws {
+    /// steps before the chat lands; once the chat committed, use ``step(_:_:kept:)``, which never stops the move.
+    public func advance(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) throws {
         try Task.checkCancellation()
         guard let session else { return }
-        guard self.step(session, step) != .stop else {
+        guard self.step(session, step, kept: kept) != .stop else {
             cancelled.insert(session)
             throw CancellationError()
         }
@@ -390,11 +399,13 @@ public final class CloudPlaceFlows {
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
     /// `machine`: the chat's machine id, whose AutoSize rows (RFD 0080 piece 4) `place.autosize` carries with
     /// `cmux.cloud.autosizeRows` on (default off); nil carries none.
+    /// `modes`: the choices its control offers (`CmuxConfigSnapshot.placeModes`); nil leaves them out.
     public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil,
-                          machine: String? = nil) -> Data? {
+                          machine: String? = nil, modes offered: [String]? = nil) -> Data? {
         if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
+        if let offered { place["modes"] = offered }
         if let cloudName { place["cloudName"] = cloudName }
         // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
