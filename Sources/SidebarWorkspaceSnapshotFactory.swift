@@ -225,6 +225,7 @@ struct SidebarWorkspaceSnapshotFactory {
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         Self.presentationKey(
+            workspaceId: workspace.id,
             settings: settings,
             showsAgentActivity: showsAgentActivity,
             customColorHex: workspace.customColor ?? originColorHex,
@@ -234,6 +235,7 @@ struct SidebarWorkspaceSnapshotFactory {
     }
 
     static func presentationKey(
+        workspaceId: UUID,
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
         customColorHex: String?,
@@ -241,6 +243,7 @@ struct SidebarWorkspaceSnapshotFactory {
         hostTitleSuffix: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: workspaceId,
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
             showsGitBranch: settings.showsGitBranch,

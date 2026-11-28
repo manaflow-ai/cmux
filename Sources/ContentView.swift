@@ -13291,6 +13291,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceIds: Set(workspaceById.keys),
             presentationKey: { workspaceId in
                 SidebarWorkspaceSnapshotFactory.presentationKey(
+                    workspaceId: workspaceId,
                     settings: settings,
                     showsAgentActivity: showsAgentActivity,
                     customColorHex: workspaceById[workspaceId].flatMap { workspace in
