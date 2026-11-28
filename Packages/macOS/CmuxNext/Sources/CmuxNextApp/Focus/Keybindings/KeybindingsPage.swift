@@ -10,7 +10,7 @@ extension PageDescriptor {
                                             ownsSearchField: true)
 }
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let keybindings = InternalPageID(rawValue: "keybindings")
 }
 
