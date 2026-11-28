@@ -69,6 +69,7 @@ import PackageDescription
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
 //   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
 //     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
+//   CmuxNextBrowserAutomation -> Browser, Compat, Wakeups, CCmuxAppFFI (the WebKit driver; its rules in Rust, cmux-browser-rules)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -2796,6 +2797,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowserAutomation",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // the driver's rules: params, deadlines, tab place, frame tree (cmux-browser-rules)
+                "CCmuxAppFFI",
                 "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
