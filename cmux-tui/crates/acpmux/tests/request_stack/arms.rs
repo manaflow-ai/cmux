@@ -208,7 +208,6 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_START_MODE, Run(json!({"harness": "fake", "cwd": "$CWD"}))),
         ("_acpmux/set_default_policy", Run(json!({"policy": "ask"}))),
         ("_acpmux/peers", Run(json!({}))),
-        ("_acpmux/host_overload", Run(json!({}))),
         (
             "_acpmux/wireguard_admit",
             Any(

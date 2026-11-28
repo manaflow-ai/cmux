@@ -8529,6 +8529,16 @@
       "title" : "Install Versions from What's New",
       "type" : "boolean"
     },
+    "window.settingsPresentation" : {
+      "default" : "tab",
+      "description" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left.",
+      "enum" : [
+        "tab",
+        "page"
+      ],
+      "title" : "Open Settings In",
+      "type" : "string"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
