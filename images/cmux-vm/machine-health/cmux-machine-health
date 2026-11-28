@@ -33,7 +33,7 @@ Config: /etc/cmux/machine-health.json overrides DEFAULTS. Install, from any copy
   sudo python3 cmux-machine-health install [--config FILE]
 Remove: sudo cmux-machine-health uninstall (or systemctl disable --now cmux-machine-health.timer).
 """
-import argparse, contextlib, fcntl, hashlib, json, os, pwd, re, shutil, socket, subprocess, sys, time
+import argparse, contextlib, fcntl, hashlib, json, os, pwd, re, shutil, socket, stat, subprocess, sys, time
 
 STATE_DIR = "/run/cmux"
 HEALTH_FILE = f"{STATE_DIR}/machine-health.json"
@@ -277,6 +277,25 @@ class Host:
         os.symlink("../run/systemd/resolve/stub-resolv.conf", tmp)
         os.replace(tmp, RESOLV_CONF)
 
+    def chats_fault(self, user):
+        """Why acpmux would refuse every cloud chat start in user's ~/chats, or None: it needs a
+        real directory the user owns that only the user can write (or none, which it makes)."""
+        try:
+            st = os.lstat(os.path.join(user.pw_dir, "chats"))
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            return f"cannot be read ({type(e).__name__})"
+        if stat.S_ISLNK(st.st_mode):
+            return "is a symlink, not a directory"
+        if not stat.S_ISDIR(st.st_mode):
+            return "is not a directory"
+        if st.st_uid != user.pw_uid:
+            return f"is owned by uid {st.st_uid}, not {user.pw_name}"
+        if st.st_mode & 0o022:
+            return f"is writable by its group or others (mode {stat.S_IMODE(st.st_mode):o})"
+        return None
+
     def linger_users(self):
         try:
             return sorted(os.listdir(LINGER_DIR))
@@ -458,6 +477,10 @@ class Pass:
                 continue
             self.homes.add(user.pw_dir)
             self.check_units(user, "acpmux", self.config["acpmuxUnits"])
+            fault = self.host.chats_fault(user)
+            if fault:
+                # acpmux refuses every start under such a folder (a 775 one it now repairs itself)
+                self.problem("acpmux", f"acpmux:{user.pw_name}:chats", f"acpmux: {user.pw_name}'s ~/chats {fault}, so session starts there are refused")
             self.check_units(user, "cmux", self.config["cmuxUserUnits"])
             for sock in self.config["acpmuxSockets"]:
                 answered |= self.check_peers(user, user.pw_dir + sock[1:] if sock.startswith("~/") else sock, sock)

@@ -77,3 +77,50 @@ fn the_table_is_bounded_and_refuses_bad_input() {
     many.scopes = (0..17).map(|i| i.to_string()).collect();
     assert!(t.beat(&owner(), many, 1_000).is_err());
 }
+
+fn peer(
+    name: &str,
+    connected: bool,
+    acknowledged: bool,
+    edits: u64,
+) -> crate::protocol::here::HereSyncPeer {
+    crate::protocol::here::HereSyncPeer {
+        peer: name.into(),
+        connected,
+        acknowledged,
+        unacknowledged_edits: edits,
+    }
+}
+
+/// RFD 0140's status icon: one reduction, here, for every client (the Swift sidebar draws only this).
+#[test]
+fn summary_reduces_sync_and_presence_once() {
+    use crate::protocol::here::HereSyncState::*;
+    let t = HereTable::default();
+    t.beat(&owner(), beat("mac", 1, HereActivity::Present), 1_000).unwrap();
+    t.beat(
+        &Who { id: "a1".into(), name: "Ana".into() },
+        beat("mac2", 1, HereActivity::Present),
+        1_000,
+    )
+    .unwrap();
+    let r = t.here(None, vec![Agent { session: "s1".into(), name: "fix".into() }], 2_000);
+    let of = |sync: &[_]| HereSummary::of(&r.here, sync, OWNER_ID);
+    // Presence: the owner is not counted; the other person and the agent are.
+    let s = of(&[]);
+    assert_eq!((s.sync, s.pending_edits, s.others, s.agents), (Alone, 0, 1, 1));
+    // A connected peer behind: syncing, counting its edits.
+    assert_eq!(of(&[peer("vm", true, false, 3)]).sync, Syncing);
+    assert_eq!(of(&[peer("vm", true, false, 3)]).pending_edits, 3);
+    // Unacknowledged with zero edits is still not synced.
+    assert_eq!(of(&[peer("vm", true, false, 0)]).sync, Syncing);
+    assert_eq!(of(&[peer("vm", true, true, 0)]).sync, Synced);
+    // A sleeping phone with queued edits does not mark a Mac with a live VM offline.
+    let mixed = of(&[peer("vm", true, true, 0), peer("phone", false, false, 7)]);
+    assert_eq!((mixed.sync, mixed.pending_edits), (Synced, 0));
+    // Every peer down with edits queued: offline, counting the most any peer misses.
+    let off = of(&[peer("vm", false, false, 2), peer("phone", false, false, 5)]);
+    assert_eq!((off.sync, off.pending_edits), (Offline, 5));
+    // Every peer down with nothing queued is not an alarm.
+    assert_eq!(of(&[peer("vm", false, true, 0)]).sync, Synced);
+}
