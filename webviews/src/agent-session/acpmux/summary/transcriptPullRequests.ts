@@ -347,6 +347,19 @@ function replyFindings(text: string): Finding[] {
 /// the options (a reply is only read when `replies` asks), so readers with and without `replies`
 /// share them.
 const cache = new WeakMap<AcpmuxRow, Finding[]>();
+/// A tool call's findings, by call object. A running turn's activity row is a new object each time a
+/// call is added or settles, but the calls it kept are the same objects: each row write (``OrderedRows.set``)
+/// parsed every call of the row again, O(calls) per event and O(calls²) per turn. Calls are not
+/// changed in place, so a kept call's findings are the same.
+const toolCache = new WeakMap<Tool, Finding[]>();
+function cachedToolFindings(tool: Tool): Finding[] {
+  let kept = toolCache.get(tool);
+  if (kept === undefined) {
+    kept = toolFindings(tool);
+    toolCache.set(tool, kept);
+  }
+  return kept;
+}
 
 function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
   if (row.kind !== "activity" && !(replies && row.kind === "assistant")) return [];
@@ -355,7 +368,7 @@ function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
   if (kept) return kept;
   const findings =
     row.kind === "activity"
-      ? (row.items ?? []).flatMap((item) => (item.tool ? toolFindings(item.tool) : []))
+      ? (row.items ?? []).flatMap((item) => (item.tool ? cachedToolFindings(item.tool) : []))
       : replyFindings(row.text ?? "");
   cache.set(row, findings);
   return findings;
