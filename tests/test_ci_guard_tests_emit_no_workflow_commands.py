@@ -31,6 +31,7 @@ ANNOTATING_MODULES = (
     "tests/test_ci_helper_prebuild_lifecycle.py",
     "tests/test_ci_late_placement.py",
     "tests/test_ci_parallel_artifact_transport.py",
+    "tests/test_ci_pr_media_lint.py",
     "tests/test_ci_prune_pr_media.py",
     "tests/test_ios_upload_batching.py",
 )

@@ -265,6 +265,12 @@ class FrameScore(unittest.TestCase):
         self.assertEqual(vs.motion_geometry(log), GEO)
         self.assertIsNone(vs.motion_geometry("marker-origin 0,50\n"))
 
+    def test_marker_refresh_line_gives_the_host_display_rate(self):
+        # A 30 Hz mode doubles the Screen stage; the row has to say which rate the host ran.
+        self.assertEqual(vs.marker_refresh("refresh-hz 60 mode-hz 30"), {"refresh_hz": 60.0, "mode_hz": 30.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz 120"), {"refresh_hz": 120.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz x mode-hz"), {})
+
     def test_click_and_scroll_aim_at_the_marker_pad(self):
         # Without --at the bench clicks 960,600, off the marker, and every click/scroll trial is lost.
         at = vs.marker_click_at("marker-origin 0,50 click-at 704,66")
@@ -1054,11 +1060,45 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class ClipboardTrialTest(unittest.TestCase):
+    """The first two-Mac pair, 11-28: a copy-paste trial's samples carry `echo_ns`, not `decoded_ns`,
+    and run_cmux read the frame time (KeyError after the warm-up)."""
+
+    def run_trials(self, cmux_input, sample):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.a = argparse.Namespace(warmup=1, trials=2, fps_trials=0, cmux_input=cmux_input)
+        o.synthetic, o.ledgers, o.summaries, o.ff_rows = True, [], [], []
+        o.marker = lambda flags: [0, 0]
+        o.host_timing = lambda: []
+        o.cmux_attempt = lambda origin, mode, snap=None: {
+            "ok": True, "first_frame_ms": None, "lost": 0, "sample_times": [dict(sample)]}
+        o.breakdown = lambda rec, timing, off: [{"stage": "x"}]
+        o.first_frame_breakdown = lambda rec, timing, off: None
+        logged = []
+        o.log = logged.append
+        return o.run_cmux({"offset_ns": 0}), logged
+
+    def test_a_copy_paste_trial_reads_its_round_trip(self):
+        (firsts, g2g, fps, rows), logged = self.run_trials(
+            "clipboard", {"sent_ns": 1_000_000, "echo_ns": 251_000_000})
+        self.assertEqual(g2g, [250.0, 250.0])
+        self.assertEqual((firsts, fps, rows), ([], [], []))
+        self.assertEqual([r.get("trial") for r in logged], [None, 1, 2])
+        self.assertTrue(all("sample_times" not in r for r in logged))
+
+    def test_a_key_trial_still_reads_the_decoded_frame(self):
+        (firsts, g2g, _, rows), _ = self.run_trials(
+            "key", {"sent_ns": 1_000_000, "decoded_ns": 41_000_000})
+        self.assertEqual(g2g, [40.0, 40.0])
+        self.assertEqual(len(rows), 2)
+
+
 class HostTestLossTest(unittest.TestCase):
     def orchestrator(self, pct):
         o = vs.Orchestrator.__new__(vs.Orchestrator)
         o.host_test_loss = pct
         o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.host_env = {}
         o.root = "/r"
         o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
         return o
@@ -1086,6 +1126,43 @@ class HostTestLossTest(unittest.TestCase):
                 o.log({"mode": "fps"})
             row = json.loads(out.getvalue())
             self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
+class HostEnvTest(unittest.TestCase):
+    """`run --host-env`: only cmux-rd-host's measurement switches, checked, on the host's serve."""
+
+    def orchestrator(self, env):
+        o = HostTestLossTest().orchestrator(None)
+        o.host_env = env
+        return o
+
+    def test_the_names_and_values_are_checked(self):
+        self.assertEqual(vs.checked_env(["CMUX_RD_SCK_QUEUE_DEPTH=5", "CMUX_RD_MAC_MAX_REFRESH=1"]),
+                         {"CMUX_RD_SCK_QUEUE_DEPTH": "5", "CMUX_RD_MAC_MAX_REFRESH": "1"})
+        self.assertEqual(vs.checked_env(None), {})
+        for bad in (["PATH=/tmp"], ["CMUX_RD_SCK_QUEUE_DEPTH=9"], ["CMUX_RD_SCK_QUEUE_DEPTH"],
+                    ["CMUX_RD_MAC_MAX_REFRESH=1; rm -rf ~"],
+                    ["CMUX_RD_SCK_QUEUE_DEPTH=4", "CMUX_RD_SCK_QUEUE_DEPTH=5"]):
+            with self.assertRaises(ValueError):
+                vs.checked_env(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-env", "CMUX_RD_SCK_QUEUE_DEPTH=5"))
+        self.assertEqual(a.host_env, ["CMUX_RD_SCK_QUEUE_DEPTH=5"])
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_env)
+
+    def test_synthetic_serve_sets_it(self):
+        cmd = self.orchestrator({"CMUX_RD_SCK_QUEUE_DEPTH": "5"}).synthetic_serve("key")
+        self.assertIn("CMUX_RD_SCK_QUEUE_DEPTH=5 ", cmd)
+        self.assertNotIn("CMUX_RD_SCK_QUEUE_DEPTH", self.orchestrator({}).synthetic_serve("key"))
+
+    def test_rows_record_it_only_when_set(self):
+        for env, want in (({"CMUX_RD_MAC_MAX_REFRESH": "1"}, {"host_env": {"CMUX_RD_MAC_MAX_REFRESH": "1"}}),
+                          ({}, {})):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.orchestrator(env).log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_env"}, want)
 
 
 class RemoteRunStdin(unittest.TestCase):
@@ -1299,6 +1376,204 @@ class ClockOverPeerTcp(unittest.TestCase):
         import types
         me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
         self.assertFalse(me.clock_over_peer())
+
+class RigMarkerWait(unittest.TestCase):
+    """The rig's `marker` reply (wait_marker): an empty marker.log says how the marker ended."""
+
+    class Proc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+    def log_with(self, text):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "marker.log")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_origin_click_point_and_geometry(self):
+        log = self.log_with("marker: starting pid 7\nmarker-origin 0,50 click-at 704,66\n"
+                            "marker: stream width 3840.0 px, cell 32.0 pt, display (1920.0, 1080.0)\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=1)
+        self.assertEqual(reply["origin"], [0, 50])
+        self.assertEqual(reply["at"], [704, 66])
+        self.assertIn("stream width", reply["geometry"])
+
+    def test_a_silent_trap_reads_as_the_signal_not_nothing(self):
+        log = self.log_with("")
+        start = vs.time.time()
+        reply = vs.wait_marker(self.Proc(-5), log, seconds=10)
+        self.assertLess(vs.time.time() - start, 1, "a dead marker is not waited out")
+        self.assertFalse(reply["ok"])
+        self.assertIn("killed by SIGTRAP", reply["error"])
+        self.assertEqual(reply["exit"], -5)
+
+    def test_a_refusal_keeps_its_last_line(self):
+        log = self.log_with("marker: no display (NSScreen.screens is empty: ...)\n")
+        reply = vs.wait_marker(self.Proc(3), log, seconds=10)
+        self.assertIn("exit 3", reply["error"])
+        self.assertIn("no display", reply["log"])
+
+    def test_a_hang_says_still_running(self):
+        log = self.log_with("marker: starting pid 7\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=0.1, step=0.02)
+        self.assertIn("still running after 0.1 s", reply["error"])
+
+class LocalnetProbe(unittest.TestCase):
+    """macOS Local Network privacy refuses a launchd step's UDP to the LAN at once (Errno 65); the
+    pair job checks both Macs before any leg instead of failing every leg the same way."""
+
+    def sock(self, err=None):
+        sent = []
+
+        class S:
+            def __init__(self, *a):
+                pass
+
+            def sendto(self, data, addr):
+                if err:
+                    raise err
+                sent.append(addr)
+
+            def close(self):
+                pass
+        return S, sent
+
+    def test_ehostunreach_is_denied_and_names_the_fix(self):
+        import errno
+        factory, _ = self.sock(OSError(errno.EHOSTUNREACH, "No route to host"))
+        r = vs.localnet_probe("172.20.21.199", sock_factory=factory)
+        self.assertEqual(r["localnet"], "denied")
+        self.assertIn("CmuxScreenEvalLauncher", r["fix"])
+
+    def test_a_send_that_goes_out_is_ok(self):
+        factory, sent = self.sock()
+        self.assertEqual(vs.localnet_probe("172.20.21.199", sock_factory=factory),
+                         {"localnet": "ok", "to": "172.20.21.199"})
+        self.assertEqual(sent[0], ("172.20.21.199", 9))
+
+    def test_another_error_is_unknown_not_denied(self):
+        import errno
+        factory, _ = self.sock(OSError(errno.ENETDOWN, "Network is down"))
+        self.assertEqual(vs.localnet_probe("172.20.21.199", sock_factory=factory)["localnet"], "unknown")
+
+    def check(self, viewer_reply, host_reply):
+        import types
+        logged = []
+        viewer = types.SimpleNamespace(url="http://172.20.21.250:4181", run=lambda cmd, timeout=0: viewer_reply)
+        me = types.SimpleNamespace(a=types.SimpleNamespace(viewer="v", host="h", host_ip="172.20.21.199"),
+                                   py="python3", me="screen-share-vs.py", viewer=viewer, synthetic=False,
+                                   log=logged.append, rig=lambda req: {"ok": True, "localnet": host_reply})
+        vs.Orchestrator.localnet_check(me)
+        return logged
+
+    def test_a_denied_viewer_stops_the_run_before_any_leg(self):
+        denied = json.dumps({"localnet": "denied", "to": "172.20.21.199"})
+        with self.assertRaises(SystemExit) as cm:
+            self.check(denied, {"localnet": "ok"})
+        self.assertIn("viewer Mac (v)", str(cm.exception))
+        self.assertIn("Local Network", str(cm.exception))
+
+    def test_both_ok_logs_and_goes_on(self):
+        logged = self.check(json.dumps({"localnet": "ok"}), {"localnet": "ok"})
+        self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "ok")
+        self.assertEqual(logged[0]["localnet"]["host"]["localnet"], "ok")
+
+    def test_an_older_peer_without_the_probe_is_unknown_not_a_stop(self):
+        import types
+        me_viewer_err = "not json"
+        logged = self.check(me_viewer_err, {"localnet": "ok"})
+        self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "unknown")
+
+
+class ClipboardLeg(unittest.TestCase):
+    def test_clip_echo_answers_each_probe_once_and_never_its_own_echo(self):
+        board, writes = ["cmux-vs-clip-41-abc-0"], []
+
+        def write(text):
+            writes.append(text)
+            board[0] = text
+
+        last = vs.clip_echo_step(lambda: board[0], write, None)
+        self.assertEqual(writes, ["ack:cmux-vs-clip-41-abc-0"])
+        # The echo itself, then the same text again: nothing more.
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(len(writes), 1)
+        # A person's own copy is left alone; the next probe is answered.
+        board[0] = "hello"
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        board[0] = "cmux-vs-clip-41-abc-1"
+        vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(writes[-1], "ack:cmux-vs-clip-41-abc-1")
+        self.assertEqual(len(writes), 2)
+        # An unreadable pasteboard does nothing.
+        self.assertIsNone(vs.clip_echo_step(lambda: None, write, "x"))
+
+    def test_bench_input_clipboard_takes_no_aim(self):
+        self.assertEqual(vs.bench_input("clipboard", 30, (10, 20)), "--input clipboard --samples 30")
+
+
+class PeerServeFirstContact(unittest.TestCase):
+    """2026-11-27: six pair halves served `peer-serve: listening ... for 3600 s`, no host ever dialed, and each
+    held an exclusive Mac until the controller's 45 min silent limit. peer-serve now gives up (exit 3) when no
+    accepted request arrives in --first-contact-s, and a contacted serve keeps its hold."""
+
+    def serve(self, first_contact_s, poke=None):
+        token = "ab" * 32
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token")
+            with open(path, "w") as f:
+                f.write(token + "\n")
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            s.close()
+            args = argparse.Namespace(bind="127.0.0.1", port=port, token_file=path, hold_s=30,
+                                      first_contact_s=first_contact_s)
+            if poke:
+                threading.Thread(target=poke, args=(port, token), daemon=True).start()
+            orig = vs.localnet_probe
+            vs.localnet_probe = lambda *a, **k: {}
+            try:
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    try:
+                        vs.cmd_peer_serve(args)
+                        code = 0
+                    except SystemExit as e:
+                        code = e.code
+            finally:
+                vs.localnet_probe = orig
+            return code, out.getvalue()
+
+    def test_no_contact_gives_up(self):
+        code, out = self.serve(1)
+        self.assertEqual(code, 3)
+        self.assertIn("no peer connected in 1 s", out)
+
+    def test_contact_keeps_serving_until_done(self):
+        import time
+        import urllib.request
+
+        def poke(port, token):
+            url = f"http://127.0.0.1:{port}"
+            for _ in range(50):
+                try:
+                    urllib.request.urlopen(urllib.request.Request(url + "/run", method="POST",
+                        headers={"X-Eval-Token": token}, data=json.dumps({"cmd": "true"}).encode()), timeout=5)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            time.sleep(2.5)  # past the 1 s first-contact bound: contacted, so it keeps serving
+            urllib.request.urlopen(urllib.request.Request(url + "/done", method="POST",
+                headers={"X-Eval-Token": token}, data=b"{}"), timeout=5)
+        code, out = self.serve(1, poke)
+        self.assertEqual(code, 0)
+        self.assertIn("peer-serve: done from 127.0.0.1", out)
+
 
 if __name__ == "__main__":
     unittest.main()

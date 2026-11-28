@@ -19,7 +19,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Retitles the `index`th row: one `update` op from the host. */
-    benchChangeOne(index: number): void;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 
@@ -82,8 +82,10 @@ createRoot(body).render(<SceneRenderer store={store} dispatch={() => {}} />);
 
 window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".cmux-app-scene-row-title"));
 let revision = 0;
-window.benchChangeOne = (index) =>
-  store.apply([{ op: "update", id: `r${index}`, props: { title: `Changed ${++revision}` } }]);
+window.benchChangeOne = ((index: number) =>
+  store.apply([
+    { op: "update", id: `r${index}`, props: { title: `Changed ${++revision}` } },
+  ])) as typeof window.benchChangeOne;
 const settle = () =>
   document.querySelector("[data-app-type=Row]") ? (window.benchReady = true) : requestAnimationFrame(settle);
 requestAnimationFrame(settle);

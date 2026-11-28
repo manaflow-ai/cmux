@@ -17,6 +17,13 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var includeUnbound: Bool
     /// Only the root curates its empty query; the Commands scope retains the full list.
     var curatesEmptyRoot = false
+    /// What the curated root's empty query can show besides its intents, read on each open: the user's pinned
+    /// actions and the rows the usage history can list as Recent (`PaletteController.commandsPage`). With it, the
+    /// open's first frame reads only those actions and the root's (``firstFrameItems``); without it, every catalog
+    /// action before the first frame.
+    var firstFrameRows: (@MainActor () -> FirstFrameRows)?
+    /// The reads of this open's first frame, which the full read after it takes as read: the rows it showed.
+    private var firstFrameReads: [ActionID: ItemsPass.Read]?
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
@@ -61,13 +68,55 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func items() async -> [PaletteItem] { makeItems() }
 
-    /// The command rows, listed in the palette's order. Each action's shown state is read now; a row whose state is
-    /// the one `rows` kept is not built again, and when no listed row changed the last arrangement is listed as it
-    /// was (`RegistryPaletteRows`).
+    /// The curated root's first frame (Cmd-Shift-P): only the catalog actions its empty query can show, read as
+    /// ``makeItems()`` reads them, of the hundreds a typed query searches (``ItemsPass/readFirstFrame(_:)``). The
+    /// model reads ``makeItems()`` after the frame, which takes these reads as read. Nil without ``firstFrameRows``.
+    public var firstFrameItems: [PaletteItem]? {
+        guard curatesEmptyRoot, let shown = firstFrameRows?() else { return nil }
+        var wanted = Self.rootIntentIDs.union(shown.actions)
+        for family in ActionDescriptor.paletteFamilies where shown.families.contains(family.id) {
+            // A recent family row lists, and runs, when one of its members does: all of them are read.
+            wanted.formUnion(family.members)
+            if let parent = family.parent { wanted.insert(parent) }
+        }
+        let pass = ItemsPass(self, recordsReads: true)
+        pass.readFirstFrame(wanted)
+        firstFrameReads = pass.reads
+        return pass.finishFirstFrame()
+    }
+
+    /// The command rows, listed in the palette's order. Each action's shown state is read now (an action this open's
+    /// first frame read keeps what that read found: the row it showed); a row whose state is the one `rows` kept is
+    /// not built again, and when no listed row changed the last arrangement is listed as it was (`RegistryPaletteRows`).
     public func makeItems() -> [PaletteItem] {
-        let pass = ItemsPass(self)
+        let pass = ItemsPass(self, earlier: firstFrameReads ?? [:])
+        firstFrameReads = nil
         _ = pass.read { true }
         return pass.finish()
+    }
+
+    /// What the root's empty query can show besides its intents (``firstFrameRows``).
+    struct FirstFrameRows {
+        /// Pinned actions and actions the usage history knows.
+        var actions: Set<ActionID> = []
+        /// Families (`ActionDescriptor.paletteFamilies` ids) the usage history knows: their rows can be Recent.
+        var families: Set<String> = []
+
+        /// From the usage history's row keys (`action:ID`, `family:ID`, as the rows set them) and the pinned action ids.
+        /// The uses the empty query's Recent section ranks from: the ranker reads 3 times its Recent limit (5,
+        /// `PaletteRanker`'s `recentLimit`) of the strongest uses and lists the first that are rows here.
+        static let recentCandidates = 15
+
+        init(keys: Set<String>, pins: [String]) {
+            for key in keys {
+                if key.hasPrefix("action:") {
+                    actions.insert(ActionID(rawValue: String(key.dropFirst("action:".count))))
+                } else if key.hasPrefix("family:") {
+                    families.insert(String(key.dropFirst("family:".count)))
+                }
+            }
+            actions.formUnion(pins.map { ActionID(rawValue: $0) })
+        }
     }
 
     /// One ``makeItems()`` that can run in pieces: ``read(while:)`` reads catalog actions while its condition
@@ -90,9 +139,22 @@ public final class RegistryPaletteProvider: PaletteProvider {
         private let unbound = PaletteStrings.unbound
         private var labels: RowLabels?
         private var sections: [ActionCategory: PaletteSection] = [:]
+        /// What reading one catalog action found: not listed, or listed with the face it shows and whether the root
+        /// may show it (bound or served by the palette, not debug-only).
+        enum Read {
+            case unlisted
+            case listed(RegistryPaletteRows.Face, eligible: Bool)
+        }
+        /// Reads an earlier pass of this open made (its first frame's), taken as read.
+        private let earlier: [ActionID: Read]
+        private let recordsReads: Bool
+        /// Each action this pass read and what it found (`recordsReads`).
+        private(set) var reads: [ActionID: Read] = [:]
 
-        init(_ provider: RegistryPaletteProvider) {
+        init(_ provider: RegistryPaletteProvider, earlier: [ActionID: Read] = [:], recordsReads: Bool = false) {
             self.provider = provider
+            self.earlier = earlier
+            self.recordsReads = recordsReads
             kept = provider.rows
             kept.context.update(from: provider)
             entries = provider.registry.entries
@@ -110,25 +172,37 @@ public final class RegistryPaletteProvider: PaletteProvider {
             return next == entries.count
         }
 
-        private func readEntry(_ entry: ActionEntry) {
+        /// What `entry`'s row is now: whether it lists, its face.
+        private func read(_ entry: ActionEntry) -> Read {
             let registry = provider.registry
             let descriptor = entry.descriptor
             let actionID = descriptor.id
             guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID),
-                  registry.isAvailable(actionID, in: provider.paletteContext(for: descriptor)) else { return }
+                  registry.isAvailable(actionID, in: provider.paletteContext(for: descriptor)) else { return .unlisted }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
             let overridden = provider.effectOverrides[actionID] != nil
-            guard entry.isBound || overridden || provider.includeUnbound else { return }
+            guard entry.isBound || overridden || provider.includeUnbound else { return .unlisted }
             let face = provider.face(of: entry, overridden: overridden, unbound: unbound)
-            guard face.isEnabled || !entry.isBound else { return }
-            if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
+            guard face.isEnabled || !entry.isBound else { return .unlisted }
+            return .listed(face, eligible: !descriptor.isDebugOnly && (entry.isBound || overridden))
+        }
+
+        /// Reads `entry` (or takes an earlier read of it) and adds its row when it lists. Returns what it found.
+        @discardableResult
+        private func readEntry(_ entry: ActionEntry) -> Read {
+            let descriptor = entry.descriptor
+            let actionID = descriptor.id
+            let found = earlier[actionID] ?? read(entry)
+            if recordsReads { reads[actionID] = found }
+            guard case .listed(let face, let isEligible) = found else { return found }
+            if isEligible { eligible.insert(actionID) }
             listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
             tiers.append(descriptor.paletteTier)
             if let row = kept.rows[actionID], row.face == face {
                 items.append(row.item)
-                return
+                return found
             }
             if labels == nil { labels = RowLabels() }
             let section = sections[descriptor.category] ?? RegistryPaletteProvider.section(for: descriptor.category)
@@ -137,6 +211,35 @@ public final class RegistryPaletteProvider: PaletteProvider {
             kept.rows[actionID] = (face, item)
             provider.builtRows += 1
             items.append(item)
+            return found
+        }
+
+        /// The curated root's first frame: in catalog order, the actions in `wanted`, and for each root family
+        /// (``RegistryPaletteProvider/rootFamilies``) the actions of its sections until one lists for the root and one
+        /// lists enabled: what decides whether the family's row shows and runs (`curatedRootItems`). Every other action
+        /// is left for the full read.
+        func readFirstFrame(_ wanted: Set<ActionID>) {
+            let bySection = RegistryPaletteProvider.rootFamiliesBySectionID
+            var listsEligible = [Bool](repeating: false, count: RegistryPaletteProvider.rootFamilies.count)
+            var anyEnabled = listsEligible
+            for entry in entries {
+                let families = bySection[entry.descriptor.category.paletteSectionID] ?? []
+                let decides = families.contains { !(listsEligible[$0] && anyEnabled[$0]) }
+                guard decides || wanted.contains(entry.descriptor.id) else { continue }
+                guard case .listed(let face, let isEligible) = readEntry(entry) else { continue }
+                for family in families {
+                    if isEligible { listsEligible[family] = true }
+                    if face.isEnabled { anyEnabled[family] = true }
+                }
+            }
+            next = entries.count
+        }
+
+        /// ``readFirstFrame(_:)``'s rows, arranged and curated as ``finish()`` arranges every row; not kept as the
+        /// last arrangement, which is the full read's.
+        func finishFirstFrame() -> [PaletteItem] {
+            let arranged = RegistryPaletteProvider.arranged(items, tierList: tiers)
+            return provider.curatedRootItems(arranged, eligible: eligible, isFullRead: false)
         }
 
         /// The rows read, in the palette's order (the last arrangement when the same rows list with the same faces).

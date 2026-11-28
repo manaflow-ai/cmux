@@ -61,7 +61,7 @@ fn head_end(read: &[u8]) -> Option<usize> {
 }
 
 /// `stream` with the bytes [`request`] read from it first, for the upgrade's parser.
-pub(super) struct Replayed {
+pub struct Replayed {
     read: Vec<u8>,
     at: usize,
     /// Where the head ends in `read`: a read never crosses it while the head replays, so the
