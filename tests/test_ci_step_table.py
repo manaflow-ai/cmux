@@ -336,6 +336,30 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("--skip typecheck", step.run)
         self.assertEqual(step.tier, "push", "a full-tier head's ci-web react-apps-check runs them; no second run")
 
+    def test_hook_tests_keep_their_gate_without_spending_the_typecheck_timeout(self) -> None:
+        table = ci_steps.load()
+        hooks = table.steps["web-lint-hook-tests"]
+        types = table.steps["webviews-typecheck"]
+        self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
+        self.assertNotIn("test_web_lint_prepush.py", types.run)
+        self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
+        for step in (hooks, types):
+            self.assertTrue(step.blocks)
+            self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
+            self.assertEqual(step.needs, ("bun", "node"))
+        self.assertEqual(hooks.inputs, types.inputs)
+        self.assertEqual(hooks.nightly, types.nightly)
+        for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
+                     "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
+            with self.subTest(path=path):
+                for name in (hooks.name, types.name):
+                    self.assertIn(name, ci_steps.route(table, [path])["linux"])
+                    self.assertIn(name, self.landing([path])[2][1])
+
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
         self.assertNotIn("pr-pipeline.yml", start)
@@ -1996,10 +2020,10 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
-                      "webviews-typecheck", "cmux-vm-cloud", "webviews-checks"}
+                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -2560,16 +2584,17 @@ class WebBrowserStepsTest(unittest.TestCase):
 class RustToolCompileCacheTest(unittest.TestCase):
     """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
     SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
-    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), keeps a wrapper its caller sets on
+    cargo (cargo-giant-lock.sh, with sccache inside it), and changes nothing elsewhere."""
 
-    def run_tool(self, **env: str) -> tuple[str, str]:
+    def run_tool(self, call_env: dict[str, str] | None = None, **env: str) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
             for d in (cargo_home / "bin", tools, stub_bin, cache):
                 d.mkdir(parents=True)
             (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
-            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} inner=${CARGO_GROUPS_INNER_WRAPPER:-none} args=$*"\n')
             (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
             for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
                 f.chmod(0o755)
@@ -2579,23 +2604,31 @@ class RustToolCompileCacheTest(unittest.TestCase):
             full = {k: v for k, v in full.items() if v != ""}
             subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
                            capture_output=True, text=True, cwd=ROOT)
-            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env={**full, **(call_env or {})},
+                                  check=True,
                                   capture_output=True, text=True).stdout.strip()
             return said, str(stub_bin / "sccache")
 
     def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
         said, sccache = self.run_tool()
-        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+        self.assertEqual(said, f"wrapper={sccache} inner=none args=test -p x")
 
     def test_a_wrapper_already_set_is_kept(self) -> None:
         said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
-        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+        self.assertEqual(said, "wrapper=/opt/kache/kache inner=none args=test -p x")
 
     def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
         for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
             with self.subTest(env=env):
                 said, _ = self.run_tool(**env)
-                self.assertEqual(said, "wrapper=none args=test -p x")
+                self.assertEqual(said, "wrapper=none inner=none args=test -p x")
+
+    def test_a_callers_giant_lock_is_kept_with_sccache_inside(self) -> None:
+        # cmux-next-member-tests.sh and cargo-groups.sh set RUSTC_WRAPPER to the giant lock before running cargo; the
+        # shim used to overwrite it with sccache, dropping the lock.
+        lock = "/repo/scripts/ci/cargo-giant-lock.sh"
+        said, sccache = self.run_tool(call_env={"RUSTC_WRAPPER": lock})
+        self.assertEqual(said, f"wrapper={lock} inner={sccache} args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):

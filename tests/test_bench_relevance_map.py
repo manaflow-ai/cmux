@@ -12,6 +12,7 @@ Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product
     names is a row of that page (when the page is on this branch);
   - whole: every [[situation]] names a template that exists, every area's situations exist, and the generated
     [[unit]] section matches the repo layout (`scripts/bench/cmux-bench for-paths --write`);
+  - one table, two consumers: the [[live_rule]] table is live_apply.py's path rules, its literal block generated;
   - fail open: an unmapped path warns and takes its default; a broken map never blocks.
 """
 from __future__ import annotations
@@ -352,6 +353,52 @@ class RelevanceMapFileTest(unittest.TestCase):
         for area, paths in risky.items():
             self.assertIn(area, mapped, f"coverage-map.md's risky area {area!r} has no [[area]] in relevance-map.toml")
             self.assertFalse(paths - mapped[area], f"area {area!r}: risky paths missing from relevance-map.toml")
+
+
+class LiveRulesTest(unittest.TestCase):
+    """The map's [[live_rule]] table is scripts/cmux-next/live_apply.py's path rules (shadow-leo: "the same map
+    should answer landings-skip-rebuild too: a path that maps to web-only is exactly the hot-swap case, so one table,
+    two consumers"): live_apply.py's literal block is generated from it, so the two never differ."""
+
+    def test_live_apply_block_is_generated_from_the_map(self):
+        text = rel.LIVE_APPLY.read_text(encoding="utf-8")
+        want = rel.render_live_rules(rel.load_live_rules())
+        self.assertIn(want, text, "live_apply.py's live rules differ from the map: "
+                      "run scripts/bench/cmux-bench for-paths --write")
+
+    def test_live_apply_checks_the_map_rules_in_map_order(self):
+        sys.path.insert(0, str(rel.LIVE_APPLY.parent))
+        try:
+            import live_apply
+        finally:
+            sys.path.remove(str(rel.LIVE_APPLY.parent))
+        got = [(rx.pattern, cls, reason or "") for rx, cls, reason in live_apply.PATH_RULES]
+        want = [(r["pattern"], r["class"], r["reason"]) for r in rel.load_live_rules()]
+        self.assertEqual(got, want)
+        self.assertTrue(want, "the map has no [[live_rule]]")
+
+    def test_each_rule_is_one_literal_hq_can_parse(self):
+        # cmuxterm-hq tools/fleet-reconcilers/now_code_shape.py reads `NAME = re.compile(<one str literal>)` with ast.
+        import ast
+        tree = ast.parse(rel.LIVE_APPLY.read_text(encoding="utf-8"))
+        literal = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                    and isinstance(node.value, ast.Call) and len(node.value.args) == 1 \
+                    and isinstance(node.value.args[0], ast.Constant) and isinstance(node.value.args[0].value, str):
+                literal[node.targets[0].id] = node.value.args[0].value
+        for r in rel.load_live_rules():
+            self.assertEqual(literal.get(r["name"]), r["pattern"], r["name"])
+
+    def test_bad_rules_are_refused(self):
+        for body in ('name = "X"\nclass = "hot"\npattern = "a"', 'name = "x"\nclass = "no-app"\npattern = "a"',
+                     'name = "X"\nclass = "no-app"\npattern = "("', "name = 'X'\nclass = 'no-app'\npattern = 'a\"'"):
+            with self.assertRaises(rel.MapError, msg=body):
+                rel.parse_live_rules("[[live_rule]]\n" + body + "\n")
+        self.assertEqual([r["name"] for r in rel.parse_live_rules(
+            '[[live_rule]]\nname = "B"\nclass = "daemon"\npattern = "b"\n'
+            '[[live_rule]]\nname = "A"\nclass = "web-live"\npattern = "a"\n')], ["B", "A"])
+        rel.parse(rel.MAP.read_text(encoding="utf-8"))  # the area parser accepts the table
 
 
 class ForPathsCliTest(unittest.TestCase):

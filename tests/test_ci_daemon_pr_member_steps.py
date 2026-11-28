@@ -39,7 +39,8 @@ STEPS = {
 RUNNER = "scripts/ci/cmux-next-member-tests.sh"
 PACKAGES = "scripts/ci/cmux-next-daemon-test-packages.sh"
 WORKSPACE_INPUTS = ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock", "cmux-tui/rust-toolchain.toml")
-SCRIPT_INPUTS = (RUNNER, PACKAGES, "scripts/ci/cmux-tui-test-target.sh", "tests/test_ci_daemon_pr_member_steps.py")
+SCRIPT_INPUTS = (RUNNER, PACKAGES, "scripts/ci/cmux-tui-test-target.sh", "scripts/ci/cargo-giant-lock.sh",
+                 "tests/test_ci_daemon_pr_member_steps.py")
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"\s*\)')
 MANIFEST_REL = re.compile(r'env!\("CARGO_MANIFEST_DIR"\)\s*,\s*"/([^"]+)"')
 
@@ -104,6 +105,14 @@ class DaemonPrMemberSteps(unittest.TestCase):
                                  "a `**` input would leave the step to the post-merge batch")
                 self.assertIn(f"{RUNNER} {member}", step.run)
                 self.assertEqual(set(step.needs), {"rust", "zig"})
+
+    def test_the_runner_compiles_the_giants_one_at_a_time(self) -> None:
+        # acpmux's rustc beside cmux-tui-core's (or cmux-tui's lib on acpmux's metadata) went past the linux runner's
+        # memory at CARGO_BUILD_JOBS=2 and was SIGKILLed (runs 46170006062, 46174703227).
+        text = (ROOT / RUNNER).read_text(encoding="utf-8")
+        self.assertIn('RUSTC_WRAPPER="$repo/scripts/ci/cargo-giant-lock.sh"', text)
+        self.assertIn('CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"', text)
+        self.assertIn("acpmux cmux_tui_core cmux_tui", text)
 
     def test_every_file_of_the_member_and_its_fixtures_routes_it(self) -> None:
         for name, (_, member) in STEPS.items():
