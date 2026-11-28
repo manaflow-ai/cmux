@@ -7,10 +7,12 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { numberedImageLabels } from "../src/agent-session/acpmux/imageLabel";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { sessionSummary } = await importWithDom(() => import("../src/agent-session/acpmux/summary/sessionSummary"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { numberedImageLabels } = await importWithDom(() => import("../src/agent-session/acpmux/imageLabel"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
