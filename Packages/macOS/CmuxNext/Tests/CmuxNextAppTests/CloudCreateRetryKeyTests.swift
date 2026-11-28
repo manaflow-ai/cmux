@@ -169,6 +169,21 @@ import Testing
         #expect(backend.keys.count == 2, "a retry went out after the cancel: \(backend.keys)")
     }
 
+    /// A create whose machine was gone before it answered (`cloud.machine.not_found {machine}`) is asked again with a new key,
+    /// at most twice; a gone snapshot, a quota refusal or a cancelled-out third try ends it (cosmic-gray 2026-11-27:
+    /// "Couldn't create Cloud machine X (no such machine in this team)").
+    @Test func aCreateWhoseMachineWasGoneIsAskedAgainWithANewKey() {
+        let gone = CloudAppOpFailure(code: "cmux.cloud.not_found", message: "no such machine in this team")
+        #expect(CloudStartCore().createMachineGoneRetries(gone, attempt: 1))
+        #expect(CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.not_found", message: "", details: .object(["machine": .string("vm_1")])), attempt: 2))
+        #expect(!CloudStartCore().createMachineGoneRetries(gone, attempt: 3))
+        #expect(!CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.not_found", message: "no such snapshot"), attempt: 1))
+        #expect(!CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.quota_exceeded", message: "no such machine"), attempt: 1))
+        var sent = CloudMachineRequest(); sent.wasSent = true; sent.team = "team_a"; sent.approvedRequest = "apr_1"
+        let renewed = sent.renewed
+        #expect(renewed.idempotencyKey != sent.idempotencyKey && !renewed.wasSent && renewed.team == nil && renewed.approvedRequest == nil && renewed.route == nil)
+    }
+
     /// A person reads the failure's own sentence, not "Something went wrong. Try again." (it was only a `description`).
     @Test func aStillPendingCreateAndAnUnansweredApprovalReadAsTheirOwnSentences() {
         #expect(CloudStrings.errorText(CloudMachineCreateFlow.Failure.stillPending(request: "req_1")) == CloudStrings.createStillPending)
