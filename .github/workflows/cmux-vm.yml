@@ -99,6 +99,8 @@
 #                         ends the Worker role's backends idle over 2 min; never another role's, never an
 #                         active one; it waits up to 5 min for the old pool to drain. Environment
 #                         cmux-vm-staging, so any ref can run it.
+#   db-connections-production  the same for the production database and its Hyperdrive config cmux-vm-production
+#                         (environment cmux-vm-production; production hit 53300 on 2026-11-28 from 20:31Z).
 #   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
 #                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
 #                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
@@ -140,7 +142,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, tail-staging, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, tail-staging, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-connections-production, db-fault-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -152,7 +154,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging only, inspect and list; change nothing (false applies, deletes or ends idle connections)
+        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging/-production only, inspect and list; change nothing (false applies, deletes or ends idle connections)
         type: boolean
         default: true
       skip_rehearsal:
@@ -1854,11 +1856,15 @@ jobs:
           retention-days: 7
 
   db-connections-staging:
-    name: staging database connections
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    # One job for both databases (action db-connections-staging or db-connections-production): production hit the
+    # same 53300 full server on 2026-11-28 (migrate-production and deploy-production's gate, from 20:31Z).
+    name: ${{ inputs.action == 'db-connections-production' && 'production' || 'staging' }} database connections
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.action == 'db-connections-staging' || inputs.action == 'db-connections-production')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
-    environment: cmux-vm-staging
+    environment: ${{ inputs.action == 'db-connections-production' && 'cmux-vm-production' || 'cmux-vm-staging' }}
+    env:
+      HYPERDRIVE_CONFIG: ${{ inputs.action == 'db-connections-production' && 'cmux-vm-production' || 'cmux-vm-staging' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -1882,22 +1888,22 @@ jobs:
       - name: Install the release rails
         working-directory: scripts/cmux-next/release
         run: bun install --frozen-lockfile
-      - name: Staging Hyperdrive config (origin connection limit)
+      - name: Hyperdrive config (origin connection limit)
         continue-on-error: true
         working-directory: workers/cmux-vm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: bash scripts/hyperdrive.sh show cmux-vm-staging
-      - name: Cap and restart the staging Hyperdrive pool (the Worker role's connections)
+        run: bash scripts/hyperdrive.sh show "$HYPERDRIVE_CONFIG"
+      - name: Cap and restart the Hyperdrive pool (the Worker role's connections)
         if: ${{ !inputs.dry_run }}
         working-directory: workers/cmux-vm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          bash scripts/hyperdrive.sh limit cmux-vm-staging
-          bash scripts/hyperdrive.sh restart cmux-vm-staging
+          bash scripts/hyperdrive.sh limit "$HYPERDRIVE_CONFIG"
+          bash scripts/hyperdrive.sh restart "$HYPERDRIVE_CONFIG"
       - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
         working-directory: scripts/cmux-next/release
         env:
