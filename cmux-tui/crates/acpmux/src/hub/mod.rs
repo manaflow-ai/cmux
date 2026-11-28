@@ -236,6 +236,7 @@ mod model_lists;
 mod model_options;
 mod model_probe;
 mod models_view;
+pub(crate) mod move_authority;
 mod moved_forward;
 mod moved_prompt_fence;
 pub(crate) mod native_history;
