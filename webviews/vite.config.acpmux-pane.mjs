@@ -19,13 +19,17 @@ const paneRoot = path.join(webviewsRoot, "src/agent-session/acpmux");
 const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");
 // scripts/agent-pane/dev-slot.sh gives each slot its own port, so several worktrees serve at once.
 const port = Number(process.env.CMUX_AGENT_PANE_DEV_PORT) || 4176;
-// CMUX_AGENT_PANE_COMPILE_HINTS=1 gives every built chunk V8's `//# allFunctionsCalledOnLoad` hint as its first line
-// (https://v8.dev/blog/explicit-compile-hints, Chrome 136+): a chunk the page loads compiles every function on the
-// streaming thread while it downloads, not lazily on the main thread when first called. Goal chat-attach-p95: ~2028
-// functions first run between the attach answer and the newest message (cmux#62173). Chunks the page never loads cost
-// nothing. Added after minification (which drops comments), so a source map gains one empty line in front.
-const compileHints = process.env.CMUX_AGENT_PANE_COMPILE_HINTS === "1";
+// CMUX_AGENT_PANE_COMPILE_HINTS gives built chunks V8's `//# allFunctionsCalledOnLoad` hint as their first line
+// (https://v8.dev/blog/explicit-compile-hints, Chrome 136+): a hinted chunk compiles every function eagerly while it
+// loads, not lazily on the main thread when first called. Goal chat-attach-p95: ~2028 functions first run between the
+// attach answer and the newest message (cmux#62173). `1` hints every chunk: A/B 46134754421 cut attach_to_latest
+// ~10 ms but added ~20 ms to DOMContentLoaded, a net loss. `window` hints only the chunks holding the modules that
+// first run in that window (cmux#62173's coverage list). Added after minification (which drops comments), so a source
+// map gains one empty line in front.
+const compileHints = process.env.CMUX_AGENT_PANE_COMPILE_HINTS ?? "";
 const COMPILE_HINT = "//# allFunctionsCalledOnLoad";
+const ATTACH_WINDOW_MODULES =
+  /acpmux\/.*\b(direct|turns|model|sessionList|promptHeads|App|VirtualTranscript|RowFrame)\.tsx?$|\/pretext\/|@tanstack\/|\/marked\//;
 function paneCompileHints() {
   return {
     name: "cmux-agent-pane-compile-hints",
@@ -34,6 +38,7 @@ function paneCompileHints() {
     generateBundle(_options, bundle) {
       for (const file of Object.values(bundle)) {
         if (file.type !== "chunk" || file.code.startsWith(COMPILE_HINT + "\n")) continue;
+        if (compileHints === "window" && !file.moduleIds.some((id) => ATTACH_WINDOW_MODULES.test(id))) continue;
         file.code = `${COMPILE_HINT}\n${file.code}`;
         if (file.map) file.map.mappings = ";" + file.map.mappings;
       }
@@ -74,6 +79,6 @@ export default defineConfig({
     ...reactWithCompiler(),
     // generated/strings.json is served as 26.7 MB without this, 5.1 MB with it (dev-server/jsonDevSourceMap.mjs).
     jsonDevSourceMap(),
-    ...(compileHints ? [paneCompileHints()] : []),
+    ...(compileHints === "1" || compileHints === "window" ? [paneCompileHints()] : []),
   ],
 });
