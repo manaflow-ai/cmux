@@ -483,8 +483,27 @@ pub(crate) fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
 
 /// Open an existing state file without following a final symlink, verify its
 /// owner and type, and narrow an older file to mode 0600 before reading it.
+pub(crate) fn diag_open(path: &Path) {
+    if std::env::var_os("ACPMUX_DIAG_OPENS").is_none() {
+        return;
+    }
+    let p = path.to_string_lossy();
+    if !p.contains("/events/") {
+        return;
+    }
+    let bt = std::backtrace::Backtrace::force_capture().to_string();
+    let frames: Vec<&str> = bt
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("acpmux::") && !l.contains("diag_open") && !l.starts_with("at "))
+        .take(14)
+        .collect();
+    eprintln!("DIAG-OPEN {} | {}", p.rsplit('/').next().unwrap_or(""), frames.join(" <- "));
+}
+
 #[cfg(unix)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    diag_open(path);
     use std::os::unix::fs::OpenOptionsExt;
 
     let file = std::fs::OpenOptions::new()

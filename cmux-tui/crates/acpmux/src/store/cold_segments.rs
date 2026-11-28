@@ -209,6 +209,7 @@ impl Seek for SegmentFile {
 /// a `.ndjson` the listing named went cold since (its index is committed: the move removes the
 /// segment only after).
 pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
+    crate::config::diag_open(path);
     if is_cold(path) {
         return match ColdFile::open(path) {
             Ok(cold) => Ok(SegmentFile::Cold(Box::new(cold))),
