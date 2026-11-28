@@ -97,8 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited")
-                try await finishLaunching(read, settings: settings); await firstFrame.opened(); await refresh()
+                let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited"); try await finishLaunching(read, settings: settings); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -109,8 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                DebugTimings.markLaunch("app.cloud_env_failed"); let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited")
-                try? await finishLaunching(read, settings: settings) // only cancellation throws; Quit must not resume startup
+                DebugTimings.markLaunch("app.cloud_env_failed"); let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited"); try? await finishLaunching(read, settings: settings) // only cancellation throws; Quit must not resume startup
             }
             cloudBootstrap = nil
         }
@@ -128,8 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
         })
-        control.startWatchdog()
-        DebugTimings.markLaunch("app.daemon_prestarted") // the test delay, the daemon's prestart, the quit signals and the watchdog
+        control.startWatchdog(); DebugTimings.markLaunch("app.daemon_prestarted") // the test delay, the daemon's prestart, the quit signals and the watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
