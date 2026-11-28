@@ -144,7 +144,6 @@
         ],
         "id" : "general",
         "lead" : [
-          "customizeProgress",
           "textSize",
           "replayIntro"
         ],
@@ -154,7 +153,7 @@
           "text" : "General"
         },
         "trail" : [
-
+          "customizeProgress"
         ]
       },
       {
@@ -460,8 +459,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "looksGallery",
           "themeStudio",
+          "looksGallery",
           "backdrops",
           "density"
         ],
@@ -50908,7 +50907,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.cornerRadius.help",
+        "text" : "The corner radius of menus."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.cornerRadius",
       "keywords" : [
@@ -51052,7 +51054,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.borderOpacity.help",
+        "text" : "How visible the menu's edge line is."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.borderOpacity",
       "keywords" : [
@@ -51223,7 +51228,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.shadow.help",
+        "text" : "The shadow under menus."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.shadow",
       "keywords" : [
@@ -51359,7 +51367,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.fill.help",
+        "text" : "The menu background color, as #RRGGBB or #RRGGBBAA."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.fill",
       "keywords" : [
@@ -51498,7 +51509,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.padding.help",
+        "text" : "The space inside the menu's edges."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.padding",
       "keywords" : [
@@ -51640,7 +51654,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.highlightRadius.help",
+        "text" : "The corner radius of the hovered row's highlight."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.highlightRadius",
       "keywords" : [
@@ -51783,7 +51800,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.rowHeight.help",
+        "text" : "The height of a one-line menu row."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.rowHeight",
       "keywords" : [
@@ -51938,7 +51958,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.shortcuts.help",
+        "text" : "How strongly menu shortcuts are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.shortcuts",
       "keywords" : [
@@ -52087,7 +52110,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.sectionLabel.help",
+        "text" : "How menu section labels are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.sectionLabel",
       "keywords" : [
@@ -52243,7 +52269,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.separator.help",
+        "text" : "How the lines between menu row groups are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.separator",
       "keywords" : [
@@ -52390,7 +52419,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.destructiveInk.help",
+        "text" : "Whether destructive menu rows, such as Delete, are drawn in red."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.destructiveInk",
       "keywords" : [
@@ -52538,7 +52570,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.submenu.help",
+        "text" : "Where a submenu opens next to its menu."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.submenu",
       "keywords" : [
@@ -52687,7 +52722,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.subtitle.help",
+        "text" : "How the second line of a menu row is drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.subtitle",
       "keywords" : [
@@ -52823,7 +52861,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.padding.help",
+        "text" : "The space inside a popover's edges."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.padding",
       "keywords" : [
@@ -52977,7 +53018,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.header.help",
+        "text" : "How a popover's header line is drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.header",
       "keywords" : [
@@ -53112,7 +53156,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.progressHeight.help",
+        "text" : "The height of progress bars in popovers."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.progressHeight",
       "keywords" : [
@@ -53276,7 +53323,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.progressFill.help",
+        "text" : "The color of progress bars in popovers."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.progressFill",
       "keywords" : [

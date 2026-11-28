@@ -1219,6 +1219,7 @@ export function drawPaneComposer({
                       composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
+                      machinePick !== undefined,
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
@@ -1376,9 +1377,11 @@ export function drawPaneComposer({
               const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
               const startedHere =
                 pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              // A newer folder pick made while this chat starts stays the next New Tab's default.
+              const sentAt = Date.now();
               const rememberStart = () => {
                 if (!startedHere) return;
-                rememberStartedProject(startedHere, callNative);
+                rememberStartedProject(startedHere, callNative, sentAt);
                 if (pickedProject.current === startedHere) pickedProject.current = undefined;
               };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):

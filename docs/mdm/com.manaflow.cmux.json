@@ -52,7 +52,7 @@
     },
     "agentPane.dictationSource" : {
       "default" : "cmux",
-      "description" : "agentPane.dictationSource",
+      "description" : "Dictate With",
       "enum" : [
         "cmux",
         "macos",
@@ -148,7 +148,7 @@
     },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
-      "description" : "agentPane.display.font.lineHeight",
+      "description" : "Chat Line Height",
       "maximum" : 2.4,
       "minimum" : 1.2,
       "title" : "Chat Line Height",
@@ -156,7 +156,7 @@
     },
     "agentPane.display.font.preset" : {
       "default" : "markdown",
-      "description" : "agentPane.display.font.preset",
+      "description" : "Chat Font",
       "enum" : [
         "markdown",
         "system",
@@ -173,7 +173,7 @@
     },
     "agentPane.display.font.size" : {
       "default" : 14,
-      "description" : "agentPane.display.font.size",
+      "description" : "Chat Font Size",
       "maximum" : 28,
       "minimum" : 10,
       "title" : "Chat Font Size",
@@ -215,7 +215,7 @@
     },
     "agentPane.display.harnessPlacement" : {
       "default" : "symbols",
-      "description" : "agentPane.display.harnessPlacement",
+      "description" : "Model Picker Harness Placement",
       "enum" : [
         "symbols",
         "left",
@@ -303,7 +303,7 @@
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
-      "description" : "agentPane.display.presentation",
+      "description" : "Chat Presentation",
       "enum" : [
         "transcript",
         "messages"
@@ -633,7 +633,7 @@
     },
     "agentPane.editedFiles.maxRows" : {
       "default" : 3,
-      "description" : "agentPane.editedFiles.maxRows",
+      "description" : "Edited Files Shown",
       "maximum" : 50,
       "minimum" : 1,
       "title" : "Edited Files Shown",
@@ -641,7 +641,7 @@
     },
     "agentPane.editedFiles.scope" : {
       "default" : "turn",
-      "description" : "agentPane.editedFiles.scope",
+      "description" : "Edited Files Card Covers",
       "enum" : [
         "turn",
         "session"
@@ -1278,7 +1278,7 @@
     },
     "app.showMenuBarIcon" : {
       "default" : true,
-      "description" : "app.showMenuBarIcon",
+      "description" : "Show Menu Bar Icon",
       "title" : "Show Menu Bar Icon",
       "type" : "boolean"
     },
@@ -1298,13 +1298,13 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "app.warnBeforeClosingAgentSession",
+      "description" : "Warn Before Closing a Working Agent",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "app.warnBeforeClosingTab",
+      "description" : "Warn Before Closing a Running Program",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
@@ -2344,12 +2344,12 @@
       "default" : [
 
       ],
-      "description" : "appearance.customDensities",
+      "description" : "Custom Densities",
       "title" : "Custom Densities",
       "type" : "string"
     },
     "appearance.customDensity" : {
-      "description" : "appearance.customDensity",
+      "description" : "Custom Density",
       "title" : "Custom Density",
       "type" : "string"
     },
@@ -2526,14 +2526,14 @@
       "type" : "object"
     },
     "appearance.menu.borderOpacity" : {
-      "description" : "appearance.menu.borderOpacity",
+      "description" : "How visible the menu's edge line is.",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Menu Border Opacity",
       "type" : "number"
     },
     "appearance.menu.cornerRadius" : {
-      "description" : "appearance.menu.cornerRadius",
+      "description" : "The corner radius of menus.",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Menu Corner Radius",
@@ -2541,7 +2541,7 @@
     },
     "appearance.menu.destructiveInk" : {
       "default" : "standard",
-      "description" : "appearance.menu.destructiveInk",
+      "description" : "Whether destructive menu rows, such as Delete, are drawn in red.",
       "enum" : [
         "standard",
         "plain"
@@ -2550,26 +2550,26 @@
       "type" : "string"
     },
     "appearance.menu.fill" : {
-      "description" : "appearance.menu.fill",
+      "description" : "The menu background color, as #RRGGBB or #RRGGBBAA.",
       "title" : "Menu Fill",
       "type" : "string"
     },
     "appearance.menu.highlightRadius" : {
-      "description" : "appearance.menu.highlightRadius",
+      "description" : "The corner radius of the hovered row's highlight.",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Menu Highlight Radius",
       "type" : "number"
     },
     "appearance.menu.padding" : {
-      "description" : "appearance.menu.padding",
+      "description" : "The space inside the menu's edges.",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Menu Padding",
       "type" : "number"
     },
     "appearance.menu.rowHeight" : {
-      "description" : "appearance.menu.rowHeight",
+      "description" : "The height of a one-line menu row.",
       "maximum" : 40,
       "minimum" : 18,
       "title" : "Menu Row Height",
@@ -2577,7 +2577,7 @@
     },
     "appearance.menu.sectionLabel" : {
       "default" : "standard",
-      "description" : "appearance.menu.sectionLabel",
+      "description" : "How menu section labels are drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2587,7 +2587,7 @@
     },
     "appearance.menu.separator" : {
       "default" : "standard",
-      "description" : "appearance.menu.separator",
+      "description" : "How the lines between menu row groups are drawn.",
       "enum" : [
         "standard",
         "subtle",
@@ -2598,7 +2598,7 @@
     },
     "appearance.menu.shadow" : {
       "default" : "standard",
-      "description" : "appearance.menu.shadow",
+      "description" : "The shadow under menus.",
       "enum" : [
         "standard",
         "none",
@@ -2610,7 +2610,7 @@
     },
     "appearance.menu.shortcuts" : {
       "default" : "standard",
-      "description" : "appearance.menu.shortcuts",
+      "description" : "How strongly menu shortcuts are drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2620,7 +2620,7 @@
     },
     "appearance.menu.submenu" : {
       "default" : "standard",
-      "description" : "appearance.menu.submenu",
+      "description" : "Where a submenu opens next to its menu.",
       "enum" : [
         "standard",
         "flush"
@@ -2630,7 +2630,7 @@
     },
     "appearance.menu.subtitle" : {
       "default" : "standard",
-      "description" : "appearance.menu.subtitle",
+      "description" : "How the second line of a menu row is drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2646,7 +2646,7 @@
       "type" : "number"
     },
     "appearance.metrics.columnGap" : {
-      "description" : "appearance.metrics.columnGap",
+      "description" : "Column Gap",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Column Gap",
@@ -2667,14 +2667,14 @@
       "type" : "number"
     },
     "appearance.metrics.dividerHitWidth" : {
-      "description" : "appearance.metrics.dividerHitWidth",
+      "description" : "Divider Drag Width",
       "maximum" : 24,
       "minimum" : 1,
       "title" : "Divider Drag Width",
       "type" : "number"
     },
     "appearance.metrics.dividerThickness" : {
-      "description" : "appearance.metrics.dividerThickness",
+      "description" : "Divider Thickness",
       "maximum" : 6,
       "minimum" : 0,
       "title" : "Divider Thickness",
@@ -2695,7 +2695,7 @@
       "type" : "number"
     },
     "appearance.metrics.sidebarRowHeight" : {
-      "description" : "appearance.metrics.sidebarRowHeight",
+      "description" : "Workspace Row Height",
       "maximum" : 48,
       "minimum" : 20,
       "title" : "Workspace Row Height",
@@ -2723,7 +2723,7 @@
       "type" : "number"
     },
     "appearance.metrics.sidebarWidth" : {
-      "description" : "appearance.metrics.sidebarWidth",
+      "description" : "Sidebar Width",
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
@@ -2786,7 +2786,7 @@
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
-      "description" : "appearance.metrics.titlebarHeight",
+      "description" : "Titlebar Height",
       "maximum" : 56,
       "minimum" : 24,
       "title" : "Titlebar Height",
@@ -2865,7 +2865,7 @@
     },
     "appearance.popover.header" : {
       "default" : "standard",
-      "description" : "appearance.popover.header",
+      "description" : "How a popover's header line is drawn.",
       "enum" : [
         "standard",
         "strong"
@@ -2874,7 +2874,7 @@
       "type" : "string"
     },
     "appearance.popover.padding" : {
-      "description" : "appearance.popover.padding",
+      "description" : "The space inside a popover's edges.",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Popover Padding",
@@ -2882,7 +2882,7 @@
     },
     "appearance.popover.progressFill" : {
       "default" : "standard",
-      "description" : "appearance.popover.progressFill",
+      "description" : "The color of progress bars in popovers.",
       "enum" : [
         "standard",
         "muted",
@@ -2892,7 +2892,7 @@
       "type" : "string"
     },
     "appearance.popover.progressHeight" : {
-      "description" : "appearance.popover.progressHeight",
+      "description" : "The height of progress bars in popovers.",
       "maximum" : 12,
       "minimum" : 1,
       "title" : "Popover Progress Height",
@@ -2970,7 +2970,7 @@
       "type" : "string"
     },
     "appearance.statusIndicator.color" : {
-      "description" : "appearance.statusIndicator.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
@@ -3014,7 +3014,7 @@
     },
     "appearance.statusIndicator.size" : {
       "default" : 1,
-      "description" : "appearance.statusIndicator.size",
+      "description" : "Size",
       "maximum" : 1.5,
       "minimum" : 0.5,
       "title" : "Size",
@@ -3035,175 +3035,175 @@
     },
     "appearance.statusIndicator.thickness" : {
       "default" : 1.5,
-      "description" : "appearance.statusIndicator.thickness",
+      "description" : "Line Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Line Width",
       "type" : "number"
     },
     "appearance.surfaces.agentPane.color" : {
-      "description" : "appearance.surfaces.agentPane.color",
+      "description" : "Agent Chat Color",
       "title" : "Agent Chat Color",
       "type" : "string"
     },
     "appearance.surfaces.agentPane.opacity" : {
-      "description" : "appearance.surfaces.agentPane.opacity",
+      "description" : "Agent Chat Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Agent Chat Opacity",
       "type" : "number"
     },
     "appearance.surfaces.browserChrome.color" : {
-      "description" : "appearance.surfaces.browserChrome.color",
+      "description" : "Browser Toolbar Color",
       "title" : "Browser Toolbar Color",
       "type" : "string"
     },
     "appearance.surfaces.browserChrome.opacity" : {
-      "description" : "appearance.surfaces.browserChrome.opacity",
+      "description" : "Browser Toolbar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.diff.color" : {
-      "description" : "appearance.surfaces.diff.color",
+      "description" : "Diff Viewer Color",
       "title" : "Diff Viewer Color",
       "type" : "string"
     },
     "appearance.surfaces.diff.opacity" : {
-      "description" : "appearance.surfaces.diff.opacity",
+      "description" : "Diff Viewer Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Diff Viewer Opacity",
       "type" : "number"
     },
     "appearance.surfaces.docks.color" : {
-      "description" : "appearance.surfaces.docks.color",
+      "description" : "Docked Columns Color",
       "title" : "Docked Columns Color",
       "type" : "string"
     },
     "appearance.surfaces.docks.opacity" : {
-      "description" : "appearance.surfaces.docks.opacity",
+      "description" : "Docked Columns Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Docked Columns Opacity",
       "type" : "number"
     },
     "appearance.surfaces.editor.color" : {
-      "description" : "appearance.surfaces.editor.color",
+      "description" : "Code Editor Color",
       "title" : "Code Editor Color",
       "type" : "string"
     },
     "appearance.surfaces.editor.opacity" : {
-      "description" : "appearance.surfaces.editor.opacity",
+      "description" : "Code Editor Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Code Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.home.color" : {
-      "description" : "appearance.surfaces.home.color",
+      "description" : "Home Color",
       "title" : "Home Color",
       "type" : "string"
     },
     "appearance.surfaces.home.opacity" : {
-      "description" : "appearance.surfaces.home.opacity",
+      "description" : "Home Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Home Opacity",
       "type" : "number"
     },
     "appearance.surfaces.internalPage.color" : {
-      "description" : "appearance.surfaces.internalPage.color",
+      "description" : "Internal Pages Color",
       "title" : "Internal Pages Color",
       "type" : "string"
     },
     "appearance.surfaces.internalPage.opacity" : {
-      "description" : "appearance.surfaces.internalPage.opacity",
+      "description" : "Internal Pages Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Internal Pages Opacity",
       "type" : "number"
     },
     "appearance.surfaces.markdown.color" : {
-      "description" : "appearance.surfaces.markdown.color",
+      "description" : "Markdown Editor Color",
       "title" : "Markdown Editor Color",
       "type" : "string"
     },
     "appearance.surfaces.markdown.opacity" : {
-      "description" : "appearance.surfaces.markdown.opacity",
+      "description" : "Markdown Editor Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Markdown Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
-      "description" : "appearance.surfaces.newTabPage.color",
+      "description" : "New Tab Page Color",
       "title" : "New Tab Page Color",
       "type" : "string"
     },
     "appearance.surfaces.newTabPage.opacity" : {
-      "description" : "appearance.surfaces.newTabPage.opacity",
+      "description" : "New Tab Page Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "New Tab Page Opacity",
       "type" : "number"
     },
     "appearance.surfaces.settings.color" : {
-      "description" : "appearance.surfaces.settings.color",
+      "description" : "Settings Color",
       "title" : "Settings Color",
       "type" : "string"
     },
     "appearance.surfaces.settings.opacity" : {
-      "description" : "appearance.surfaces.settings.opacity",
+      "description" : "Settings Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Settings Opacity",
       "type" : "number"
     },
     "appearance.surfaces.sidebar.color" : {
-      "description" : "appearance.surfaces.sidebar.color",
+      "description" : "Sidebar Color",
       "title" : "Sidebar Color",
       "type" : "string"
     },
     "appearance.surfaces.sidebar.opacity" : {
-      "description" : "appearance.surfaces.sidebar.opacity",
+      "description" : "Sidebar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Sidebar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.splitDivider.color" : {
-      "description" : "appearance.surfaces.splitDivider.color",
+      "description" : "Split Divider Color",
       "title" : "Split Divider Color",
       "type" : "string"
     },
     "appearance.surfaces.splitDivider.opacity" : {
-      "description" : "appearance.surfaces.splitDivider.opacity",
+      "description" : "Split Divider Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Split Divider Opacity",
       "type" : "number"
     },
     "appearance.surfaces.tabBar.color" : {
-      "description" : "appearance.surfaces.tabBar.color",
+      "description" : "Tab Bar Color",
       "title" : "Tab Bar Color",
       "type" : "string"
     },
     "appearance.surfaces.tabBar.opacity" : {
-      "description" : "appearance.surfaces.tabBar.opacity",
+      "description" : "Tab Bar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Tab Bar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.terminal.color" : {
-      "description" : "appearance.surfaces.terminal.color",
+      "description" : "Terminal Color",
       "title" : "Terminal Color",
       "type" : "string"
     },
     "appearance.surfaces.terminal.opacity" : {
-      "description" : "appearance.surfaces.terminal.opacity",
+      "description" : "Terminal Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Terminal Opacity",
@@ -3410,7 +3410,7 @@
     },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
-      "description" : "browser.hibernatePinnedTabs",
+      "description" : "Hibernate Pinned Tabs",
       "title" : "Hibernate Pinned Tabs",
       "type" : "boolean"
     },
@@ -3583,7 +3583,7 @@
     },
     "browser.omnibar.glass" : {
       "default" : "off",
-      "description" : "browser.omnibar.glass",
+      "description" : "Address Bar Glass",
       "enum" : [
         "transparent",
         "regular",
@@ -3606,7 +3606,7 @@
     },
     "browser.omnibar.glassTintStrength" : {
       "default" : 0.35,
-      "description" : "browser.omnibar.glassTintStrength",
+      "description" : "Tint Strength",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Tint Strength",
@@ -3629,7 +3629,7 @@
     },
     "browser.omnibar.maxRows" : {
       "default" : 6,
-      "description" : "browser.omnibar.maxRows",
+      "description" : "Suggestions Shown",
       "maximum" : 15,
       "minimum" : 3,
       "title" : "Suggestions Shown",
@@ -3703,7 +3703,7 @@
     },
     "browser.remoteLocalhost" : {
       "default" : true,
-      "description" : "browser.remoteLocalhost",
+      "description" : "Open localhost on the Workspace's Machine",
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
     },
@@ -4118,7 +4118,7 @@
     },
     "customize.doctorNotice" : {
       "default" : false,
-      "description" : "customize.doctorNotice",
+      "description" : "Customization notices",
       "title" : "Customization notices",
       "type" : "boolean"
     },
@@ -4160,7 +4160,7 @@
     },
     "diff.colors" : {
       "default" : "theme",
-      "description" : "diff.colors",
+      "description" : "Diff Colors",
       "enum" : [
         "theme",
         "muted",
@@ -4171,7 +4171,7 @@
     },
     "diff.diffIndicators" : {
       "default" : "bars",
-      "description" : "diff.diffIndicators",
+      "description" : "Change Markers",
       "enum" : [
         "bars",
         "classic",
@@ -4182,25 +4182,25 @@
     },
     "diff.expandUnchanged" : {
       "default" : false,
-      "description" : "diff.expandUnchanged",
+      "description" : "Expand Unchanged Lines",
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
     "diff.groupByKind" : {
       "default" : false,
-      "description" : "diff.groupByKind",
+      "description" : "Group Files by Kind",
       "title" : "Group Files by Kind",
       "type" : "boolean"
     },
     "diff.hideWhitespace" : {
       "default" : false,
-      "description" : "diff.hideWhitespace",
+      "description" : "Hide White Space",
       "title" : "Hide White Space",
       "type" : "boolean"
     },
     "diff.layout" : {
       "default" : "auto",
-      "description" : "diff.layout",
+      "description" : "Layout",
       "enum" : [
         "auto",
         "split",
@@ -4211,31 +4211,31 @@
     },
     "diff.lineNumbers" : {
       "default" : true,
-      "description" : "diff.lineNumbers",
+      "description" : "Line Numbers",
       "title" : "Line Numbers",
       "type" : "boolean"
     },
     "diff.showBackgrounds" : {
       "default" : true,
-      "description" : "diff.showBackgrounds",
+      "description" : "Change Backgrounds",
       "title" : "Change Backgrounds",
       "type" : "boolean"
     },
     "diff.showBulkActions" : {
       "default" : true,
-      "description" : "diff.showBulkActions",
+      "description" : "Stage All and Revert All Bar",
       "title" : "Stage All and Revert All Bar",
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
       "default" : true,
-      "description" : "diff.wordDiffs",
+      "description" : "Highlight Word Changes",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
     },
     "diff.wordWrap" : {
       "default" : false,
-      "description" : "diff.wordWrap",
+      "description" : "Wrap Lines",
       "title" : "Wrap Lines",
       "type" : "boolean"
     },
@@ -4267,7 +4267,7 @@
     },
     "editor.acceptSuggestionOnEnter" : {
       "default" : "on",
-      "description" : "editor.acceptSuggestionOnEnter",
+      "description" : "Return Accepts a Suggestion",
       "enum" : [
         "on",
         "smart",
@@ -4278,19 +4278,19 @@
     },
     "editor.autoClosingBrackets" : {
       "default" : true,
-      "description" : "editor.autoClosingBrackets",
+      "description" : "Close Brackets",
       "title" : "Close Brackets",
       "type" : "boolean"
     },
     "editor.autoClosingQuotes" : {
       "default" : true,
-      "description" : "editor.autoClosingQuotes",
+      "description" : "Close Quotes",
       "title" : "Close Quotes",
       "type" : "boolean"
     },
     "editor.autoSave" : {
       "default" : "afterDelay",
-      "description" : "editor.autoSave",
+      "description" : "Save Automatically",
       "enum" : [
         "afterDelay",
         "off"
@@ -4300,7 +4300,7 @@
     },
     "editor.autoSaveDelay" : {
       "default" : 1000,
-      "description" : "editor.autoSaveDelay",
+      "description" : "Pause Before Saving",
       "maximum" : 60000,
       "minimum" : 100,
       "title" : "Pause Before Saving",
@@ -4308,13 +4308,13 @@
     },
     "editor.bracketPairColorization.enabled" : {
       "default" : true,
-      "description" : "editor.bracketPairColorization.enabled",
+      "description" : "Color Bracket Pairs",
       "title" : "Color Bracket Pairs",
       "type" : "boolean"
     },
     "editor.cursorBlinking" : {
       "default" : "blink",
-      "description" : "editor.cursorBlinking",
+      "description" : "Cursor Blinking",
       "enum" : [
         "blink",
         "smooth",
@@ -4327,7 +4327,7 @@
     },
     "editor.cursorSmoothCaretAnimation" : {
       "default" : "off",
-      "description" : "editor.cursorSmoothCaretAnimation",
+      "description" : "Animate Cursor Movement",
       "enum" : [
         "off",
         "explicit",
@@ -4338,7 +4338,7 @@
     },
     "editor.cursorStyle" : {
       "default" : "line",
-      "description" : "editor.cursorStyle",
+      "description" : "Cursor Style",
       "enum" : [
         "line",
         "block",
@@ -4352,7 +4352,7 @@
     },
     "editor.cursorSurroundingLines" : {
       "default" : 0,
-      "description" : "editor.cursorSurroundingLines",
+      "description" : "Lines Kept Around the Cursor",
       "maximum" : 50,
       "minimum" : 0,
       "title" : "Lines Kept Around the Cursor",
@@ -4391,13 +4391,13 @@
     },
     "editor.emptySelectionClipboard" : {
       "default" : true,
-      "description" : "editor.emptySelectionClipboard",
+      "description" : "Copy the Line When Nothing Is Selected",
       "title" : "Copy the Line When Nothing Is Selected",
       "type" : "boolean"
     },
     "editor.find.seedSearchStringFromSelection" : {
       "default" : "always",
-      "description" : "editor.find.seedSearchStringFromSelection",
+      "description" : "Find Starts With",
       "enum" : [
         "always",
         "selection",
@@ -4408,7 +4408,7 @@
     },
     "editor.folding" : {
       "default" : true,
-      "description" : "editor.folding",
+      "description" : "Code Folding",
       "title" : "Code Folding",
       "type" : "boolean"
     },
@@ -4419,7 +4419,7 @@
     },
     "editor.fontLigatures" : {
       "default" : false,
-      "description" : "editor.fontLigatures",
+      "description" : "Font Ligatures",
       "title" : "Font Ligatures",
       "type" : "boolean"
     },
@@ -4432,7 +4432,7 @@
     },
     "editor.fontWeight" : {
       "default" : "normal",
-      "description" : "editor.fontWeight",
+      "description" : "Font Weight",
       "enum" : [
         "normal",
         "bold",
@@ -4451,13 +4451,13 @@
     },
     "editor.guides.bracketPairs" : {
       "default" : false,
-      "description" : "editor.guides.bracketPairs",
+      "description" : "Bracket Pair Guides",
       "title" : "Bracket Pair Guides",
       "type" : "boolean"
     },
     "editor.guides.indentation" : {
       "default" : true,
-      "description" : "editor.guides.indentation",
+      "description" : "Indentation Guides",
       "title" : "Indentation Guides",
       "type" : "boolean"
     },
@@ -4478,7 +4478,7 @@
     },
     "editor.insertFinalNewline" : {
       "default" : false,
-      "description" : "editor.insertFinalNewline",
+      "description" : "End Files with a Newline on Save",
       "title" : "End Files with a Newline on Save",
       "type" : "boolean"
     },
@@ -4490,7 +4490,7 @@
     },
     "editor.letterSpacing" : {
       "default" : 0,
-      "description" : "editor.letterSpacing",
+      "description" : "Letter Spacing",
       "maximum" : 20,
       "minimum" : -5,
       "title" : "Letter Spacing",
@@ -4506,7 +4506,7 @@
     },
     "editor.lineNumbers" : {
       "default" : "on",
-      "description" : "editor.lineNumbers",
+      "description" : "Line Numbers",
       "enum" : [
         "on",
         "off",
@@ -4518,13 +4518,13 @@
     },
     "editor.linkedEditing" : {
       "default" : false,
-      "description" : "editor.linkedEditing",
+      "description" : "Rename Matching Tags Together",
       "title" : "Rename Matching Tags Together",
       "type" : "boolean"
     },
     "editor.matchBrackets" : {
       "default" : "always",
-      "description" : "editor.matchBrackets",
+      "description" : "Highlight Matching Brackets",
       "enum" : [
         "always",
         "near",
@@ -4535,13 +4535,13 @@
     },
     "editor.minimap.enabled" : {
       "default" : false,
-      "description" : "editor.minimap.enabled",
+      "description" : "Minimap",
       "title" : "Minimap",
       "type" : "boolean"
     },
     "editor.mouseWheelZoom" : {
       "default" : false,
-      "description" : "editor.mouseWheelZoom",
+      "description" : "Zoom with Command and the Scroll Wheel",
       "title" : "Zoom with Command and the Scroll Wheel",
       "type" : "boolean"
     },
@@ -4557,19 +4557,19 @@
     },
     "editor.quickSuggestions" : {
       "default" : false,
-      "description" : "editor.quickSuggestions",
+      "description" : "Suggest While Typing",
       "title" : "Suggest While Typing",
       "type" : "boolean"
     },
     "editor.renderControlCharacters" : {
       "default" : true,
-      "description" : "editor.renderControlCharacters",
+      "description" : "Show Control Characters",
       "title" : "Show Control Characters",
       "type" : "boolean"
     },
     "editor.renderLineHighlight" : {
       "default" : "line",
-      "description" : "editor.renderLineHighlight",
+      "description" : "Current Line Highlight",
       "enum" : [
         "none",
         "gutter",
@@ -4581,7 +4581,7 @@
     },
     "editor.renderWhitespace" : {
       "default" : "selection",
-      "description" : "editor.renderWhitespace",
+      "description" : "Show Whitespace",
       "enum" : [
         "none",
         "boundary",
@@ -4605,13 +4605,13 @@
     },
     "editor.scrollBeyondLastLine" : {
       "default" : false,
-      "description" : "editor.scrollBeyondLastLine",
+      "description" : "Scroll Past the Last Line",
       "title" : "Scroll Past the Last Line",
       "type" : "boolean"
     },
     "editor.smoothScrolling" : {
       "default" : false,
-      "description" : "editor.smoothScrolling",
+      "description" : "Smooth Scrolling",
       "title" : "Smooth Scrolling",
       "type" : "boolean"
     },
@@ -4623,7 +4623,7 @@
     },
     "editor.tabSize" : {
       "default" : 4,
-      "description" : "editor.tabSize",
+      "description" : "Tab Size",
       "maximum" : 16,
       "minimum" : 1,
       "title" : "Tab Size",
@@ -4631,7 +4631,7 @@
     },
     "editor.trimTrailingWhitespace" : {
       "default" : false,
-      "description" : "editor.trimTrailingWhitespace",
+      "description" : "Remove Trailing Spaces on Save",
       "title" : "Remove Trailing Spaces on Save",
       "type" : "boolean"
     },
@@ -4643,7 +4643,7 @@
     },
     "editor.wordBasedSuggestions" : {
       "default" : true,
-      "description" : "editor.wordBasedSuggestions",
+      "description" : "Suggest Words from the File",
       "title" : "Suggest Words from the File",
       "type" : "boolean"
     },
@@ -4661,7 +4661,7 @@
     },
     "editor.wordWrapColumn" : {
       "default" : 80,
-      "description" : "editor.wordWrapColumn",
+      "description" : "Wrap Column",
       "maximum" : 1000,
       "minimum" : 10,
       "title" : "Wrap Column",
@@ -4985,13 +4985,13 @@
       "type" : "string"
     },
     "focusRing.color" : {
-      "description" : "focusRing.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
     "focusRing.contrast" : {
       "default" : "subtle",
-      "description" : "focusRing.contrast",
+      "description" : "Contrast",
       "enum" : [
         "subtle",
         "standard",
@@ -5002,19 +5002,19 @@
     },
     "focusRing.enabled" : {
       "default" : false,
-      "description" : "focusRing.enabled",
+      "description" : "Show Focus Ring",
       "title" : "Show Focus Ring",
       "type" : "boolean"
     },
     "focusRing.showWhenSinglePane" : {
       "default" : false,
-      "description" : "focusRing.showWhenSinglePane",
+      "description" : "Show With One Pane",
       "title" : "Show With One Pane",
       "type" : "boolean"
     },
     "focusRing.style" : {
       "default" : "ring",
-      "description" : "focusRing.style",
+      "description" : "Style",
       "enum" : [
         "ring",
         "glow",
@@ -5025,7 +5025,7 @@
     },
     "focusRing.width" : {
       "default" : 1,
-      "description" : "focusRing.width",
+      "description" : "Width",
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
@@ -5167,7 +5167,7 @@
     },
     "home.chiefPetMascot" : {
       "default" : "orb",
-      "description" : "home.chiefPetMascot",
+      "description" : "Character",
       "enum" : [
         "fox",
         "machine",
@@ -5321,7 +5321,7 @@
     },
     "layout.centerFocusedColumn" : {
       "default" : "never",
-      "description" : "layout.centerFocusedColumn",
+      "description" : "Center Focused Column",
       "enum" : [
         "never",
         "always",
@@ -5357,7 +5357,7 @@
     },
     "layout.dockColumnEdge" : {
       "default" : "nearest",
-      "description" : "layout.dockColumnEdge",
+      "description" : "Dock Column Edge",
       "enum" : [
         "nearest",
         "right",
@@ -5370,7 +5370,7 @@
     },
     "layout.dockColumnMode" : {
       "default" : "docked",
-      "description" : "layout.dockColumnMode",
+      "description" : "Dock Column Mode",
       "enum" : [
         "docked",
         "overlay"
@@ -5392,7 +5392,7 @@
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
-      "description" : "layout.frameOrientation",
+      "description" : "Dock Corners",
       "enum" : [
         "columnMajor",
         "rowMajor"
@@ -5402,7 +5402,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "layout.linkPlacement",
+      "description" : "Open Links and Files",
       "enum" : [
         "split-right",
         "new-column",
@@ -5423,7 +5423,7 @@
     },
     "layout.minimumPaneHeight" : {
       "default" : 64,
-      "description" : "layout.minimumPaneHeight",
+      "description" : "Minimum Pane Height",
       "maximum" : 600,
       "minimum" : 32,
       "title" : "Minimum Pane Height",
@@ -5431,7 +5431,7 @@
     },
     "layout.minimumPaneWidth" : {
       "default" : 200,
-      "description" : "layout.minimumPaneWidth",
+      "description" : "Minimum Pane Width",
       "maximum" : 800,
       "minimum" : 80,
       "title" : "Minimum Pane Width",
@@ -5439,7 +5439,7 @@
     },
     "layout.newColumnWidth" : {
       "default" : "fixed",
-      "description" : "layout.newColumnWidth",
+      "description" : "New Column Sizing",
       "enum" : [
         "matchCurrent",
         "fitScreen",
@@ -5466,7 +5466,7 @@
     },
     "layout.paneBorder" : {
       "default" : "subtle",
-      "description" : "layout.paneBorder",
+      "description" : "Border",
       "enum" : [
         "subtle",
         "none"
@@ -5475,12 +5475,12 @@
       "type" : "string"
     },
     "layout.paneBorderColor" : {
-      "description" : "layout.paneBorderColor",
+      "description" : "Border Color",
       "title" : "Border Color",
       "type" : "string"
     },
     "layout.paneBorderWidth" : {
-      "description" : "layout.paneBorderWidth",
+      "description" : "Border Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Border Width",
@@ -5494,7 +5494,7 @@
       "type" : "number"
     },
     "layout.panePadding" : {
-      "description" : "layout.panePadding",
+      "description" : "Padding",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Padding",
@@ -5599,7 +5599,7 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "description" : "markdown.code.blockSize",
+      "description" : "Code Block Size",
       "maximum" : 32,
       "minimum" : 8,
       "title" : "Code Block Size",
@@ -5620,7 +5620,7 @@
     },
     "markdown.font.lineHeight" : {
       "default" : 1.6,
-      "description" : "markdown.font.lineHeight",
+      "description" : "Line Height",
       "maximum" : 2.4,
       "minimum" : 1,
       "title" : "Line Height",
@@ -5628,7 +5628,7 @@
     },
     "markdown.font.preset" : {
       "default" : "system",
-      "description" : "markdown.font.preset",
+      "description" : "Font",
       "enum" : [
         "system",
         "serif",
@@ -5675,7 +5675,7 @@
     },
     "markdown.tables" : {
       "default" : "scroll",
-      "description" : "markdown.tables",
+      "description" : "Wide Tables",
       "enum" : [
         "scroll",
         "wrap"
@@ -5685,7 +5685,7 @@
     },
     "markdown.theme" : {
       "default" : "app",
-      "description" : "markdown.theme",
+      "description" : "Page Theme",
       "enum" : [
         "app",
         "light",
@@ -5775,7 +5775,7 @@
     },
     "notifications.attention.agentChatBlinkCount" : {
       "default" : 1,
-      "description" : "notifications.attention.agentChatBlinkCount",
+      "description" : "Agent Chat Blinks",
       "maximum" : 10,
       "minimum" : 1,
       "title" : "Agent Chat Blinks",
@@ -5794,20 +5794,20 @@
     },
     "notifications.attention.blinkCount" : {
       "default" : 2,
-      "description" : "notifications.attention.blinkCount",
+      "description" : "Blinks",
       "maximum" : 10,
       "minimum" : 1,
       "title" : "Blinks",
       "type" : "number"
     },
     "notifications.attention.color" : {
-      "description" : "notifications.attention.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
     "notifications.attention.duration" : {
       "default" : 3,
-      "description" : "notifications.attention.duration",
+      "description" : "Pulse Duration",
       "maximum" : 30,
       "minimum" : 0.3,
       "title" : "Pulse Duration",
@@ -5821,7 +5821,7 @@
     },
     "notifications.attention.flashOnTyping" : {
       "default" : true,
-      "description" : "notifications.attention.flashOnTyping",
+      "description" : "Flash When Typing Reads It",
       "title" : "Flash When Typing Reads It",
       "type" : "boolean"
     },
@@ -5849,25 +5849,25 @@
     },
     "notifications.attention.persist" : {
       "default" : true,
-      "description" : "notifications.attention.persist",
+      "description" : "Keep Ring Until Read",
       "title" : "Keep Ring Until Read",
       "type" : "boolean"
     },
     "notifications.attention.showOnSidebar" : {
       "default" : true,
-      "description" : "notifications.attention.showOnSidebar",
+      "description" : "Mark the Sidebar Row",
       "title" : "Mark the Sidebar Row",
       "type" : "boolean"
     },
     "notifications.attention.showOnTab" : {
       "default" : true,
-      "description" : "notifications.attention.showOnTab",
+      "description" : "Mark the Tab",
       "title" : "Mark the Tab",
       "type" : "boolean"
     },
     "notifications.attention.style" : {
       "default" : "steady",
-      "description" : "notifications.attention.style",
+      "description" : "Style",
       "enum" : [
         "blink",
         "pulse",
@@ -5879,7 +5879,7 @@
     },
     "notifications.attention.terminals" : {
       "default" : "glow",
-      "description" : "notifications.attention.terminals",
+      "description" : "Ring Terminal Panes",
       "enum" : [
         "glow",
         "ring",
@@ -5890,7 +5890,7 @@
     },
     "notifications.attention.width" : {
       "default" : 2,
-      "description" : "notifications.attention.width",
+      "description" : "Width",
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
@@ -5909,7 +5909,7 @@
     },
     "notifications.delivery.permissionRequest" : {
       "default" : "banner",
-      "description" : "notifications.delivery.permissionRequest",
+      "description" : "Permission Request",
       "enum" : [
         "off",
         "badge",
@@ -5920,7 +5920,7 @@
     },
     "notifications.delivery.question" : {
       "default" : "banner",
-      "description" : "notifications.delivery.question",
+      "description" : "Question",
       "enum" : [
         "off",
         "badge",
@@ -5931,7 +5931,7 @@
     },
     "notifications.delivery.taskComplete" : {
       "default" : "banner",
-      "description" : "notifications.delivery.taskComplete",
+      "description" : "Task Complete",
       "enum" : [
         "off",
         "banner"
@@ -5941,7 +5941,7 @@
     },
     "notifications.desktop" : {
       "default" : "unlessFocused",
-      "description" : "notifications.desktop",
+      "description" : "macOS Banners",
       "enum" : [
         "unlessFocused",
         "always",
@@ -5953,7 +5953,7 @@
     },
     "notifications.dismissal" : {
       "default" : "focus",
-      "description" : "notifications.dismissal",
+      "description" : "Clear Notification When",
       "enum" : [
         "keystroke",
         "click",
@@ -5967,7 +5967,7 @@
     },
     "notifications.dockBadge" : {
       "default" : true,
-      "description" : "notifications.dockBadge",
+      "description" : "Unread Count on Dock Icon",
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
@@ -6021,7 +6021,7 @@
     },
     "notifications.sound" : {
       "default" : "default",
-      "description" : "notifications.sound",
+      "description" : "Sound",
       "title" : "Sound",
       "type" : "string"
     },
@@ -6045,27 +6045,27 @@
       "type" : "number"
     },
     "notifications.sounds.events.bell" : {
-      "description" : "notifications.sounds.events.bell",
+      "description" : "Terminal Notification",
       "title" : "Terminal Notification",
       "type" : "string"
     },
     "notifications.sounds.events.error" : {
-      "description" : "notifications.sounds.events.error",
+      "description" : "Error",
       "title" : "Error",
       "type" : "string"
     },
     "notifications.sounds.events.finished" : {
-      "description" : "notifications.sounds.events.finished",
+      "description" : "Agent Finished",
       "title" : "Agent Finished",
       "type" : "string"
     },
     "notifications.sounds.events.message" : {
-      "description" : "notifications.sounds.events.message",
+      "description" : "cmux notify Message",
       "title" : "cmux notify Message",
       "type" : "string"
     },
     "notifications.sounds.events.needsInput" : {
-      "description" : "notifications.sounds.events.needsInput",
+      "description" : "Agent Needs Input",
       "title" : "Agent Needs Input",
       "type" : "string"
     },
@@ -6098,7 +6098,7 @@
     },
     "notifications.sounds.when" : {
       "default" : "unlessViewed",
-      "description" : "notifications.sounds.when",
+      "description" : "Play Sounds",
       "enum" : [
         "unlessViewed",
         "whenInactive",
@@ -6119,7 +6119,7 @@
       "type" : "object"
     },
     "notifications.sources.agent.dismissal" : {
-      "description" : "notifications.sources.agent.dismissal",
+      "description" : "Agents",
       "enum" : [
         "keystroke",
         "click",
@@ -6132,7 +6132,7 @@
       "type" : "string"
     },
     "notifications.sources.cli.dismissal" : {
-      "description" : "notifications.sources.cli.dismissal",
+      "description" : "cmux notify",
       "enum" : [
         "keystroke",
         "click",
@@ -6145,7 +6145,7 @@
       "type" : "string"
     },
     "notifications.sources.terminal.dismissal" : {
-      "description" : "notifications.sources.terminal.dismissal",
+      "description" : "Terminal Programs",
       "enum" : [
         "keystroke",
         "click",
@@ -6534,7 +6534,7 @@
       "type" : "boolean"
     },
     "sidebar.borderWidth" : {
-      "description" : "sidebar.borderWidth",
+      "description" : "Border Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Border Width",
@@ -6613,7 +6613,7 @@
     },
     "sidebar.groupBy" : {
       "default" : "none",
-      "description" : "sidebar.groupBy",
+      "description" : "Group Projects By",
       "enum" : [
         "none",
         "folder",
@@ -6624,7 +6624,7 @@
     },
     "sidebar.groupByComputer" : {
       "default" : false,
-      "description" : "sidebar.groupByComputer",
+      "description" : "Group Workspaces by Computer",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
@@ -6994,7 +6994,7 @@
     },
     "sidebar.showColors" : {
       "default" : true,
-      "description" : "sidebar.showColors",
+      "description" : "Show Workspace Colors",
       "title" : "Show Workspace Colors",
       "type" : "boolean"
     },
@@ -7018,13 +7018,13 @@
     },
     "sidebar.showProfileControl" : {
       "default" : true,
-      "description" : "sidebar.showProfileControl",
+      "description" : "Show Profile Button",
       "title" : "Show Profile Button",
       "type" : "boolean"
     },
     "sidebar.showProjects" : {
       "default" : true,
-      "description" : "sidebar.showProjects",
+      "description" : "Show Projects",
       "title" : "Show Projects",
       "type" : "boolean"
     },
@@ -7133,62 +7133,62 @@
       "type" : "string"
     },
     "sidebar.workspaceRow.agent.agentStatus" : {
-      "description" : "sidebar.workspaceRow.agent.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.branch" : {
-      "description" : "sidebar.workspaceRow.agent.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.directory" : {
-      "description" : "sidebar.workspaceRow.agent.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.icon" : {
-      "description" : "sidebar.workspaceRow.agent.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.lastActivity" : {
-      "description" : "sidebar.workspaceRow.agent.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.log" : {
-      "description" : "sidebar.workspaceRow.agent.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.notification" : {
-      "description" : "sidebar.workspaceRow.agent.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.ports" : {
-      "description" : "sidebar.workspaceRow.agent.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.process" : {
-      "description" : "sidebar.workspaceRow.agent.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.progress" : {
-      "description" : "sidebar.workspaceRow.agent.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.pullRequest" : {
-      "description" : "sidebar.workspaceRow.agent.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.agent.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -7205,12 +7205,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.agent.tabCount" : {
-      "description" : "sidebar.workspaceRow.agent.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.working" : {
-      "description" : "sidebar.workspaceRow.agent.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -7222,67 +7222,67 @@
     },
     "sidebar.workspaceRow.branch" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.agentStatus" : {
-      "description" : "sidebar.workspaceRow.browser.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.branch" : {
-      "description" : "sidebar.workspaceRow.browser.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.directory" : {
-      "description" : "sidebar.workspaceRow.browser.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.icon" : {
-      "description" : "sidebar.workspaceRow.browser.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.lastActivity" : {
-      "description" : "sidebar.workspaceRow.browser.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.log" : {
-      "description" : "sidebar.workspaceRow.browser.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.notification" : {
-      "description" : "sidebar.workspaceRow.browser.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.ports" : {
-      "description" : "sidebar.workspaceRow.browser.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.process" : {
-      "description" : "sidebar.workspaceRow.browser.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.progress" : {
-      "description" : "sidebar.workspaceRow.browser.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.pullRequest" : {
-      "description" : "sidebar.workspaceRow.browser.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.browser.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -7299,18 +7299,18 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.browser.tabCount" : {
-      "description" : "sidebar.workspaceRow.browser.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.working" : {
-      "description" : "sidebar.workspaceRow.browser.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.directory" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
@@ -7322,7 +7322,7 @@
     },
     "sidebar.workspaceRow.lastActivity" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
@@ -7443,62 +7443,62 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.agentStatus" : {
-      "description" : "sidebar.workspaceRow.mixed.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.branch" : {
-      "description" : "sidebar.workspaceRow.mixed.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.directory" : {
-      "description" : "sidebar.workspaceRow.mixed.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.icon" : {
-      "description" : "sidebar.workspaceRow.mixed.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.lastActivity" : {
-      "description" : "sidebar.workspaceRow.mixed.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.log" : {
-      "description" : "sidebar.workspaceRow.mixed.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.notification" : {
-      "description" : "sidebar.workspaceRow.mixed.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.ports" : {
-      "description" : "sidebar.workspaceRow.mixed.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.process" : {
-      "description" : "sidebar.workspaceRow.mixed.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.progress" : {
-      "description" : "sidebar.workspaceRow.mixed.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.pullRequest" : {
-      "description" : "sidebar.workspaceRow.mixed.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -7515,12 +7515,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.mixed.tabCount" : {
-      "description" : "sidebar.workspaceRow.mixed.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.working" : {
-      "description" : "sidebar.workspaceRow.mixed.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -7592,67 +7592,67 @@
     },
     "sidebar.workspaceRow.tabCount" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.agentStatus" : {
-      "description" : "sidebar.workspaceRow.terminal.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.branch" : {
-      "description" : "sidebar.workspaceRow.terminal.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.directory" : {
-      "description" : "sidebar.workspaceRow.terminal.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.icon" : {
-      "description" : "sidebar.workspaceRow.terminal.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.lastActivity" : {
-      "description" : "sidebar.workspaceRow.terminal.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.log" : {
-      "description" : "sidebar.workspaceRow.terminal.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.notification" : {
-      "description" : "sidebar.workspaceRow.terminal.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.ports" : {
-      "description" : "sidebar.workspaceRow.terminal.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.process" : {
-      "description" : "sidebar.workspaceRow.terminal.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.progress" : {
-      "description" : "sidebar.workspaceRow.terminal.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.pullRequest" : {
-      "description" : "sidebar.workspaceRow.terminal.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -7669,12 +7669,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.terminal.tabCount" : {
-      "description" : "sidebar.workspaceRow.terminal.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.working" : {
-      "description" : "sidebar.workspaceRow.terminal.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -7709,7 +7709,7 @@
     },
     "status.inferCommandBusyAfter" : {
       "default" : 3,
-      "description" : "status.inferCommandBusyAfter",
+      "description" : "Show After",
       "maximum" : 600,
       "minimum" : 0,
       "title" : "Show After",
@@ -7725,7 +7725,7 @@
     },
     "status.runNotifyWhenVisible" : {
       "default" : false,
-      "description" : "status.runNotifyWhenVisible",
+      "description" : "Notify Even When the Terminal Is Visible",
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
@@ -7741,7 +7741,7 @@
     },
     "tabs.barPosition" : {
       "default" : "top",
-      "description" : "tabs.barPosition",
+      "description" : "Tab Bar Position",
       "enum" : [
         "top",
         "bottom"
@@ -7761,7 +7761,7 @@
     },
     "tabs.hideLoneChatTab" : {
       "default" : false,
-      "description" : "tabs.hideLoneChatTab",
+      "description" : "Hide the Tab of a Chat Alone in Its Pane",
       "title" : "Hide the Tab of a Chat Alone in Its Pane",
       "type" : "boolean"
     },
@@ -7778,7 +7778,7 @@
     },
     "tabs.newTabButtonPosition" : {
       "default" : "end",
-      "description" : "tabs.newTabButtonPosition",
+      "description" : "New Tab Position (+ Button)",
       "enum" : [
         "afterCurrent",
         "end",
@@ -7789,7 +7789,7 @@
     },
     "tabs.newTabClock.color" : {
       "default" : "text",
-      "description" : "tabs.newTabClock.color",
+      "description" : "Clock Color",
       "enum" : [
         "text",
         "accent",
@@ -7801,13 +7801,13 @@
     },
     "tabs.newTabClock.date" : {
       "default" : true,
-      "description" : "tabs.newTabClock.date",
+      "description" : "Date over Clock",
       "title" : "Date over Clock",
       "type" : "boolean"
     },
     "tabs.newTabClock.font" : {
       "default" : "rounded",
-      "description" : "tabs.newTabClock.font",
+      "description" : "Clock Font",
       "enum" : [
         "rounded",
         "system",
@@ -7826,7 +7826,7 @@
     },
     "tabs.newTabClock.weight" : {
       "default" : "bold",
-      "description" : "tabs.newTabClock.weight",
+      "description" : "Clock Weight",
       "enum" : [
         "thin",
         "regular",
@@ -7844,7 +7844,7 @@
     },
     "tabs.newTabPosition" : {
       "default" : "afterCurrent",
-      "description" : "tabs.newTabPosition",
+      "description" : "New Tab Position (Cmd-T)",
       "enum" : [
         "afterCurrent",
         "end",
@@ -8026,7 +8026,7 @@
       "type" : "string"
     },
     "terminal.fontSize" : {
-      "description" : "terminal.fontSize",
+      "description" : "Font Size",
       "maximum" : 96,
       "minimum" : 4,
       "title" : "Font Size",
@@ -8156,7 +8156,7 @@
     },
     "ui.animationSpeed" : {
       "default" : "fast",
-      "description" : "ui.animationSpeed",
+      "description" : "Animations",
       "enum" : [
         "fast",
         "normal",
@@ -8223,7 +8223,7 @@
     },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
-      "description" : "updates.checkIntervalSeconds",
+      "description" : "Check Every",
       "maximum" : 604800,
       "minimum" : 900,
       "title" : "Check Every",
@@ -8296,7 +8296,7 @@
     },
     "updates.notify" : {
       "default" : "badge",
-      "description" : "updates.notify",
+      "description" : "When an Update Is Ready",
       "enum" : [
         "badge",
         "silent"
@@ -8451,7 +8451,7 @@
     },
     "workspaces.newPlacement" : {
       "default" : "top",
-      "description" : "workspaces.newPlacement",
+      "description" : "New Workspace Position",
       "enum" : [
         "top",
         "afterCurrent",
