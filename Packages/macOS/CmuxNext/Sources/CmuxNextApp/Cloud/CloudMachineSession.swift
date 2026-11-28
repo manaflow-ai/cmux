@@ -25,13 +25,11 @@ final class CloudMachineSession {
 
     nonisolated static func confirmedCredentialHarnesses(identity: DaemonIdentity?, subscription: Bool) -> Set<String>? {
         let capability = AgentSessionAttachClient.credentialsCapability(harness: nil, nativeKey: true, subscription: subscription)
-        guard let identity, identity.supports(capability) else { return nil }
-        let prefix = "agent-session-start-endpoint-harness:"
-        return Set(identity.capabilities.compactMap { value in
-            guard value.hasPrefix(prefix) else { return nil }
-            let harness = String(value.dropFirst(prefix.count))
-            return subscription || ["gemini", "grok"].contains(harness) ? harness : nil
-        })
+        // Rust's `cloud_pane_credential_harnesses`: every start-endpoint harness for a subscription, gemini and grok for a key.
+        struct Facts: Encodable { var supported: Bool, capabilities: [String], subscription: Bool }
+        struct Answer: Decodable { var harnesses: Set<String>? }
+        let facts = Facts(supported: identity?.supports(capability) == true, capabilities: identity?.capabilities ?? [], subscription: subscription)
+        return CloudStartCore().call("cloud_pane_credential_harnesses", facts, as: Answer.self)?.harnesses
     }
 
     @ObservationIgnored let appLink: CloudLinkSession

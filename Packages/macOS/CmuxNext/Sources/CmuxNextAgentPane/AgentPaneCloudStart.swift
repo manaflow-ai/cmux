@@ -209,18 +209,13 @@ public nonisolated struct AgentPaneCloudRepick: Sendable, Equatable {
         (self.machine, self.name) = (machine, name)
     }
 
-    /// The page's params, checked; nil for anything else.
+    /// The page's params, checked by Rust (`cloud_pane_repick`); nil for anything else.
     public init?(params: [String: Any]?) {
-        let params = params ?? [:]
-        guard Set(params.keys).isSubset(of: ["machine", "name"]) else { return nil }
-        func text(_ key: String) -> String?? {
-            guard let value = params[key] else { return .some(nil) }
-            guard let text = value as? String, !text.isEmpty, text.utf8.count <= 128,
-                  text.unicodeScalars.allSatisfy({ $0.isASCII && !CharacterSet.controlCharacters.contains($0) }) else { return nil }
-            return .some(text)
-        }
-        guard let machine = text("machine"), let name = text("name"), machine != nil || name != nil else { return nil }
-        self.init(machine: machine, name: name)
+        struct Reply: Decodable { struct Pick: Decodable { var machine: String?, name: String? }; var repick: Pick? }
+        guard let data = try? JSONSerialization.data(withJSONObject: params ?? [:]),
+              let pick = CloudStartCore().callData("cloud_pane_repick", data).flatMap({ try? JSONDecoder().decode(Reply.self, from: $0) })?.repick
+        else { return nil }
+        self.init(machine: pick.machine, name: pick.name)
     }
 }
 
@@ -260,17 +255,14 @@ struct AgentPaneHandOff {
         return reply
     }
 
-    /// The codes this pane refuses a start with before the App's start runs, besides `transport.*`:
-    /// an attachment Cloud can't take, a pane that can't start one, the send line or another hand-off
-    /// still out (`held`), and the tab's one Sandboxed send (`AgentPaneSandboxRuns.refusal`). The page
-    /// keeps the same list (webviews cloudStartProgress.ts `REFUSED_HERE`).
-    nonisolated static let refusedHereCodes: Set<String> = ["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent",
-                                                             "cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"]
-
-    /// The reply's code when this pane refused the start itself; nil for a success or the App's own failure.
+    /// The reply's code when this pane refused the start itself (Rust `cloud_pane_refused_here`): `transport.*`, or an
+    /// attachment Cloud can't take, a pane that can't start one, the send line or another hand-off still out (`held`),
+    /// or the tab's one Sandboxed send, as the page's `REFUSED_HERE` keeps them; nil for a success or the App's own failure.
     nonisolated static func refusedHere(_ reply: [String: Any]) -> String? {
-        guard reply["ok"] as? Bool == false, let code = (reply["error"] as? [String: Any])?["code"] as? String else { return nil }
-        return code.hasPrefix("transport.") || refusedHereCodes.contains(code) ? code : nil
+        struct Facts: Encodable { var ok: Bool?, code: String? }
+        struct Answer: Decodable { var code: String? }
+        let facts = Facts(ok: reply["ok"] as? Bool, code: (reply["error"] as? [String: Any])?["code"] as? String)
+        return CloudStartCore().call("cloud_pane_refused_here", facts, as: Answer.self)?.code
     }
 
     private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
@@ -381,23 +373,6 @@ struct AgentPaneHandOff {
 }
 
 extension AgentPaneCloudStart {
-    /// The clone row's fields for a seed's or copy's progress line (webviews `cloudStartProgress.ts`):
-    /// `progress` (`received_bytes`, `bytes_total`, `objects`, `total_objects`, `files_done`,
-    /// `files_total`), and `fallback` and `install_url` when a seed copied instead.
-    nonisolated static func fields(_ progress: SeedProgress) -> [String: JSONValue] {
-        let numbers: [(String, Int?)] = [("received_bytes", progress.bytesDone), ("bytes_total", progress.bytesTotal),
-                                         ("objects", progress.objects), ("total_objects", progress.objectsTotal),
-                                         ("files_done", progress.filesDone), ("files_total", progress.filesTotal)]
-        var fields: [String: JSONValue] = [:]
-        let counts = numbers.compactMap { key, value in value.map { (key, JSONValue.number(Double($0))) } }
-        if !counts.isEmpty { fields["progress"] = .object(Dictionary(uniqueKeysWithValues: counts)) }
-        if let code = progress.fallbackCode { fields["fallback"] = .string(code) }
-        if let url = progress.installURL { fields["install_url"] = .string(url) }
-        return fields
-    }
-}
-
-extension AgentPaneCloudStart {
     /// How this start goes, for the card under the message (webviews `cloudStartProgress.ts`): the
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
@@ -408,29 +383,17 @@ extension AgentPaneCloudStart {
                                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
                                     setupError: String? = nil, setupHasScript: Bool? = nil,
                                     cloneProgress: SeedProgress? = nil, leftOnMac: Int64? = nil, to view: AgentPaneView) {
-        var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
-        if let folder { value["folder"] = .string(folder) }
-        if let machine { value["machine"] = .string(machine) }
-        if let size { value["size"] = .string(size) }
-        var cloneFields: [String: JSONValue] = [:]
-        if let cloneState { cloneFields["state"] = .string(cloneState) }
-        if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
-        if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
-        if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
-        if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
-        // A first pass: the files left on this Mac, so the card says the copy is partial.
-        if let leftOnMac, leftOnMac > 0 { cloneFields["left_on_mac"] = .number(Double(leftOnMac)) }
-        if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
-        if let environmentId { value["environmentId"] = .string(environmentId) }
-        var setupFields: [String: JSONValue] = [:]
-        if let setupState { setupFields["state"] = .string(setupState) }
-        if let setupStatus { setupFields["status"] = .string(setupStatus) }
-        if let setupStartedAt { setupFields["startedAt"] = .number(setupStartedAt) }
-        if let setupFinishedAt { setupFields["finishedAt"] = .number(setupFinishedAt) }
-        if let setupError { setupFields["error"] = .string(setupError) }
-        if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
-        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
-        let push = JSONValue.object(value)
+        // Rust's `cloud_pane_progress` builds the push: `clone` carries the seed's fields and the files left on this Mac.
+        struct Facts: Encodable {
+            var key, step: String, folder, machine, size, cloneState, clonePhase: String?, cloneStartedAt, cloneFinishedAt: Double?
+            var environmentId, setupState, setupStatus: String?, setupStartedAt, setupFinishedAt: Double?, setupError: String?
+            var setupHasScript: Bool?, cloneProgress: SeedProgress?, leftOnMac: Int64?
+        }
+        let facts = Facts(key: key, step: step, folder: folder, machine: machine, size: size, cloneState: cloneState, clonePhase: clonePhase,
+                          cloneStartedAt: cloneStartedAt, cloneFinishedAt: cloneFinishedAt, environmentId: environmentId, setupState: setupState,
+                          setupStatus: setupStatus, setupStartedAt: setupStartedAt, setupFinishedAt: setupFinishedAt, setupError: setupError,
+                          setupHasScript: setupHasScript, cloneProgress: cloneProgress, leftOnMac: leftOnMac)
+        guard let push = CloudStartCore().call("cloud_pane_progress", facts, as: JSONValue.self) else { return }
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }
