@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pull_request_action",
+      "params": {
+        "$ref": "#/types/PullRequestActionParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -1542,6 +1550,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/team/customization",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/customize",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/handoff",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
       "params": true,
       "result": true
@@ -1555,6 +1581,12 @@
     {
       "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
@@ -2264,6 +2296,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_interrupts",
       "params": true,
       "result": true
     },
@@ -3533,6 +3571,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -7331,6 +7370,19 @@
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
+      "type": "object"
+    },
+    "PullRequestActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "headSha": true,
+        "sessionId": true,
+        "url": true
+      },
       "type": "object"
     },
     "PurgedSession": {

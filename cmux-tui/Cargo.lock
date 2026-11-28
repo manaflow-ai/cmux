@@ -1439,6 +1439,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
@@ -1830,6 +1838,7 @@ dependencies = [
  "cmux-lifeline",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1882,7 +1891,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "tokio",
  "tower-http",
  "tracing",
@@ -2376,7 +2384,6 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "libc",
- "proptest",
  "ring",
  "serde",
  "serde_json",
@@ -2861,7 +2868,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -3014,6 +3021,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3363,7 +3371,6 @@ dependencies = [
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
- "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -3394,7 +3401,6 @@ dependencies = [
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64",
  "bytes",
  "cmux-json",
@@ -3779,7 +3785,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "socket2",
  "subsecond",
  "tar",
  "time",
