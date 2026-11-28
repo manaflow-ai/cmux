@@ -29,18 +29,28 @@ enum FrameTree {
         let root = await withCheckedContinuation { (continuation: CheckedContinuation<UncheckedNode, Never>) in
             imp(webView, selector) { node in continuation.resume(returning: UncheckedNode(value: node)) }
         }.value
-        var out: [FrameRecord] = []
-        if let root { flatten(root, parent: nil, into: &out) }
-        return out
+        guard let root else { return [] }
+        // WebKit's tree as JSON nodes, each naming its WKFrameInfo by index; Rust orders and links
+        // them (cmux-browser-rules `frames.rs`, op `browser_rules_automation_frame_tree`).
+        var infos: [WKFrameInfo] = []
+        let reply = BrowserRulesFFI.call("frame_tree", ["root": node(root, into: &infos)])
+        guard case .array(let records)? = reply else { return [] }
+        return records.compactMap { record in
+            guard case .object(let fields) = record, let id = fields["frameId"]?.stringValue,
+                  let index = fields["url"]?.stringValue.flatMap(Int.init), infos.indices.contains(index) else { return nil }
+            return FrameRecord(frameID: id, parentFrameID: fields["parentFrameId"]?.stringValue, info: infos[index])
+        }
     }
 
-    private static func flatten(_ node: AnyObject, parent: String?, into out: inout [FrameRecord]) {
+    /// `node` as a frame-tree request node. Its `url` carries the index of its WKFrameInfo in
+    /// `infos` (the record's url is read from the info itself); a node without an info or a frame
+    /// id has none, and Rust drops it with its children.
+    private static func node(_ node: AnyObject, into infos: inout [WKFrameInfo]) -> [String: Any] {
         guard node.responds(to: NSSelectorFromString("info")), node.responds(to: NSSelectorFromString("childFrames")),
-              let info = node.value(forKey: "info") as? WKFrameInfo, let id = frameID(info) else { return }
-        out.append(FrameRecord(frameID: id, parentFrameID: parent, info: info))
-        for child in (node.value(forKey: "childFrames") as? [AnyObject]) ?? [] {
-            flatten(child, parent: id, into: &out)
-        }
+              let info = node.value(forKey: "info") as? WKFrameInfo, let id = frameID(info) else { return [:] }
+        infos.append(info)
+        let children = ((node.value(forKey: "childFrames") as? [AnyObject]) ?? []).map { self.node($0, into: &infos) }
+        return ["frameId": id, "url": String(infos.count - 1), "children": children]
     }
 
     static func frameID(_ info: WKFrameInfo) -> String? {
