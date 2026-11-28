@@ -1,0 +1,241 @@
+﻿2026-11-28T04:12:55.1649638Z Current runner version: '2.338.2'
+2026-11-28T04:12:55.1656730Z Runner name: 'cmux-runner-pool-w3c-0209'
+2026-11-28T04:12:55.1657684Z Runner group name: 'cmux-fleet-linux'
+2026-11-28T04:12:55.1658736Z Machine name: 'cmux-runner-pool-w3c-0209'
+2026-11-28T04:12:55.1662170Z ##[group]GITHUB_TOKEN Permissions
+2026-11-28T04:12:55.1664474Z Contents: read
+2026-11-28T04:12:55.1665262Z Metadata: read
+2026-11-28T04:12:55.1665886Z ##[endgroup]
+2026-11-28T04:12:55.1668197Z Secret source: Actions
+2026-11-28T04:12:55.1669337Z Cache mode: write
+2026-11-28T04:12:56.0647386Z Complete job name: tests
+2026-11-28T04:12:56.1327504Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-28T04:12:56.1493306Z ##[group]Run '/opt/cmux-job-start.sh'
+2026-11-28T04:12:56.1520263Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:12:56.1521518Z ##[endgroup]
+2026-11-28T04:12:56.5534325Z cmux-ws-clean: ws=/home/runner/work/cmux/cmux decision=clean head=d08650bf6fa why=stamp
+2026-11-28T04:12:57.0728605Z cmux-ws-clean: ws=/home/runner/work/cmuxterm-hq/cmuxterm-hq decision=clean head=70013f8d
+2026-11-28T04:12:57.2083740Z cmux-ws-clean: at=2026-11-28T04:12:57Z phase=started version=d9e511f2bf99 user=runner clean=2 emptied=0 failed=0 lock_wait_s=0 pool_sh=0145bf7b6a96
+2026-11-28T04:12:57.6070984Z cmux-pkg-health: at=2026-11-28T04:12:57Z state=ok why=- waited=0
+2026-11-28T04:12:57.6372099Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-28T04:12:57.6372648Z with:
+2026-11-28T04:12:57.6372913Z   fetch-depth: 2
+2026-11-28T04:12:57.6378827Z   submodules: false
+2026-11-28T04:12:57.6379099Z   set-safe-directory: true
+2026-11-28T04:12:57.6379392Z ##[endgroup]
+2026-11-28T04:12:57.7369194Z Syncing repository: manaflow-ai/cmuxterm-hq
+2026-11-28T04:12:57.7371056Z ##[group]Getting Git version info
+2026-11-28T04:12:57.7371891Z Working directory is '/home/runner/work/cmuxterm-hq/cmuxterm-hq'
+2026-11-28T04:12:57.7372651Z [command]/usr/local/bin/git version
+2026-11-28T04:12:57.7374007Z git version 2.56.1
+2026-11-28T04:12:57.7397153Z ##[endgroup]
+2026-11-28T04:12:57.7410956Z Temporarily overriding HOME='/home/runner/work/_temp/c85f1d09-922f-488c-84a2-2c21b0743af4' before making global git config changes
+2026-11-28T04:12:57.7412484Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-28T04:12:57.7474807Z [command]/usr/local/bin/git config --local --get remote.origin.url
+2026-11-28T04:12:57.7515671Z https://github.com/manaflow-ai/cmuxterm-hq
+2026-11-28T04:12:57.7529021Z ##[group]Removing previously created refs, to avoid conflicts
+2026-11-28T04:12:57.7533051Z [command]/usr/local/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+2026-11-28T04:12:57.7573478Z HEAD
+2026-11-28T04:12:57.7677443Z ##[endgroup]
+2026-11-28T04:12:57.7679958Z [command]/usr/local/bin/git submodule status
+2026-11-28T04:12:57.7956171Z -79b48a51004f101ea5f0b201c2a4c8401ede45cc cmux-home
+2026-11-28T04:12:57.7958670Z -64d04cf8e3977ffca9b143b8bcd51b64937e8276 vendor/axiom
+2026-11-28T04:12:57.7959302Z -34027c77c9ffa33f47f5d81012d01296976b4240 vendor/cmux-skills
+2026-11-28T04:12:57.7967945Z ##[group]Cleaning the repository
+2026-11-28T04:12:57.7971954Z [command]/usr/local/bin/git clean -ffdx
+2026-11-28T04:12:57.8358307Z [command]/usr/local/bin/git reset --hard HEAD
+2026-11-28T04:12:57.9068943Z HEAD is now at 70013f8d Merge 0503ffd587fa1758dd5e17531dd2dc4ca7a970ba into bcb1ac6ddf6c4080de17c4c710ec7b8f43089c66
+2026-11-28T04:12:57.9087042Z ##[endgroup]
+2026-11-28T04:12:57.9088594Z ##[group]Disabling automatic garbage collection
+2026-11-28T04:12:57.9095719Z [command]/usr/local/bin/git config --local gc.auto 0
+2026-11-28T04:12:57.9150452Z ##[endgroup]
+2026-11-28T04:12:57.9151472Z ##[group]Setting up auth
+2026-11-28T04:12:57.9152247Z Removing SSH command configuration
+2026-11-28T04:12:57.9159184Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-28T04:12:58.0477893Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-aff7d277-1854-46b5-a3cf-8f85ec167e29.config
+2026-11-28T04:12:58.0535227Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-aff7d277-1854-46b5-a3cf-8f85ec167e29.config
+2026-11-28T04:12:58.0582905Z ##[endgroup]
+2026-11-28T04:12:58.0583772Z ##[group]Fetching the repository
+2026-11-28T04:12:58.0592362Z [command]/usr/local/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=2 origin +da750c22dcdef49b62f14aadf32adbadeb774259:refs/remotes/origin/main
+2026-11-28T04:13:27.8877896Z From https://github.com/manaflow-ai/cmuxterm-hq
+2026-11-28T04:13:27.8946644Z [command]/usr/local/bin/git rev-parse refs/remotes/origin/main
+2026-11-28T04:13:27.8990269Z da750c22dcdef49b62f14aadf32adbadeb774259
+2026-11-28T04:13:27.8994998Z ##[endgroup]
+2026-11-28T04:13:27.8995508Z ##[group]Determining the checkout info
+2026-11-28T04:13:27.8997499Z ##[endgroup]
+2026-11-28T04:13:27.9002836Z [command]/usr/local/bin/git sparse-checkout disable
+2026-11-28T04:13:27.9227906Z [command]/usr/local/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-28T04:13:27.9275682Z ##[group]Checking out the ref
+2026-11-28T04:13:27.9279170Z [command]/usr/local/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-28T04:13:27.9977583Z Warning: you are leaving 1 commit behind, not connected to
+2026-11-28T04:13:27.9989148Z Switched to a new branch 'main'
+2026-11-28T04:13:27.9991639Z branch 'main' set up to track 'origin/main'.
+2026-11-28T04:13:28.0002940Z ##[endgroup]
+2026-11-28T04:13:28.0065505Z [command]/usr/local/bin/git log -1 --format=%H
+2026-11-28T04:13:28.0110028Z da750c22dcdef49b62f14aadf32adbadeb774259
+2026-11-28T04:13:28.0119113Z ##[group]Removing auth
+2026-11-28T04:13:28.0119911Z Removing SSH command configuration
+2026-11-28T04:13:28.0123066Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-28T04:13:28.1391541Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-28T04:13:28.1675884Z Removing credentials config '/home/runner/work/_temp/git-credentials-aff7d277-1854-46b5-a3cf-8f85ec167e29.config'
+2026-11-28T04:13:28.1679495Z ##[endgroup]
+2026-11-28T04:13:28.1953647Z ##[group]Run python3 tools/fleet-reconcilers/loop_ledger_pin_check.py
+2026-11-28T04:13:28.1954244Z [36;1mpython3 tools/fleet-reconcilers/loop_ledger_pin_check.py[0m
+2026-11-28T04:13:28.1980029Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:13:28.1980287Z env:
+2026-11-28T04:13:28.1983497Z   GH_TOKEN: ***
+2026-11-28T04:13:28.1983720Z ##[endgroup]
+2026-11-28T04:13:28.4960316Z ##[warning]loop-ledger cross-repo pin unchecked (lw is private): LW main could not be read (gh exit 1)
+2026-11-28T04:13:28.5083353Z ##[group]Run git config --global user.email ci@example.invalid
+2026-11-28T04:13:28.5083842Z [36;1mgit config --global user.email ci@example.invalid[0m
+2026-11-28T04:13:28.5084199Z [36;1mgit config --global user.name ci[0m
+2026-11-28T04:13:28.5116320Z   M: 
+2026-11-28T04:13:28.5116518Z   ORDER_LEAKS_MODULES: 
+2026-11-28T04:13:28.5116738Z ##[endgroup]
+2026-11-28T04:13:31.5400470Z ##[group]test_base_red_watch ok 3.0s
+2026-11-28T04:13:31.5402458Z test_a_failed_direct_send_falls_back_to_the_outbox (test_base_red_watch.AlertLatency.test_a_failed_direct_send_falls_back_to_the_outbox) ... ok
+2026-11-28T04:13:31.5404393Z test_direct_send_names_the_owner_through_tell_coordinator (test_base_red_watch.AlertLatency.test_direct_send_names_the_owner_through_tell_coordinator) ... ok
+2026-11-28T04:13:31.5987448Z stage suspects: 0 s into the pass
+2026-11-28T04:13:31.5987689Z stage trust: 0 s into the pass
+2026-11-28T04:13:31.5996208Z ##[error]No overload matches this call.. Owner: cosmic-gray/claude-sr2-coord (coordinator fallback). Check it against feat-cmux-next's tip and land the fix first.
+2026-11-28T04:13:31.5997686Z stage notes: 0 s into the pass
+2026-11-28T04:13:31.5997954Z pass: gh 0 REST calls, 0 s
+2026-11-28T04:13:31.5999508Z stage suspects: 0 s into the pass
+2026-11-28T04:13:31.5999764Z stage trust: 0 s into the pass
+2026-11-28T04:13:31.6001761Z ##[error]No overload matches this call.; Error: merge diagnostic. Owner: cosmic-gray/claude-sr2-coord (coordinator fallback). Check it against feat-cmux-next's tip and land the fix first.
+2026-11-28T04:13:31.6003024Z stage notes: 0 s into the pass
+2026-11-28T04:13:31.6003261Z ok
+2026-11-28T04:13:31.6088544Z cmux's test_reds.py is unavailable (CalledProcessError: Command '['gh', 'api', 'repos/manaflow-ai/cmux/contents/scripts/ci/test_reds.py?ref=feat-cmux-next']' returned non-zero exit status 1.): shard reds keyed by family
+2026-11-28T04:13:31.6089676Z ::***::
+2026-11-28T04:13:31.6092714Z ##[warning]FIRE base red on feat-cmux-next: `cmux-next web / a` red on all 2 push runs read (since ?Z, first read at s1), with no green within 7 d to name a range. Newest red: . Owner: cosmic-gray/claude-sr2-coord (coordinator fallback). Fix it at the cause on feat-cmux-next; every PR that runs this job pays for it until then.
+2026-11-28T04:13:31.6094834Z ::stop-commands::***
+2026-11-28T04:13:31.6095389Z   cmux-next web / a: paged cosmic-gray/claude-sr2-coord (coordinator fallback) (red on every batch run read, no green to name a range)
+2026-11-28T04:20:32.8268973Z FAILED module test_cloud_chat_probe: failures=1
+2026-11-28T04:20:32.8269392Z parallel_suite: 585 modules, 15760 tests, 1 failing modules, 424s wall, 8 at once
+2026-11-28T04:20:32.8336932Z ##[error]Process completed with exit code 1.
+2026-11-28T04:20:32.8427713Z ##[group]Run python3 -m unittest discover -s triggers/checks -p 'test_*.py' -v $K
+2026-11-28T04:20:32.8428458Z [36;1mpython3 -m unittest discover -s triggers/checks -p 'test_*.py' -v $K[0m
+2026-11-28T04:20:32.8453072Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:20:32.8453317Z env:
+2026-11-28T04:20:32.8453495Z   K: 
+2026-11-28T04:20:32.8453678Z ##[endgroup]
+2026-11-28T04:20:33.2879909Z test_router_exit_codes (test_follow_ups.Cli.test_router_exit_codes) ... ok
+2026-11-28T04:20:33.2894464Z test_done_when_next_written (test_follow_ups.Goals.test_done_when_next_written) ... ok
+2026-11-28T04:20:33.4443639Z 
+2026-11-28T04:20:33.4443721Z OK
+2026-11-28T04:20:33.4650018Z ##[group]Run python3 -m unittest discover -s tools/cloud-golden-path -p 'test_*.py' -v $K
+2026-11-28T04:20:33.4650695Z [36;1mpython3 -m unittest discover -s tools/cloud-golden-path -p 'test_*.py' -v $K[0m
+2026-11-28T04:20:33.4675132Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:20:33.4675392Z env:
+2026-11-28T04:20:33.4675580Z   K: 
+2026-11-28T04:20:33.4675764Z ##[endgroup]
+2026-11-28T04:20:33.5360409Z test_first_token_prompt_and_secrets_are_dropped_recursively (test_golden_path.EchoNothingTests.test_first_token_prompt_and_secrets_are_dropped_recursively) ... ok
+2026-11-28T04:20:33.5372924Z test_planted_text_in_every_field_never_reaches_a_receipt (test_golden_path.EchoNothingTests.test_planted_text_in_every_field_never_reaches_a_receipt) ... ok
+2026-11-28T04:20:33.6593772Z 
+2026-11-28T04:20:33.6593850Z OK
+2026-11-28T04:20:33.6755036Z ##[group]Run python3 -m unittest discover -s tools/freestyle-lane-vms -p 'test_*.py' -v $K
+2026-11-28T04:20:33.6756178Z [36;1mpython3 -m unittest discover -s tools/freestyle-lane-vms -p 'test_*.py' -v $K[0m
+2026-11-28T04:20:33.6789284Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:20:33.6789692Z env:
+2026-11-28T04:20:33.6789993Z   K: 
+2026-11-28T04:20:33.6790294Z ##[endgroup]
+2026-11-28T04:20:33.8028834Z [04:20:33Z] fs-agent-lane-3: creating
+2026-11-28T04:20:33.8030922Z [04:20:33Z] fs-agent-lane-3: resize 4/8192/32768 -> 32/65536/262144 (vCPU / MiB / MiB)
+2026-11-28T04:20:33.8035831Z test_a_failed_step_writes_failed_with_why (test_freestyle_lane_vms.Create.test_a_failed_step_writes_failed_with_why) ... ok
+2026-11-28T04:20:33.8039534Z test_a_foreign_vm_holding_the_slug_is_refused_untouched (test_freestyle_lane_vms.Create.test_a_foreign_vm_holding_the_slug_is_refused_untouched) ... ok
+2026-11-28T04:20:33.8042016Z ##[error]fs-agent-lane-3: create failed: fs-agent-lane-3: base exited 1: package install failed
+2026-11-28T04:20:33.8044533Z ##[error]fs-agent-lane-3: refused: a VM not made by this workflow holds the slug fs-agent-lane-3; it is left alone
+2026-11-28T04:20:33.8045775Z [04:20:33Z] fs-agent-lane-3: exists (running), finishing it
+2026-11-28T04:20:33.8046362Z [04:20:33Z] fs-agent-lane-3: resize 4/8192/32768 -> 4/8192/65536 (vCPU / MiB / MiB)
+2026-11-28T04:20:33.8049339Z test_a_grow_of_a_lane_off_the_tailnet_without_credential_is_still_b1 (test_freestyle_lane_vms.Create.test_a_grow_of_a_lane_off_the_tailnet_without_credential_is_still_b1) ... ok
+2026-11-28T04:20:33.8055869Z ##[error]fs-agent-lane-3: refused: B1: no tailnet credential. Either one step: (1) project owner: run build-fleet/swift-linux-builder/pool/iam.sh --apply (section 8, the Freestyle lane joiner), then set repo variable FREESTYLE_LANE_WIF_PROVIDER=projects/502905966334/locations/global/workloadIdentityPools/cmux-linux-pool-gh/providers/cmux-linux-pool-gh-freestylelane (lanes join with the pool's key cmux-linux-pool-tailscale-authkey, tag:macbuilder); or (2) tag owner: make a Tailscale OAuth client (scope auth_keys, tags tag:macbuilder and tag:agent-lane) and store it as secret TS_LANE_OAUTH_CLIENT_SECRET (and its id as TS_LANE_OAUTH_CLIENT_ID) in this repo's `freestyle` environment.
+2026-11-28T04:20:33.8059388Z [04:20:33Z] fs-agent-lane-3: exists (running), finishing it
+2026-11-28T04:20:33.8060194Z test_a_grow_of_a_running_joined_lane_needs_no_tailnet_credential (test_freestyle_lane_vms.Create.test_a_grow_of_a_running_joined_lane_needs_no_tailnet_credential) ... ok
+2026-11-28T04:20:33.8084862Z [04:20:33Z] fs-agent-lane-3: resize still pending after 120 s; one pause/start cycle
+2026-11-28T04:20:33.8088895Z test_a_pending_resize_that_never_clears_is_reported_not_failed (test_freestyle_lane_vms.Create.test_a_pending_resize_that_never_clears_is_reported_not_failed) ... ok
+2026-11-28T04:20:33.8091464Z ##[warning]fs-agent-lane-3: resize pending: the provider still holds an earlier resize after 120 s and a pause/start cycle: POST /v5/vms/vm-19/resize -> HTTP 409: {"code":"CONFLICT","message":"conflict: Another resize is pending"}
+2026-11-28T04:20:33.8093117Z RESULT {"mode": "create", "name": "fs-agent-lane-3", "state": "running", "resize": "pending"}
+2026-11-28T04:20:33.8093566Z [04:20:33Z] fs-agent-lane-3: creating
+2026-11-28T04:20:33.8096843Z test_a_size_the_provider_refuses_is_a_refused_row (test_freestyle_lane_vms.Create.test_a_size_the_provider_refuses_is_a_refused_row) ... ok
+2026-11-28T04:20:33.8100783Z test_b1_refuses_before_any_provider_write (test_freestyle_lane_vms.Create.test_b1_refuses_before_any_provider_write) ... ok
+2026-11-28T04:20:33.8104585Z ##[error]fs-agent-lane-3: refused: the provider refused size 32x64x256: POST /v5/vms/vm-1/resize -> HTTP 422: over the plan's per-VM cap
+2026-11-28T04:20:33.8110646Z ##[error]B1: no tailnet credential. Either one step: (1) project owner: run build-fleet/swift-linux-builder/pool/iam.sh --apply (section 8, the Freestyle lane joiner), then set repo variable FREESTYLE_LANE_WIF_PROVIDER=projects/502905966334/locations/global/workloadIdentityPools/cmux-linux-pool-gh/providers/cmux-linux-pool-gh-freestylelane (lanes join with the pool's key cmux-linux-pool-tailscale-authkey, tag:macbuilder); or (2) tag owner: make a Tailscale OAuth client (scope auth_keys, tags tag:macbuilder and tag:agent-lane) and store it as secret TS_LANE_OAUTH_CLIENT_SECRET (and its id as TS_LANE_OAUTH_CLIENT_ID) in this repo's `freestyle` environment. Nothing was created.
+2026-11-28T04:20:33.8114044Z [04:20:33Z] fs-agent-lane-3: creating
+2026-11-28T04:20:33.8114898Z test_create_makes_sizes_joins_and_writes_the_consumers_row (test_freestyle_lane_vms.Create.test_create_makes_sizes_joins_and_writes_the_consumers_row) ... ok
+2026-11-28T04:20:33.8128765Z test_grow_of_a_name_with_no_vm_makes_nothing_and_writes_no_row (test_freestyle_lane_vms.Create.test_grow_of_a_name_with_no_vm_makes_nothing_and_writes_no_row) ... ok
+2026-11-28T04:20:33.8130305Z RESULT {"mode": "create", "name": "fs-agent-lane-3", "state": "running", "tailnet_ip": "100.70.1.2", "vcpu": 4, "memGiB": 8.0}
+2026-11-28T04:20:33.8132074Z ##[error]fs-agent-lane-3: refused: a VM not made by this workflow holds the slug fs-agent-lane-3; it is left alone
+2026-11-28T04:20:33.8134405Z ##[error]fs-agent-lane-3: grow refused: no such lane VM; making one is a coordinator's create
+2026-11-28T04:20:33.8135617Z [04:20:33Z] fs-agent-lane-3: creating
+2026-11-28T04:20:33.8136232Z [04:20:33Z] fs-agent-lane-3: resize 4/8192/32768 -> 32/65536/262144 (vCPU / MiB / MiB)
+2026-11-28T04:20:33.8443499Z test_one_use_tagged_non_ephemeral_key (test_freestyle_lane_vms.Mint.test_one_use_tagged_non_ephemeral_key) ... ok
+2026-11-28T04:20:33.8447894Z RESULT {"mode": "create", "name": "fs-agent-lane-3", "state": "running", "tailnet_ip": "100.70.1.2", "vcpu": 16, "memGiB": 32.0}
+2026-11-28T04:20:33.8455537Z ##[error]B1: no tailnet credential. Either one step: (1) project owner: run build-fleet/swift-linux-builder/pool/iam.sh --apply (section 8, the Freestyle lane joiner), then set repo variable FREESTYLE_LANE_WIF_PROVIDER=projects/502905966334/locations/global/workloadIdentityPools/cmux-linux-pool-gh/providers/cmux-linux-pool-gh-freestylelane (lanes join with the pool's key cmux-linux-pool-tailscale-authkey, tag:macbuilder); or (2) tag owner: make a Tailscale OAuth client (scope auth_keys, tags tag:macbuilder and tag:agent-lane) and store it as secret TS_LANE_OAUTH_CLIENT_SECRET (and its id as TS_LANE_OAUTH_CLIENT_ID) in this repo's `freestyle` environment. Nothing was created.
+2026-11-28T04:20:33.8459880Z [04:20:33Z] fs-agent-lane-3: stopped, starting
+2026-11-28T04:20:33.8460429Z test_b1_names_both_one_steps (test_freestyle_lane_vms.PoolKey.test_b1_names_both_one_steps) ... ok
+2026-11-28T04:20:33.8466616Z ##[error]fs-agent-lane-3: refused: B1: no tailnet credential. Either one step: (1) project owner: run build-fleet/swift-linux-builder/pool/iam.sh --apply (section 8, the Freestyle lane joiner), then set repo variable FREESTYLE_LANE_WIF_PROVIDER=projects/502905966334/locations/global/workloadIdentityPools/cmux-linux-pool-gh/providers/cmux-linux-pool-gh-freestylelane (lanes join with the pool's key cmux-linux-pool-tailscale-authkey, tag:macbuilder); or (2) tag owner: make a Tailscale OAuth client (scope auth_keys, tags tag:macbuilder and tag:agent-lane) and store it as secret TS_LANE_OAUTH_CLIENT_SECRET (and its id as TS_LANE_OAUTH_CLIENT_ID) in this repo's `freestyle` environment.
+2026-11-28T04:20:33.8469817Z [04:20:33Z] fs-agent-lane-3: creating
+2026-11-28T04:20:33.8470224Z [04:20:33Z] fs-agent-lane-3: resize 4/8192/32768 -> 32/65536/262144 (vCPU / MiB / MiB)
+2026-11-28T04:20:34.3804483Z RESULT {"mode": "snapshot", "vms": {}}
+2026-11-28T04:20:34.3805523Z RESULT {"mode": "pause", "name": "fs-agent-lane-3", "state": "paused", "tailnet_ip": null, "vcpu": 32, "memGiB": 64.0}
+2026-11-28T04:20:34.3807978Z ##[error]fs-agent-lane-3: refused: no VM fs-agent-lane-3; dispatch create=fs-agent-lane-3 first
+2026-11-28T04:20:34.3810782Z [04:20:34Z] fs-agent-lane-3: stopped, starting
+2026-11-28T04:20:34.3812092Z test_start_of_an_unknown_lane_is_refused (test_freestyle_lane_vms.StartPause.test_start_of_an_unknown_lane_is_refused) ... ok
+2026-11-28T04:20:34.4009804Z 
+2026-11-28T04:20:34.4009929Z OK
+2026-11-28T04:20:34.4018442Z ##[error]fs-agent-lane-3: refused: B1: no tailnet credential. Either one step: (1) project owner: run build-fleet/swift-linux-builder/pool/iam.sh --apply (section 8, the Freestyle lane joiner), then set repo variable FREESTYLE_LANE_WIF_PROVIDER=projects/502905966334/locations/global/workloadIdentityPools/cmux-linux-pool-gh/providers/cmux-linux-pool-gh-freestylelane (lanes join with the pool's key cmux-linux-pool-tailscale-authkey, tag:macbuilder); or (2) tag owner: make a Tailscale OAuth client (scope auth_keys, tags tag:macbuilder and tag:agent-lane) and store it as secret TS_LANE_OAUTH_CLIENT_SECRET (and its id as TS_LANE_OAUTH_CLIENT_ID) in this repo's `freestyle` environment.
+2026-11-28T04:20:34.4244257Z ##[group]Run python3 -m unittest discover -s tools/screenshare-e2e -p 'test_*.py' -v $K
+2026-11-28T04:20:34.4245337Z [36;1mpython3 -m unittest discover -s tools/screenshare-e2e -p 'test_*.py' -v $K[0m
+2026-11-28T04:20:34.4278611Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:20:34.4279021Z env:
+2026-11-28T04:20:34.4279314Z   K: 
+2026-11-28T04:20:34.4279619Z ##[endgroup]
+2026-11-28T04:20:34.5484118Z test_the_error_line_survives_a_long_tail_of_notes (test_e2e.BuildErrorTest.test_the_error_line_survives_a_long_tail_of_notes) ... ok
+2026-11-28T04:20:34.5485766Z test_with_no_error_line_it_keeps_the_tail (test_e2e.BuildErrorTest.test_with_no_error_line_it_keeps_the_tail) ... ok
+2026-11-28T04:22:23.6069075Z 
+2026-11-28T04:22:23.6069168Z OK
+2026-11-28T04:22:23.6333340Z ##[group]Run python3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K
+2026-11-28T04:22:23.6333998Z [36;1mpython3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K[0m
+2026-11-28T04:22:23.6357947Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:22:23.6358192Z env:
+2026-11-28T04:22:23.6358371Z   K: 
+2026-11-28T04:22:23.6358556Z ##[endgroup]
+2026-11-28T04:22:23.7512806Z test_an_older_nightly_falls_back_to_the_app_route_and_says_so (test_own_machines_app_probe.Chat.test_an_older_nightly_falls_back_to_the_app_route_and_says_so) ... ok
+2026-11-28T04:22:23.7515305Z test_another_refusal_fails_without_a_fallback (test_own_machines_app_probe.Chat.test_another_refusal_fails_without_a_fallback) ... ok
+2026-11-28T04:22:23.7980388Z 
+2026-11-28T04:22:23.7980498Z OK
+2026-11-28T04:22:23.8187896Z ##[group]Run python3 -m unittest discover -s build-fleet/swift-linux-builder/gha-runners/service -p '*_test.py' -v $K
+2026-11-28T04:22:23.8189488Z [36;1mpython3 -m unittest discover -s build-fleet/swift-linux-builder/gha-runners/service -p '*_test.py' -v $K[0m
+2026-11-28T04:22:23.8226034Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:22:23.8226458Z env:
+2026-11-28T04:22:23.8226753Z   K: 
+2026-11-28T04:22:23.8227121Z ##[endgroup]
+2026-11-28T04:22:23.9019487Z test_a_deploy_swaps_the_tree_prunes_it_and_restarts (pull_test.Apply.test_a_deploy_swaps_the_tree_prunes_it_and_restarts) ... ok
+2026-11-28T04:22:23.9038706Z test_a_unit_only_change_leaves_the_tree_in_place (pull_test.Apply.test_a_unit_only_change_leaves_the_tree_in_place) ... ok
+2026-11-28T04:22:24.1243351Z 
+2026-11-28T04:22:24.1243470Z OK
+2026-11-28T04:22:24.1466149Z ##[group]Run python3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K
+2026-11-28T04:22:24.1466878Z [36;1mpython3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K[0m
+2026-11-28T04:22:24.1491722Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:22:24.1491978Z env:
+2026-11-28T04:22:24.1492160Z   K: 
+2026-11-28T04:22:24.1492342Z ##[endgroup]
+2026-11-28T04:22:24.2860616Z test_first_boot_without_enrollment_keeps_static_link (boot_acpmux_test.BootAcpmuxTest.test_first_boot_without_enrollment_keeps_static_link) ... ok
+2026-11-28T04:22:24.2937294Z test_install_is_idempotent_and_never_restarts (boot_acpmux_test.BootAcpmuxTest.test_install_is_idempotent_and_never_restarts) ... ok
+2026-11-28T04:22:24.7827268Z 
+2026-11-28T04:22:24.7827343Z OK
+2026-11-28T04:22:24.8042647Z ##[group]Run set -euo pipefail
+2026-11-28T04:22:24.8042983Z [36;1mset -euo pipefail[0m
+2026-11-28T04:22:24.8043390Z [36;1mv=1.7.12; sum=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8[0m
+2026-11-28T04:22:24.8077701Z env:
+2026-11-28T04:22:24.8080816Z   GH_TOKEN: ***
+2026-11-28T04:22:24.8081038Z ##[endgroup]
+2026-11-28T04:22:25.3696990Z Post job cleanup.
+2026-11-28T04:22:25.4633217Z [command]/usr/local/bin/git version
+2026-11-28T04:22:25.4699006Z git version 2.56.1
+2026-11-28T04:22:25.5647505Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-28T04:22:25.6074588Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-28T04:22:25.6107331Z ##[group]Run '/opt/cmux-job-clean.sh'
+2026-11-28T04:22:25.6130645Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:22:25.6131179Z ##[endgroup]
+2026-11-28T04:22:30.0458328Z Cleaning up orphan processes

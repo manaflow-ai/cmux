@@ -1,0 +1,548 @@
+name: fleet-reconcilers tests
+
+# The fleet reconcilers (tools/fleet-reconcilers): next-autoland, base-red-watch and the reconcilers that follow
+# them out of leo-workspace. Their suites run here on Linux; no test reaches GitHub or a host.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (through now.py; #35398)
+      - tests/git_fixture_env.py  # its tests load the git fixture
+      - goals/ios-quality-climb.md  # a test here reads it (test_workflow_paths_cover_inputs.py names the chain)
+      - docs/rfd/0017-pausing-agent-machines.md  # test_resume_tiers.py reads its resume-tiers block
+      - goals/session-move-matrix-green.md  # test_session_move_matrix_probe.py reads it
+      - goals/auto-ui-preview-under-60s.md  # test_now_ui_preview.py reads its check lines
+      - docs/design/ci-v2.md  # test_ci_v2_rows.py verifies its generated row count
+      - docs/design/ci-v2-rows*.json  # the same test
+      - docs/design/customization-capability-matrix.md  # test_customization_matrix_probe.py parses it
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py checks the page's examples against the matcher
+      - docs/ci/synthetic-probes-workflow.md  # test_probe_watchdog.py reads it (the watchdog's page)
+      - tools/fleet-reconcilers/**
+      - tools/lane-gh-broker/parts/20-broker.py  # test_now_broker_saturation.py reads served_tools() (#29446)
+      - .github/actions/cmux-files/fetch.sh  # test_cmux_files_fetch.py runs it
+      - build-fleet/autodeploy/hq_autodeploy.py  # test_pool_pack.py reads it (#27570)
+      - build-fleet/gui-ci-users.json  # test_release_rollback_drill.py reads it (the rollback_drill account)
+      - build-fleet/images/linux-simsdk/bake.sh  # provider_trial.py uploads it to a simsdk trial runner (test_provider_trial.py)
+      - build-fleet/images/linux-simsdk/gce-bake.sh  # test_runner_pool.py runs its bake_create zone walk
+      - build-fleet/swift-linux-builder/gha-runners/bake-create.sh  # test_runner_pool.py runs bake_create with a fake gcloud
+      - build-fleet/gcp-lane-runners/guest-install.sh  # test_runner_pools.py checks its ghrunner-fw fences the tailnet (FENCED_LABELS)
+      - docs/findings/2026-11-25-ci-provider-trials.md  # provider_trial.py appends its rows there
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py reads it
+      - scripts/microvm-lanes/**  # test_microvm_exp.py packs them into the experiment VM's metadata
+      - build-fleet/microvm-host/**  # test_microvm_host_provision.py checks provision.sh; microvm_host.py carries it in metadata
+      - tools/rfd_index.py  # now_rfd_open.py loads it (test_now_rfd_decide_by.py)
+      - tools/agent-guards/workflow_paths_cover_inputs.py  # select_affected_tests.py walks each test's inputs with it
+      - scripts/skills_shard_inputs.py  # select_affected_tests.py places what the walker cannot (unknown_inputs)
+      - build-fleet/console_steps.py  # screen_share_e2e_probe.py checks the pins (test_screen_share_e2e_probe.py)
+      - build-fleet/console-steps.json  # console_steps.py reads it
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (CI job peak-memory rows, #35398)
+      - build-fleet/ci-dash/runner_drift.py  # runner_offline_why.py imports it (test_runner_offline_why.py)
+      - tools/cloud-golden-path/**  # the start matrix's golden-path row (its suite runs below)
+      - triggers/checks/**  # the condition-trigger checks (their suite runs below; NOW reads their panel)
+      - tools/own-machines/*.py  # the own-machines probe and its app job (they import probes and cloud_chat_app_probe)
+      - tools/screenshare-e2e/**  # the screen-share-e2e fleet steps (e2e.py imports cloud_chat_app_probe and walk_home)
+      - tools/screenshare-bench/provision/mac/in-launcher.sh  # e2e.py runs its --screenshare-e2e entry
+      - tools/screenshare-bench/provision/mac/lib.sh  # e2e.py runs its install_launcher and launcher_grants
+      - tools/screenshare-bench/viewer/adapters/mac-input.swift  # e2e.py builds it for the key and click
+      - tools/screenshare-bench/viewer/driver.py  # in-launcher.sh runs it
+      - build-fleet/signin_session.py  # screen-share-e2e's e2e.py exchanges the delivered session with it
+      - build-fleet/codex-lane-reconciler/**  # the Codex swarm VMs' reconciler and guest hooks
+      - tools/freestyle-lane-vms/**  # the Freestyle lane VMs (freestyle-lane-vms.yml; it imports state_branch and freestyle_runners from tools/fleet-reconcilers)
+      - build-fleet/lane-browser  # test_freestyle_lane_vms.py validates the shared lane browser wrapper
+      - .github/workflows/freestyle-lane-vms.yml
+      - tools/freestyle-workflow/runner-guest.sh  # test_freestyle_runners.py holds its package set to the GCP worker's
+      - build-fleet/swift-linux-builder/components/lib/source-zig.sh  # test_freestyle_steps.py reads it (the step guest's Zig)
+      - build-fleet/swift-linux-builder/pool/image/pool-boot.sh  # test_freestyle_steps.py reads it (the step guest's boot)
+      - build-fleet/swift-linux-builder/pool/recipe-swift-check.sh  # test_freestyle_steps.py reads it (the swift-check probe's preflight paths)
+      - build-fleet/cmd/controller/ci_step_linux_route.go  # test_freestyle_steps.py reads stepLinuxOwnedFirst (GCP_FIRST_S)
+      - tools/freestyle-workflow/pool-guest.sh  # test_freestyle_pool.py reads its labels, registration and job-done hook
+      - tools/freestyle-workflow/runners.mjs  # test_freestyle_runners.py reads its peer labels and vCPU sizes
+      - .github/actions/bun/action.yml  # test_freestyle_runners.py reads the Bun floor (#28062)
+      - scripts/freestyle-run/bun.lock  # test_freestyle_runners.py reads the lockfile version (#28062)
+      - build-fleet/mini-ops/share_grant.py  # screen_share_zero_touch_probe.py reads its grant states (test_screen_share_zero_touch_probe.py)
+      - build-fleet/mini-ops/linux-vm/runner-guest.sh  # test_runner_work_folder.py: the hosted layout (work dir, HOME)
+      - build-fleet/linux-runner-tools.txt  # test_linux_runner_tools.py: every Linux runner image declares and checks it
+      - skills/infra/linux-runner-pool/pool.sh  # test_linux_runner_tools.py
+      - build-fleet/mini-ops/linux-vm/runner-fork-guard.sh  # linux-vm-supervisor.py (test_mac_vm_runners.py loads it) reads it
+      - build-fleet/mini-ops/linux-vm/guest-reclaim.py  # linux-vm-supervisor.py (test_mac_vm_runners.py loads it) copies it into slot VMs
+      - tools/lane-gh-broker/parts/49-calls-runner-jit.py  # test_runner_work_folder.py: its work_folder
+      - tools/lane-gh-broker/parts/59-caller-admission.py  # test_now_broker_saturation.py: the admission line it reads
+      - tools/lane-gh-broker/parts/59-slow-primary.py  # test_now_broker_saturation.py: the stall it reads
+      - build-fleet/swift-linux-builder/lane-build-runners/job-started.sh  # test_runner_work_folder.py: the hook follows the work dir
+      - tools/agent-guards/compile_gate.py
+      - tools/review-board/review_board.py  # next-autoland reads its receipts (board_verdicts)
+      - tools/plans_board.py  # test_now_plans_board.py imports it (NOW's Plans unbuilt line)
+      - tools/first-hour/first_hour_count.py  # test_now_first_hour.py imports it (NOW's first_hour.ok)
+      - tools/claims_dir.py  # plans_board.py imports it (claims as one file per row, RFD agentic-org-architecture)
+      - tools/review-council/**  # test_now_review_council.py loads the runner; NOW reads its runs/ledger.jsonl
+      - docs/ci/synthetic-probes-workflow.md  # test_probe_watchdog.py reads it
+      - tools/design_ledger.py  # test_now_design_ledger.py imports it (NOW's Decided items unbuilt line)
+      - .github/workflows/fleet-reconcilers-tests.yml
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+      - .github/workflows/fleet-reconciler-*.yml
+      - .github/workflows/fleet-nightly-promotion-admission.yml
+      - .github/workflows/next-dogfood.yml
+      - build-fleet/pr_capture/nightly_feed.py  # the one NEXT feed (test_nightly_feed.py)
+      - build-fleet/pr_capture/app_launch.py  # every app launch names whose TCC grants judge it (test_app_launch.py)
+      - scripts/whats-new/capture.py  # test_app_launch.py runs a lone copy of it
+      - build-fleet/pr_capture/private-terms.json  # base_capture_watch.py scrubs quoted lines with it (test_base_capture_watch.py)
+      - build-fleet/pr_capture/failure_class.py  # capture_failure_issues.py imports its class vocabulary (test_capture_failure_issues.py)
+      - build-fleet/pr_capture/screen_backend.py  # granted_shot.py loads the screen backend switch (test_a11y_walk_probe.py)
+      - build-fleet/ci-dash/queue_acceptance.py  # test_now_runner_starve.py pins the median alarm's reason strings to it
+      - build-fleet/actions-fallback/run.py  # test_fallback_receipts.py reads it (the store posts no status)
+      - .github/actions/r2-artifact/artifact.py  # test_r2_artifact_retry.py loads it
+      - tools/ci-oops/act_agent.py  # base_red_now.py starts its fix agent through act_base_red
+      - tools/ci-oops/agent.json  # act_agent's settings
+      - tools/test_integrity.py  # act_agent's fallback copy of the deleted-or-weakened-tests guard
+      # Modules a suite here imports from another directory (test_workflow_paths_cover_imports.py and tools/agent-guards/test_workflow_paths_cover_inputs.py check this list).
+      - build-fleet/pr_capture/platform_probe.py  # test_probes.py; its origin table (test_worker_health.py)
+      - build-fleet/mini-ops/linux-vm/linux-vm-supervisor.py  # mac_vm_runners.py loads its excluded_host (test_mac_vm_runners.py)
+      # The supervisor reads both scripts; changes must run its reconciler tests too.
+      - build-fleet/mini-ops/linux-vm/runner-fork-guard.sh
+      - build-fleet/mini-ops/linux-vm/runner-guest.sh
+      - build-fleet/swift-linux-builder/pool/iam.sh  # test_wif_probe.py checks the probe names the pools it creates
+      - build-fleet/swift-linux-builder/lane-build-runners/release-runners.json  # test_runner_pool.py: no persistent runner on the JIT nightly label
+      - skills/infra/linux-runner-pool/**  # test_pool_capacity.py: pool_capacity.py creates what SKILL.md and pool.sh say
+      - build-fleet/pr_capture/platform_probe_met.py  # platform_probe.py imports the MET summary
+      - tests/process_gone.py  # the suites wait on killed processes with it (test_cloud_start_matrix_gui.py)
+      - build-fleet/pr_capture/cloud_fixture.py  # platform_probe.py imports it; its origin table (test_worker_health.py)
+      - build-fleet/archive_safety.py  # given_build.py imports it (test_given_build.py)
+      - build-fleet/pr_capture/chief_reply.py  # platform_probe.py imports it
+      - build-fleet/pr_capture/platform_records.py  # platform_probe.py and cloud_fixture.py import it
+      - build-fleet/pr_capture/mac_screen_pair.py  # cloud_fixture.py imports it
+      - build-fleet/pr_capture/mac_screen_pair_remote.py  # two_mac_flows.py reuses its Channel message format
+      - .github/actions/r2-artifact/artifact.py  # two_mac_flows.py signs the fleet store through it
+      - tools/remote-agents/agent_identity.py  # test_review_model.py
+      - tools/diff_headers.py  # tools/fleet-reconcilers/diff_headers.py is its copy (tests/test_diff_headers.py VendoredCopies)
+      - tests/scaling_check.py  # test_failed_steps_log.py (assert_work_scales)
+      - tests/stdlib_names.py  # test_failed_steps_log.py (stdlib_module_names)
+      - tests/each_offender.py  # test_runner_pools.py (fail_each)
+      - tools/unit-trace/trace_unit.py  # test_unit_inputs.py
+      - tools/cmux-watch/sentinel/checks.json
+      - tools/cmux-watch/sentinel/sentinel.py  # test_sentinel_lane_tags.py
+      - .github/runners.json
+      # test_runner_pools.py reads every HQ workflow's runs-on (no job reaches 32 vCPU without a measured reason).
+      - .github/workflows/*.yml
+      - build-fleet/bundle_store.py
+      - build-fleet/ci-client.py
+      - build-fleet/swap_serve.py  # ci-client.py imports it (test_cdn_user_agent.py)
+      - build-fleet/ci-dash/paid-hosts.json
+      - build-fleet/ci-dash/cloud_vms.py
+      - build-fleet/ci-dash/remote_vms.py
+      - build-fleet/client_install.py
+      - build-fleet/compile_fallback.py
+      - build-fleet/signin_session.py
+      - build-fleet/dev_backend.py
+      - build-fleet/feedback.py
+      - build-fleet/fleet.json
+      - build-fleet/fleet_client.py
+      - build-fleet/local_source.py
+      - build-fleet/mini-fleet.json
+      - build-fleet/pr_capture/platform_probe_specs/slo-create-pause-resume.json
+      - build-fleet/pr_capture/platform_probe_specs/paused-claim-production.json
+      - build-fleet/pr_capture/platform_probe_specs/slo-first-keystroke-agent-ready.json
+      - build-fleet/pr_capture/states/cloud-chat-probe.json
+      - build-fleet/pr_capture/states/nightly-signed-in.json
+      - build-fleet/swift-linux-builder/gha-runners/runner-startup.sh
+      - build-fleet/swift-linux-builder/gha-runners/pool-startup.sh  # test_runner_pool.py runs its register-then-wait steps
+      - build-fleet/swift-linux-builder/gha-runners/service/**  # test_runner_pool.py ServiceFiles
+      - build-fleet/swift-linux-builder/gha-runners/README.md  # test_runner_pool.py Files
+      - build-fleet/swift-linux-builder/gha-runners/workflows.json
+      - build-fleet/**/grant.sh  # test_fleet_admin.py (allowlist, guard, dry run); test_gha_runners_grant.py runs gha-runners/grant.sh against a stubbed gcloud
+      - build-fleet/fleet-admin-sa/**  # test_fleet_admin.py: setup.sh, grant-lib.sh, owner-bootstrap.sh
+      - docs/handbook/lessons/fix_causes.py  # now_base_reds_per_100.py imports it (base_red_rate)
+      - build-fleet/data/push_to_green.py  # now_push_to_green.py imports it (push_to_green)
+      - build-fleet/data/raw_store.py  # push_to_green.py imports it (the raw dump store)
+      - docs/handbook/lessons/fix-causes.jsonl
+      - docs/handbook/lessons/hand-labels.jsonl
+      - docs/handbook/lessons/numbers.md
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py reads its examples
+      - goals/cloud-desktop-agent.md
+      - goals/hot-verify-share.md  # test_now_hot_verify_share.py reads its check
+      - goals/swap-before-dev-build.md  # test_now_swappable_dev_builds.py reads its check
+      - goals/screen-share-fast.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-encode-transport.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-rate-control.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-stage-table.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-receiver-fec.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-quality-ladder.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-netem.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-ultra-profile.md  # test_screen_share_fast.py reads its check
+      - goals/ss-ios-viewer.md  # test_screen_share_fast.py reads its check
+      - goals/v2-gate-home-reports.md  # test_now_quality.py reads its check
+      - goals/customize-app-profiles.md  # test_now_customize_profiles.py reads its check
+      - goals/customize-app-profiles.captures.json  # now_customize_profiles.py reads it
+      - goals/customize-app-profiles.parity.json  # now_customize_profiles.py reads it
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+      - goals/cloud-start-matrix.md
+      - goals/notify-banner-click.md
+      - goals/screenshot-into-chat.md
+      - goals/sidebar-customization-capabilities.json  # now_sidebar_customization.py counts it
+      - goals/sidebar-customization-shipped.md  # test_now_sidebar_customization.py reads its target
+      - goals/look-keys-land-prs.json  # now_look_keys.py counts it
+      - goals/competitive-best-of-n.results.json  # now_best_of_n.py reads it
+      - goals/competitive-acp-conformance.results.json  # now_acp_conformance.py reads it (through now.py)
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (through now.py)
+      - goals/look-keys-land.md  # test_now_look_keys.py reads its target
+      - goals/customization-capability-matrix.md  # test_now_capability_matrix.py reads its check
+      - ideas/ledger.md  # now_ideas.py counts it (ideas.merged_7d)
+      - goals/ios-release-bar.json  # ios_release_bar_probe.py reads it
+      - goals/ios-release-bar-readback.json  # ios_release_bar_probe.py reads it
+      - goals/pr-in-an-hour.md  # now_pr_hour.py and test_now_pr_hour.py name its check
+      - goals/screen-share-receiver-fec.md  # test_screen_share_fast.py reads it
+      - plans/cmux-next/extensions/capability-matrix.md  # now_capability_matrix.py counts it
+      - plans/cloud/WISHLIST.md
+      - scripts/dev-backend.sh
+      - skills/infra/tsadmin/acl.manaflow.hujson
+      - tools/agent-guards/base_merge_carry.py
+      - tools/agent-guards/base_merge_gate.py
+      - tools/agent-guards/check_snapshot.py
+      - tools/agent-guards/change_size.py
+      - tools/agent-guards/gh_rate_limit.py
+      - tools/agent-guards/merge_compile_guard.py
+      - tools/agent-guards/review_family.py
+      - tools/agent-guards/receipt_read.py
+      - tools/agent-guards/review_receipt.py
+      - tools/ui-climb/headline.json
+      - tools/ui-climb/run-check.json
+      - tools/ui-climb/climb-picks.json
+      - build-fleet/pr_capture/driver.py
+      - build-fleet/pr_capture/nightly_steps.py
+      - build-fleet/pr_capture/notification_grant.py
+      - build-fleet/pr_capture/popup_shot.py
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+  push:
+    branches: [main]
+    paths:
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (through now.py; #35398)
+      - goals/*.md  # main only: test_now_goals.py parses every record, so a broken one shows on main at merge, not on the next PR (hq#33087); goals-only PRs start no CI (test_docs_only_prs_start_no_ci.py)
+      - tests/git_fixture_env.py  # its tests load the git fixture
+      - goals/ios-quality-climb.md  # a test here reads it (test_workflow_paths_cover_inputs.py names the chain)
+      - docs/rfd/0017-pausing-agent-machines.md  # test_resume_tiers.py reads its resume-tiers block
+      - goals/session-move-matrix-green.md  # test_session_move_matrix_probe.py reads it
+      - goals/auto-ui-preview-under-60s.md  # test_now_ui_preview.py reads its check lines
+      - docs/design/ci-v2.md  # test_ci_v2_rows.py verifies its generated row count
+      - docs/design/ci-v2-rows*.json  # the same test
+      - docs/design/customization-capability-matrix.md  # test_customization_matrix_probe.py parses it
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py checks the page's examples against the matcher
+      - docs/ci/synthetic-probes-workflow.md  # test_probe_watchdog.py reads it (the watchdog's page)
+      - tools/fleet-reconcilers/**
+      - tools/lane-gh-broker/parts/20-broker.py  # test_now_broker_saturation.py reads served_tools() (#29446)
+      - .github/actions/cmux-files/fetch.sh  # test_cmux_files_fetch.py runs it
+      - build-fleet/autodeploy/hq_autodeploy.py  # test_pool_pack.py reads it (#27570)
+      - build-fleet/gui-ci-users.json  # test_release_rollback_drill.py reads it (the rollback_drill account)
+      - build-fleet/images/linux-simsdk/bake.sh  # provider_trial.py uploads it to a simsdk trial runner (test_provider_trial.py)
+      - build-fleet/images/linux-simsdk/gce-bake.sh  # test_runner_pool.py runs its bake_create zone walk
+      - build-fleet/swift-linux-builder/gha-runners/bake-create.sh  # test_runner_pool.py runs bake_create with a fake gcloud
+      - build-fleet/gcp-lane-runners/guest-install.sh  # test_runner_pools.py checks its ghrunner-fw fences the tailnet (FENCED_LABELS)
+      - docs/findings/2026-11-25-ci-provider-trials.md  # provider_trial.py appends its rows there
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py reads it
+      - scripts/microvm-lanes/**  # test_microvm_exp.py packs them into the experiment VM's metadata
+      - build-fleet/microvm-host/**  # test_microvm_host_provision.py checks provision.sh; microvm_host.py carries it in metadata
+      - tools/rfd_index.py  # now_rfd_open.py loads it (test_now_rfd_decide_by.py)
+      - tools/agent-guards/workflow_paths_cover_inputs.py  # select_affected_tests.py walks each test's inputs with it
+      - scripts/skills_shard_inputs.py  # select_affected_tests.py places what the walker cannot (unknown_inputs)
+      - build-fleet/console_steps.py  # screen_share_e2e_probe.py checks the pins (test_screen_share_e2e_probe.py)
+      - build-fleet/console-steps.json  # console_steps.py reads it
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (CI job peak-memory rows, #35398)
+      - build-fleet/ci-dash/runner_drift.py  # runner_offline_why.py imports it (test_runner_offline_why.py)
+      - tools/cloud-golden-path/**  # the start matrix's golden-path row (its suite runs below)
+      - triggers/checks/**  # the condition-trigger checks (their suite runs below; NOW reads their panel)
+      - tools/own-machines/*.py  # the own-machines probe and its app job (they import probes and cloud_chat_app_probe)
+      - tools/screenshare-e2e/**  # the screen-share-e2e fleet steps (e2e.py imports cloud_chat_app_probe and walk_home)
+      - tools/screenshare-bench/provision/mac/in-launcher.sh  # e2e.py runs its --screenshare-e2e entry
+      - tools/screenshare-bench/provision/mac/lib.sh  # e2e.py runs its install_launcher and launcher_grants
+      - tools/screenshare-bench/viewer/adapters/mac-input.swift  # e2e.py builds it for the key and click
+      - tools/screenshare-bench/viewer/driver.py  # in-launcher.sh runs it
+      - build-fleet/signin_session.py  # screen-share-e2e's e2e.py exchanges the delivered session with it
+      - build-fleet/codex-lane-reconciler/**  # the Codex swarm VMs' reconciler and guest hooks
+      - tools/freestyle-lane-vms/**  # the Freestyle lane VMs (freestyle-lane-vms.yml; it imports state_branch and freestyle_runners from tools/fleet-reconcilers)
+      - build-fleet/lane-browser  # test_freestyle_lane_vms.py validates the shared lane browser wrapper
+      - .github/workflows/freestyle-lane-vms.yml
+      - tools/freestyle-workflow/runner-guest.sh  # test_freestyle_runners.py holds its package set to the GCP worker's
+      - build-fleet/swift-linux-builder/components/lib/source-zig.sh  # test_freestyle_steps.py reads it (the step guest's Zig)
+      - build-fleet/swift-linux-builder/pool/image/pool-boot.sh  # test_freestyle_steps.py reads it (the step guest's boot)
+      - build-fleet/swift-linux-builder/pool/recipe-swift-check.sh  # test_freestyle_steps.py reads it (the swift-check probe's preflight paths)
+      - build-fleet/cmd/controller/ci_step_linux_route.go  # test_freestyle_steps.py reads stepLinuxOwnedFirst (GCP_FIRST_S)
+      - tools/freestyle-workflow/pool-guest.sh  # test_freestyle_pool.py reads its labels, registration and job-done hook
+      - tools/freestyle-workflow/runners.mjs  # test_freestyle_runners.py reads its peer labels and vCPU sizes
+      - .github/actions/bun/action.yml  # test_freestyle_runners.py reads the Bun floor (#28062)
+      - scripts/freestyle-run/bun.lock  # test_freestyle_runners.py reads the lockfile version (#28062)
+      - build-fleet/mini-ops/share_grant.py  # screen_share_zero_touch_probe.py reads its grant states (test_screen_share_zero_touch_probe.py)
+      - build-fleet/mini-ops/linux-vm/runner-guest.sh  # test_runner_work_folder.py: the hosted layout (work dir, HOME)
+      - build-fleet/linux-runner-tools.txt  # test_linux_runner_tools.py: every Linux runner image declares and checks it
+      - skills/infra/linux-runner-pool/pool.sh  # test_linux_runner_tools.py
+      - build-fleet/mini-ops/linux-vm/runner-fork-guard.sh  # linux-vm-supervisor.py (test_mac_vm_runners.py loads it) reads it
+      - build-fleet/mini-ops/linux-vm/guest-reclaim.py  # linux-vm-supervisor.py (test_mac_vm_runners.py loads it) copies it into slot VMs
+      - tools/lane-gh-broker/parts/49-calls-runner-jit.py  # test_runner_work_folder.py: its work_folder
+      - tools/lane-gh-broker/parts/59-caller-admission.py  # test_now_broker_saturation.py: the admission line it reads
+      - tools/lane-gh-broker/parts/59-slow-primary.py  # test_now_broker_saturation.py: the stall it reads
+      - build-fleet/swift-linux-builder/lane-build-runners/job-started.sh  # test_runner_work_folder.py: the hook follows the work dir
+      - tools/agent-guards/compile_gate.py
+      - tools/review-board/review_board.py  # next-autoland reads its receipts (board_verdicts)
+      - tools/plans_board.py  # test_now_plans_board.py imports it (NOW's Plans unbuilt line)
+      - tools/first-hour/first_hour_count.py  # test_now_first_hour.py imports it (NOW's first_hour.ok)
+      - tools/claims_dir.py  # plans_board.py imports it (claims as one file per row, RFD agentic-org-architecture)
+      - tools/review-council/**  # test_now_review_council.py loads the runner; NOW reads its runs/ledger.jsonl
+      - docs/ci/synthetic-probes-workflow.md  # test_probe_watchdog.py reads it
+      - tools/design_ledger.py  # test_now_design_ledger.py imports it (NOW's Decided items unbuilt line)
+      - .github/workflows/fleet-reconcilers-tests.yml
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+      - .github/workflows/fleet-reconciler-*.yml
+      - .github/workflows/fleet-nightly-promotion-admission.yml
+      - .github/workflows/next-dogfood.yml
+      - build-fleet/pr_capture/nightly_feed.py  # the one NEXT feed (test_nightly_feed.py)
+      - build-fleet/pr_capture/app_launch.py  # every app launch names whose TCC grants judge it (test_app_launch.py)
+      - scripts/whats-new/capture.py  # test_app_launch.py runs a lone copy of it
+      - build-fleet/pr_capture/private-terms.json  # base_capture_watch.py scrubs quoted lines with it (test_base_capture_watch.py)
+      - build-fleet/pr_capture/failure_class.py  # capture_failure_issues.py imports its class vocabulary (test_capture_failure_issues.py)
+      - build-fleet/pr_capture/screen_backend.py  # granted_shot.py loads the screen backend switch (test_a11y_walk_probe.py)
+      - build-fleet/ci-dash/queue_acceptance.py  # test_now_runner_starve.py pins the median alarm's reason strings to it
+      - build-fleet/actions-fallback/run.py  # test_fallback_receipts.py reads it (the store posts no status)
+      - .github/actions/r2-artifact/artifact.py  # test_r2_artifact_retry.py loads it
+      - tools/ci-oops/act_agent.py  # base_red_now.py starts its fix agent through act_base_red
+      - tools/ci-oops/agent.json  # act_agent's settings
+      - tools/test_integrity.py  # act_agent's fallback copy of the deleted-or-weakened-tests guard
+      # Modules a suite here imports from another directory (test_workflow_paths_cover_imports.py and tools/agent-guards/test_workflow_paths_cover_inputs.py check this list).
+      - build-fleet/pr_capture/platform_probe.py  # test_probes.py; its origin table (test_worker_health.py)
+      - build-fleet/mini-ops/linux-vm/linux-vm-supervisor.py  # mac_vm_runners.py loads its excluded_host (test_mac_vm_runners.py)
+      # The supervisor reads both scripts; changes must run its reconciler tests too.
+      - build-fleet/mini-ops/linux-vm/runner-fork-guard.sh
+      - build-fleet/mini-ops/linux-vm/runner-guest.sh
+      - build-fleet/swift-linux-builder/pool/iam.sh  # test_wif_probe.py checks the probe names the pools it creates
+      - build-fleet/swift-linux-builder/lane-build-runners/release-runners.json  # test_runner_pool.py: no persistent runner on the JIT nightly label
+      - skills/infra/linux-runner-pool/**  # test_pool_capacity.py: pool_capacity.py creates what SKILL.md and pool.sh say
+      - build-fleet/pr_capture/platform_probe_met.py  # platform_probe.py imports the MET summary
+      - tests/process_gone.py  # the suites wait on killed processes with it (test_cloud_start_matrix_gui.py)
+      - build-fleet/pr_capture/cloud_fixture.py  # platform_probe.py imports it; its origin table (test_worker_health.py)
+      - build-fleet/archive_safety.py  # given_build.py imports it (test_given_build.py)
+      - build-fleet/pr_capture/chief_reply.py  # platform_probe.py imports it
+      - build-fleet/pr_capture/platform_records.py  # platform_probe.py and cloud_fixture.py import it
+      - build-fleet/pr_capture/mac_screen_pair.py  # cloud_fixture.py imports it
+      - build-fleet/pr_capture/mac_screen_pair_remote.py  # two_mac_flows.py reuses its Channel message format
+      - .github/actions/r2-artifact/artifact.py  # two_mac_flows.py signs the fleet store through it
+      - tools/remote-agents/agent_identity.py  # test_review_model.py
+      - tools/diff_headers.py  # tools/fleet-reconcilers/diff_headers.py is its copy (tests/test_diff_headers.py VendoredCopies)
+      - tests/scaling_check.py  # test_failed_steps_log.py (assert_work_scales)
+      - tests/stdlib_names.py  # test_failed_steps_log.py (stdlib_module_names)
+      - tests/each_offender.py  # test_runner_pools.py (fail_each)
+      - tools/unit-trace/trace_unit.py  # test_unit_inputs.py
+      - tools/cmux-watch/sentinel/checks.json
+      - tools/cmux-watch/sentinel/sentinel.py  # test_sentinel_lane_tags.py
+      - .github/runners.json
+      # test_runner_pools.py reads every HQ workflow's runs-on (no job reaches 32 vCPU without a measured reason).
+      - .github/workflows/*.yml
+      - build-fleet/bundle_store.py
+      - build-fleet/ci-client.py
+      - build-fleet/swap_serve.py  # ci-client.py imports it (test_cdn_user_agent.py)
+      - build-fleet/ci-dash/paid-hosts.json
+      - build-fleet/ci-dash/cloud_vms.py
+      - build-fleet/ci-dash/remote_vms.py
+      - build-fleet/client_install.py
+      - build-fleet/compile_fallback.py
+      - build-fleet/signin_session.py
+      - build-fleet/dev_backend.py
+      - build-fleet/feedback.py
+      - build-fleet/fleet.json
+      - build-fleet/fleet_client.py
+      - build-fleet/local_source.py
+      - build-fleet/mini-fleet.json
+      - build-fleet/pr_capture/platform_probe_specs/slo-create-pause-resume.json
+      - build-fleet/pr_capture/platform_probe_specs/paused-claim-production.json
+      - build-fleet/pr_capture/platform_probe_specs/slo-first-keystroke-agent-ready.json
+      - build-fleet/pr_capture/states/cloud-chat-probe.json
+      - build-fleet/pr_capture/states/nightly-signed-in.json
+      - build-fleet/swift-linux-builder/gha-runners/runner-startup.sh
+      - build-fleet/swift-linux-builder/gha-runners/pool-startup.sh  # test_runner_pool.py runs its register-then-wait steps
+      - build-fleet/swift-linux-builder/gha-runners/service/**  # test_runner_pool.py ServiceFiles
+      - build-fleet/swift-linux-builder/gha-runners/README.md  # test_runner_pool.py Files
+      - build-fleet/swift-linux-builder/gha-runners/workflows.json
+      - build-fleet/**/grant.sh  # test_fleet_admin.py (allowlist, guard, dry run); test_gha_runners_grant.py runs gha-runners/grant.sh against a stubbed gcloud
+      - build-fleet/fleet-admin-sa/**  # test_fleet_admin.py: setup.sh, grant-lib.sh, owner-bootstrap.sh
+      - docs/handbook/lessons/fix_causes.py  # now_base_reds_per_100.py imports it (base_red_rate)
+      - build-fleet/data/push_to_green.py  # now_push_to_green.py imports it (push_to_green)
+      - build-fleet/data/raw_store.py  # push_to_green.py imports it (the raw dump store)
+      - docs/handbook/lessons/fix-causes.jsonl
+      - docs/handbook/lessons/hand-labels.jsonl
+      - docs/handbook/lessons/numbers.md
+      - docs/handbook/review-follow-ups.md  # test_review_followups.py reads its examples
+      - goals/cloud-desktop-agent.md
+      - goals/hot-verify-share.md  # test_now_hot_verify_share.py reads its check
+      - goals/swap-before-dev-build.md  # test_now_swappable_dev_builds.py reads its check
+      - goals/screen-share-fast.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-encode-transport.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-rate-control.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-stage-table.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-receiver-fec.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-quality-ladder.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-netem.md  # test_screen_share_fast.py reads its check
+      - goals/screen-share-ultra-profile.md  # test_screen_share_fast.py reads its check
+      - goals/ss-ios-viewer.md  # test_screen_share_fast.py reads its check
+      - goals/v2-gate-home-reports.md  # test_now_quality.py reads its check
+      - goals/customize-app-profiles.md  # test_now_customize_profiles.py reads its check
+      - goals/customize-app-profiles.captures.json  # now_customize_profiles.py reads it
+      - goals/customize-app-profiles.parity.json  # now_customize_profiles.py reads it
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+      - goals/cloud-start-matrix.md
+      - goals/notify-banner-click.md
+      - goals/screenshot-into-chat.md
+      - goals/sidebar-customization-capabilities.json  # now_sidebar_customization.py counts it
+      - goals/sidebar-customization-shipped.md  # test_now_sidebar_customization.py reads its target
+      - goals/look-keys-land-prs.json  # now_look_keys.py counts it
+      - goals/competitive-best-of-n.results.json  # now_best_of_n.py reads it
+      - goals/competitive-acp-conformance.results.json  # now_acp_conformance.py reads it (through now.py)
+      - build-fleet/data/job-needs.json  # now_memory.py reads it (through now.py)
+      - goals/look-keys-land.md  # test_now_look_keys.py reads its target
+      - goals/customization-capability-matrix.md  # test_now_capability_matrix.py reads its check
+      - ideas/ledger.md  # now_ideas.py counts it (ideas.merged_7d)
+      - goals/ios-release-bar.json  # ios_release_bar_probe.py reads it
+      - goals/ios-release-bar-readback.json  # ios_release_bar_probe.py reads it
+      - goals/pr-in-an-hour.md  # now_pr_hour.py and test_now_pr_hour.py name its check
+      - goals/screen-share-receiver-fec.md  # test_screen_share_fast.py reads it
+      - plans/cmux-next/extensions/capability-matrix.md  # now_capability_matrix.py counts it
+      - plans/cloud/WISHLIST.md
+      - scripts/dev-backend.sh
+      - skills/infra/tsadmin/acl.manaflow.hujson
+      - tools/agent-guards/base_merge_carry.py
+      - tools/agent-guards/base_merge_gate.py
+      - tools/agent-guards/check_snapshot.py
+      - tools/agent-guards/change_size.py
+      - tools/agent-guards/gh_rate_limit.py
+      - tools/agent-guards/merge_compile_guard.py
+      - tools/agent-guards/review_family.py
+      - tools/agent-guards/receipt_read.py
+      - tools/agent-guards/review_receipt.py
+      - tools/ui-climb/headline.json
+      - tools/ui-climb/run-check.json
+      - tools/ui-climb/climb-picks.json
+      - build-fleet/pr_capture/driver.py
+      - build-fleet/pr_capture/nightly_steps.py
+      - build-fleet/pr_capture/notification_grant.py
+      - build-fleet/pr_capture/popup_shot.py
+      - goals/ios-quality-climb.md  # now_ios_interactions.py reads it
+
+# Land tier (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."): a pull request head
+# starts none of this workflow's jobs until it carries `ready-to-land` (land-judge adds it when asked to land) or
+# `full-ci`; hq-land-tier.yml posts the commit status `hq/land-tier` pending on such a head, so land-judge waits for the
+# full tier instead of landing on a skipped one. Pushes to main run everything as before.
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-reconcilers-tests-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'ready-to-land' && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  tests:
+    if: ${{ (github.event_name != 'pull_request' || ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event.action != 'labeled' || github.event.label.name == 'ready-to-land' || github.event.label.name == 'full-ci'))) }}
+    runs-on: ${{ vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 18  # worst case: 420 s modules (test_goal_owner_moves, parallel_suite SLOW_TIMEOUT_S) + 540 s test_order_leaks (two 240 s phases) + setup; a hang now ends with its output (parallel_suite.py), not this limit
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Two commits: a PR's merge commit and its first parent, the base tip it merged onto, for the diff below.
+          fetch-depth: 2
+          persist-credentials: false
+      # A PR runs only the test files its changed paths can reach (what each test imports, sources, runs or opens,
+      # by the walker that holds path filters to their tests' inputs), and skips a suite with none. 15 s. A push to
+      # main, an unreadable diff or any error writes no output here, and every gate below defaults to running all
+      # (docs/handbook/ci-runs-suites-it-cannot-affect.md; Leo, 2026-11-21: "de facto, im asking for 99% fewer
+      # minutes of ci time, period.").
+      - name: Pick the tests this PR can affect
+        id: select
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          if git rev-parse --verify --quiet HEAD^2 >/dev/null \
+            && git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed-paths" \
+            && out=$(timeout 180 python3 tools/fleet-reconcilers/select_affected_tests.py < "$RUNNER_TEMP/changed-paths"); then
+            echo "$out" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::test selection unavailable; running every suite"
+          fi
+      - name: Loop-ledger cross-repo pin — unchecked (lw is private)
+        # Best effort with this workflow's existing read token; no private access means unchecked, never pass.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/fleet-reconcilers/loop_ledger_pin_check.py
+      - name: fleet-reconcilers suite
+        if: steps.select.outputs.run_fleet != 'false'
+        env:
+          OUR_IDENTITIES_MACHINES: ${{ github.workspace }}/tools/fleet-reconcilers/fixtures/our-identities  # who is us in tests
+          M: ${{ steps.select.outputs.m_fleet }}  # the test files a PR can affect; empty runs the whole suite
+          ORDER_LEAKS_MODULES: ${{ steps.select.outputs.order_leaks_modules }}  # what test_order_leaks shuffles; empty: all
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+          git config --global init.defaultBranch main
+          # One module per process on the runner's CPUs (at most 8 of a shared pool VM's 32), then test_order_leaks alone: the one-process discover ran 385 s on
+          # one of the runner's 8 vCPUs (main run 45118496761). Every test still runs once; see parallel_suite.py.
+          # The test files are named, not discovered, so tools/agent-guards' path-coverage detector sees what this runs.
+          if [ -n "$M" ]; then
+            # shellcheck disable=SC2086  # M is a space-separated list of tracked test paths
+            python3 tools/fleet-reconcilers/parallel_suite.py $M
+          else
+            python3 tools/fleet-reconcilers/parallel_suite.py tools/fleet-reconcilers/test_*.py
+          fi
+      - name: condition-trigger checks suite
+        if: ${{ !cancelled() && steps.select.outputs.run_triggers != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_triggers }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s triggers/checks -p 'test_*.py' -v $K
+      - name: cloud golden-path suite
+        if: ${{ !cancelled() && steps.select.outputs.run_golden_path != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_golden_path }}  # -k filters; empty runs the whole suite
+        # Was golden-path.yml (cmuxterm-hq#7395); here it runs read-only, with no persisted credentials.
+        run: python3 -m unittest discover -s tools/cloud-golden-path -p 'test_*.py' -v $K
+      - name: freestyle-lane-vms suite
+        if: ${{ !cancelled() && steps.select.outputs.run_freestyle != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_freestyle }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s tools/freestyle-lane-vms -p 'test_*.py' -v $K
+      - name: screen-share-e2e suite
+        if: ${{ !cancelled() && steps.select.outputs.run_screenshare != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_screenshare }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s tools/screenshare-e2e -p 'test_*.py' -v $K
+      - name: own-machines suite
+        if: ${{ !cancelled() && steps.select.outputs.run_own_machines != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_own_machines }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K
+      - name: runner-pool self-deploy suite
+        if: ${{ !cancelled() && steps.select.outputs.run_runner_pool != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_runner_pool }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s build-fleet/swift-linux-builder/gha-runners/service -p '*_test.py' -v $K
+      - name: codex-lane-reconciler suite
+        if: ${{ !cancelled() && steps.select.outputs.run_codex_lane != 'false' }}
+        env:
+          K: ${{ steps.select.outputs.k_codex_lane }}  # -k filters; empty runs the whole suite
+        run: python3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K
+      - name: actionlint the reconciler workflows
+        # Only when a workflow it lints changed (select_affected_tests.py ACTIONLINT); a push to main always lints.
+        if: ${{ !cancelled() && steps.select.outputs.actionlint != 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A workflow GitHub cannot parse never runs at all (fleet-reconciler-gce.yml shipped `runner.temp` in job env
+        # and every dispatch got HTTP 422), and no unit test sees that. Pinned release, checked by sha256. The download
+        # retries: one 504 from the release host failed this step on main and on hq#7775 (2026-11-08), lint unread.
+        run: |
+          set -euo pipefail
+          v=1.7.12; sum=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          f="actionlint_${v}_linux_amd64.tar.gz"
+          # github.com's release URL answered 504 for 25 s straight from these runners (run 42470445045), retries and all,
+          # so the fallback fetches the same asset through the API's route. The sha256 below checks either copy.
+          if ! curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors --max-time 60 "https://github.com/rhysd/actionlint/releases/download/v$v/$f" -o "$RUNNER_TEMP/al.tgz"; then
+            echo "::warning::actionlint release URL failed; fetching the same asset through the GitHub API"
+            gh release download "v$v" -R rhysd/actionlint -p "$f" -O "$RUNNER_TEMP/al.tgz" --clobber
+          fi
+          echo "$sum  $RUNNER_TEMP/al.tgz" | sha256sum -c --quiet -
+          tar -xzf "$RUNNER_TEMP/al.tgz" -C "$RUNNER_TEMP" actionlint
+          # ci-oops asks for every minute (#25984); GitHub runs it at most every 5 min anyway, so that lint is noise and
+          # it failed every PR touching a reconciler workflow (hq#27478 run 45738918665).
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= -ignore 'scheduled job runs too frequently' .github/workflows/fleet-reconciler-*.yml .github/workflows/next-dogfood.yml .github/workflows/fleet-nightly-promotion-admission.yml .github/workflows/fleet-reconcilers-tests.yml .github/workflows/own-machines-e2e.yml .github/workflows/freestyle-lane-vms.yml
