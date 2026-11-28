@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The two-half screen-share-vs-pair.sh run (peer-token=) as one command, from a lane VM or any host with cmux-ci.
 #
-#   scripts/measure/screen-share-vs-pair-launch.sh HOST_MAC VIEWER_MAC [--ref SHA] [--viewer-ip IP] [RUN_ARG...]
+#   scripts/measure/screen-share-vs-pair-launch.sh HOST_MAC VIEWER_MAC [--ref SHA] [--viewer-ip IP] [--host-label L] [RUN_ARG...]
+#   (--host-label bench for a bench-only worker such as the dedicated bench mini; repeatable)
 #   e.g. scripts/measure/screen-share-vs-pair-launch.sh cmux19 cmux23 host=nightly inputs=key,click,scroll samples=30 trials=2
 #
 # By hand the pair is three cmux-ci runs: a mode=probe step on the viewer to learn its LAN address (the host half
@@ -12,17 +13,19 @@
 # artifacts/screen-share-vs-pair-launch/<key>/): host.log, viewer.log, probe.log.
 # The controller runs an unlisted scripts/measure script only at a commit on feat-cmux-next or main, so --ref
 # defaults to this checkout's merge-base with origin/feat-cmux-next (a PR head is refused with HTTP 400).
-# Exit: the host half's exit (0 measured, 1 failed, 3 unreachable), 2 bad arguments, 4 no viewer address.
+# Exit: the host half's exit (0 measured, 1 failed, 3 unreachable), 2 bad arguments, 4 no viewer address,
+# 5 the viewer half was refused at submit (the host half is then never sent).
 set -uo pipefail
 [[ $# -ge 2 ]] || { sed -n '3,4p' "$0" >&2; exit 2; }
 host_mac=$1 viewer_mac=$2; shift 2
 [[ "$host_mac" =~ ^[a-z0-9-]+$ && "$viewer_mac" =~ ^[a-z0-9-]+$ && "$host_mac" != "$viewer_mac" ]] \
   || { echo "HOST_MAC and VIEWER_MAC are two different fleet Mac names" >&2; exit 2; }
-ref="" viewer_ip="" run_args=()
+ref="" viewer_ip="" run_args=() host_labels=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref=${2:-}; shift 2 ;;
     --viewer-ip) viewer_ip=${2:-}; shift 2 ;;
+    --host-label) host_labels+=(--label "${2:-}"); shift 2 ;;
     mode=*|partner=*|partner-ip=*|peer-token=*|role=*) echo "$1 is set by this launcher" >&2; exit 2 ;;
     *=*) run_args+=("--arg=$1"); shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -55,7 +58,20 @@ cmux-ci run "${common[@]}" --pair "$key" --target-worker "$viewer_mac" --pin-str
   --arg=role=viewer "--arg=peer-token=$token" --artifact artifacts/screen-share-vs-pair/report.tgz \
   >"$out/viewer.log" 2>&1 &
 viewer_pid=$!
-cmux-ci run "${common[@]}" --pair "$key" --target-worker "$host_mac" --pin-strict --timeout 7200 \
+# The controller refuses a pinned half at submit (a fleet reservation, a label the worker needs) while the other
+# half sits in the pair wait for 30 min. Submit the host only once the viewer's step is accepted.
+for _ in $(seq 120); do
+  grep -q '^cmux-ci: step ' "$out/viewer.log" 2>/dev/null && break
+  kill -0 "$viewer_pid" 2>/dev/null || break
+  sleep 1
+done
+if ! grep -q '^cmux-ci: step ' "$out/viewer.log" 2>/dev/null; then
+  wait "$viewer_pid" 2>/dev/null; viewer_rc=$?
+  echo "launch: $key viewer half on $viewer_mac was not accepted (exit $viewer_rc); host not submitted:" >&2
+  tail -5 "$out/viewer.log" >&2
+  exit 5
+fi
+cmux-ci run "${common[@]}" ${host_labels[@]+"${host_labels[@]}"} --pair "$key" --target-worker "$host_mac" --pin-strict --timeout 7200 \
   --arg=mode=run "--arg=partner=$viewer_mac" "--arg=partner-ip=$viewer_ip" "--arg=peer-token=$token" \
   ${run_args[@]+"${run_args[@]}"} --artifact artifacts/screen-share-vs-pair/report.tgz >"$out/host.log" 2>&1
 host_rc=$?

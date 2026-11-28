@@ -642,6 +642,18 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_TEAM_NAVIGATOR, Any(json!({}), "team messaging is off without a mesh relay")),
         (
+            method::MUX_TEAM_CUSTOMIZATION,
+            Any(json!({}), "team messaging is off before reading customization"),
+        ),
+        (
+            method::MUX_TEAM_CUSTOMIZE,
+            Any(json!({}), "team messaging is off before writing settings"),
+        ),
+        (
+            method::MUX_TEAM_HANDOFF,
+            Any(json!({}), "team messaging is off before resolving or binding a handoff"),
+        ),
+        (
             method::MUX_TEAM_PICK,
             Any(json!({"query": "test"}), "team messaging is off without a mesh relay"),
         ),
