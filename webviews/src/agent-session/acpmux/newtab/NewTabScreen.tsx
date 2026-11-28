@@ -99,8 +99,6 @@ import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices, cloudPickChoices, rememberCloudPick, rememberStartedProject } from "./startedProject";
 import { callNative } from "../callNative";
 import {
-  attachedRows,
-  commandRows,
   exactMatch,
   canonicalAddress,
   defaultSelection,
@@ -116,6 +114,8 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
+  attachedRows,
+  commandRows,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
@@ -160,11 +160,11 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
-  usesCommand,
   withSkillDollars,
   type SlashCommand,
   type SlashTrigger,
   matchCommands,
+  usesCommand,
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
