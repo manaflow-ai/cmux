@@ -138,6 +138,18 @@ pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
         .collect()
 }
 
+/// Same, for cmux-process's builder (the daemon a command starts, `daemon/detached_spawn.rs`).
+pub fn scrub_nested_claude_env_process(cmd: &mut cmux_process::Command) {
+    for k in nested_claude_keys() {
+        cmd.env_remove(k);
+    }
+    cmd.envs(crate::login_env::nested_overrides(None));
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
+}
+
 /// Same, for tokio's process builder.
 pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     scrub_nested_claude_env_tokio_for(cmd, None);

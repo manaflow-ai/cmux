@@ -7,8 +7,10 @@
 //!
 //! The store takes a VM install for a machine: its holder is `vm:<that machine>`
 //! ([`MachineCloud::holder`]) and it reaches only chats that machine holds. The routes that are
-//! the owner's (the Auto machine setting, `PUT`, `POST`, the list, `wait`, a send to the inbox,
-//! `keep`) are refused here as the store would refuse them, without a request.
+//! the owner's (the Auto machine setting, `PUT`, `POST`, the list, `wait`, a send to the inbox)
+//! are refused here as the store would refuse them, without a request. `keep` and `move` go out:
+//! the store takes them from the machine that holds the chat, for the agent of a chat that runs
+//! there.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,8 +21,8 @@ use cmux_auto_session::cloud::{AutoCloud, AutoCloudError, CloudResult};
 use cmux_auto_session::wire::{
     Assignment, Assignments, CreateRequest, EventsAppend, EventsAppended, EventsPage, Fence,
     Holder, InboxAck, InboxMessage, InboxPage, InboxPost, InboxPosted, LeaseAnswer, LeaseRequest,
-    MachineSetting, PutRequest, SessionAnswer, SessionList, SessionView, SnapshotAnswer,
-    SnapshotPost, SnapshotPosted,
+    MachineSetting, MoveRequest, PutRequest, SessionAnswer, SessionList, SessionView,
+    SnapshotAnswer, SnapshotPost, SnapshotPosted,
 };
 use cmux_host::cloud::auto_session::{Call, Kind, SOCKET};
 use serde::Serialize;
@@ -275,8 +277,15 @@ impl AutoCloud for MachineCloud {
         Ok(answer.session)
     }
 
-    async fn keep(&self, _id: &str, _keep_in_cloud: bool) -> CloudResult<SessionView> {
-        owners()
+    async fn keep(&self, id: &str, keep_in_cloud: bool) -> CloudResult<SessionView> {
+        let body = serde_json::json!({ "keepInCloud": keep_in_cloud });
+        let answer: SessionAnswer = self.write(Kind::Keep, id, &body).await?;
+        Ok(answer.session)
+    }
+
+    async fn move_(&self, id: &str, request: &MoveRequest) -> CloudResult<SessionView> {
+        let answer: SessionAnswer = self.write(Kind::Move, id, request).await?;
+        Ok(answer.session)
     }
 
     async fn assignments(&self, timeout_ms: u64) -> CloudResult<Vec<Assignment>> {
