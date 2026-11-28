@@ -61,7 +61,7 @@ fn cmux_next_tab_groups_keep_members_contiguous_through_edits() {
     assert_eq!(tabs(&mux, pane), vec![t1, t2, t4, t3]);
 
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     let pane_json = &tree["workspaces"][0]["screens"][0]["panes"][0];
     assert_eq!(pane_json["tab_groups"][0]["id"], "g1");
     assert_eq!(pane_json["tab_groups"][0]["start"], 2);
