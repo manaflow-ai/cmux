@@ -91,10 +91,6 @@
       "fallback": "unset by default, so a fork pull_request's Linux job (pinned-files-mirror.yml mirror, swift-linux-packages.yml linux-targets) takes GitHub-hosted ubuntu-24.04 in the same runs-on (`vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'`); it is read only on a pull_request from a fork, never on a push or a same-repository pull_request, which take cmux-linux. Clearing it puts fork runs back on ubuntu-24.04",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so every job on the ci-v2 one-label form (pr-pipeline's linux job, the PR checks moved in hq#13994 step 8) runs on cmux-linux, the label every owned Linux pool host carries (many hosts, not one); the overflow switch sets it to an overflow label while cmux-linux starts nothing, and deletes it to put the jobs back",
-      "after_minutes": 5
-    },
     "CI_RELEASE_PIN_SLOT": {
       "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
@@ -236,10 +232,6 @@
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
     },
-    "LINUX_RUNNER_DARWIN_CROSS": {
-      "fallback": "the route-defined owned-pool or Blacksmith fallback",
-      "after_minutes": 5
-    },
     "MACOS_RUNNER_15": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
@@ -306,10 +298,6 @@
       "fallback": "unset by default, so the no-kernel Linux gates (cmux ci.yml macos-admission-gate, linux-preflight and ci-status; ci-web.yml react-apps-check-shard, react-apps-base-check and react-apps-check) take fromJSON(vars.RUNNER_POOLS).linux or their Blacksmith literal in the same runs-on (cmux#30435). An operator sets it only during a Blacksmith backlog, and cmux scripts/ci/runner_label_policy.py holds it to the side-lane rule: an owned glaeda-side-<class>-xcode-<version> pool label, never one host, and it is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically (ci-owned-pool-rescue only alarms on an active PR run); clearing the variable puts new runs back on the Blacksmith route. after_minutes is the side-lane rescue window, as for CI_SIDE_LANE_RUNNER",
       "after_minutes": 5
     },
-    "CI_REACT_SHARD_RUNNER": {
-      "fallback": "unset by default, so the React shards (cmux ci-web.yml react-apps-check-shard, react-apps-base-early and react-apps-base-check) take the one owned cmux-linux label in the same runs-on (`vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'`), as every own-branch Linux job does. Its one intended value is cmux-freestyle-react, a label of no single host: the Freestyle runner rung makes a one-job VM per queued job (hq freestyle_runners.py REACT_LABEL), from the react class template when it exists, else the plain template. It is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically; clearing the variable puts new runs back on the earlier route. after_minutes is the side-lane rescue window, as for CI_LINUX_GATE_OWNED_RUNNER",
-      "after_minutes": 5
-    },
     "CI_NIGHTLY_MINI": {
       "fallback": "none automatic while it is set, by design: it is the one-mini switch and the rollback (Lawrence, 2026-11-04: \"we need to just make nightlies build on a single mac mini\"). When set, every job of cmux nightly.yml takes it first, except glaeda's eight exclusive-class jobs (vars.CI_NIGHTLY_SIGN_RUNNER) and build-nightly-app (vars.CI_NIGHTLY_MINI_BUILDER); cmux tests/test_nightly_one_mini.py. Its only allowed value, glaeda-nightly-mini, is on cmux15's nightly-only-3..7 and cmux7s-mac-mini's nightly-only-3..5, the two minis dedicated to the nightly (build-fleet/nightly_mini_policy_test.py; signing stays on cmux15). Clearing it puts every job back on its earlier route in the same runs-on. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
       "after_minutes": 25
@@ -363,10 +351,10 @@
       "after_minutes": 10,
       "served_by": "owned Mac runners carrying cmux-mac"
     },
-    "xcode-27.0": {
+    "xcode-27.2": {
       "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
       "after_minutes": 10,
-      "served_by": "owned Mac runners carrying Xcode 27.0"
+      "served_by": "owned Mac runners carrying Xcode 27.2 (cmux#64672 moved the iOS INTERNAL archive to it)"
     },
     "glaeda-gateway-xcode-26.6": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
@@ -625,11 +613,11 @@
         "vars.MACOS_RUNNER_26",
         "blacksmith-6vcpu-macos-26",
         "cmux-mac",
-        "xcode-27.0"
+        "xcode-27.2"
       ],
       "array_pin": "glaeda-runner-",
       "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
-      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.2] when a live Xcode 27 runner exists."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [

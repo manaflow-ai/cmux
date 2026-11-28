@@ -58,6 +58,7 @@ export function promptResendNotice(params: unknown): PromptResendNotice | undefi
 
 /// acpmux's refusal of a resent prompt as the error its "Not sent" row shows.
 export function resendRefusalError(notice: PromptResendNotice): Error & { code?: string; reason?: string } {
+  // l10n-allow: the wire error's last-resort text; the notice carries its own
   return Object.assign(new Error(notice.message ?? "acpmux refused this message."), {
     ...(notice.code ? { code: notice.code } : {}),
     ...(notice.reason ? { reason: notice.reason } : {}),

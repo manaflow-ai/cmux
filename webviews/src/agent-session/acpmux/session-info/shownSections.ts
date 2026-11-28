@@ -20,7 +20,6 @@ export const PICKABLE_SESSION_INFO_SECTIONS = [
   "changes",
   "usage",
   "connectors",
-  "carried",
 ] as const satisfies readonly BuiltInSessionInfoSectionId[];
 
 export type PickableSessionInfoSection = (typeof PICKABLE_SESSION_INFO_SECTIONS)[number];

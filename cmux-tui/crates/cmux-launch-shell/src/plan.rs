@@ -116,7 +116,7 @@ impl Reason {
 
     /// The bare launch's content (Home with its composer): only when the real launch lands on
     /// Home. After another session's record it shows its connecting state instead, so stage 0
-    /// shows the plain shell.
+    /// makes no window (it never draws the plain shell).
     pub fn shows_bare(self) -> bool {
         matches!(self, Self::FreshInstall | Self::NoWindows)
     }

@@ -52,6 +52,7 @@ export async function persistentWorkspaceServiceForRequest(input: {
           perMachineHome: true,
           displayName: request.workspaceName,
           idempotencyKey: request.workspaceKey,
+          ...(providerInput?.waitForCapacity ? { waitForCapacity: true } : {}),
           modelPlane: modelPlane.vmModelPlaneGatewayFor({ teamId: entitlements.billingTeamId, stackUserId: user.id }),
           origin: "create",
           // The guest vm-kind write runs after the request's answer, kept alive by the platform.

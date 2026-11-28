@@ -265,6 +265,12 @@ class FrameScore(unittest.TestCase):
         self.assertEqual(vs.motion_geometry(log), GEO)
         self.assertIsNone(vs.motion_geometry("marker-origin 0,50\n"))
 
+    def test_marker_refresh_line_gives_the_host_display_rate(self):
+        # A 30 Hz mode doubles the Screen stage; the row has to say which rate the host ran.
+        self.assertEqual(vs.marker_refresh("refresh-hz 60 mode-hz 30"), {"refresh_hz": 60.0, "mode_hz": 30.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz 120"), {"refresh_hz": 120.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz x mode-hz"), {})
+
     def test_click_and_scroll_aim_at_the_marker_pad(self):
         # Without --at the bench clicks 960,600, off the marker, and every click/scroll trial is lost.
         at = vs.marker_click_at("marker-origin 0,50 click-at 704,66")
@@ -1054,6 +1060,143 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class ClipboardTrialTest(unittest.TestCase):
+    """The first two-Mac pair, 11-28: a copy-paste trial's samples carry `echo_ns`, not `decoded_ns`,
+    and run_cmux read the frame time (KeyError after the warm-up)."""
+
+    def run_trials(self, cmux_input, sample):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.a = argparse.Namespace(warmup=1, trials=2, fps_trials=0, cmux_input=cmux_input)
+        o.synthetic, o.ledgers, o.summaries, o.ff_rows = True, [], [], []
+        o.marker = lambda flags: [0, 0]
+        o.host_timing = lambda: []
+        o.cmux_attempt = lambda origin, mode, snap=None: {
+            "ok": True, "first_frame_ms": None, "lost": 0, "sample_times": [dict(sample)]}
+        o.breakdown = lambda rec, timing, off: [{"stage": "x"}]
+        o.first_frame_breakdown = lambda rec, timing, off: None
+        logged = []
+        o.log = logged.append
+        return o.run_cmux({"offset_ns": 0}), logged
+
+    def test_a_copy_paste_trial_reads_its_round_trip(self):
+        (firsts, g2g, fps, rows), logged = self.run_trials(
+            "clipboard", {"sent_ns": 1_000_000, "echo_ns": 251_000_000})
+        self.assertEqual(g2g, [250.0, 250.0])
+        self.assertEqual((firsts, fps, rows), ([], [], []))
+        self.assertEqual([r.get("trial") for r in logged], [None, 1, 2])
+        self.assertTrue(all("sample_times" not in r for r in logged))
+
+    def test_a_key_trial_still_reads_the_decoded_frame(self):
+        (firsts, g2g, _, rows), _ = self.run_trials(
+            "key", {"sent_ns": 1_000_000, "decoded_ns": 41_000_000})
+        self.assertEqual(g2g, [40.0, 40.0])
+        self.assertEqual(len(rows), 2)
+
+
+class DriftingClockTest(unittest.TestCase):
+    """r12c2 and r12e (2026-11-28): the two Macs' clocks drift apart (up to ~0.3 ms a second), and
+    every key trial's cross-host spans read the one offset probed before the legs, so per-press
+    down fell below zero (the receipt then dropped the rows) or read 6 ms over the ledger's
+    Network row. A pair whose host clock runs 300 ppm fast: up stays 0.3 ms, first_packet 0.3,
+    down 0.5 in every trial and press."""
+
+    RUN_NS = 5_000_000_000  # host minus viewer at viewer time 0, the run's probe
+    PPM = 300
+    UP_US, FIRST_US, DOWN_US = 300, 300, 500
+
+    def off_ns(self, viewer_ns):
+        return self.RUN_NS + self.PPM * 1e-6 * viewer_ns
+
+    def host_us(self, viewer_ns):
+        return (viewer_ns + self.off_ns(viewer_ns)) / 1000.0
+
+    def viewer_ns(self, host_us):
+        return (host_us * 1000.0 - self.RUN_NS) / (1 + self.PPM * 1e-6)
+
+    def trial(self, k, presses=30, ledger=True):
+        start = k * 6_000_000_000
+        samples, timing = [], []
+        for i in range(presses):
+            sent = start + 300_000_000 + i * 135_000_000
+            recv = self.host_us(sent + self.UP_US * 1000)
+            capture = recv + 1_100
+            frame_sent = capture + 3_000
+            timing += [{"recv_us": recv, "inject_us": recv + 100},
+                       {"capture_us": capture, "release_us": capture, "encoded_us": capture + 2_000,
+                        "sent_us": frame_sent}]
+            rx = self.viewer_ns(frame_sent)
+            samples.append({"sent_ns": sent, "capture_us": capture,
+                            "first_rx_ns": rx + self.FIRST_US * 1000,
+                            "complete_ns": rx + self.DOWN_US * 1000,
+                            "decoded_ns": rx + self.DOWN_US * 1000 + 1_000_000})
+        rec = {"ok": True, "first_frame_ms": 50.0, "lost": 0, "sample_times": samples,
+               "first_frame_times": {"start_ns": start}}
+        if ledger:
+            rec["stage_ledger"] = {"schema": vs.LEDGER_SCHEMA, "offset_us": round(self.off_ns(start) / 1000)}
+        return rec, timing
+
+    def run_trials(self, trials):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.a = argparse.Namespace(warmup=0, trials=len(trials), fps_trials=0, cmux_input="key")
+        o.synthetic, o.ledgers, o.summaries, o.ff_rows = True, [], [], []
+        o.marker = lambda flags: [0, 0]
+        it = iter(trials)
+        cur = {}
+
+        def attempt(origin, mode, snap=None):
+            cur["rec"], cur["timing"] = next(it)
+            return cur["rec"]
+        o.cmux_attempt = attempt
+        o.host_timing = lambda: cur["timing"]
+        logged = []
+        o.log = logged.append
+        _, _, _, rows = o.run_cmux({"offset_ns": self.RUN_NS})
+        return rows, logged
+
+    def assertSpans(self, rows, n):
+        self.assertEqual(len(rows), n)
+        for r in rows:
+            self.assertAlmostEqual(r["up"], self.UP_US / 1000, delta=0.02)
+            self.assertAlmostEqual(r["first_packet"], self.FIRST_US / 1000, delta=0.02)
+            self.assertAlmostEqual(r["down"], self.DOWN_US / 1000, delta=0.02)
+
+    def test_the_run_offset_alone_reads_the_drift_into_down(self):
+        rec, timing = self.trial(3)
+        rows = vs.Orchestrator.__new__(vs.Orchestrator).breakdown(rec, timing, self.RUN_NS)
+        self.assertLess(min(r["down"] for r in rows), -4.0)  # the fixture drifts: the old reading
+
+    def test_every_trial_and_press_reads_its_own_clock(self):
+        rows, logged = self.run_trials([self.trial(k) for k in range(1, 5)])
+        self.assertSpans(rows, 4 * 30)
+        self.assertEqual([r["trial"] for r in logged], [1, 2, 3, 4])
+        clocks = [r["breakdown_clock"] for r in logged]
+        self.assertEqual([c["source"] for c in clocks], ["interpolated"] * 3 + ["extrapolated"])
+        for c in clocks:
+            self.assertAlmostEqual(c["drift_ppm"], self.PPM, delta=1)
+        self.assertTrue(all("sample_times" not in r for r in logged))
+
+    def test_one_trial_reads_its_own_offset_flat(self):
+        rows, logged = self.run_trials([self.trial(2, presses=3)])
+        self.assertEqual(logged[0]["breakdown_clock"]["source"], "stage_ledger")
+        self.assertAlmostEqual(logged[0]["breakdown_clock"]["minus_run_ms"], 3.6, delta=0.01)
+        for r in rows:  # within 300 ppm x 0.6 s of the session start
+            self.assertAlmostEqual(r["down"], self.DOWN_US / 1000, delta=0.2)
+
+    def test_a_failed_trial_keeps_its_place_and_an_older_bench_reads_the_run_offset(self):
+        failed = ({"ok": False, "error": "x"}, [])
+        rows, logged = self.run_trials([self.trial(1), failed, self.trial(3), self.trial(4, ledger=False)])
+        self.assertEqual([r["trial"] for r in logged], [1, 2, 3, 4])
+        self.assertEqual([r.get("breakdown_clock", {}).get("source") for r in logged],
+                         ["interpolated", None, "extrapolated", "run"])
+        self.assertSpans(rows[:60], 60)
+
+    def test_a_slope_no_clock_has_is_not_read(self):
+        a = self.trial(1)[0]
+        c = vs.trial_clock(a, {"offset_ns": self.RUN_NS}, nxt=(a["first_frame_times"]["start_ns"] + 10**9,
+                                                               self.RUN_NS + 10**7))
+        self.assertEqual((c["source"], c["drift_ppm"]), ("stage_ledger", 0.0))
+
+
 class HostTestLossTest(unittest.TestCase):
     def orchestrator(self, pct):
         o = vs.Orchestrator.__new__(vs.Orchestrator)
@@ -1476,6 +1619,77 @@ class ClipboardLeg(unittest.TestCase):
 
     def test_bench_input_clipboard_takes_no_aim(self):
         self.assertEqual(vs.bench_input("clipboard", 30, (10, 20)), "--input clipboard --samples 30")
+
+
+class PeerServeFirstContact(unittest.TestCase):
+    """2026-11-27: six pair halves served `peer-serve: listening ... for 3600 s`, no host ever dialed, and each
+    held an exclusive Mac until the controller's 45 min silent limit. peer-serve now gives up (exit 3) when no
+    accepted request arrives in --first-contact-s, and a contacted serve keeps its hold."""
+
+    def serve(self, first_contact_s, poke=None):
+        token = "ab" * 32
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token")
+            with open(path, "w") as f:
+                f.write(token + "\n")
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            s.close()
+            args = argparse.Namespace(bind="127.0.0.1", port=port, token_file=path, hold_s=30,
+                                      first_contact_s=first_contact_s)
+            if poke:
+                threading.Thread(target=poke, args=(port, token), daemon=True).start()
+            orig = vs.localnet_probe
+            vs.localnet_probe = lambda *a, **k: {}
+            try:
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    try:
+                        vs.cmd_peer_serve(args)
+                        code = 0
+                    except SystemExit as e:
+                        code = e.code
+            finally:
+                vs.localnet_probe = orig
+            return code, out.getvalue()
+
+    def test_no_contact_gives_up(self):
+        code, out = self.serve(1)
+        self.assertEqual(code, 3)
+        self.assertIn("no peer connected in 1 s", out)
+
+    def test_contact_keeps_serving_until_done(self):
+        import time
+        import urllib.request
+
+        def poke(port, token):
+            url = f"http://127.0.0.1:{port}"
+            for _ in range(50):
+                try:
+                    urllib.request.urlopen(urllib.request.Request(url + "/run", method="POST",
+                        headers={"X-Eval-Token": token}, data=json.dumps({"cmd": "true"}).encode()), timeout=5)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            time.sleep(2.5)  # past the 1 s first-contact bound: contacted, so it keeps serving
+            urllib.request.urlopen(urllib.request.Request(url + "/done", method="POST",
+                headers={"X-Eval-Token": token}, data=b"{}"), timeout=5)
+        code, out = self.serve(1, poke)
+        self.assertEqual(code, 0)
+        self.assertIn("peer-serve: done from 127.0.0.1", out)
+
+
+
+class HostEnv(unittest.TestCase):
+    def test_power_hint_is_allowed_as_0_or_1(self):
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=0"]), {"CMUX_RD_VT_POWER_EFFICIENT": "0"})
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=1"]), {"CMUX_RD_VT_POWER_EFFICIENT": "1"})
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=2"])
+
+    def test_other_names_are_refused(self):
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_TIMING_LOG=/tmp/x"])
 
 
 if __name__ == "__main__":

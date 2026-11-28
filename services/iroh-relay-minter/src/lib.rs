@@ -29,6 +29,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use vercel_runtime::ResponseBody;
 use zeroize::Zeroizing;
 
+pub mod mirror;
+
 pub const MINT_PATH: &str = "/api/relay-token";
 pub const RELAY_TOKEN_LIFETIME_SECONDS: u64 = 86_400;
 pub const MAX_REQUEST_BYTES: usize = 4 * 1_024;

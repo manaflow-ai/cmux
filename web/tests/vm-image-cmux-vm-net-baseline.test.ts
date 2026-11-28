@@ -84,7 +84,7 @@ describe("netBaselineProblems", () => {
 });
 
 describe("the bake and smoke scripts use the net baseline", () => {
-  const src = (name: string) => readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image", name), "utf8");
+  const src = (name: string) => readFileSync(path.join(import.meta.dirname, "../scripts/cmux-vm-image", name), "utf8");
 
   test("bake.ts writes every baseline file and runs the bake command", () => {
     const bake = src("bake.ts");

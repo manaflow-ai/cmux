@@ -72,11 +72,14 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   web:
     name: web bundle build
+    # id-token: the CAS upload step mints an OIDC token (ACTIONS_ID_TOKEN_REQUEST_URL below); job-scoped.
+    permissions:
+      contents: read
+      id-token: write
     # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
     if: ${{ inputs.web != 'false' || inputs.force_web }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -88,6 +91,7 @@ jobs:
       transport: ${{ steps.artifact-transport.outputs.transport }}
       artifact: ${{ steps.artifact-name.outputs.name }}
     env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_WEB_BUN_VERSION: "1.4.4"
       CMUX_WEB_NODE_VERSION: "24.22.1"

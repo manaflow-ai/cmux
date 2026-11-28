@@ -379,6 +379,18 @@ if [[ "$status" -ne 0 || "$(cat "$TMP_DIR/crash-cas.count")" != 2 ]] \
   cat "$TMP_DIR/crash-cas.log" >&2
   exit 1
 fi
+# A crash on a kept host build root marks it for nightly_build_state.prune_host.
+mkdir -p "$TMP_DIR/host-root"
+set +e
+CMUX_NIGHTLY_HOST_ROOT="$TMP_DIR/host-root" FAKE_CRASH_COUNT_FILE="$TMP_DIR/crash-mark.count" \
+  "$WRAPPER" -- "$TMP_DIR/fake-cas-crash.sh" COMPILATION_CACHE_ENABLE_CACHING=YES >"$TMP_DIR/crash-mark.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 0 || ! -f "$TMP_DIR/host-root/xcode-service-crashed" ]]; then
+  echo "FAIL: a build service crash must mark the host build root, got status $status" >&2
+  cat "$TMP_DIR/crash-mark.log" >&2
+  exit 1
+fi
 # A plain compile error never reruns.
 set +e
 FAKE_XCODEBUILD_ERRORS=1 FAKE_XCODEBUILD_STATUS=65 \
