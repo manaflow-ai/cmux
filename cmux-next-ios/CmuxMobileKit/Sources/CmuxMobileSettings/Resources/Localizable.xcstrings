@@ -66,7 +66,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals keep the Mac's columns by default. Re-wrap on Phone adapts text without resizing the Mac. Fit to Phone resizes the Mac. Applies to terminals opened next."
+            "value": "Terminals keep the Mac's columns by default. Re-wrap on Phone reflows text; Fit to Phone resizes the Mac. Applies to new terminals."
           }
         },
         "de": {
