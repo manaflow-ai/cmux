@@ -2230,6 +2230,23 @@ async fn gathered_fyi_keeps_open_deadline_after_compaction_warms_metadata() {
     session.inbox().items.push(fyi);
     hub.inbox_review(&session);
     let due = session.cold_batch.lock().unwrap().expect("open batch").due;
+    // Even at the deadline, no notice may steer into the batch's own compaction.
+    let compact_prompt = format!("{}test", super::cold_wake::COMPACT_ID_PREFIX);
+    *session.turn.lock().unwrap() = Some(TurnInfo::prompted(
+        "test",
+        "/compact",
+        "compact-turn",
+        &compact_prompt,
+        Control::Local,
+    ));
+    session.steering.store(true, Ordering::SeqCst);
+    hub.cold_batch_turn_started(&session);
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "the compaction must complete before gathered delivery");
+    assert!(session.cold_batch.lock().unwrap().is_some(), "compaction retains the batch");
+    *session.turn.lock().unwrap() = None;
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = due;
     // Completing compaction updates last_turn and makes cache_expires_at warm.
     session.meta.lock().unwrap().last_turn = Some(json!({"endedAt": now_ms()}));
     assert!(super::cold_wake::coldness(&session.meta(), now_ms()).is_none());

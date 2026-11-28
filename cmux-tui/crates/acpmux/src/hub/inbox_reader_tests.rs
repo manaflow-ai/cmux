@@ -570,3 +570,37 @@ async fn a_cold_chat_is_not_woken_for_what_the_reader_rated_background() {
     hub.inbox_review(&session);
     assert!(went(&session), "the warm hold releases the report");
 }
+
+#[tokio::test]
+async fn explicit_gather_fyi_keeps_the_readers_background_hold() {
+    use crate::hub::cold_wake::{DEFAULT_COMPACT_ABOVE_TOKENS, KNOBS_FOR_TEST, Knobs};
+    KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    let (hub, session) = hub_with_chat("gather-reader-hold");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+    }
+    let mut it = item("quiet-gather", "bridge", PromptClass::Fyi, now, "background update");
+    it.gather = true;
+    cache().insert(
+        (session.id.clone(), it.prompt_id.clone()),
+        Entry::Done(Some(Summary { score: 1, line: "background update".into() })),
+    );
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    assert!(session.cold_batch.lock().unwrap().is_none(), "gather respects the reader hold");
+    assert!(!went(&session));
+    session.inbox().items[0].at = now_ms().saturating_sub(crate::prompt_class::FYI_DEADLINE_MS + 1);
+    hub.inbox_review(&session);
+    assert!(went(&session), "reader hold keeps the ordinary FYI deadline");
+    KNOBS_FOR_TEST.with(|k| k.set(None));
+}
