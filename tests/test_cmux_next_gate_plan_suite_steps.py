@@ -14,11 +14,15 @@ patterns, distinct idempotency keys, and that the steps together run every filte
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import shlex
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -81,6 +85,47 @@ class SuiteStepsTests(unittest.TestCase):
         key, args = controller_view(steps[0])
         self.assertEqual(key, f"lane-gate-{HEAD[:12]}")
         self.assertEqual(args, ["suite", gate_plan.CMUXNEXT_DIR, "SuiteA,SuiteB"])
+
+
+class HqToolTests(unittest.TestCase):
+    """gate-plan finds hq by walking up from worktrees/<slug>, which reaches the shared primary hq checkout,
+    and that can be thousands of commits behind (2026-11-28: 24,885). Run from there, its
+    cmux-next-receipts.py called package_input_key.package_receipt, which the keyer no longer has
+    (AttributeError), so every gate with a Swift package unit died. The hq tools must run as installed hq
+    main (scripts/lib/hq_installed.py exec), never as the checkout's files."""
+
+    def run_tool(self, hq: Path, env: dict[str, str]) -> list[str]:
+        seen: list[list[str]] = []
+
+        def run(argv, **_):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with mock.patch.object(gate_plan.subprocess, "run", run), mock.patch.dict(os.environ, env, clear=False):
+            gate_plan.hq_tool(hq, "cmux-next-receipts.py", "plan", "--root", "x")
+        return seen[0]
+
+    def checkout(self, base: Path) -> Path:
+        (base / ".git").mkdir()
+        (base / "scripts" / "lib").mkdir(parents=True)
+        (base / "scripts" / "lib" / "hq_installed.py").write_text("", encoding="utf-8")
+        (base / "scripts" / "cmux-next-receipts.py").write_text("", encoding="utf-8")
+        return base
+
+    def test_a_checkout_runs_the_tool_as_installed_hq_main(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            hq = self.checkout(Path(tmp))
+            argv = self.run_tool(hq, {"CMUX_HQ_RUN_CHECKOUT_CODE": ""})
+        self.assertEqual(argv, [sys.executable, "-I", "-B", str(hq / "scripts" / "lib" / "hq_installed.py"), "exec",
+                                "scripts/cmux-next-receipts.py", str(hq), "plan", "--root", "x"])
+
+    def test_checkout_code_on_request_or_outside_a_checkout_runs_the_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            hq = self.checkout(Path(tmp))
+            direct = [sys.executable, "-I", str(hq / "scripts" / "cmux-next-receipts.py"), "plan", "--root", "x"]
+            self.assertEqual(self.run_tool(hq, {"CMUX_HQ_RUN_CHECKOUT_CODE": "1"}), direct)
+            (hq / ".git").rmdir()  # an installed release: already hq main
+            self.assertEqual(self.run_tool(hq, {"CMUX_HQ_RUN_CHECKOUT_CODE": ""}), direct)
 
 
 if __name__ == "__main__":
