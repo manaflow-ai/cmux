@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.sessionInfo.sections.tasks.help" : {
+      "comment" : "Settings > Agent Pane > Display: help for the Session Info Background Tasks toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The commands, servers and scheduled jobs the chat runs."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الأوامر والخوادم والمهام المجدولة التي تشغلها المحادثة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Naredbe, serveri i zakazani poslovi koje razgovor pokreće."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De kommandoer, servere og planlagte job, chatten kører."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Befehle, Server und geplanten Jobs, die der Chat ausführt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los comandos, servidores y trabajos programados que ejecuta el chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les commandes, serveurs et tâches planifiées qu’exécute le chat."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I comandi, i server e i job pianificati che la chat esegue."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットが実行するコマンド、サーバー、スケジュールされたジョブ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពាក្យបញ្ជា ម៉ាស៊ីនមេ និងការងារដែលបានកំណត់ពេលដែលការជជែកដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅이 실행하는 명령, 서버, 예약된 작업."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kommandoene, serverne og de planlagte jobbene chatten kjører."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Polecenia, serwery i zaplanowane zadania uruchamiane przez czat."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os comandos, servidores e trabalhos agendados que o chat executa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команды, серверы и запланированные задания, которые выполняет чат."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คำสั่ง เซิร์ฟเวอร์ และงานตามกำหนดเวลาที่แชตเรียกใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetin çalıştırdığı komutlar, sunucular ve zamanlanmış işler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команди, сервери та заплановані завдання, які виконує чат."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các lệnh, máy chủ và công việc đã lên lịch mà cuộc trò chuyện chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天运行的命令、服务器和计划任务。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天執行的指令、伺服器和排程工作。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
