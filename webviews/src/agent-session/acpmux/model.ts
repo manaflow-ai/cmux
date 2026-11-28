@@ -1059,7 +1059,24 @@ export type AcpmuxActivity = {
     /// it (`_meta.acpmux.recipient`, acpmux subagents.rs `recipient`): the "Sent to" row reads it
     /// when the page holds no row of the subagent's Agent call.
     recipient?: string;
+    /// A test command's results so far, as acpmux counts them from its output while it runs
+    /// (`_meta.acpmux.testResults`, acpmux hub/tool_test_results.rs): the ticking pass/fail panel under
+    /// its command row (conversation/TestResultsPanel.tsx).
+    testResults?: AcpmuxTestResults;
   };
+};
+
+/// A test run's counts and failures (acpmux hub/tool_test_results.rs `to_json`).
+export type AcpmuxTestResults = {
+  runner: string;
+  passed: number;
+  failed: number;
+  skipped: number;
+  /// The call ended: these are its final counts.
+  done: boolean;
+  failures: { name: string; path?: string; line?: number; message?: string }[];
+  /// Failures past the 50 kept.
+  moreFailures?: number;
 };
 
 /// A file change from an ACP tool call's `diff` content: `oldText` is absent for a new file.

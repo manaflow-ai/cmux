@@ -470,6 +470,7 @@ mod tool_paths;
 mod tool_read_images;
 mod tool_shell;
 mod tool_start;
+mod tool_test_results;
 mod tools;
 mod touched;
 mod transcript;
