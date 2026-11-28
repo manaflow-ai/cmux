@@ -18,7 +18,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var task: URLSessionWebSocketTask?
         var opening: CheckedContinuation<Void, any Error>?
         var opened = false
-        var inbox: [String] = []
+        var inbox = AcpmuxPageInbox()
         var inboxBytes = 0
         /// Replies kept from the page while this Mac enrolls on a peer and answers again, by page
         /// id (``AcpmuxDecisionContexts/Answer/enrollThenRetry(peer:pageID:frame:)``).
@@ -607,8 +607,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 bytes += size
                 count += 1
             }
-            let frames = Array(state.inbox.prefix(count))
-            state.inbox.removeFirst(count)
+            let frames = state.inbox.removeFirst(count)
             state.awaitedThrough = max(0, state.awaitedThrough - count)
             state.answeredThrough = max(0, state.answeredThrough - count)
             state.inboxBytes -= bytes
