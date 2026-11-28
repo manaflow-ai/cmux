@@ -67,43 +67,77 @@ import Testing
         }
     }
 
-    @Test func aFullScreenAppsFirstFrameIsThePhonesGrid() async throws {
+    /// Leo, 2026-11-25: "why would the Mac on an iPhone connection ALWAYS be
+    /// resized down anyways!?" A full-screen app shows at the Mac's grid
+    /// (scaled by the page) from its first frame: no claim, so no grid that
+    /// flips once a claim is answered.
+    @Test func aFullScreenAppShowsAtTheMacsGridAndNeverClaims() {
         let mac = MacTUIPane()
         let session = TerminalProjectingSession(inner: mac)
-        let page = Page()
-        // The page measures its grid before the session starts (viewDidLayoutSubviews).
-        session.resize(columns: 54, rows: 38)
-        session.setClaimsSize(true)
-        session.start { page.take($0) }
-        #expect(mac.claims, "the full-screen app claims the phone's grid at once")
-        #expect(!page.grids.contains("118x69"), "the Mac's 118x69 is never the first frame")
-        #expect(!page.text.contains("TUI at 118x69"))
-        #expect(session.remoteColumns != 118, "the page never lays its mirror out at the Mac's 118 columns")
-        mac.answerClaim()
-        #expect(!page.grids.contains("118x69"))
-        #expect(page.grids.last == "54x38")
-        #expect(page.text.contains("TUI at 54x38"))
-        #expect(session.remoteColumns == 54)
-        session.stop()
-    }
-
-    /// The Mac's policy keeps its own grid (Prefer this Mac): the claim is
-    /// never answered, and the Mac's grid shows after the wait.
-    @Test func aGridTheMacKeepsShowsAfterTheWait() async throws {
-        let mac = MacTUIPane()
-        let session = TerminalProjectingSession(inner: mac)
-        session.reclaimWait = .milliseconds(20)
         let page = Page()
         session.resize(columns: 54, rows: 38)
         session.setClaimsSize(true)
         session.start { page.take($0) }
-        #expect(!page.grids.contains("118x69"))
-        for _ in 0..<300 where !page.grids.contains("118x69") {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(!mac.claims, "the phone never claims its grid while it projects")
         #expect(page.grids.last == "118x69")
         #expect(page.text.contains("TUI at 118x69"))
         #expect(session.remoteColumns == 118)
+        session.stop()
+    }
+
+    /// A Mac pane at 118x69 on the primary screen (a shell, Claude Code's
+    /// inline box) that replays as soon as it attaches.
+    @MainActor final class MacShellPane: TerminalSession {
+        private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+        private(set) var resizes = 0
+        var programName: String { "zsh" }
+        var isAlternateScreen: Bool { false }
+        var remoteRows: Int? { 69 }
+        var remoteColumns: Int? { 118 }
+
+        func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
+            self.handler = handler
+            handler(.hostGrid(columns: 118, rows: 69))
+            handler(.output(TerminalReclaimHold.reset))
+            handler(.output(Data("$ ls\r\nREADME.md\r\n$ ".utf8)))
+        }
+
+        func send(_ bytes: Data) {}
+        func resize(columns: Int, rows: Int) { resizes += 1 }
+        func stop() { handler = nil }
+    }
+
+    /// Leo, 2026-11-23: "im sometimes seeing these 118x69 load ins which are
+    /// wide... then it properly goes." The Mac's replay can reach the page
+    /// before the phone has measured its grid; the page is never told the
+    /// Mac's 118x69 on the primary screen. Its first grid is the phone's own.
+    @Test func thePrimaryScreensFirstGridIsThePhonesNeverTheMacs() {
+        let mac = MacShellPane()
+        let session = TerminalProjectingSession(inner: mac)
+        let page = Page()
+        // The replay comes first: the page has not measured yet.
+        session.start { page.take($0) }
+        #expect(!page.grids.contains("118x69"), "the Mac's grid reached a phone-width page: \(page.grids)")
+        #expect(page.grids.isEmpty, "no grid before the phone measures: \(page.grids)")
+        #expect(session.remoteColumns == nil, "the mirror keeps the page's own width until measured")
+        // The phone measures its page (an iPhone 16 Pro, portrait).
+        session.resize(columns: 43, rows: 33)
+        #expect(page.grids.first == "43x33", "the first grid shown is the phone's: \(page.grids)")
+        #expect(!page.grids.contains("118x69"))
+        #expect(mac.resizes == 0, "the Mac keeps its grid")
+        session.stop()
+    }
+
+    /// Measured before the start (the usual order): the first grid is the
+    /// phone's, and the Mac's never follows on the primary screen.
+    @Test func measuredBeforeTheStartTheFirstGridIsThePhones() {
+        let mac = MacShellPane()
+        let session = TerminalProjectingSession(inner: mac)
+        let page = Page()
+        session.resize(columns: 43, rows: 33)
+        session.start { page.take($0) }
+        #expect(page.grids == ["43x33"], "\(page.grids)")
+        #expect(mac.resizes == 0)
         session.stop()
     }
 }

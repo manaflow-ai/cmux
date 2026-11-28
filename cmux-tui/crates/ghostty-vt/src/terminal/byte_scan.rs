@@ -48,18 +48,13 @@ fn find(
     index
 }
 
-/// Index of the first ESC at or after `from`, or `data.len()`.
-#[inline]
-pub(crate) fn find_esc(data: &[u8], from: usize) -> usize {
-    find(data, from, |word| has_byte(word, 0x1b), |byte| byte == 0x1b)
-}
-
 /// Index of the first ESC or byte >= 0x80 at or after `from`, or `data.len()`.
 #[inline]
 pub(crate) fn find_esc_or_high(data: &[u8], from: usize) -> usize {
+    let at = wide::find::<true>(data, from);
     find(
         data,
-        from,
+        at,
         |word| word & HIGH != 0 || has_byte(word, 0x1b),
         |byte| byte == 0x1b || byte >= 0x80,
     )
@@ -68,7 +63,80 @@ pub(crate) fn find_esc_or_high(data: &[u8], from: usize) -> usize {
 /// Index of the first byte >= 0x80 at or after `from`, or `data.len()`.
 #[inline]
 pub(crate) fn find_high(data: &[u8], from: usize) -> usize {
-    find(data, from, |word| word & HIGH != 0, |byte| byte >= 0x80)
+    let at = wide::find::<false>(data, from);
+    find(data, at, |word| word & HIGH != 0, |byte| byte >= 0x80)
+}
+
+/// 16 bytes a step with the target's baseline SIMD (SSE2 on x86_64, NEON on
+/// aarch64): the index of the first byte >= 0x80 (or ESC, with `ESC`) at or
+/// after `from`, or the start of the last block shorter than 16 bytes, which
+/// the word scan above finishes. Every comparison is exact, so the index is
+/// the first match itself, with no byte-by-byte search after a hit.
+mod wide {
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    pub(super) fn find<const ESC: bool>(data: &[u8], from: usize) -> usize {
+        use std::arch::x86_64::{
+            _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_or_si128, _mm_set1_epi8,
+        };
+        let mut at = from;
+        // SAFETY: SSE2 is in the x86_64 baseline, and every load reads the 16
+        // bytes at `at`, which the loop condition keeps inside `data`.
+        unsafe {
+            let esc = _mm_set1_epi8(0x1b);
+            while at + 16 <= data.len() {
+                let block = _mm_loadu_si128(data.as_ptr().add(at).cast());
+                // The movemask takes each byte's top bit: set for >= 0x80, and
+                // for every byte of the all-ones ESC comparison.
+                let hits =
+                    if ESC { _mm_or_si128(block, _mm_cmpeq_epi8(block, esc)) } else { block };
+                let mask = _mm_movemask_epi8(hits) as u32;
+                if mask != 0 {
+                    return at + mask.trailing_zeros() as usize;
+                }
+                at += 16;
+            }
+        }
+        at
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(super) fn find<const ESC: bool>(data: &[u8], from: usize) -> usize {
+        use std::arch::aarch64::{
+            vceqq_u8, vcgeq_u8, vdupq_n_u8, vget_lane_u64, vld1q_u8, vorrq_u8, vreinterpret_u64_u8,
+            vreinterpretq_u16_u8, vshrn_n_u16,
+        };
+        let mut at = from;
+        // SAFETY: NEON is in the aarch64 baseline, and every load reads the 16
+        // bytes at `at`, which the loop condition keeps inside `data`.
+        unsafe {
+            let esc = vdupq_n_u8(0x1b);
+            let high = vdupq_n_u8(0x80);
+            while at + 16 <= data.len() {
+                let block = vld1q_u8(data.as_ptr().add(at));
+                let high_bytes = vcgeq_u8(block, high);
+                let hits =
+                    if ESC { vorrq_u8(high_bytes, vceqq_u8(block, esc)) } else { high_bytes };
+                // Narrow each 0x00/0xff byte to a nibble: 4 mask bits a byte,
+                // in byte order.
+                let mask = vget_lane_u64::<0>(vreinterpret_u64_u8(vshrn_n_u16::<4>(
+                    vreinterpretq_u16_u8(hits),
+                )));
+                if mask != 0 {
+                    return at + (mask.trailing_zeros() / 4) as usize;
+                }
+                at += 16;
+            }
+        }
+        at
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[inline(always)]
+    pub(super) fn find<const ESC: bool>(_data: &[u8], from: usize) -> usize {
+        from
+    }
 }
 
 /// Whether `byte` is a CSI final no tracker acts on (cursor motion, erase,
@@ -160,28 +228,238 @@ pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool)
     }
 }
 
-/// [`neutral_run_end`] with line ends neutral, from ESC to ESC: the bytes
-/// between two ESCs are neutral exactly when they are valid UTF-8 (ASCII
-/// other than ESC is neutral, and `str::from_utf8` accepts the same code
-/// points as [`utf8_len`]: no overlong forms, surrogates or values past
-/// U+10FFFF), and its `valid_up_to` stops before an invalid or incomplete
-/// code point, where the byte walk stops too. Each byte is validated once.
+/// [`neutral_run_end`] with line ends neutral: one pass that stops only at
+/// ESC and bytes >= 0x80 (16 bytes a step, [`find_esc_or_high`]), steps over
+/// a complete inert CSI there, and ends at the first ESC that is not one. A
+/// frame of SGR-colored text has an ESC every few bytes, so the walk makes no
+/// call per ESC-to-ESC segment.
+///
+/// From a byte >= 0x80 the bytes up to the next ESC are neutral exactly when
+/// they are valid UTF-8 (`simdutf8` accepts the same code points as
+/// [`utf8_len`]: no overlong forms, surrogates or values past U+10FFFF), and
+/// its `valid_up_to` stops before an invalid or incomplete code point, where
+/// the byte walk stops too. Non-ASCII text (CJK, box drawing, emoji) is then
+/// validated 16-64 bytes a step instead of one code point at a time.
 fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
     let mut at = from;
     loop {
+        at = block::skip(data, at);
+        at = find_esc_or_high(data, at);
+        let Some(&byte) = data.get(at) else { return at };
+        if byte == 0x1b {
+            let csi = inert_csi_len(data, at);
+            if csi == 0 {
+                return at;
+            }
+            at += csi;
+            continue;
+        }
         let rest = data.get(at..).unwrap_or_default();
         let esc = memchr::memchr(0x1b, rest).map_or(data.len(), |offset| at + offset);
-        if let Err(error) = std::str::from_utf8(data.get(at..esc).unwrap_or_default()) {
+        if let Err(error) = simdutf8::compat::from_utf8(data.get(at..esc).unwrap_or_default()) {
             return at + error.valid_up_to();
         }
-        if esc == data.len() {
-            return esc;
+        at = esc;
+    }
+}
+
+/// 64 bytes a step for the ESC-dense case: a frame of SGR-colored text has an
+/// ESC every ~10 bytes, so a walk that stops at each one pays a branchy
+/// CSI walk per ESC. Here one block's ESC, `[`, parameter (`0-9 ; :`), `m` and
+/// high-bit bytes become five 64-bit masks, and every CSI in the block is
+/// checked at once:
+///
+/// - each ESC must start `ESC [` (`starts`);
+/// - adding each start's first parameter position (`starts << 2`) to the
+///   parameter mask carries through that CSI's parameter run and lands on the
+///   first byte after it, its final (`(S + P) & !P`, one bit a start);
+/// - every final must be inert ([`is_inert_csi_final`]): `m` from its mask,
+///   any other from the byte.
+///
+/// A block passes up to `limit`, its first byte >= 0x80 (or its end). When a
+/// CSI runs past the block's end, the block passes up to that CSI's ESC and
+/// the next block starts there. Anything else (a byte >= 0x80, a CSI that is
+/// not inert) leaves the bytes from there to the byte walk, so the result is
+/// exactly the byte walk's.
+pub(super) mod block {
+    use super::is_inert_csi_final;
+
+    pub(super) struct Masks {
+        pub(super) esc: u64,
+        pub(super) bracket: u64,
+        pub(super) param: u64,
+        pub(super) final_m: u64,
+        pub(super) high: u64,
+    }
+
+    /// Index after the 64-byte blocks from `from` that hold only neutral
+    /// bytes and complete inert CSIs, and no byte >= 0x80; `from` if the
+    /// first block does not start that way.
+    #[inline]
+    pub(in crate::terminal) fn skip(data: &[u8], from: usize) -> usize {
+        let mut at = from;
+        while let Some(block) = data.get(at..).and_then(<[u8]>::first_chunk::<64>) {
+            let step = passes(block, &masks(block));
+            if step == 0 {
+                break;
+            }
+            at = at.saturating_add(step);
         }
-        let csi = inert_csi_len(data, esc);
-        if csi == 0 {
-            return esc;
+        at
+    }
+
+    /// How many leading bytes of `block` are neutral (see the module doc).
+    #[inline(always)]
+    pub(super) fn passes(block: &[u8; 64], m: &Masks) -> usize {
+        let limit = if m.high == 0 { 64 } else { m.high.trailing_zeros() };
+        let below = if limit == 64 { u64::MAX } else { (1u64 << limit) - 1 };
+        let starts = m.esc & (m.bracket >> 1);
+        if all_inert(block, m, starts, below) {
+            return limit as usize;
         }
-        at = esc + csi;
+        let escs = m.esc & below;
+        if escs == 0 {
+            return 0;
+        }
+        let last = 63 - escs.leading_zeros();
+        if last != 0 && all_inert(block, m, starts, (1u64 << last) - 1) { last as usize } else { 0 }
+    }
+
+    /// True when every ESC under `mask` starts a complete inert CSI whose
+    /// final is in the block.
+    #[inline(always)]
+    fn all_inert(block: &[u8; 64], m: &Masks, starts: u64, mask: u64) -> bool {
+        let starts = starts & mask;
+        if m.esc & mask != starts || starts >> 62 != 0 {
+            return false;
+        }
+        let (sum, carried) = (starts << 2).overflowing_add(m.param);
+        if carried {
+            return false;
+        }
+        let mut others = sum & !m.param & !m.final_m;
+        while others != 0 {
+            let at = others.trailing_zeros() as usize;
+            if !block.get(at).copied().is_some_and(is_inert_csi_final) {
+                return false;
+            }
+            others &= others - 1;
+        }
+        true
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    pub(super) fn masks(block: &[u8; 64]) -> Masks {
+        use std::arch::x86_64::{
+            __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_min_epu8, _mm_movemask_epi8,
+            _mm_set1_epi8, _mm_sub_epi8,
+        };
+        // SAFETY: SSE2 is in the x86_64 baseline, and the four loads read the
+        // 64 bytes of `block`.
+        unsafe {
+            let esc = _mm_set1_epi8(0x1b);
+            let bracket = _mm_set1_epi8(b'[' as i8);
+            let final_m = _mm_set1_epi8(b'm' as i8);
+            let zero = _mm_set1_epi8(b'0' as i8);
+            let eleven = _mm_set1_epi8(11);
+            let bits = |f: &dyn Fn(__m128i) -> __m128i| -> u64 {
+                let mut out = 0u64;
+                for lane in 0..4 {
+                    let v = _mm_loadu_si128(block.as_ptr().add(lane * 16).cast());
+                    out |= u64::from(_mm_movemask_epi8(f(v)) as u16) << (lane * 16);
+                }
+                out
+            };
+            Masks {
+                esc: bits(&|v| _mm_cmpeq_epi8(v, esc)),
+                bracket: bits(&|v| _mm_cmpeq_epi8(v, bracket)),
+                // 0x30..=0x3b is `byte - '0' <= 11`, unsigned.
+                param: bits(&|v| {
+                    let d = _mm_sub_epi8(v, zero);
+                    _mm_cmpeq_epi8(_mm_min_epu8(d, eleven), d)
+                }),
+                final_m: bits(&|v| _mm_cmpeq_epi8(v, final_m)),
+                high: bits(&|v| v),
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(super) fn masks(block: &[u8; 64]) -> Masks {
+        use std::arch::aarch64::{
+            uint8x16_t, vandq_u8, vceqq_u8, vcgeq_u8, vcleq_u8, vdupq_n_u8, vgetq_lane_u64,
+            vld1q_u8, vpaddq_u8, vreinterpretq_u64_u8, vsubq_u8,
+        };
+        // SAFETY: NEON is in the aarch64 baseline, and the four loads read the
+        // 64 bytes of `block`.
+        unsafe {
+            const WEIGHTS: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
+            let weights = vld1q_u8(WEIGHTS.as_ptr());
+            let v = [
+                vld1q_u8(block.as_ptr()),
+                vld1q_u8(block.as_ptr().add(16)),
+                vld1q_u8(block.as_ptr().add(32)),
+                vld1q_u8(block.as_ptr().add(48)),
+            ];
+            // One bit a byte from four all-ones/all-zeros comparisons: weight
+            // each byte by its bit, then three pairwise adds fold 64 bytes to 8.
+            let bits = |f: &dyn Fn(uint8x16_t) -> uint8x16_t| -> u64 {
+                let t = [
+                    vandq_u8(f(v[0]), weights),
+                    vandq_u8(f(v[1]), weights),
+                    vandq_u8(f(v[2]), weights),
+                    vandq_u8(f(v[3]), weights),
+                ];
+                let s = vpaddq_u8(vpaddq_u8(t[0], t[1]), vpaddq_u8(t[2], t[3]));
+                vgetq_lane_u64(vreinterpretq_u64_u8(vpaddq_u8(s, s)), 0)
+            };
+            let esc = vdupq_n_u8(0x1b);
+            let bracket = vdupq_n_u8(b'[');
+            let final_m = vdupq_n_u8(b'm');
+            let zero = vdupq_n_u8(b'0');
+            let eleven = vdupq_n_u8(11);
+            let high = vdupq_n_u8(0x80);
+            Masks {
+                esc: bits(&|x| vceqq_u8(x, esc)),
+                bracket: bits(&|x| vceqq_u8(x, bracket)),
+                param: bits(&|x| vcleq_u8(vsubq_u8(x, zero), eleven)),
+                final_m: bits(&|x| vceqq_u8(x, final_m)),
+                high: bits(&|x| vcgeq_u8(x, high)),
+            }
+        }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[inline(always)]
+    pub(super) fn masks(block: &[u8; 64]) -> Masks {
+        scalar_masks(block)
+    }
+
+    /// The masks one byte at a time: the reference the SIMD versions match.
+    #[cfg_attr(any(target_arch = "x86_64", target_arch = "aarch64"), allow(dead_code))]
+    pub(super) fn scalar_masks(block: &[u8; 64]) -> Masks {
+        let mut m = Masks { esc: 0, bracket: 0, param: 0, final_m: 0, high: 0 };
+        for (index, &byte) in block.iter().enumerate() {
+            let bit = 1u64 << index;
+            if byte == 0x1b {
+                m.esc |= bit;
+            }
+            if byte == b'[' {
+                m.bracket |= bit;
+            }
+            if byte.wrapping_sub(b'0') < 12 {
+                m.param |= bit;
+            }
+            if byte == b'm' {
+                m.final_m |= bit;
+            }
+            if byte >= 0x80 {
+                m.high |= bit;
+            }
+        }
+        m
     }
 }
 

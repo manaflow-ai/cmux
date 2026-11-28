@@ -134,8 +134,6 @@ struct ChatRowView: View {
                 let turnID = row.turnID
                 DiffSnippet(call: call, previews: files) { await context.changeSet(turnID: turnID, fallbackID: call.id) }
             }
-        case .plan(let entries):
-            PlanCard(entries: entries)
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
@@ -164,6 +162,8 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
+        case .notSent:
+            NotSentLine(turnID: row.turnID, store: store)
         case .subagentOf(let parent):
             SubagentOfPill(parent: parent)
         case .subagentFooter(let footer):
@@ -193,6 +193,9 @@ struct ChatRowView: View {
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .githubSignIn(let need):
+            // Back from GitHub, the chat goes on by itself: its Continue (the Mac card's).
+            GitHubSignInCard(need: need) { store.send(prompt: GitHubSignInNeed.continuePrompt) }
         case .worked(let fold):
             WorkedForRow(fold: fold, context: context)
         case .actions(let turn, let isLast):
@@ -272,4 +275,27 @@ enum ChatShare {
         top.present(sheet, animated: true)
     }
 }
+/// A message that could not reach the Mac within ``AgentChatStore/sendDeadline``: one quiet line
+/// under its bubble, in the chat's own secondary ink (no toast, no banner, no spinner). A tap sends
+/// it again under the same id, so the Mac runs it once.
+struct NotSentLine: View {
+    let turnID: String
+    let store: AgentChatStore
+
+    var body: some View {
+        Button {
+            store.sendAgain(turnID: turnID)
+        } label: {
+            Text(String(localized: "mobile.agentChat.notSent", defaultValue: "Not sent · Tap to send again", bundle: .module))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 18)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.cmuxPressFill)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityIdentifier("agentChat.notSent")
+    }
+}
+
 #endif

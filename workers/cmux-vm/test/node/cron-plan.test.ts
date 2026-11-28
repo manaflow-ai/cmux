@@ -1,6 +1,7 @@
 /**
  * The cron runs the tunnel sweep wherever the VM API runs (a revoke's 200 relies on it), the VM sweep and the agent
- * reaper only where one Worker owns the environment (src/cron-plan.ts), and every deployed environment has the cron.
+ * reaper only where one Worker owns the environment, the idle sweep only in staging (src/cron-plan.ts), and every
+ * deployed environment has the cron.
  */
 import { expect, it } from "vitest";
 import wranglerText from "../../wrangler.jsonc?raw";
@@ -31,12 +32,12 @@ const stripComments = (text: string): string => {
   return out.replace(/,(\s*[}\]])/gu, "$1");
 };
 
-it("sweeps tunnels in every deployed environment, and VMs and agent keys only in staging and production", () => {
-  expect(cronPlan("production")).toEqual({ reap: true, sweepVms: true, sweepTunnels: true });
-  expect(cronPlan("staging")).toEqual({ reap: true, sweepVms: true, sweepTunnels: true });
-  expect(cronPlan("preview")).toEqual({ reap: false, sweepVms: false, sweepTunnels: true });
-  expect(cronPlan("local")).toEqual({ reap: false, sweepVms: false, sweepTunnels: false });
-  expect(cronPlan(undefined)).toEqual({ reap: false, sweepVms: false, sweepTunnels: false });
+it("sweeps tunnels in every deployed environment, VMs and agent keys only in staging and production, idle VMs only in staging", () => {
+  expect(cronPlan("production")).toEqual({ reap: true, sweepVms: true, sweepTunnels: true, sweepIdleVms: false });
+  expect(cronPlan("staging")).toEqual({ reap: true, sweepVms: true, sweepTunnels: true, sweepIdleVms: true });
+  expect(cronPlan("preview")).toEqual({ reap: false, sweepVms: false, sweepTunnels: true, sweepIdleVms: false });
+  expect(cronPlan("local")).toEqual({ reap: false, sweepVms: false, sweepTunnels: false, sweepIdleVms: false });
+  expect(cronPlan(undefined)).toEqual({ reap: false, sweepVms: false, sweepTunnels: false, sweepIdleVms: false });
 });
 
 it("gives every environment the VM API deploys to a cron trigger", () => {

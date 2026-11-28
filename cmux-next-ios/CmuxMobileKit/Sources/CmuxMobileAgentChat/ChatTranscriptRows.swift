@@ -35,7 +35,6 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case toolGroup([ACPToolCall], turnRunning: Bool)
         /// A finished edit's snippet; `files` is nil while its diff computes.
         case edit(ACPToolCall, files: [ChatDiffCache.EditPreview]?)
-        case plan([ACPPlanEntry])
         /// `offersChoices`: the composer took the bar's place ("Reply instead"); the card
         /// brings the choices back.
         case permission(PermissionRecord, offersChoices: Bool)
@@ -44,6 +43,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case working(label: String, since: Date?)
         case editedFiles(DiffChangeSet)
         case stopped
+        /// A message this phone sent that could not reach the Mac in time (``AgentTurn/LocalSend``):
+        /// one quiet line under its bubble; a tap sends it again.
+        case notSent
         case failed(prompt: String, errorText: String?)
         case actions(AgentTurn, isLast: Bool)
         /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
@@ -52,6 +54,10 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
         /// (`WhoElseCard`), in place of the tool row.
         case whoElse(String, WhoElseCall)
+        /// A GitHub call this turn's agent made was refused for want of GitHub access (no
+        /// connection, or the App's updated permissions not accepted): one Sign in with GitHub
+        /// card under the turn's work (`GitHubSignInCard`), as the Mac's `GitHubConnectCard`.
+        case githubSignIn(GitHubSignInNeed)
         /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
         /// the line when it is open.
         indirect case worked(WorkedFold)
@@ -259,6 +265,9 @@ final class ChatTranscriptBuilder {
         // Answer rows taken as they were from the last build (`blockRows`).
         var reused = 0
         let turnID = turn.id
+        // The turn's own rows keep the key they were first drawn under (a prompt shown as it was
+        // sent keeps its bubble when the Mac's id for the turn comes back).
+        let rowKey = turn.rowKey
         var nextGap = 16.0
         func add(_ id: String, _ kind: ChatRow.Kind, gap: Double? = nil) {
             rows.append(ChatRow(id: id, turnID: turnID, kind: kind, gap: gap ?? nextGap))
@@ -270,23 +279,44 @@ final class ChatTranscriptBuilder {
         }
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row;
         // nor does a subagent with no task.
-        if turn.incoming?.messages.isEmpty != true, chat || !turn.prompt.isEmpty {
+        if turn.incoming?.messages.isEmpty != true, turn.localSend != .sending, chat || !turn.prompt.isEmpty {
             // A subagent's task sits under its "Subagent of" pill.
             var gap: Double = context.isFirst ? (chat ? 0 : 14) : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
             if turn.incoming == nil, let envelope = ChiefEnvelope(turn.prompt) {
-                rows.append(ChatRow(id: "cx-\(turnID)", turnID: turnID, kind: .chiefContext(envelope.context, lines: envelope.lines), gap: gap))
+                rows.append(ChatRow(id: "cx-\(rowKey)", turnID: turnID, kind: .chiefContext(envelope.context, lines: envelope.lines), gap: gap))
                 prompt = envelope.task
                 gap = 6
             }
-            rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                                kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
-                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: chat && context.isLast),
-                                gap: gap))
+            // A prompt with nothing to show (a turn started by a notice or another agent with no
+            // text, an image-only prompt whose images were left out) draws no bubble: an empty grey
+            // bubble is a placeholder (Leo, 2026-11-24: "chase all these placeholders down and
+            // prevent them"). Its turn's rows keep the gap the bubble would have taken.
+            if turn.incoming == nil, turn.attachments.isEmpty,
+               prompt.allSatisfy({ $0.isWhitespace || $0.isNewline }) {
+                nextGap = gap
+            } else {
+                rows.append(ChatRow(id: "u-\(rowKey)", turnID: turnID,
+                                    kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
+                                        ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: chat && context.isLast),
+                                    gap: gap))
+            }
         }
-        let turnRows = self.turnRows?(turn) ?? turn.rows
+        // A message still on its way to the Mac is its bubble alone: no Working line, no
+        // actions; one that could not go says so under it.
+        if let local = turn.localSend {
+            if local == .notSent { add("ns-\(turnID)", .notSent, gap: 6) }
+            rowsMade += rows.count
+            return (rows, false)
+        }
         let running = turn.status == .running
+        // A turn's rows as the source keeps them (a subagent's long transcript, `SubagentRowsMemo`),
+        // else grouped here.
+        let grouped = self.turnRows?(turn) ?? turn.rows
+        // Ended, a steer the agent was finishing when it came draws over its final reply (Leo,
+        // 2026-11-25); running, every row draws as it came.
+        let turnRows = running ? grouped : TurnRow.lateSteersLast(grouped)
         // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
         // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
         let wrote = turn.status == .completed && chat ? NextStepAsk.lastWrapUp(turnRows) : nil
@@ -361,8 +391,6 @@ final class ChatTranscriptBuilder {
                     if files == nil { waits = true }
                     add(row.id, .edit(call, files: files))
                 }
-            case .plan(_, let entries):
-                add(row.id, .plan(entries))
             case .permission(let record):
                 add(row.id, .permission(record, offersChoices: record.request.id == context.choicesFor))
             case .question(let id):
@@ -375,12 +403,48 @@ final class ChatTranscriptBuilder {
             }
         }
         if !running, context.foldsWork, chat {
-            WorkedFold.fold(&rows, work: workStart..<rows.count, keeping: replyRows, turnID: turnID,
-                            status: turn.status, seconds: turn.duration)
+            // In order around a message that came in mid-turn (the Mac's default arm of
+            // turn-fold-steered, `in-order`): the turn's Worked for ends at a steer the agent went on
+            // working after, and the work after it folds under its own line below it, so the fold
+            // never pulls that work up above the steer (Leo, 2026-11-11: "it sort of, like, steals
+            // commands that came in ... and it just shunts them to the top"). A late steer
+            // (`TurnRow.lateSteersLast`) has no work after it and keeps the one fold.
+            var stretches: [(start: Int, steer: SteeredMessage?)] = [(workStart, nil)]
+            for index in workStart..<rows.count {
+                guard case .steer(let message) = rows[index].kind else { continue }
+                let after = rows[(index + 1)...]
+                if after.contains(where: { !replyRows.contains($0.id) && WorkedFold.folds($0.kind) }) {
+                    stretches.append((index + 1, message))
+                }
+            }
+            var end = rows.count
+            var stretchEnd: Date? = turn.endedAt
+            for stretch in stretches.reversed() {
+                // Each Worked for times its own stretch: from the turn's start or the steer that
+                // opened it, to the next steer or the turn's end.
+                let from = stretch.steer?.at ?? turn.startedAt
+                var seconds: TimeInterval?
+                if stretches.count == 1 {
+                    seconds = turn.duration
+                } else if let from, let stretchEnd {
+                    seconds = max(0, stretchEnd.timeIntervalSince(from))
+                }
+                stretchEnd = stretch.steer?.at
+                WorkedFold.fold(&rows, work: stretch.start..<end, keeping: replyRows, turnID: turnID,
+                                status: turn.status, seconds: seconds,
+                                rowID: stretch.steer.map { "\(WorkedFold.rowID(turnID: turnID))-\($0.promptID)" })
+                // The steer row that opened this stretch ends the one before it.
+                end = stretch.start - (stretch.steer == nil ? 0 : 1)
+            }
+        }
+        // One Sign in with GitHub card per turn, for its last refused GitHub call (the Mac's rule).
+        // Not in a subagent's transcript: its Continue would prompt the parent chat.
+        if chat, let need = GitHubSignInNeed.turn(turn.items) {
+            add("g-\(turnID)", .githubSignIn(need))
         }
         if let wrapUp {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
-            add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
+            add("n-\(rowKey)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }
         // A subagent's state is its transcript's footer, not a turn row.
         guard chat else {
@@ -388,13 +452,13 @@ final class ChatTranscriptBuilder {
             return (rows, waits)
         }
         if running, turnRows.needsWorkingIndicator, !context.askOpen {
-            add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
+            add("w-\(rowKey)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
         }
         if !running {
             switch diffs.changeSet(for: turn) {
             case .some(.some(let changes)):
                 // The card's 4 pt top padding.
-                add("f-\(turnID)", .editedFiles(changes), gap: nextGap + 4)
+                add("f-\(rowKey)", .editedFiles(changes), gap: nextGap + 4)
             case .some(.none):
                 break
             case .none:
@@ -403,12 +467,12 @@ final class ChatTranscriptBuilder {
         }
         switch turn.status {
         case .cancelled:
-            add("x-\(turnID)", .stopped)
+            add("x-\(rowKey)", .stopped)
         case .failed:
-            add("x-\(turnID)", .failed(prompt: turn.prompt, errorText: turn.errorText))
+            add("x-\(rowKey)", .failed(prompt: turn.prompt, errorText: turn.errorText))
         case .completed:
             // The row's 44 pt targets reach 6 pt into the gap above, less its 2 pt top padding.
-            add("a-\(turnID)", .actions(turn, isLast: context.isLast), gap: nextGap - 4)
+            add("a-\(rowKey)", .actions(turn, isLast: context.isLast), gap: nextGap - 4)
         case .running:
             break
         }
@@ -447,7 +511,8 @@ enum ChatNativeEligibility {
         // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
         // SwiftUI snippet wraps them.
         case .edit: return !wrapCode
-        case .tool(let call): return isOpen("tool-\(call.id)") != true
+        // A call holding pictures draws them in SwiftUI under its line (`ToolOutputImages`).
+        case .tool(let call): return !call.hasImages && isOpen("tool-\(call.id)") != true
         case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
         case .thought: return isOpen("thought-\(row.id)") == nil
         // Open, it draws its rows in SwiftUI under the line (`WorkedForRow`).

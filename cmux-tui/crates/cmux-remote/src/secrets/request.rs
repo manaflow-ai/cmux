@@ -21,3 +21,17 @@ pub fn replace_machine_secrets(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(WorkspaceRequest::ReplaceMachineSecrets { items })
 }
+
+/// `replace-git-host-token` for `host`: `token` sealed (purpose `git-host`,
+/// named `host`), or `None` to remove the machine's token for it.
+pub fn replace_git_host_token(
+    daemon_key: &[u8; 32],
+    machine_id: &str,
+    host: &str,
+    token: Option<&zeroize::Zeroizing<String>>,
+) -> Result<WorkspaceRequest, SealError> {
+    let item = token
+        .map(|token| seal::seal(daemon_key, machine_id, Purpose::GitHost, host, token.as_bytes()))
+        .transpose()?;
+    Ok(WorkspaceRequest::ReplaceGitHostToken { host: host.to_owned(), item })
+}

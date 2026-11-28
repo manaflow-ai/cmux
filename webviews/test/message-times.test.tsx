@@ -12,9 +12,13 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { exactTime, messageAge, nextMessageAge } from "../src/agent-session/acpmux/conversation/relativeTime";
-import { pageClocks } from "../src/ui/pageClock";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { exactTime, messageAge, nextMessageAge } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/relativeTime"),
+);
+const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -87,7 +91,8 @@ test("an answer's footer draws no time; a reply's own row reads relative, the ex
     durationMs: 5_000,
     text: "Pushed to the branch.",
   };
-  expect(renderToStaticMarkup(<TurnFooter row={footer} />)).not.toContain("cv-turn-time");
+  // A turn footer draws the same age after its buttons (Leo, 2026-11-22, over Lawrence's 2026-11-11 no-time footer: "you hover and you get the timing").
+  expect(renderToStaticMarkup(<TurnFooter row={footer} />)).toContain("cv-turn-time");
   const markup = renderToStaticMarkup(<ReplyActions row={assistantRow(at)} />);
   const time = /<time class="cv-turn-time"([^>]*)>([^<]*)<\/time>/.exec(markup);
   expect(time?.[2]).toBe("10 minutes ago");

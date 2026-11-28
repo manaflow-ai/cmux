@@ -4,6 +4,7 @@
 // row's state (acpmux's harness health, the account, `CLIInstallReport`, the classic migration's
 // plan) and runs each action; this file decides nothing the host can answer. Not wired yet: the
 // gallery shows it (goal next-first-run-setup, cmuxterm-hq goals/next-first-run-setup.md).
+import { intl } from "../../ui/intl";
 import type { Strings } from "./strings";
 
 /** One agent CLI's row inside the agents step. */
@@ -16,13 +17,24 @@ export interface SetupAgent {
 
 export interface SetupState {
   agents: readonly SetupAgent[];
-  account: { signedIn: boolean; email?: string };
+  /** `signInBackend`: signed out, what Sign In signs in to ("Signs in to cmux.com"), made by the app. */
+  account: { signedIn: boolean; email?: string; signInBackend?: string };
   /** `missing`: no `cmux` on the login PATH; `other`: another cmux app's CLI (classic, a moved copy), which
    * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
    * its disk image, so nothing installs until it runs from Applications; `installing`: an install runs. */
   cli: "missing" | "other" | "installed" | "foreign" | "fromImage" | "installing";
-  /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
-  classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
+  /** The launch's classic import while it asks on this row, and its answer; null: nothing to import (the row
+   * does not show). `app` is the classic app that saved it, as its Dock names it; `savedAt` when (ms since
+   * 1970); `running`: that app is still open, so this is its autosave; `resumes`: importing reconnects saved
+   * SSH hosts or resumes saved agent chats. */
+  classic: {
+    workspaces: number;
+    app: string;
+    savedAt: number;
+    running?: boolean;
+    resumes?: boolean;
+    answered?: "importing" | "imported" | "failed" | "declined";
+  } | null;
   /** The app's text size and density (Set Up cmux's Text Size and Density row; David Beyer, Nov 20): `textSize` is
    * appearance.metrics.chromeFontSize in points or null (the density's own), `density` the density's id, `body` its
    * chrome body text in points. Null or absent: an app that has no such row (the row does not show). */
@@ -59,7 +71,7 @@ export interface SetupStep {
   detail: string;
   /** The row's one button; absent once done (the slot keeps its room). */
   action?: { label: string; run: SetupAction };
-  /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy, greyed
+  /** A quieter second button (classic's Skip, the next agent); it stays while the row is busy, greyed
    * (`disabled`) when it waits on the run in flight. */
   secondary?: { label: string; run: SetupAction; disabled?: boolean };
   /** A third, quieter still: only while an agent waits for its sign-in to be confirmed and another agent
@@ -67,6 +79,9 @@ export interface SetupStep {
   tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
+  /** A quiet line under the detail: what the row's action also does (classic's import), or the account row's
+   * backend while signed out ("Signs in to cmux.com"). */
+  note?: string;
   /** A choice, not a to-do (Text Size and Density): never counted in the progress, never the next step, and its
    * controls sit under its words instead of in the slot. */
   optional?: boolean;
@@ -91,20 +106,37 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
   if (state.classic) {
-    const { workspaces, saved, answered } = state.classic;
+    const { workspaces, app, savedAt, running, resumes, answered } = state.classic;
+    const saved = intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
     steps.push({
       id: "classic",
-      done: answered !== undefined,
+      // Imported only once the import brought them: it reads Importing while it runs.
+      done: answered !== undefined && answered !== "importing",
       title: t("home.setup.classic"),
+      busy: answered === "importing",
       detail:
-        answered === "imported"
-          ? t("home.setup.classic.imported")
-          : answered === "declined"
-            ? t("home.setup.classic.declined")
-            : format("home.setup.classic.detail", String(workspaces), saved),
+        answered === "importing"
+          ? t("home.setup.classic.importing")
+          : answered === "imported"
+            ? t("home.setup.classic.imported")
+            : answered === "failed"
+              ? t("home.setup.classic.failed")
+              : answered === "declined"
+                ? t("home.setup.classic.declined")
+                : running
+                  ? format("home.setup.classic.open", app, saved)
+                  : format(
+                      "home.setup.classic.detail",
+                      intl.NumberFormat(strings.language).format(workspaces),
+                      app,
+                      saved,
+                    ),
+      // Skip is a No the migration keeps (later launches don't ask; Settings › Import still brings them), so
+      // the row says what Import also does before the person presses it, as the classic import dialog did.
       ...(answered === undefined && {
+        ...(resumes && { note: t("home.setup.classic.resumes") }),
         action: { label: t("home.setup.import"), run: { kind: "importClassic" } as const },
-        secondary: { label: t("home.setup.notNow"), run: { kind: "declineClassic" } as const },
+        secondary: { label: t("home.setup.skip"), run: { kind: "declineClassic" } as const },
       }),
     });
   }
@@ -157,6 +189,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
     detail: state.account.signedIn ? (state.account.email ?? t("home.setup.signedIn")) : t("home.setup.account.detail"),
     ...(!state.account.signedIn && {
       action: { label: t("home.setup.signIn"), run: { kind: "signInAccount" } as const },
+      ...(state.account.signInBackend ? { note: state.account.signInBackend } : {}),
     }),
   });
   steps.push({

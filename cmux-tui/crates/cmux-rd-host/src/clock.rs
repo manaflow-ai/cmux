@@ -8,11 +8,20 @@ pub fn now_ns() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
+/// Windows: the performance counter, the same absolute clock cmux-rd-link stamps
+/// datagram departures with, so ledger stages taken in either crate subtract.
 #[cfg(windows)]
 pub fn now_ns() -> u64 {
-    use std::sync::OnceLock;
-    static EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
-    EPOCH.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
+    let (mut count, mut freq) = (0i64, 0i64);
+    // SAFETY: both calls write one i64 into a live local; they cannot fail on XP and later.
+    unsafe {
+        QueryPerformanceCounter(&mut count);
+        QueryPerformanceFrequency(&mut freq);
+    }
+    (count as u128 * 1_000_000_000 / freq.max(1) as u128) as u64
 }
 
 /// Small xorshift PRNG (test patterns and inter-sample jitter; not cryptographic).
@@ -53,23 +62,5 @@ pub fn mach_to_protocol_us(now_us: u64, now: u64, then: u64, numer: u32, denom: 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::mach_to_protocol_us;
-
-    /// Apple silicon's timebase: 125/3 ns a tick, so 24 ticks a µs.
-    const NUMER: u32 = 125;
-    const DENOM: u32 = 3;
-
-    #[test]
-    fn a_mach_time_lands_on_the_protocol_clock_on_either_side_of_now() {
-        let (now_us, now) = (1_000_000, 10_000_000);
-        // 3 ms ago and 3 ms ahead (a display time ScreenCaptureKit schedules for a coming vsync).
-        assert_eq!(mach_to_protocol_us(now_us, now, now - 72_000, NUMER, DENOM), 997_000);
-        assert_eq!(mach_to_protocol_us(now_us, now, now + 72_000, NUMER, DENOM), 1_003_000);
-        assert_eq!(mach_to_protocol_us(now_us, now, now, NUMER, DENOM), now_us);
-        // An identity timebase (Intel): ticks are ns.
-        assert_eq!(mach_to_protocol_us(now_us, now, now + 5_000_000, 1, 1), 1_005_000);
-        // Never before the protocol clock's zero.
-        assert_eq!(mach_to_protocol_us(10, now, 0, 1, 1), 0);
-    }
-}
+#[path = "clock_tests.rs"]
+mod tests;

@@ -1,0 +1,7 @@
+# 2026-11-26-prepare-nightly-variant-primary-3
+
+Above `- &upload-prepared-app-for-signin` (job `prepare-nightly-variant-primary`) in `.github/workflows/nightly.yml`.
+
+Signing waits on this job's end. On a dedicated nightly Mac the default 5 blocks
+at a time took 65-156 s (median 85 s, runs 41455121554-41488515134), against
+3 s on Blacksmith Linux; 32 at a time, as the unsigned-app upload since #32343.

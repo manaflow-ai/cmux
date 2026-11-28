@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.window.settingsPresentation.tab" : {
+      "comment" : "Settings: a choice's title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "علامة تبويب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartica"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fane"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tab"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pestaña"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onglet"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scheda"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タブ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "탭"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fane"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karta"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aba"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладка"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekme"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладка"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thẻ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分頁"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

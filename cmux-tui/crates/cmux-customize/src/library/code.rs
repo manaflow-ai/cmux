@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! <state dir>/layers/<key>/      one PR's web bundles, as an overlay folder
-//!                                 (agent-pane/, pages/, webviews-app/, manifest.json)
+//!                                 (agent-pane/, pages/, webviews-app/, agent-activity/, manifest.json)
 //! <config dir>/web-dev.json       `overlay` names the folder the app serves
 //! ```
 //!

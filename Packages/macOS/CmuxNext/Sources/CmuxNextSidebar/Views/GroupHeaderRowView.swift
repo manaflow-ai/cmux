@@ -171,16 +171,6 @@ final class GroupHeaderRowView: SidebarRowView {
         onUnpin = nil
     }
 
-    private struct Content: Hashable {
-        var group: SidebarGroup
-        var childCount: Int
-        var collapsed: Bool
-        var fontSize: CGFloat
-        var details: GroupHeaderDetails
-        var status: StatusIndicatorState?
-        var look: SidebarHostGroupLook
-    }
-
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
     /// on its member count, unread total and other states (all off by default).
     ///
@@ -188,9 +178,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// of the group and its subgroups); nil rolls up `group`'s own members.
     func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
                    status rollUp: StatusIndicatorState? = nil, animated: Bool) {
-        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp,
-                              look: group.hostLook)
+        let content = Content(group, row: row, details: details, rollUp: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
         backgroundStyle = details.background
@@ -212,17 +200,14 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.setImage(NSImage.icon(.disclosureCollapsed, size: SidebarStyle.rowSymbolSide)) // the + ⋮ and Unpin's size (#49583)
         chevron.setOpen(!collapsed, animated: animated && configuredOnce)
         configuredOnce = true
-        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
-        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
-        if status.isVisible {
+        if content.status.isVisible {
             activityEnding = false
-            activity.configure(status)
+            activity.configure(content.status)
         } else if activity.state.isVisible {
             activityEnding = true
         }
         fadesNextActivity = animated
-        let unread = group.unreadTotal
-        badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
+        badge.configure(content.unread > 0 ? .count(content.unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel(group.machine.map { "\(group.name), \(SectionHeaderRowView.statusWords($0.status))" }
@@ -256,6 +241,13 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// What the header draws that its labels don't say: the tint, the pin, the icon, the machine's look and the status
+    /// mark it keeps (`GroupHeaderTickTests`: a header configured again shows what a fresh one shows).
+    var debugDrawn: String {
+        "tint \(tint) | pinned \(pinned) | icon \(hasIcon) chip \(glyph.showsChip) | look \(hostLook)"
+            + " | machine \(machine?.name ?? "-") \(machineTone.map { "\($0)" } ?? "-")"
+            + " | status \(activityEnding ? StatusIndicatorState.idle : activity.state) | style \(backgroundStyle)"
+    }
     /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
     var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
     /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
@@ -423,7 +415,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
     ///
-    /// `folder` (the default since David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
+    /// `folder` (David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
     /// the theme's primary ink as a workspace title's, and its folder glyph in the quiet ink, or in the group's color
     /// where it has one, held readable on the sidebar: the color stays the group's mark with no band to carry it.
     private func paintSection(_ tokens: ThemeTokens, folder: Bool = false,
@@ -617,6 +609,7 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
+            badge.alphaValue = 1 // `clearMarksMeetingIcons` below clears it again while it meets a control
             // A dot is round, the status dot's diameter; a count is the badge's height.
             let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
@@ -635,16 +628,17 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        // A pinned group's icon is a pinned workspace row's size, the optical glyph square, in either look, so the two
+        // kinds of pinned row draw their icons at one size on one center line (#42431).
+        let glyphBox = pinned ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
-        // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
-        // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
+        // A pinned group keeps its pin, and its own icon (or a machine mark) takes the next column, as a pinned workspace
+        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431, #63247). The Debug `ownIcon` look draws it in the pin's place.
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
@@ -702,6 +696,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
+        // No two icons share a box (Leo 2026-11-22: "fucking overlapping icons"): the unread count clears while it
+        // meets the chevron or a hover control, at any width.
+        clearMarksMeetingIcons(keep: [chevron, moreButton, addButton, pinButton], marks: [badge], fades: false)
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
@@ -774,8 +771,8 @@ extension GroupHeaderRowView {
         machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
-        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
-            ?? SectionHeaderRowView.statusWords(machine.status)
+        let tipWords = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
+        themedToolTip = machine.detail.map { "\(tipWords): \($0)" } ?? tipWords
     }
 
     // theme-scoped: called only inside performWithTheme

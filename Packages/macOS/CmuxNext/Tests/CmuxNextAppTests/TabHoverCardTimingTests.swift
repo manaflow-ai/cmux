@@ -303,6 +303,47 @@ import CmuxNextWakeupsTestSupport
         #expect(after == before.size, "the card changed size for its picture: \(before.size) then \(after)")
     }
 
+    /// Leo 2026-11-18, a recording of the pointer resting on a tab: "the hover preview bounces for some
+    /// reason". Grown out of its tab (`.morph`), the first card drew a sliver over the tab's lower edge,
+    /// then dropped and widened to its size. A tab's card now shows once, at its rest frame, fading in:
+    /// no growth and no slide on the first show.
+    @Test func aTabsFirstCardShowsAtRestWithNoGrowthOrSlide() async throws {
+        #expect(TabTunables.hoverCardEntrance.defaultValue == .fade, "a tab's card grows or slides in by default")
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let before = HoverCardPanel.morphGeneration
+        try await Self.open("b", s)
+        let panel = try #require(s.coordinator.panel)
+        #expect(panel.activeMorph == nil, "the card grew out of its tab")
+        #expect(HoverCardPanel.morphGeneration == before, "the first show ran a morph")
+        #expect(panel.slideLayer?.animation(forKey: "sublayerTransform") == nil, "the card slid in")
+        #expect(panel.contentView?.layer?.animation(forKey: "sublayerTransform") == nil, "the card slid in")
+        let drawn = panel.presentedCardFrame, rest = panel.cardFrame
+        #expect(abs(drawn.width - rest.width) < 0.5 && abs(drawn.height - rest.height) < 0.5,
+                "the first frame draws the card at \(drawn.size), not its rest size \(rest.size)")
+    }
+
+    /// Lawrence 2026-11-23 (a recording of a tab's card: "we animate width/height which is bad, should just
+    /// fade in"): with a card open, a move to the next tab changes no size on a spring either: the card is
+    /// under the next tab at that card's size in the same frame (the first show: `aTabsFirstCardShowsAt...`).
+    @Test func aMoveToTheNextTabChangesNoSizeOnASpring() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        try await Self.open("a", s)
+        let before = HoverCardPanel.morphGeneration
+        s.move(to: try s.center("b"))
+        try await Self.settle(until: { s.shows("b") })
+        try #require(s.shows("b"), "the next tab showed no card")
+        let panel = try #require(s.coordinator.panel)
+        #expect(HoverCardPanel.morphGeneration == before, "the move to the next tab changed the card's size on a spring")
+        #expect(panel.activeMorph == nil, "the card is still resizing")
+        #expect(panel.slideLayer?.animation(forKey: "sublayerTransform") == nil, "the card slid to the next tab")
+    }
+
     /// A picture that lands when the test says so.
     private final class HeldPreviews: TabPreviewProvider {
         private var held: CheckedContinuation<Void, Never>?

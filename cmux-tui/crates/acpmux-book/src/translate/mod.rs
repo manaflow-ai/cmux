@@ -30,12 +30,14 @@ use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// Version 13 starts the turn header's clock at the turn's start record; version 12 writes no plan
+/// rows: an agent to-do list (`plan`) is read past, as cmux shows none (acpmux `todo_tools.rs`).
+/// Version 11 wrote each row's phase (entering, live, settled, leaving) and takes rows back by
 /// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 13;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -110,7 +112,6 @@ pub enum BodyField {
     Text,
     Content,
     Input,
-    Entries,
     Source,
     Images,
     Title,
@@ -473,7 +474,6 @@ pub struct State {
     tools: BTreeMap<String, OwnedRow>,
     subs: BTreeMap<String, OwnedRow>,
     group: Option<OwnedRow>,
-    plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
     /// The waiting prompts in v1's order: the order its restore gives them, which runs them
@@ -796,6 +796,20 @@ impl State {
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)
     }
+    /// The open turn as a read folds it: its group row and the ranges its group row would carry
+    /// as `out` were the turn to end now (`finish` counts the reply in its slot, so this does).
+    /// `None` outside a turn.
+    pub fn open_fold(&self) -> Option<crate::log::LiveFold> {
+        let group = self.group.as_ref()?;
+        let mut fold = self.fold.clone();
+        if let Some(reply) = &self.reply {
+            fold.reply(&reply.facts);
+        }
+        Some(crate::log::LiveFold {
+            group: group.id,
+            out: fold.out().into_iter().map(|run| (run.0, run.1)).collect(),
+        })
+    }
     fn stored_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.reply
             .iter()
@@ -804,7 +818,6 @@ impl State {
             .chain(self.tools.values())
             .chain(self.subs.values())
             .chain(self.group.iter())
-            .chain(self.plan.iter())
             .chain(self.compaction.iter())
             .chain(self.prompts.values().map(|p| &p.row))
             .chain(self.asks.values().map(|ask| &ask.row))
@@ -818,7 +831,6 @@ impl State {
             .chain(self.tools.values_mut())
             .chain(self.subs.values_mut())
             .chain(self.group.iter_mut())
-            .chain(self.plan.iter_mut())
             .chain(self.compaction.iter_mut())
             .chain(self.prompts.values_mut().map(|p| &mut p.row))
             .chain(self.asks.values_mut().map(|ask| &mut ask.row))
@@ -991,6 +1003,17 @@ impl State {
             }
         }
     }
+    /// The running turn's start record: the turn header's clock starts here, as the page's v1
+    /// reader dates a turn (`turnStartedAtMs`), not at the prompt that asked for it.
+    fn turn_started(&mut self, out: &mut input::Output<'_>) {
+        if let Some(group) = &mut self.group {
+            let start = self.at_ms.to_string();
+            if group.fields.get("startMs") != Some(&start) {
+                group.fields.insert("startMs".into(), start);
+                out.row(group);
+            }
+        }
+    }
     /// The open group row, opened with `fields` when there is none.
     fn group_with(
         &mut self,
@@ -1055,7 +1078,6 @@ impl State {
     }
     fn finish(&mut self, out: &mut input::Output<'_>) {
         self.close_text(out);
-        Self::close_row(&mut self.plan, out);
         Self::close_row(&mut self.compaction, out);
         if let Some(group) = &mut self.group {
             group
@@ -1840,8 +1862,6 @@ impl State {
                     thought.row.open = false;
                     out.row(&thought.row);
                 }
-            } else if self.plan.as_ref().is_some_and(|r| r.id == id) {
-                Self::close_row(&mut self.plan, out);
             } else if self.compaction.as_ref().is_some_and(|r| r.id == id) {
                 Self::close_row(&mut self.compaction, out);
             } else {

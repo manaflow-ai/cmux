@@ -18,6 +18,10 @@ pub enum RegistrationState {
     CredentialUnavailable { error: String },
     /// No live registration, and the relay refused or did not answer the last attempt.
     RelayUnavailable { error: String },
+    /// No live registration: the relay is full or rate limiting (503 or 429 on the upgrade).
+    /// The wait before the next attempt honours `retry_after`; a carrier that has another
+    /// relay to register on moves to it at once instead of waiting here.
+    RelayBusy { error: String, retry_after: Option<Duration> },
 }
 
 impl RegistrationState {
@@ -51,18 +55,5 @@ pub(super) fn wall_now() -> std::time::SystemTime {
 /// The wall clock's lead on this thread (a `current_thread` test runtime's registration runs
 /// on the test's thread), so parallel tests never see each other's jumps.
 #[cfg(test)]
-pub(crate) mod test_wall {
-    use std::cell::Cell;
-    use std::time::Duration;
-
-    thread_local!(static AHEAD: Cell<Duration> = const { Cell::new(Duration::ZERO) });
-
-    /// Moves this thread's wall clock `by` forward; the monotonic clock stays.
-    pub(crate) fn jump(by: Duration) {
-        AHEAD.with(|a| a.set(a.get() + by));
-    }
-
-    pub(crate) fn ahead() -> Duration {
-        AHEAD.with(Cell::get)
-    }
-}
+#[path = "relay_registration_state_test_wall_tests.rs"]
+pub(crate) mod test_wall;

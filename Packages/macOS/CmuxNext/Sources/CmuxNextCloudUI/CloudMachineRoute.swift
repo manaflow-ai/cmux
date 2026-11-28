@@ -46,7 +46,7 @@ public struct CloudMachineRoute: Sendable {
 
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
     /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
-    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+    public init(api: CloudDaemon, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
         self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
     }
 
@@ -151,18 +151,19 @@ public struct CloudMachineRoute: Sendable {
     /// the machine's answer now. The app does not see a restart it did not make: an agent service that went down since
     /// the read ends the start at the chat's own start instead of here.
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil, ahead: String? = nil,
+                        requiresCredentialCapability: Bool = false,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         var checked: (verdict: Verdict, agent: Agent?)?
         if await serves() {
             if let ahead {
-                let route = await Self.judged(ahead, family: family)
+                let route = await Self.judged(ahead, family: family, acceptsUnreportedAgent: requiresCredentialCapability)
                 if Self.startsAhead(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
                     logger.info("cloud start chat: \(machineID ?? "", privacy: .public) serves this start by its report read ahead (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
                     return
                 }
             }
-            do { checked = try await read(family: family) } catch {
+            do { checked = try await read(family: family, acceptsUnreportedAgent: requiresCredentialCapability) } catch {
                 // A machine that could not be started, or stays stopped, or a cancel: its own error now, with no update first.
                 if error is StartFailed || error is CloudMoveFailure || error is CancellationError { throw Self.unwrapped(error) }
             }
@@ -181,8 +182,10 @@ public struct CloudMachineRoute: Sendable {
         }
         logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
-            try await afterUpdate(family: family, update)
+            try await afterUpdate(family: family, acceptsUnreportedAgent: requiresCredentialCapability, update)
+            if requiresCredentialCapability, !(await serves()) { throw tooOldFailure }
         } catch let refused as Refused {
+            if requiresCredentialCapability, !(await serves()) { throw tooOldFailure }
             if refused.verdict == .unsupported {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update, or the update did not end in time; starting on its own software")
                 return
@@ -203,6 +206,10 @@ public struct CloudMachineRoute: Sendable {
         }
     }
 
+    private var tooOldFailure: CloudMoveFailure {
+        CloudMoveFailure(message: Self.tooOld, retry: machineID.map { .move(machineID: $0) })
+    }
+
     /// The machine reports no model route (``Verdict/notEdge``) or only a login the chat's agent does not use, and the chat
     /// carries no connection of its own (a team's shared key, or nothing chosen): its agent could reach no model. The Cloud
     /// service gives machines no route today (cmux-platform#1489: a create carrying the edge rule never binds), so this is
@@ -214,6 +221,13 @@ public struct CloudMachineRoute: Sendable {
         public init() {}
         /// The card's text where Set up Cloud cannot be shown (an agent outside ``CloudSetup/families``).
         public var message: String { CloudMachineRoute.message(.notEdge) }
+    }
+
+    /// Keep the planned destination while Settings obtains approval on it.
+    public struct NeedsClaudeLogin: CloudStartRetriesOnMachine, Sendable {
+        public let machine: String
+        public init(machine: String) { self.machine = machine }
+        public var message: String { NeedsConnection().message }
     }
 
     /// What the machine's report says about one agent (`claude` or `codex`), read from the same output Rust judged
@@ -248,12 +262,16 @@ public struct CloudMachineRoute: Sendable {
 
         /// `family`'s reading of the machine's output; nil for no report (``report(in:)``) or a family the report
         /// does not name.
-        public static func read(_ stdout: String, family: String) -> Agent? {
+        public static func read(_ stdout: String, family: String, acceptsUnreportedAgent: Bool = false) -> Agent? {
             let report = report(in: stdout)
-            guard let report, let agents = report["agents"] as? [String: Any], let agent = agents[family] as? [String: Any] else { return nil }
+            guard let report, let agents = report["agents"] as? [String: Any] else { return nil }
+            let daemonRunning = (report["daemon"] as? [String: Any])?["running"] as? Bool == true
+            guard let agent = agents[family] as? [String: Any] else {
+                return acceptsUnreportedAgent ? Agent(daemonRunning: daemonRunning, routed: false, signsIn: false) : nil
+            }
             let logins = (report["login_files"] as? [[String: Any]] ?? []).contains { $0["agent"] as? String == family }
             let variables = Set(report["credential_env"] as? [String] ?? []).intersection(credentialVariables[family] ?? []).isEmpty == false
-            return Agent(daemonRunning: (report["daemon"] as? [String: Any])?["running"] as? Bool == true,
+            return Agent(daemonRunning: daemonRunning,
                          routed: agent["edge_routed"] as? Bool == true && agent["key"] as? String == "placeholder",
                          signsIn: logins || variables || agent["key"] as? String == "other")
         }
@@ -301,32 +319,32 @@ public struct CloudMachineRoute: Sendable {
     /// Runs `update` (the app's update of the machine to its own machine software, a no-op for a machine
     /// already on it or on a newer build), at most `deadline`, then ``verify(family:)``. A missed deadline is
     /// ``Refused`` with ``Verdict/unsupported``.
-    public func afterUpdate(within deadline: Duration = updateDeadline, family: String? = nil, _ update: @escaping @Sendable () async -> Void) async throws {
+    public func afterUpdate(within deadline: Duration = updateDeadline, family: String? = nil, acceptsUnreportedAgent: Bool = false, _ update: @escaping @Sendable () async -> Void) async throws {
         guard await CloudOutdatedMachine.bounded(deadline, clock: ContinuousClock(), { await update() }) != nil else {
             throw Refused(verdict: .unsupported)
         }
-        try await verify(family: family)
+        try await verify(family: family, acceptsUnreportedAgent: acceptsUnreportedAgent)
     }
 
     /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise, with `family`'s
     /// ``Agent`` reading. An exec that fails (the machine went away, the route timed out) throws its own error.
-    public func verify(family: String? = nil) async throws {
+    public func verify(family: String? = nil, acceptsUnreportedAgent: Bool = false) async throws {
         let route: (verdict: Verdict, agent: Agent?)
-        do { route = try await read(family: family) } catch { throw Self.unwrapped(error) }
+        do { route = try await read(family: family, acceptsUnreportedAgent: acceptsUnreportedAgent) } catch { throw Self.unwrapped(error) }
         guard route.verdict == .ready else { throw Refused(verdict: route.verdict, agent: route.agent) }
     }
 
     /// What Rust answers about the machine's model-route report (``verify(family:)``'s reading), and `family`'s ``Agent``
     /// in the same output. An exec that fails throws.
-    func read(family: String?) async throws -> (verdict: Verdict, agent: Agent?) {
+    func read(family: String?, acceptsUnreportedAgent: Bool = false) async throws -> (verdict: Verdict, agent: Agent?) {
         guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return (.invalid, nil) }
-        return await Self.judged(try await exec(command, Self.timeoutMs).stdout, family: family)
+        return await Self.judged(try await exec(command, Self.timeoutMs).stdout, family: family, acceptsUnreportedAgent: acceptsUnreportedAgent)
     }
 
     /// What Rust answers about `stdout`, the output of the report's command, and `family`'s ``Agent`` in it.
-    static func judged(_ stdout: String, family: String?) async -> (verdict: Verdict, agent: Agent?) {
+    static func judged(_ stdout: String, family: String?, acceptsUnreportedAgent: Bool = false) async -> (verdict: Verdict, agent: Agent?) {
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict ?? .invalid
-        return (verdict, await agentReading(stdout, family: family))
+        return (verdict, await agentReading(stdout, family: family, acceptsUnreportedAgent: acceptsUnreportedAgent))
     }
 
     /// The machine's report now, for a later start's check (``prepare(serves:carriesConnection:family:ahead:_:)``): the
@@ -339,6 +357,37 @@ public struct CloudMachineRoute: Sendable {
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict
         guard verdict.map(Self.isReport) == true, await Self.serviceRuns(stdout) else { return nil }
         return stdout
+    }
+
+    /// The machine-side command that makes the reserved folder of the machine's first home chat and warms an agent in it
+    /// (`cmux-tui acp --json warm-home --wait`, acpmux `hub/pool/reserved.rs`), run as the work user as ``report()``'s is.
+    /// Prints `{"accepted":true,"state":"ready",...}` once the agent is up; prints nothing when the machine's cmux-tui
+    /// predates the verb.
+    static let warmHomeCommand = "c=/home/cmux/.cmux/bin/cmux-tui; [ -x \"$c\" ] || c=cmux-tui; "
+        + "if [ \"$(id -u)\" = 0 ] && id cmux >/dev/null 2>&1; then "
+        + "set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; "
+        + "else set --; fi; \"$@\" \"$c\" acp --json warm-home --wait 2>/dev/null; true"
+
+    private struct WarmHomeRequest: Encodable { var acpmuxHome: String? }
+    private struct WarmHomeReply: Decodable { var command: String }
+
+    /// Warms the first home chat of a spare machine ahead of its claim (leo: "a cmux Cloud chat's create-to-first-text p50
+    /// <= 3000 ms"): whether its agent is ready in the folder that chat will take. Never starts the machine.
+    /// `acpmuxHome` is this Mac's acpmux home: Rust (`cloud_warm_home`, cmux-cloud-start-core `spare_shapes`) reads the
+    /// person's recent harnesses and models there and the command warms a spare of each beside the default
+    /// (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+    public func warmHome(acpmuxHome: String? = nil) async -> Bool {
+        let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
+            .command ?? Self.warmHomeCommand
+        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else { return false }
+        return Self.warmHomeReady(stdout)
+    }
+
+    /// Whether `stdout` is the warm-home answer of an agent that is ready.
+    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+        guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"
     }
 
     /// Whether the report in `stdout` says the machine's agent service runs (`daemon.running`), read off the main actor
@@ -365,8 +414,8 @@ public struct CloudMachineRoute: Sendable {
 
     /// `family`'s ``Agent`` in the machine's output, read off the main actor: the parse splits the whole output and
     /// decodes each line's JSON.
-    @concurrent nonisolated static func agentReading(_ stdout: String, family: String?) async -> Agent? {
-        family.flatMap { Agent.read(stdout, family: $0) }
+    @concurrent nonisolated static func agentReading(_ stdout: String, family: String?, acceptsUnreportedAgent: Bool) async -> Agent? {
+        family.flatMap { Agent.read(stdout, family: $0, acceptsUnreportedAgent: acceptsUnreportedAgent) }
     }
 
     /// A start whose machine's software lacks a capability it needs (a chosen model connection's start credentials)

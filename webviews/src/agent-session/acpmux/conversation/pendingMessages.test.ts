@@ -14,6 +14,7 @@ import {
 } from "./pendingMessages";
 import { groupSender } from "./messageGroupHeadModel";
 import { THINKING } from "./turns";
+import { drawnKey, happenedAfterOpen } from "./openBreakpoint";
 import { batchLaneNotices, flattenInboxRows, projectInboxRows } from "./laneNoticeBatches";
 
 let at = 0;
@@ -583,4 +584,23 @@ test("two relayed senders of one name on two machines are two senders", () => {
   expect(groupSender(rows.map((row) => (row.incoming?.kind === "message" ? row.incoming.message : undefined)))).toBe(
     undefined,
   );
+});
+
+test("each coming of the group is a new frame that enters as news; while messages wait it keeps it", () => {
+  // A queued message's time is 0 (queuedMessages.ts): by its time alone the group never entered and
+  // popped in whole at a turn's end (agent-pane-turn-end-motion, chromium lagging).
+  const first = pendingMessagesRow([], [queued("c1", "drive", "one", { at: 0 })])!;
+  expect(happenedAfterOpen(first, Date.now())).toBe(true);
+  const joined = pendingMessagesRow([], [first.pendingMessages!.rows[0]!, queued("c2", "watch", "two")], first)!;
+  expect(joined.frame).toBe(first.frame);
+  expect(drawnKey(joined)).toBe(drawnKey(first));
+  // None waited between: the next coming is new, never drawn as the one before it.
+  const again = pendingMessagesRow([], [queued("c3", "drive", "three", { at: 0 })])!;
+  expect(again.id).toBe(PENDING_MESSAGES_ROW_ID);
+  expect(again.frame).not.toBe(first.frame);
+  expect(drawnKey(again)).not.toBe(drawnKey(first));
+  // Any other row keeps its own time and its id.
+  const other = queued("c4", "drive", "four", { at: 0 });
+  expect(happenedAfterOpen(other, Date.now())).toBe(false);
+  expect(drawnKey(other)).toBe(other.id);
 });

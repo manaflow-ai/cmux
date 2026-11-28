@@ -53,6 +53,18 @@ cancel-in-progress. Its group is checked against the target's, so a change to
 either one's group that stops them matching goes red here; a `no-janitor` label
 must keep the run (a group of its own).
 
+A ready_for_review run is the same head as the draft run before it, so it
+must never cancel that run (pattern same-head-event-cancels-the-heads-run in
+cmuxterm-hq docs/handbook; cmux#61962: a draft marked ready 15 s after it
+opened cancelled every draft run, and the cancelled check runs left 43 failed
+checks on the head until a person reran them). same_head_problems evaluates
+each workflow's group and every job's, for an opened draft run and a
+ready_for_review run of one pull request (a reusable workflow as its
+pull_request caller would call it): the two must not share a group while the
+ready run cancels. Each workflow appends READY_GROUP_SUFFIX to its group, so
+the ready run takes a group of its own; a newer push still cancels both
+(ci-pr-superseded-cancel.yml cancels the older head's runs).
+
 Run: python3 tests/test_ci_pr_runs_cancel_superseded.py
 """
 
@@ -79,12 +91,40 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling. A pull request run also applies its
-    # migrations to the shared development database (migrations-development)
-    # before its preview deploy, so a cancel could stop one mid-apply.
-    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
+    # Opt-in measurements (a marker line in the body): a new head runs beside the one running, never cancelled
+    # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
+    "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
+    "cloud-wake-echo.yml": "opt-in wake measurement, as cloud-resume-matrix.yml: a new head runs beside the running one",
+
 }
+
+
+# These gates must finish even when a later push does not request a measurement.
+# Exempt only the named, bounded gate; every other job must cancel per PR.
+PRESERVED_GATES = {"chat-open-perf-report.yml": {"changed": 3}}
+
+
+def job_groups_problem(workflow: dict, name: str, event: str) -> str | None:
+    jobs = workflow.get("jobs") or {}
+    gates = PRESERVED_GATES.get(name, {})
+    if not jobs or not (set(jobs) - set(gates)):
+        return "no measuring job with a concurrency group"
+    for gate in gates:
+        if gate not in jobs:
+            return f"preserved gate {gate} no longer exists; remove its exception"
+    for job_id, job in jobs.items():
+        if job_id in gates:
+            timeout = job.get("timeout-minutes")
+            if type(timeout) not in (int, float) or not 0 < timeout <= gates[job_id]:
+                return f"{job_id}: preserved gate must finish within {gates[job_id]} minutes"
+            if job.get("concurrency"):
+                return f"{job_id}: preserved gate now has a group; remove its exception"
+            continue
+        reason = problem(job.get("concurrency"), workflow, event)
+        reason = reason or collision_problem(job.get("concurrency"), workflow, event)
+        if reason:
+            return f"{job_id}: {reason}"
+    return None
 
 
 # Closed-cancel twins: each ends its target's run for a pull request when that
@@ -93,7 +133,8 @@ CLOSED_TWINS = {
     "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
     "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
     # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
-    "ci-pr-closed-cancel.yml": "ci.yml",
+    # The retained dispatcher joins ci.yml on closed events.
+    "ci-pr-superseded-cancel.yml": "ci.yml",
 }
 
 
@@ -469,7 +510,7 @@ def collision_problem(concurrency: Any, workflow: dict, event: str) -> str | Non
     return None
 
 
-def workflow_problem(workflow: dict) -> str | None:
+def workflow_problem(workflow: dict, name: str = "") -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
             continue
@@ -480,6 +521,11 @@ def workflow_problem(workflow: dict) -> str | None:
             collision = collision_problem(workflow.get("concurrency"), workflow, event)
             if collision:
                 return f"{event}: {collision}"
+            continue
+        if name in PRESERVED_GATES and not workflow.get("concurrency"):
+            reason = job_groups_problem(workflow, name, event)
+            if reason:
+                return f"{event}: {reason}"
             continue
         jobs = jobs_on(workflow, event)
         job_reasons = {job_id: problem(job.get("concurrency"), workflow, event) for job_id, job in jobs.items()}
@@ -496,8 +542,9 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION = {
-    "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
+READS_DESCRIPTION: dict[str, str] = {
+    "private-names.yml": "its checker (fetched from the private ops repository) reads the title and body over the API; "
+                         "an edit run re-checks the whole pull request at its head, so cancelling the push run loses nothing",
 }
 
 
@@ -663,8 +710,8 @@ def twin_problem(twin: dict, target: dict) -> str | None:
         return "the twin or its target has no workflow concurrency block"
     trigger = triggers(twin).get("pull_request")
     types = trigger.get("types") if isinstance(trigger, dict) else None
-    if list(types or []) != ["closed"]:
-        return f"the twin must run only on pull_request closed, not {types!r}"
+    if "closed" not in list(types or []):
+        return f"the twin must include pull_request closed, not {types!r}"
     try:
         closed = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, [])))
         kept = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, ["no-janitor"])))
@@ -699,6 +746,23 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    gate_workflow = {**on, "jobs": {
+        "changed": {"timeout-minutes": 3},
+        "report": {"concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
+                                   "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}},
+    }}
+    gate_name = "chat-open-perf-report.yml"
+    if workflow_problem(gate_workflow, gate_name):
+        failures.append("self-check: a bounded gate beside a cancellable report must pass")
+    for jobs in (
+        {**gate_workflow["jobs"], "changed": {}},
+        {**gate_workflow["jobs"], "changed": {"timeout-minutes": 4}},
+        {**gate_workflow["jobs"], "report": {}},
+        {**gate_workflow["jobs"], "another": {}},
+        {"changed": {"timeout-minutes": 3}},
+    ):
+        if workflow_problem({**gate_workflow, "jobs": jobs}, gate_name) is None:
+            failures.append("self-check: preserved gates must not exempt unbounded or uncancelled jobs")
     # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
     # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
     shared = {"on": {"pull_request": None, "push": None},
@@ -761,8 +825,116 @@ def self_check() -> list[str]:
     return failures
 
 
+
+
+# --- A same-head event never cancels the head's run (pattern same-head-event-cancels-the-heads-run) --------------
+
+# A draft pull request marked ready 15 s after it opened (cmux#61962 at 47b31bb6, 2026-11-27): the ready_for_review
+# runs shared each workflow's per-PR group with the draft runs and cancelled them all (cmux-next run 46014928072, CI
+# run 46014927711, pr router 46014928322 and more). The ready runs reported every one of those checks again, but the
+# cancelled check runs stayed on the commit beside them, GitHub showed 43 failed checks, and the land sat until a
+# person reran the cancelled runs 30 min later. A ready_for_review run is the same head: it must queue behind the
+# draft run (cancel-in-progress false for it) or run in a group of its own, never cancel it. A newer push still
+# cancels the old head's run (its synchronize run cancels, and ci-pr-superseded-cancel.yml).
+SAME_HEAD_ACTIONS = ("ready_for_review",)
+# What each workflow appends (cmux-next-guards.yml did first, cmux#60334): a ready run gets a group of its own.
+READY_GROUP_SUFFIX = ("${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && "
+                      "format('-ready-{0}', github.run_id) || '' }}")
+
+
+def same_head_context(workflow: dict, event: str, action: str, draft: bool) -> dict[str, Any]:
+    """The contexts of an ACTION run of pull request 101 at the head its opened run had."""
+    context = pr_context(workflow, event, 101, 1)
+    context["github"]["event"]["action"] = action
+    context["github"]["event"]["pull_request"]["draft"] = draft
+    return context
+
+
+def event_types(trigger: Any) -> list[str]:
+    if not isinstance(trigger, dict) or not trigger.get("types"):
+        return ["opened", "synchronize", "reopened"]  # GitHub's default activity types
+    types = trigger["types"]
+    return [types] if isinstance(types, str) else list(types)
+
+
+# Workflows whose same-head fix waits on a gate this PR may not pass. language-boundaries.yml is the
+# language-boundaries check itself: land_judge refuses any PR that edits it without Leo's
+# `leo-approved-port` label, so its READY_GROUP_SUFFIX ships in its own PR (cmux#62221 split it out).
+SAME_HEAD_PENDING = {
+    "language-boundaries.yml": "edits to the language-boundaries check need Leo's leo-approved-port label",
+    # Scheduled: the prepush gate wants its jobs to match main's copy (a schedule runs main's), so its suffix
+    # lands with a Main-Twin PR against main.
+    "merge-freeze.yml": "scheduled workflow: the suffix needs a Main-Twin PR against main",
+}
+
+
+def same_head_problems(workflow: dict) -> list[str]:
+    """Why a ready_for_review run of this workflow (or, for a reusable workflow, of its pull request caller, whose
+    event it inherits) cancels the in-flight draft run of the same head, in the workflow's group or a job's."""
+    on = triggers(workflow)
+    events = [(event, action) for event in PR_EVENTS if event in on
+              for action in SAME_HEAD_ACTIONS if action in event_types(on[event])]
+    if "workflow_call" in on and not any(event in on for event in PR_EVENTS):
+        events = [("pull_request", action) for action in SAME_HEAD_ACTIONS]
+    scopes = [("workflow", workflow.get("concurrency"))] + [
+        (f"job {job_id}", job.get("concurrency"))
+        for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)]
+    out: list[str] = []
+    for event, action in events:
+        earlier = same_head_context(workflow, event, "opened", True)
+        later = same_head_context(workflow, event, action, False)
+        for scope, concurrency in scopes:
+            if not concurrency:
+                continue
+            try:
+                shared = group_of(concurrency, earlier) == group_of(concurrency, later)
+                cancels = isinstance(concurrency, dict) and _truthy(
+                    resolve(concurrency.get("cancel-in-progress", False), later))
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+                out.append(f"{event} {action}: cannot evaluate {scope}'s concurrency: {error}")
+                continue
+            if shared and cancels:
+                out.append(f"{event} {action}: in {scope}, a {action} run shares the draft run's group "
+                           f"{group_of(concurrency, later)!r} and cancels it at the same head: append "
+                           f"{READY_GROUP_SUFFIX!r} to its group (or queue: "
+                           f"`&& github.event.action != '{action}'` on its cancel-in-progress)")
+    return out
+
+
+def same_head_self_check() -> list[str]:
+    failures = []
+    on = {"on": {"pull_request": {"types": ["opened", "synchronize", "ready_for_review"]}}}
+    group = "w-${{ github.event.pull_request.number }}"
+    naive = {**on, "concurrency": {"group": group, "cancel-in-progress": True}}
+    if not same_head_problems(naive):
+        failures.append("self-check: a ready_for_review run that cancels the draft run must fail")
+    queued = {**on, "concurrency": {"group": group,
+                                    "cancel-in-progress": "${{ github.event.action != 'ready_for_review' }}"}}
+    if same_head_problems(queued) or workflow_problem(queued) is not None:
+        failures.append("self-check: a ready run that queues must pass, and a push must still cancel: "
+                        f"{same_head_problems(queued)} {workflow_problem(queued)}")
+    per_head = {**on, "concurrency": {"group": group + "${{ github.event.action == 'ready_for_review' && "
+                                      "format('-ready-{0}', github.event.pull_request.head.sha) || '' }}",
+                                      "cancel-in-progress": True}}
+    if same_head_problems(per_head):
+        failures.append(f"self-check: a ready run in a group of its own must pass: {same_head_problems(per_head)}")
+    suffixed = {**on, "concurrency": {"group": group + READY_GROUP_SUFFIX, "cancel-in-progress": True}}
+    if same_head_problems(suffixed) or workflow_problem(suffixed) is not None:
+        failures.append("self-check: the READY_GROUP_SUFFIX group must pass, and a push must still cancel: "
+                        f"{same_head_problems(suffixed)} {workflow_problem(suffixed)}")
+    job = {**on, "jobs": {"j": {"concurrency": {"group": group, "cancel-in-progress": True}}}}
+    if not same_head_problems(job):
+        failures.append("self-check: a job-level group that cancels at the same head must fail")
+    callee = {"on": {"workflow_call": None}, "concurrency": {"group": group, "cancel-in-progress": True}}
+    if not same_head_problems(callee):
+        failures.append("self-check: a reusable workflow inherits its caller's ready_for_review event")
+    if same_head_problems({"on": {"pull_request": None}, "concurrency": {"group": group, "cancel-in-progress": True}}):
+        failures.append("self-check: a workflow with no ready_for_review type gets no ready run")
+    return failures
+
+
 def main() -> int:
-    failures = self_check()
+    failures = self_check() + same_head_self_check()
     checked = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = load(path)
@@ -772,12 +944,17 @@ def main() -> int:
             if not edits:
                 failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
             edits = []
-        for reason in edits + comment_problems(workflow):
+        same_head = same_head_problems(workflow)
+        if path.name in SAME_HEAD_PENDING:
+            if not same_head:
+                failures.append(f"SAME_HEAD_PENDING names {path.name}, which passes the same-head rule now: remove it")
+            same_head = []
+        for reason in edits + comment_problems(workflow) + same_head:
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
         checked += 1
-        reason = workflow_problem(workflow)
+        reason = workflow_problem(workflow, path.name)
         if path.name in ALLOWED:
             if reason is None:
                 failures.append(f"{path.name} now cancels superseded runs; remove its ALLOWED entry")
@@ -800,6 +977,9 @@ def main() -> int:
     for name, why in sorted(EDIT_SKIP_PENDING.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
+    for name, why in sorted(SAME_HEAD_PENDING.items()):
+        if not why.strip() or not (WORKFLOWS / name).exists():
+            failures.append(f"SAME_HEAD_PENDING names {name}, which no longer exists or has no reason")
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:

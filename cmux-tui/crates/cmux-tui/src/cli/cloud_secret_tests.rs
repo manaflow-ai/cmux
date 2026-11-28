@@ -91,12 +91,12 @@ fn a_dev_builds_index_is_its_own() {
     );
     assert_eq!(
         index_path_from(env(dev), true),
-        Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json")),
+        Some(PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("cloud-secrets.json")),
         "another app's index in its terminal"
     );
     assert_eq!(
         index_path_from(env(&[("HOME", "/h")]), false),
-        Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json"))
+        Some(PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("cloud-secrets.json"))
     );
 }
 

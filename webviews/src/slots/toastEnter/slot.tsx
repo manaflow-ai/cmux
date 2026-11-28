@@ -1,3 +1,5 @@
+/** @jsxImportSource ../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // A toast's arrival as a theme slot (schemas/theme/slots.json `toast.enter`): what a toast draws as it
 // enters the stack. NoticeStack.tsx owns the queue, the timer and the card (Notice.tsx); NoticeDeck.tsx
 // owns the deck's places and its fly-in (`.ui-notice-deck-card[data-phase]`). The slot draws around the

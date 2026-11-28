@@ -25,11 +25,11 @@ final class FilePageOpener: FileOpening {
     /// some large RGBA/color-profile files black; WebKit grants the containing folder explicitly.
     nonisolated static let webKitPreviewExtensions = FileOpenKind.previewExtensions.subtracting(AgentPaneFileOpen.mediaExtensions)
 
-    /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
-    /// cannot decode (``LocalFileHandoff``), and for local image/PDF previews whose scoped file
-    /// read and color handling are more reliable than CEF's `file://` ImageDocument.
+    /// The engine of the tab that previews `url`: WebKit for local image/PDF previews whose scoped
+    /// file read and color handling are more reliable than CEF's `file://` ImageDocument. Video and
+    /// audio take the default engine: the Chromium build plays H.264/HEVC and AAC.
     nonisolated static func tabEngine(for url: URL) -> String? {
-        if url.localFileHandoff == .webKitTab || webKitPreviewExtensions.contains(url.pathExtension.lowercased()) {
+        if webKitPreviewExtensions.contains(url.pathExtension.lowercased()) {
             return BrowserEngineTag.webkit.rawValue
         }
         return nil

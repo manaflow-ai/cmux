@@ -39,6 +39,33 @@ pub const OPENAI_KEY_ENV: &str = "CMUX_BYO_API_KEY";
 pub const ANTHROPIC_KEY_ENV: &str = "ANTHROPIC_AUTH_TOKEN";
 /// The OpenCode provider id the endpoint gets.
 pub const OPENCODE_PROVIDER: &str = "byo";
+pub(crate) fn anthropic_compatible(base: &str) -> bool {
+    minimax_plan(base)
+        || reqwest::Url::parse(base).is_ok_and(|url| {
+            url.path().trim_end_matches('/').ends_with("/anthropic")
+                || url.path().trim_end_matches('/').ends_with("/anthropic/v1")
+        })
+}
+
+fn minimax_plan(base: &str) -> bool {
+    matches!(
+        base.trim_end_matches('/'),
+        "https://api.minimax.io/anthropic"
+            | "https://api.minimax.io/anthropic/v1"
+            | "https://api.minimaxi.com/anthropic"
+            | "https://api.minimaxi.com/anthropic/v1"
+    )
+}
+
+pub(crate) fn cloudflare_gateway(base: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base) else { return false };
+    url.scheme() == "https"
+        && url.host_str() == Some("gateway.ai.cloudflare.com")
+        && url.port().is_none()
+        && url.path().trim_end_matches('/').ends_with("/compat")
+}
+
+const GO_BASE: &str = "https://opencode.ai/inference/go/openai/v1";
 /// A model-list entry that stands for every model the endpoint lists.
 pub const ALL_MODELS: &str = "*";
 /// The most models one endpoint harness lists.
@@ -75,7 +102,8 @@ const ANTHROPIC_KEYS: &[&str] = &[
 ];
 
 /// Which endpoint kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// An Anthropic Messages API endpoint, through Claude Code.
     Anthropic,
@@ -117,6 +145,14 @@ impl Kind {
         }
     }
 
+    /// The machine harness that speaks this endpoint protocol.
+    pub(crate) fn harness(self) -> &'static str {
+        match self {
+            Self::Anthropic => "claude",
+            Self::OpenAi => "opencode",
+        }
+    }
+
     /// The env key that holds the key (what `secret set` takes).
     pub fn secret_key(self) -> &'static str {
         match self {
@@ -141,8 +177,8 @@ pub enum UrlError {
     Secret(String),
 }
 
-/// The base URL as the profile keeps it (trailing `/` dropped): https, or
-/// http only to localhost, 127.0.0.1 or ::1; no user or password, no
+/// The base URL as the profile keeps it (trailing `/` dropped on URLs without a query): https, or
+/// http only to loopback, private IPv4, Tailscale IPv4, or .local; no user or password, no
 /// fragment, no `${`/`{`/`}` (acpmux and OpenCode substitutions), no key.
 /// An error never repeats the URL (it may hold a key).
 pub fn check_base_url(url: &str) -> Result<String, UrlError> {
@@ -177,17 +213,115 @@ pub fn check_base_url(url: &str) -> Result<String, UrlError> {
     if host.is_empty() {
         return bad("baseUrl has no host");
     }
-    let local = matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1");
+    let local = matches!(host, "localhost" | "[::1]" | "::1")
+        || host.trim_end_matches('.').ends_with(".local")
+        || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| {
+            let [a, b, _, _] = ip.octets();
+            ip.is_loopback() || ip.is_private() || (a == 100 && (64..=127).contains(&b))
+        });
     match parsed.scheme() {
         "https" => {}
         "http" if local => {}
-        "http" => return bad("baseUrl must use https (plain http only to localhost or 127.0.0.1)"),
+        "http" => {
+            return bad("baseUrl must use https (plain http only to a private local address)");
+        }
         _ => return bad("baseUrl must be an https URL"),
     }
     if parsed.fragment().is_some() {
         return bad("baseUrl may not have a #fragment");
     }
-    Ok(url.trim_end_matches('/').to_owned())
+    Ok(if parsed.query().is_some() { url } else { url.trim_end_matches('/') }.to_owned())
+}
+
+/// Presets recognizable in profiles written before the preset was recorded.
+pub(crate) fn legacy_preset(base_url: &str) -> Option<&'static str> {
+    let url = reqwest::Url::parse(base_url).ok()?;
+    let host = url.host_str()?;
+    let (resource, domain) = host.split_once('.')?;
+    if matches!(
+        domain,
+        "openai.azure.com" | "cognitiveservices.azure.com" | "services.ai.azure.com"
+    ) {
+        Some("azure")
+    } else if resource == "bedrock-mantle"
+        && domain.split_once('.').is_some_and(|(_, rest)| rest == "api.aws")
+    {
+        Some("bedrock")
+    } else if host == "api.llama.com" {
+        Some("meta")
+    } else {
+        None
+    }
+}
+
+/// A base URL being saved, including the rules specific to the selected provider.
+pub(crate) fn check_profile_base_url(url: &str, preset: Option<&str>) -> Result<String, UrlError> {
+    let mut url = check_base_url(url)?;
+    let parsed = reqwest::Url::parse(&url)
+        .map_err(|_| UrlError::Invalid("Enter a full base URL.".into()))?;
+    if preset == Some("azure") {
+        let path = parsed.path().trim_end_matches('/').to_ascii_lowercase();
+        if path.split('/').any(|part| part == "deployments") || path.ends_with("/chat/completions")
+        {
+            return Err(UrlError::Invalid(
+                "Use the Azure OpenAI base URL ending in /openai/v1.".into(),
+            ));
+        }
+        if path.is_empty() {
+            url.push_str("/openai/v1");
+        }
+    }
+    if parsed.query().is_some() {
+        return Err(UrlError::Invalid("Remove the query string from the base URL.".into()));
+    }
+    Ok(url)
+}
+
+/// A Cloud endpoint must use HTTPS and cannot name a local host or private address.
+pub(crate) fn check_cloud_base_url(url: &str) -> Result<String, UrlError> {
+    let url = check_base_url(url)?;
+    let invalid = || UrlError::Invalid("Cloud endpoints require a public HTTPS host".into());
+    let parsed = reqwest::Url::parse(&url).map_err(|_| invalid())?;
+    let host = parsed.host_str().ok_or_else(invalid)?.trim_end_matches('.');
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let public = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => public_ip(ip),
+        Err(_) => {
+            host.contains('.')
+                && !["localhost", "local", "internal", "lan", "home.arpa"].iter().any(|suffix| {
+                    host == *suffix
+                        || host.strip_suffix(suffix).is_some_and(|prefix| prefix.ends_with('.'))
+                })
+        }
+    };
+    if parsed.scheme() != "https" || !public {
+        return Err(invalid());
+    }
+    Ok(parsed.as_str().trim_end_matches('/').to_owned())
+}
+
+fn public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => public_ipv4(ip),
+        std::net::IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or_else(
+            || {
+                let segments = ip.segments();
+                segments[0] & 0xe000 == 0x2000 && segments[0] != 0x2002
+            },
+            public_ipv4,
+        ),
+    }
+}
+
+fn public_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    a != 0
+        && a < 224
+        && !(a == 100 && (64..=127).contains(&b))
+        && !(a == 198 && (18..=19).contains(&b))
+        && !ip.is_loopback()
+        && !ip.is_private()
+        && !ip.is_link_local()
 }
 
 /// The model id: one word of printable characters, no quotes, braces or `$`.
@@ -277,6 +411,8 @@ pub fn default_item(kind: Kind, id: &str) -> String {
 
 /// What the profile is made of; every value already checked.
 pub struct Endpoint<'a> {
+    pub cloud_enabled: Option<bool>,
+    pub preset: Option<&'a str>,
     pub kind: Kind,
     pub id: &'a str,
     pub name: &'a str,
@@ -292,13 +428,118 @@ fn toml_string(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
+/// The non-secret environment a Claude endpoint needs.
+pub(crate) fn claude_env(base_url: &str, models: &[String]) -> BTreeMap<&'static str, String> {
+    let model = models.first().map(String::as_str).unwrap_or_default();
+    [("ANTHROPIC_BASE_URL", base_url), ("ANTHROPIC_MODEL", model)]
+        .into_iter()
+        .chain(claude_slots(models))
+        .map(|(key, value)| (key, value.to_owned()))
+        .collect()
+}
+
+/// The non-secret environment an OpenCode endpoint needs.
+pub(crate) fn opencode_env(
+    name: &str,
+    base_url: &str,
+    models: &[String],
+    keyed: bool,
+) -> BTreeMap<&'static str, String> {
+    let first =
+        format!("{OPENCODE_PROVIDER}/{}", models.first().map(String::as_str).unwrap_or_default());
+    let mut config_models = serde_json::Map::new();
+    for m in models {
+        config_models.insert(m.clone(), serde_json::json!({"name": m}));
+    }
+    let anthropic = anthropic_compatible(base_url);
+    let sdk = if anthropic { "@ai-sdk/anthropic" } else { "@ai-sdk/openai-compatible" };
+    // The config refers to the environment variable only for a keyed endpoint.
+    let base_url = base_url.trim_end_matches('/');
+    let mut options = serde_json::json!({"baseURL": base_url});
+    if anthropic && !base_url.ends_with("/v1") {
+        options["baseURL"] = format!("{base_url}/v1").into();
+    }
+    if keyed {
+        let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+        if cloudflare_gateway(base_url) {
+            // The compatible adapter sends only these headers when apiKey is absent.
+            options["headers"] = serde_json::json!({
+                "cf-aig-authorization": format!("Bearer {{env:{OPENAI_KEY_ENV}}}"),
+            });
+        } else {
+            options["apiKey"] = key;
+        }
+    }
+    let mut config = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {OPENCODE_PROVIDER: {
+            "npm": sdk,
+            "name": name,
+            "options": options,
+            "models": config_models,
+        }},
+        "model": first,
+        "small_model": first,
+    });
+    configure_reasoning(&mut config);
+    BTreeMap::from([("OPENCODE_CONFIG_CONTENT", config.to_string())])
+}
+
+fn configure_reasoning(config: &mut serde_json::Value) -> bool {
+    let Some(provider) = config.pointer_mut("/provider/byo") else { return false };
+    let host = provider["options"]["baseURL"]
+        .as_str()
+        .and_then(|base| reqwest::Url::parse(base).ok()?.host_str().map(str::to_owned));
+    if !matches!(
+        host.as_deref(),
+        Some(
+            "api.deepseek.com"
+                | "api.moonshot.ai"
+                | "api.moonshot.cn"
+                | "api.kimi.ai"
+                | "api.kimi.com"
+        )
+    ) {
+        return false;
+    }
+    let Some(models) = provider.get_mut("models").and_then(serde_json::Value::as_object_mut) else {
+        return false;
+    };
+    for model in models.values_mut().filter_map(serde_json::Value::as_object_mut) {
+        model
+            .entry("interleaved")
+            .or_insert_with(|| serde_json::json!({"field": "reasoning_content"}));
+    }
+    true
+}
+
+/// Console Go needs a stable conversation header. Apply model settings to older profiles too.
+pub(crate) fn configure_opencode_session(config: &mut String, session: &str) {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(config) else { return };
+    let go_headers = value
+        .pointer_mut("/provider/byo/options")
+        .and_then(serde_json::Value::as_object_mut)
+        .filter(|options| {
+            options.get("baseURL").and_then(serde_json::Value::as_str) == Some(GO_BASE)
+        });
+    if let Some(options) = go_headers {
+        let headers = options.entry("headers").or_insert_with(|| serde_json::json!({}));
+        if let Some(headers) = headers.as_object_mut() {
+            headers.insert("x-opencode-session".into(), format!("ses_{session}").into());
+            *config = value.to_string();
+        }
+    } else if configure_reasoning(&mut value) {
+        *config = value.to_string();
+    }
+}
+
 /// The profile file text.
 pub fn profile_text(e: &Endpoint<'_>) -> String {
     let key = e.kind.secret_key();
     let head = format!(
         "# cmux harness profile: your own {} endpoint. Guide: docs/add-your-harness.md\n\
          # A key is only ever in the Keychain item named below, never in this file. A new key:\n\
-         #   add it again with --key --force (or from Settings > Agents), id {id}, key {key}\n\
+         #   add it again with --key --force (or from Settings > Models), id {id}, key {key}\n\
          # Check it (one real hello turn) with: cmux harness doctor {id}\n\
          schema = 1\nid = {}\nname = {}\n",
         match e.kind {
@@ -309,6 +550,14 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
         toml_string(e.name),
         id = e.id,
     );
+    let head = match e.cloud_enabled {
+        Some(false) => format!("{head}cloud_enabled = false\n"),
+        _ => head,
+    };
+    let head = match e.preset {
+        Some(preset) => format!("{head}endpoint_preset = {}\n", toml_string(preset)),
+        None => head,
+    };
     let item_line = e
         .keychain_item
         .map(|item| format!("{key} = {{ keychain = {} }}\n", toml_string(item)))
@@ -316,48 +565,25 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
     let marker = format!("{OWN_ENDPOINT_KEY} = {}\n", toml_string(e.kind.marker()));
     match e.kind {
         Kind::Anthropic => {
-            let m = toml_string(e.models.first().map(String::as_str).unwrap_or_default());
+            let env = claude_env(e.base_url, e.models);
+            let m = toml_string(&env["ANTHROPIC_MODEL"]);
             let list = e.models.iter().map(|m| toml_string(m)).collect::<Vec<_>>().join(", ");
             let slots: String = claude_slots(e.models)
                 .iter()
-                .map(|(k, v)| format!("{k} = {}\n", toml_string(v)))
+                .map(|(k, _)| format!("{k} = {}\n", toml_string(&env[*k])))
                 .collect();
             format!(
                 "{head}icon = \"claude\"\nprotocol = \"claude-stdio\"\ncommand = \"claude\"\n\n\
                  [capabilities]\npermission_modes = true\nresume = true\n\n\
                  [defaults]\nmodel = {m}\n\n[models]\nlist = [{list}]\n\n\
                  [env]\nANTHROPIC_BASE_URL = {}\n{item_line}ANTHROPIC_MODEL = {m}\n{slots}{marker}",
-                toml_string(e.base_url),
+                toml_string(&env["ANTHROPIC_BASE_URL"]),
             )
         }
         Kind::OpenAi => {
             let full = |m: &str| format!("{OPENCODE_PROVIDER}/{m}");
             let first = full(e.models.first().map(String::as_str).unwrap_or_default());
-            // Every model in the provider: OpenCode reports these, and a chat starts on any.
-            let mut models = serde_json::Map::new();
-            for m in e.models {
-                models.insert(m.clone(), serde_json::json!({"name": m}));
-            }
-            // apiKey is the env reference (never a value), and only when the profile names a
-            // Keychain item: a keyless endpoint's config reads no variable, so a stray
-            // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
-            // [`clear_inherited`]). A key comes only with an add (`--key`, Settings).
-            let mut options = serde_json::json!({"baseURL": e.base_url});
-            if let (Some(_), Some(map)) = (e.keychain_item, options.as_object_mut()) {
-                let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
-                map.insert("apiKey".to_owned(), key);
-            }
-            let config = serde_json::json!({
-                "$schema": "https://opencode.ai/config.json",
-                "provider": {OPENCODE_PROVIDER: {
-                    "npm": "@ai-sdk/openai-compatible",
-                    "name": e.name,
-                    "options": options,
-                    "models": models,
-                }},
-                "model": first,
-                "small_model": first,
-            });
+            let config = opencode_env(e.name, e.base_url, e.models, e.keychain_item.is_some());
             let list =
                 e.models.iter().map(|m| toml_string(&full(m))).collect::<Vec<_>>().join(", ");
             let f = toml_string(&first);
@@ -367,7 +593,7 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                  [defaults]\nmodel = {f}\n\n[models]\nlist = [{list}]\n\n\
                  [auth]\ndocs = \"https://opencode.ai/docs/providers/\"\n\n\
                  [env]\nOPENCODE_CONFIG_CONTENT = {}\n{item_line}{marker}",
-                toml_string(&config.to_string()),
+                toml_string(&config["OPENCODE_CONFIG_CONTENT"]),
             )
         }
     }
@@ -383,7 +609,12 @@ pub fn models_url(kind: Kind, base_url: &str) -> String {
         None => (base_url, None),
     };
     let base = path.trim_end_matches('/');
-    let url = if kind == Kind::OpenAi || base.ends_with("/v1") {
+    let url = if base == GO_BASE {
+        "https://opencode.ai/inference/go/v1/models".to_owned()
+    } else if minimax_plan(base) {
+        let host = base.split_once("/anthropic").map(|(host, _)| host).unwrap_or(base);
+        format!("{host}/v1/models")
+    } else if kind == Kind::OpenAi || base.ends_with("/v1") {
         format!("{base}/models")
     } else {
         format!("{base}/v1/models")
@@ -394,19 +625,33 @@ pub fn models_url(kind: Kind, base_url: &str) -> String {
     }
 }
 
-/// The model ids a `/models` answer lists, in its order: OpenAI's and
-/// Anthropic's `{"data": [{"id"}]}`, or a local server's `{"models":
-/// [{"id"|"model"|"name"}]}`. An id [`check_model`] refuses is left out.
+/// Chat model IDs in provider order. Accepts a top-level array, OpenAI's and
+/// Anthropic's `data` array, or a local server's `models` array.
 pub fn parse_models(body: &str) -> Result<Vec<String>, String> {
+    parse_model_list(body, None, None)
+}
+
+fn parse_model_list(
+    body: &str,
+    host: Option<&str>,
+    key: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let limit = if host == Some("openrouter.ai") { 1000 } else { MAX_MODELS };
     let v: serde_json::Value = serde_json::from_str(body)
         .map_err(|_| "the endpoint's model list is not JSON".to_owned())?;
     let rows = v
-        .get("data")
-        .and_then(serde_json::Value::as_array)
+        .as_array()
+        .or_else(|| v.get("data").and_then(serde_json::Value::as_array))
         .or_else(|| v.get("models").and_then(serde_json::Value::as_array))
         .ok_or_else(|| "the endpoint's answer has no model list (data or models)".to_owned())?;
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<(String, u8)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for row in rows {
+        if host == Some("ai-gateway.vercel.sh")
+            && row.get("type").is_some_and(|kind| !kind.is_null() && kind != "language")
+        {
+            continue;
+        }
         let id = match row {
             serde_json::Value::String(id) => Some(id.as_str()),
             row => ["id", "model", "name"]
@@ -414,15 +659,72 @@ pub fn parse_models(body: &str) -> Result<Vec<String>, String> {
                 .find_map(|k| row.get(k).and_then(serde_json::Value::as_str)),
         };
         if let Some(id) = id.and_then(|id| check_model(id).ok())
-            && !out.contains(&id)
+            && !id.contains([',', '*'])
+            && !looks_like_secret(&id)
+            && is_chat_model(&id)
+            && !(host == Some("api.morphllm.com")
+                && matches!(id.as_str(), "morph-v3-fast" | "morph-v3-large" | "auto"))
+            && !key.is_some_and(|key| id.contains(key))
+            && seen.insert(id.clone())
         {
-            out.push(id);
-        }
-        if out.len() == MAX_MODELS {
-            break;
+            let tools = row
+                .get("tool_call")
+                .or_else(|| row.get("toolCall"))
+                .and_then(serde_json::Value::as_bool)
+                .or_else(|| {
+                    row.get("supported_parameters")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|parameters| parameters.iter().any(|parameter| parameter == "tools"))
+                });
+            out.push((
+                id,
+                match tools {
+                    Some(true) => 0,
+                    None => 1,
+                    Some(false) => 2,
+                },
+            ));
         }
     }
-    Ok(out)
+    out.sort_by_key(|(_, rank)| *rank);
+    Ok(out.into_iter().take(limit).map(|(id, _)| id).collect())
+}
+
+fn is_chat_model(id: &str) -> bool {
+    const NON_CHAT: &[&str] = &[
+        "embed",
+        "embedding",
+        "embeddings",
+        "whisper",
+        "tts",
+        "guard",
+        "moderation",
+        "ocr",
+        "rerank",
+        "reranker",
+        "image",
+        "video",
+    ];
+    let id = id.to_ascii_lowercase();
+    !id.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| NON_CHAT.contains(&part))
+}
+
+fn model_list_status_error(status: u16, google_body: Option<&[u8]>) -> String {
+    match status {
+        402 => "the endpoint account is out of credit (HTTP 402)".into(),
+        429 => "the endpoint rate limited the model list (HTTP 429)".into(),
+        401 | 403 => format!("the endpoint refused the key (HTTP {status})"),
+        400 if google_body.is_some_and(|body| {
+            String::from_utf8_lossy(body).to_ascii_lowercase().contains("valid api key")
+        }) =>
+        {
+            "the endpoint refused the key (HTTP 400)".into()
+        }
+        404 | 405 => format!(
+            "the endpoint has no model list (HTTP {status}): check the base URL, or type the model ids"
+        ),
+        _ => format!("the endpoint answered HTTP {status} for its model list"),
+    }
 }
 
 /// Asks the endpoint for its models ([`models_url`]): the URL checked again
@@ -435,19 +737,31 @@ pub async fn fetch_models(
     key: Option<&str>,
     timeout: std::time::Duration,
 ) -> Result<Vec<String>, String> {
-    let base = check_base_url(base_url).map_err(|e| match e {
+    let base = check_profile_base_url(base_url, None).map_err(|e| match e {
         UrlError::Invalid(m) | UrlError::Secret(m) => m,
     })?;
     let url = models_url(kind, &base);
+    fetch_model_list(kind, &url, key, timeout).await
+}
+
+/// Reads a model list at a caller-validated URL or a fixed provider endpoint.
+pub(crate) async fn fetch_model_list(
+    kind: Kind,
+    url: &str,
+    key: Option<&str>,
+    timeout: std::time::Duration,
+) -> Result<Vec<String>, String> {
+    // The person typed this endpoint: the gate lets it through (docs/privacy.md "hosts you name").
+    cmux_egress::allow_named(&url);
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(timeout)
         // timeout: connecting to the endpoint's model list (a check of a harness being added); the whole fetch keeps FETCH_TIMEOUT
         .connect_timeout(timeout.min(std::time::Duration::from_secs(5)))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("cannot make the request: {e}"))?;
-    let mut request = client.get(&url);
+    let mut request = client.get(url);
     if kind == Kind::Anthropic {
         request = request.header("anthropic-version", "2023-06-01");
     }
@@ -460,28 +774,87 @@ pub async fn fetch_models(
     let response = request.send().await.map_err(|e| {
         if e.is_timeout() {
             format!("the endpoint did not answer in {} s", timeout.as_secs())
+        } else if certificate_error(&e) {
+            "the endpoint's TLS certificate could not be verified".to_owned()
         } else {
             "the endpoint was not reached: check the base URL".to_owned()
         }
     })?;
     let status = response.status().as_u16();
-    match status {
-        200..=299 => {}
-        401 | 403 => return Err(format!("the endpoint refused the key (HTTP {status})")),
-        404 | 405 => {
-            return Err(format!(
-                "the endpoint has no model list at {} (HTTP {status}): check the base URL, or type the model ids",
-                url.rsplit_once("//").map_or(url.as_str(), |(_, rest)| rest)
-            ));
+    let provider = reqwest::Url::parse(url).ok();
+    let host = provider.as_ref().and_then(reqwest::Url::host_str);
+    if !(200..=299).contains(&status) {
+        let body = if matches!(status, 400 | 401 | 403 | 429) {
+            read_capped(response, 16384).await.ok()
+        } else {
+            None
+        };
+        let text = body.as_deref().map(String::from_utf8_lossy).unwrap_or_default();
+        if host.is_some_and(|host| matches!(host, "api.z.ai" | "open.bigmodel.cn"))
+            && url.contains("/api/paas/v4")
+            && text.to_ascii_lowercase().contains("coding plan")
+        {
+            return Err("This key is for the GLM Coding Plan: choose GLM Coding Plan.".into());
         }
-        _ => return Err(format!("the endpoint answered HTTP {status} for its model list")),
+        if classify(&text) == Problem::Credit {
+            return Err("The endpoint account is out of credit.".into());
+        }
+        let google_body = (host == Some("generativelanguage.googleapis.com"))
+            .then_some(body.as_deref())
+            .flatten();
+        return Err(model_list_status_error(status, google_body));
     }
     let bytes = read_capped(response, MAX_LIST_BYTES).await?;
-    let models = parse_models(&String::from_utf8_lossy(&bytes))?;
+    let models = parse_model_list(&String::from_utf8_lossy(&bytes), host, key)?;
     if models.is_empty() {
         return Err("the endpoint lists no models: type the model ids".into());
     }
     Ok(models)
+}
+
+fn certificate_error(error: &reqwest::Error) -> bool {
+    use std::error::Error as _;
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if matches!(
+            cause.downcast_ref::<rustls::Error>(),
+            Some(rustls::Error::InvalidCertificate(_))
+        ) {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
+
+/// Cloudflare's compatible gateway has no model list. Probe the selected model
+/// using the same authorization header and a one-token hello.
+pub(crate) async fn check_cloudflare(base: &str, model: &str, key: &str) -> Result<(), String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = reqwest::Client::builder()
+        .timeout(FETCH_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "cannot prepare the Cloudflare connection check".to_owned())?;
+    let reply = client
+        .post(format!("{}/chat/completions", base.trim_end_matches('/')))
+        .header("cf-aig-authorization", format!("Bearer {key}"))
+        .json(&serde_json::json!({"model": model, "max_tokens": 1,
+            "messages": [{"role": "user", "content": "hello"}]}))
+        .send()
+        .await
+        .map_err(|error| {
+            if certificate_error(&error) {
+                "Cloudflare's TLS certificate could not be verified".to_owned()
+            } else {
+                "Cloudflare did not answer the connection check".to_owned()
+            }
+        })?;
+    if reply.status().is_success() {
+        Ok(())
+    } else {
+        Err(model_list_status_error(reply.status().as_u16(), None))
+    }
 }
 
 /// The body of `response`, read a chunk at a time and refused as soon as it
@@ -514,6 +887,8 @@ pub enum Problem {
     BaseUrl,
     /// The endpoint has no such model.
     Model,
+    /// OpenCode rejected a config field from a newer release.
+    UpdateOpenCode,
     /// Nothing recognizable.
     Other,
 }
@@ -531,6 +906,11 @@ fn has_code(text: &str, code: &str) -> bool {
 pub fn classify(text: &str) -> Problem {
     let t = text.to_ascii_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| t.contains(w));
+    if any(&["unrecognized key", "unknown key", "unknown property", "additional properties"])
+        && any(&["interleaved", "headers"])
+    {
+        return Problem::UpdateOpenCode;
+    }
     // The words the agent pane reads as `no-credit` (webviews failureCopy.ts NO_CREDIT). First: an
     // OpenAI-compatible endpoint sends it as a 429 or 402, and its body can name the key too.
     if any(&[
@@ -543,8 +923,11 @@ pub fn classify(text: &str) -> Problem {
         "exceeded your current quota",
         "insufficient credits",
         "insufficient credit",
+        "insufficient balance",
+        "no resource package",
         "payment required",
-    ]) {
+    ]) || has_code(&t, "1113")
+    {
         return Problem::Credit;
     }
     if has_code(&t, "401")
@@ -617,7 +1000,7 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
     };
     match problem {
         Problem::Key => format!(
-            "check the key ({key}): the endpoint refused it. Add {id} again with its key (`cmux harness add {id} ... --key --force`, or Settings > Agents)"
+            "check the key ({key}): the endpoint refused it. Add {id} again with its key (`cmux harness add {id} ... --key --force`, or Settings > Models)"
         ),
         Problem::BaseUrl => format!(
             "check the base URL: the endpoint was not reached or has no such path. It is {base}; add the harness again with the right baseUrl (--base-url)"
@@ -625,7 +1008,8 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
         Problem::Credit => format!(
             "add credit: the endpoint took the key, but the account it belongs to is out of credit. Add credit to that account, then run `cmux harness doctor {id}` again"
         ),
-        Problem::Model => "model not found: the endpoint has no such model. Add the harness again with a model id from its model list (--model)".to_owned(),
+        Problem::Model => "This model is no longer offered. Choose another model.".to_owned(),
+        Problem::UpdateOpenCode => "Update OpenCode to use this connection.".to_owned(),
         Problem::Other => format!(
             "check the base URL, the key ({key}; add {id} again with `--key --force`) and the model"
         ),
@@ -719,3 +1103,61 @@ pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool
 #[cfg(all(test, unix))]
 #[path = "byo_endpoint_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod opencode_config_tests {
+    use super::*;
+
+    #[test]
+    fn opencode_go_uses_the_console_model_list_and_stable_session_header() {
+        let base = GO_BASE;
+        assert_eq!(models_url(Kind::OpenAi, base), "https://opencode.ai/inference/go/v1/models");
+        let mut env = opencode_env("OpenCode Go", base, &["kimi-k3".into()], true);
+        let content = env.get_mut("OPENCODE_CONFIG_CONTENT").unwrap();
+        configure_opencode_session(content, "test-chat");
+        let first = content.clone();
+        configure_opencode_session(content, "test-chat");
+        assert_eq!(*content, first);
+        let config: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(
+            config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
+            "ses_test-chat"
+        );
+        configure_opencode_session(content, "another-chat");
+        let config: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(
+            config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
+            "ses_another-chat"
+        );
+        let mut other = "{\"provider\": []}".to_owned();
+        configure_opencode_session(&mut other, "test-chat");
+        assert_eq!(other, "{\"provider\": []}");
+    }
+
+    #[test]
+    fn cloudflare_gateway_uses_the_gateway_header_without_bearer_auth() {
+        let env = opencode_env(
+            "Cloudflare AI Gateway",
+            "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
+            &["workers-ai/@cf/meta/model".into()],
+            true,
+        );
+        let config: serde_json::Value =
+            serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        let options = &config["provider"]["byo"]["options"];
+        assert_eq!(options["headers"]["cf-aig-authorization"], "Bearer {env:CMUX_BYO_API_KEY}");
+        assert!(options.get("apiKey").is_none());
+    }
+
+    #[test]
+    fn minimax_regional_plans_use_the_anthropic_adapter() {
+        for base in ["https://api.minimax.io/anthropic", "https://api.minimaxi.com/anthropic"] {
+            let env = opencode_env("MiniMax", base, &["MiniMax-M3.1-Flash".into()], true);
+            let config: serde_json::Value =
+                serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+            let provider = &config["provider"]["byo"];
+            assert_eq!(provider["npm"], "@ai-sdk/anthropic");
+            assert_eq!(provider["options"]["baseURL"], format!("{base}/v1"));
+        }
+    }
+}

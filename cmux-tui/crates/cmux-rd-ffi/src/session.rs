@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::CompleteFrame;
+use cmux_rd_core::session_report::SessionReport;
 use cmux_rd_proto::{
     ClockEstimate, ClockPong, DatagramHeader, DatagramKind, FrameTimes, STREAM_BULK,
     STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
@@ -21,6 +22,9 @@ use crate::receiver::{
 };
 
 /// Most open streams per session (main surface, popups, tiles).
+/// Measured: the host's bound, `cmux_rd_engine::MAX_STREAMS` (16: one encoder each, popups'
+/// 300 kbps floors fill a 24 Mbps target's 20 % share), exported to the app as
+/// `CMUX_RD_SESSION_MAX_STREAMS`.
 pub const MAX_STREAMS: usize = 16;
 
 /// Silence after which a session that hears heartbeats is stalled (the
@@ -110,6 +114,9 @@ pub struct Session {
     /// datagrams (cap `ledger`), this viewer's from reassembly and the
     /// caller's decode and present notes. Bounded.
     ledger: StageLedger,
+    /// The whole session's first frame and display-to-glass numbers (the
+    /// ledger keeps only its newest frames), for field telemetry.
+    report: SessionReport,
     failed: bool,
 }
 
@@ -128,6 +135,7 @@ impl Session {
             clock: None,
             liveness: Liveness::default(),
             ledger: StageLedger::new(),
+            report: SessionReport::new(),
             failed: false,
         };
         let _ = s.open_stream(0);
@@ -145,6 +153,11 @@ impl Session {
         self.clock.as_ref().and_then(ClockEstimator::estimate)
     }
 
+    /// The round trip from clock probes, which sizes every stream's repair wait.
+    fn rtt_us(&self) -> Option<u64> {
+        self.clock().map(|c| u64::from(c.rtt_us))
+    }
+
     /// Accepts datagrams of `stream` from now on (idempotent).
     pub fn open_stream(&mut self, stream: u16) -> Result<(), SessionError> {
         if self.streams.contains_key(&stream) {
@@ -153,8 +166,9 @@ impl Session {
         if self.streams.len() >= MAX_STREAMS {
             return Err(SessionError::Stream(stream));
         }
-        let r =
+        let mut r =
             Receiver::for_stream(Carrier::Datagram, stream, self.deadline_us, self.nack_after_us);
+        r.set_path_rtt_us(self.rtt_us());
         self.streams.insert(stream, r);
         Ok(())
     }
@@ -211,9 +225,9 @@ impl Session {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for id in ids {
             if let Some(r) = self.streams.get_mut(&id) {
-                let before = r.ready_frames();
+                let before = r.frames_queued();
                 r.tick(now_us);
-                let after = r.ready_frames();
+                let after = r.frames_queued();
                 self.track(id, before, after);
             }
         }
@@ -253,9 +267,15 @@ impl Session {
         Some(m)
     }
 
-    /// Records one decode time of `stream`.
-    pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+    /// Records one decode time of `stream`; `frame` is the popped frame that
+    /// decoded (its LTR token is acknowledged), `None` for the time only.
+    pub fn note_decode(
+        &mut self,
+        stream: u16,
+        frame: Option<u32>,
+        decode_us: u32,
+    ) -> Result<(), SessionError> {
+        self.receiver(stream)?.note_decode(frame, decode_us);
         Ok(())
     }
 
@@ -269,7 +289,7 @@ impl Session {
         decode_us: u32,
         decoded_at_us: u64,
     ) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+        self.receiver(stream)?.note_decode(Some(frame), decode_us);
         self.ledger.on_decoded(stream, frame, decoded_at_us);
         Ok(())
     }
@@ -283,8 +303,23 @@ impl Session {
         presented_at_us: u64,
     ) -> Result<(), SessionError> {
         self.receiver(stream)?;
-        self.ledger.on_presented(stream, frame, presented_at_us);
+        let row = self.ledger.on_presented(stream, frame, presented_at_us);
+        let offset = self.clock().map(|c| c.offset_us);
+        self.report.on_presented(row.as_ref(), offset, presented_at_us);
         Ok(())
+    }
+
+    /// The viewer began connecting at `at_us` (the session's clock): where
+    /// the report's first frame counts from. The first call counts.
+    pub fn note_connect_started(&mut self, at_us: u64) {
+        self.report.note_connect_started(at_us);
+    }
+
+    /// This session's report so far, as one JSON object
+    /// (`cmux.rd-session-report/1`): connect to first frame on glass, and
+    /// display-to-glass and Present p50/p95 over every presented frame.
+    pub fn session_report_json(&self) -> String {
+        self.report.summary().to_json()
     }
 
     /// The stage ledger of the frames kept so far, as one JSON object
@@ -298,6 +333,14 @@ impl Session {
     pub fn request_keyframe(&mut self, stream: u16) -> Result<(), SessionError> {
         self.receiver(stream)?.request_keyframe();
         Ok(())
+    }
+
+    /// How long `stream` waits for a NACKed frame before asking for recovery.
+    pub fn repair_window_us(&self, stream: u16) -> Result<u64, SessionError> {
+        self.streams
+            .get(&stream)
+            .map(Receiver::repair_window_us)
+            .ok_or(SessionError::Stream(stream))
     }
 
     /// Counters of `stream`.
@@ -364,8 +407,9 @@ impl Session {
         ReceiverError::StreamFailed.into()
     }
 
-    /// One entry in `ready` per frame a receiver newly released.
-    fn track(&mut self, stream: u16, before: usize, after: usize) {
+    /// One entry in `ready` per frame a receiver newly queued. A frame a newer
+    /// keyframe replaced leaves its entry behind; `pop_frame` skips it.
+    fn track(&mut self, stream: u16, before: u64, after: u64) {
         for _ in before..after {
             self.ready.push_back(stream);
         }
@@ -373,6 +417,8 @@ impl Session {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), SessionError> {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+        // Every stream shares the link: any datagram shows it is not on hold.
+        self.streams.values_mut().for_each(|r| r.note_link_datagram(now_us));
         self.liveness.heartbeat(header.kind);
         match header.kind {
             DatagramKind::FrameTimes => {
@@ -387,9 +433,9 @@ impl Session {
                     self.ledger.on_shard(header.stream, header.frame, datagram.len(), now_us);
                 }
                 let r = self.receiver(header.stream)?;
-                let before = r.ready_frames();
+                let before = r.frames_queued();
                 let pushed = r.push_datagram(datagram, now_us);
-                let after = r.ready_frames();
+                let after = r.frames_queued();
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
@@ -403,8 +449,11 @@ impl Session {
                 let (_, payload) =
                     DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
                 let pong = ClockPong::decode(payload).map_err(ReceiverError::Invalid)?;
-                if let Some(clock) = self.clock.as_mut() {
-                    clock.on_pong(&pong, now_us);
+                if let Some(clock) = self.clock.as_mut()
+                    && clock.on_pong(&pong, now_us)
+                {
+                    let rtt = self.rtt_us();
+                    self.streams.values_mut().for_each(|r| r.set_path_rtt_us(rtt));
                 }
                 Ok(())
             }

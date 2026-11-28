@@ -1,0 +1,13 @@
+{
+  "caption": "Capture Screenshot to Chat, from the palette or its key, puts the region you pick into the chat's composer as a draft.",
+  "frameInterval": 0.25,
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A workspace", "cmux": ["action", "run", "newTab", "--arg", "name=Release checklist", "--arg", "cwd=/tmp", "--arg", "command=/bin/sh -c \"clear; printf 'build 42 passed\\n'; exec sleep 900\"", "--focus"], "wait": 2.5},
+    {"title": "Open a chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 3},
+    {"title": "Find Capture Screenshot to Chat", "rpc": {"method": "action.run", "params": {"action": "palette.open", "args": {"query": "Capture Screenshot to Chat"}, "focus": true}}, "wait": 1.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.2, 0.05, 0.6, 0.85]
+}

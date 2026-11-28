@@ -14,17 +14,26 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         self.values = values
     }
 
-    /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// on (the schema's default) on every channel since Leo 2026-11-07 ("Yeah, let's do that, man"),
-    /// so the value it fills matches the schema; a channel whose default is off would differ here.
+    /// `updates.automatic` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
+    /// Download Automatically (the schema's default) on every channel since Leo 2026-11-07 ("Yeah,
+    /// let's do that, man"), so the value it fills matches the schema; a channel whose default is
+    /// Notify Only would differ here.
     ///
     /// `mobile.allowIPhoneConnections` is on in a DEV build (`BuildStatePaths.isolatesSharedState`): DEV builds
     /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to
     /// Settings. Its own file starts empty, so this is the value in effect until someone sets the key there;
     /// NIGHTLY and stable keep the schema's off.
-    public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false) -> SettingsBuildDefaults {
+    ///
+    /// `updates.automatic` is Install When Idle in cmux NEXT's NIGHTLY (`UpdateTrack.installsWhenIdleByDefault`;
+    /// Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be
+    /// de facto able to click the restart button") and off (the schema's default) in release.
+    public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false, installsWhenIdle: Bool = false) -> SettingsBuildDefaults {
         var values: [[String]: JSONValue] = [:]
-        if downloadsAutomatically { values[UpdatesSettings.downloadAutomaticallyPath] = .bool(true) }
+        if installsWhenIdle {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.idle.rawValue)
+        } else if downloadsAutomatically {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.download.rawValue)
+        }
         if devBuild { values[MobileSettings.allowIPhoneConnectionsPath] = .bool(true) }
         return SettingsBuildDefaults(values: values)
     }
@@ -39,9 +48,14 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         return (try? encoder.encode(dotted)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    /// `root` with every build default whose key it leaves unset.
+    /// `root` with every build default whose key it leaves unset. A key an old key it replaced still
+    /// answers for (``RenamedSettingKeys``: `updates.downloadAutomatically: false` reads as Notify Only) is
+    /// not unset: the person's old pick wins over the build's default.
     func filling(_ root: JSONValue) -> JSONValue {
-        values.reduce(root) { root, entry in root.value(at: entry.key) == nil ? root.setting(entry.value, at: entry.key) : root }
+        values.reduce(root) { root, entry in
+            root.value(at: entry.key) == nil && RenamedSettingKeys.legacyValue(for: entry.key, in: root) == nil
+                ? root.setting(entry.value, at: entry.key) : root
+        }
     }
 }
 
@@ -65,7 +79,9 @@ extension SettingsController {
         guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
-        if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
+        if setsInThemeFile(descriptor.id), ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id) { return true }
+        // Resetting an explicit group style returns ownership to the sidebar look.
+        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

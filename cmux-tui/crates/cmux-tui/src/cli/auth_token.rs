@@ -111,6 +111,34 @@ pub(super) fn account_alias(args: &[String]) -> Option<Vec<String>> {
     Some(rewritten)
 }
 
+/// `cmux login --help` (or `logout`): the line naming the verb it is, printed before that verb's
+/// help, which alone never names `login` (the Cloud and remote command matrix).
+pub(super) fn account_alias_help_note(args: &[String]) -> Option<String> {
+    let (_, command) = super::parse_globals(args).ok()?;
+    let (first, rest) = command.split_first()?;
+    let verb = match first.as_str() {
+        "login" => "sign-in",
+        "logout" => "sign-out",
+        _ => return None,
+    };
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+        .then(|| {
+            let japanese = crate::localization::catalog().is_japanese();
+            let device = match (first.as_str(), japanese) {
+                ("login", true) => "cmux アプリが応答しない時（または `--device`）は、リンクでサインインして CMUX_TOKEN を出力します（`cmux login --device --help`）。\n",
+                ("login", false) => "With no cmux app answering (or with `--device`), it signs in by link and prints a CMUX_TOKEN (`cmux login --device --help`).\n",
+                _ => "",
+            };
+            if japanese {
+                format!("`cmux {first}` は `cmux vm {verb}` と同じです。\n{device}\n")
+            } else {
+                format!("`cmux {first}` is `cmux vm {verb}`.\n{device}\n")
+            }
+        })
+}
+
 /// `cmux whoami [--json]`. `None` for any other command.
 pub(super) fn whoami_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;

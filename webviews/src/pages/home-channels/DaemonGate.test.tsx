@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
 import { LASTING_MS } from "../../ui/lasting";
 import { DaemonGate, PAGE_LISTENER_REFUSED, type DaemonSource } from "./DaemonGate";
+import { DaemonSocket } from "../shared/daemonSocket";
 import { pageError } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -29,7 +30,9 @@ function installDom(): HTMLElement {
     "sessionStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    // A test that installs a second DOM keeps the globals from before the first: saving again would
+    // restore the closed first window, which the next test file then imports against.
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -77,7 +80,7 @@ const starting: DaemonSource = {
   load: () => Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true)),
 };
 
-test("a daemon still starting shows nothing, then one muted line once it lasts", async () => {
+test("a daemon still starting stays silent while automatic retries continue", async () => {
   const container = installDom();
   jest.useFakeTimers();
   root = createRoot(container);
@@ -94,9 +97,8 @@ test("a daemon still starting shows nothing, then one muted line once it lasts",
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   const lines = container.querySelectorAll(".hc-gate-line");
-  expect(lines).toHaveLength(1);
-  // The host words this one for the person; it is said as is.
-  expect(lines[0]!.textContent).toBe("Starting this build's Chief…");
+  expect(lines).toHaveLength(0);
+  expect(container.textContent).toBe("");
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   expect(container.querySelector("h1")).toBeNull();
 });
@@ -148,18 +150,54 @@ test("a refused page listener says so plainly and offers Restart cmux-tui, never
   expect(restarts).toBe(1);
 });
 
-test("without the app to restart it, the refusal keeps Connect", async () => {
+// Leo, 2026-11-22: "i dont know what kind of decision a "try again" would be other than "ok i guess ill
+// click this."" A final refusal with no restart to offer keeps its sentence and asks again on its own,
+// with no Connect to click, so the page opens once the person has done what the sentence says.
+test("without the app to restart it, the refusal has no button", async () => {
   const container = await renderBlocked(pageError(PAGE_LISTENER_REFUSED, "--ws-token", false));
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe(strings.t("connect.listenerRefused"));
-  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
+  expect(container.querySelectorAll("button").length).toBe(0);
 });
 
-test("any other final refusal is the plain sentence with Connect", async () => {
+test("any other final refusal is the plain sentence with no button", async () => {
   const container = await renderBlocked(
     pageError("cmux.page.failed", 'command(cmd: "ws-listen", code: Optional("io"))', false),
   );
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe(userMessage(undefined));
-  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
+  expect(container.querySelectorAll("button").length).toBe(0);
+});
+
+test("a final refusal asks again on its own and opens once the daemon serves the page", async () => {
+  const container = installDom();
+  jest.useFakeTimers();
+  let loads = 0;
+  let fixed = false;
+  const source: DaemonSource = {
+    kind: "host",
+    load: () => {
+      loads++;
+      return fixed
+        ? Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true))
+        : Promise.reject(pageError("cmux.daemon.too_old", "Update cmux, then open this tab again.", false));
+    },
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <DaemonGate source={source} strings={strings}>
+        {() => null}
+      </DaemonGate>,
+    ),
+  );
+  expect(loads).toBe(1);
+  expect(container.querySelector(".hc-gate-error")?.textContent).toBe("Update cmux, then open this tab again.");
+  for (let ms = 0; ms < 5_000; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+  expect(loads).toBeGreaterThan(1);
+  // The person updated: the next ask leaves the refusal for the quiet connecting state.
+  fixed = true;
+  for (let ms = 0; ms < 35_000; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+  expect(container.querySelector(".hc-gate-error")).toBeNull();
+  expect(container.querySelectorAll("button").length).toBe(0);
 });
 
 /** When each credential load ran on a host whose daemon is down, at the longest jitter, for `forMs`. */
@@ -214,4 +252,48 @@ test("a shown page asks again at least every 2 s while its daemon is down; a hid
   const hidden = await askTimes("hidden", 30_000);
   const hiddenGaps = hidden.slice(1).map((at, index) => at - hidden[index]!);
   expect(Math.max(...hiddenGaps)).toBe(10_000);
+});
+
+test("a reconnect keeps the last conversation frame mounted without progress text", async () => {
+  const container = installDom();
+  jest.useFakeTimers();
+  const closeListeners: ((reason: string) => void)[] = [];
+  const daemon = {
+    identity: { capabilities: ["ws-conversations-v1"] },
+    onClose: (listener: (reason: string) => void) => {
+      closeListeners.push(listener);
+      return () => undefined;
+    },
+    close: () => undefined,
+  } as unknown as DaemonSocket;
+  const connect = jest.spyOn(DaemonSocket, "connect").mockResolvedValue(daemon);
+  const source: DaemonSource = {
+    kind: "host",
+    load: () => Promise.resolve({ url: "ws://localhost:12345", token: "fixture" }),
+  };
+  try {
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(
+        <DaemonGate source={source} strings={strings}>
+          {() => <p data-cached-conversation>Last conversation</p>}
+        </DaemonGate>,
+      ),
+    );
+    const frame = container.querySelector("[data-cached-conversation]");
+    expect(frame).not.toBeNull();
+    await act(async () => {
+      for (const closed of closeListeners) closed("disconnected");
+    });
+    expect(container.querySelector("[data-cached-conversation]")).toBe(frame);
+    expect(container.textContent).toBe("Last conversation");
+    expect(container.querySelector(".hc-gate-line")).toBeNull();
+    await act(async () => void jest.advanceTimersByTime(500));
+    expect(connect).toHaveBeenCalledTimes(2);
+    // A successful replacement handshake keeps the subtree mounted too; its store can warm
+    // while HomeStorePresentation keeps the cached frame until its first data arrives.
+    expect(container.querySelector("[data-cached-conversation]")).toBe(frame);
+  } finally {
+    connect.mockRestore();
+  }
 });

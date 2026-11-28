@@ -4,20 +4,25 @@
 // page's own mock host, MockOnboardingProvider) in headless Chromium and checks the walk's three budgets
 // (docs/design/make-cmux-yours-intro-walk.md in cmuxterm-hq):
 //   - zero layout shift: no named part of the screen moves or resizes when a pick is clicked, read two ways: the
-//     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after;
+//     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after. A shift
+//     made only of the live preview's own parts (.onb-make-window reflowing to show a density) on a density pick, or
+//     on a Skip that writes a different opening density back, is the density showing: reported per step as `previewCls` and in the summary as `preview_cls_max`, never failed; on
+//     any other step it counts as CLS;
 //   - one publish per pick: each click on a choice sends exactly one op, and Skip sends exactly one;
+//   - the footer stays clickable: at the window's own size, after the picks, Skip and Continue are what a click at
+//     their centers hits (content past the window once lay over them);
 //   - Skip restores: after picks then Skip, the choices the page shows equal the ones it opened on. The mock answers
-//     as the host does (MakeItYoursStepModel: "Skip keeps what is set"), so this reads false until the host's Skip
-//     restores the opening settings and the mock follows it.
+//     as the host does (MakeItYoursStepModel.revert writes the opening choices back on Skip).
 //
-//   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build]
+//   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build] [--shots DIR]
 //
 // Builds dist/gallery from this checkout first: a dist/gallery left by another branch walks that branch's code
 // (a stale build once read Skip as fixed). `--reuse-build` walks an existing dist/gallery as is.
 //
 // Writes one JSON report: per arm and pick the ops sent, the CLS and the moved parts, and the summary values the
 // cmuxterm-hq probe records (`checks`, `passed`, `pass_share`, `shift_max_px`, `cls_max`, `publishes_per_pick_max`,
-// `skip_restores`). Exit 0 when every check passed, 1 when a check failed, 2 when the walk could not run.
+// `skip_restores`). An arm that cannot be walked (a click that never lands) is one failed check naming why.
+// Exit 0 when every check passed, 1 when a check failed, 2 when the walk could not run at all.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -28,30 +33,53 @@ const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const out = outIndex >= 0 ? path.resolve(args[outIndex + 1]) : null;
 const root = path.resolve(import.meta.dir, "..");
+const shotsIndex = args.indexOf("--shots");
+/** `--shots DIR`: one PNG per arm and width as it opens (ARM-WIDTH.png), the pictures a [taste] batch is read on. */
+const shots = shotsIndex >= 0 ? path.resolve(args[shotsIndex + 1]) : null;
 
-/** The arms walked: each look of the screen, opened fresh (the recommended answers) and on a person's own picks. */
+/** The arms walked: every look of the screen (walk_split.rs slot `screen`: preview, segmented, form, cards, rows),
+ * opened fresh (the recommended answers) and on a person's own picks. `preview` is the look that ships. */
 const ARMS = [
+  { arm: "preview-fresh", variant: "make-it-yours-preview" },
+  { arm: "preview-picked", variant: "make-it-yours-preview-picked" },
+  { arm: "preview-terminal", variant: "make-it-yours-preview-terminal" },
+  { arm: "preview-labels-wrap", variant: "make-it-yours-preview-labels-wrap" },
+  { arm: "preview-labels-tight", variant: "make-it-yours-preview-labels-tight" },
+  { arm: "preview-labels-fit", variant: "make-it-yours-preview-labels-fit" },
+  { arm: "segmented-picked", variant: "make-it-yours-segmented" },
+  { arm: "form-picked", variant: "make-it-yours-form" },
   { arm: "cards-fresh", variant: "make-it-yours-cards" },
   { arm: "rows-fresh", variant: "make-it-yours-rows" },
   { arm: "cards-picked", variant: "make-it-yours-picked" },
   { arm: "cards-terminal", variant: "make-it-yours-terminal" },
 ];
 const WIDTHS = ["narrow", "normal", "wide"];
+/** The Make cmux Yours window's own size (OnboardingMetrics.swift `windowSize`): content past it covers the footer. */
+const WINDOW = { width: 640, height: 720 };
+/** The step's own Skip (Escape) and Continue, not the intro walk's footer mock. */
+const SKIP = '.onb-footer [aria-keyshortcuts="Escape"]';
+const PRIMARY = '.onb-footer [data-variant="solid"]';
 /** The parts that must not move when a pick is clicked. */
 const PARTS = {
   work: ".onb-make-work",
   density: ".onb-make-density",
   background: ".onb-make-background",
   footer: ".onb-footer, footer",
-  skip: '[data-variant="subtle"]',
-  primary: '[data-variant="solid"]',
+  skip: SKIP,
+  primary: PRIMARY,
 };
 /** Edge moves at or under this many CSS px are subpixel rounding, not a shift. */
 const SHIFT_TOLERANCE_PX = 0.5;
 
 async function buildGallery() {
   if (args.includes("--reuse-build") && fs.existsSync(path.join(root, "dist/gallery"))) return;
-  const build = spawn("bun", ["run", "gallery:build"], { cwd: root, stdio: "inherit" });
+  const build = spawn("bun", ["run", "gallery:build"], {
+    cwd: root,
+    stdio: "inherit",
+    // The walk measures layout, not translations: a key still waiting on its locales must not stop the reading
+    // (gen-strings' gallery-host mode; check-l10n gates the locales).
+    env: { ...process.env, CMUX_STRINGS_BEST_EFFORT: "1" },
+  });
   await new Promise((resolve, reject) => {
     build.once("error", reject);
     build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
@@ -105,13 +133,34 @@ function checkedValues() {
 }
 
 async function walkArm(browser, baseUrl, { arm, variant }, width) {
-  const context = await browser.newContext({ viewport: { width: 900, height: 640 }, colorScheme: "light" });
+  const context = await browser.newContext({ viewport: WINDOW, colorScheme: "light" });
   const page = await context.newPage();
   await page.addInitScript(() => {
     globalThis.cmuxOnboardingMockCalls = [];
     globalThis.cmuxLayoutShifts = [];
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) globalThis.cmuxLayoutShifts.push(entry.value);
+      for (const entry of list.getEntries()) {
+        // What moved, so a CLS failure names its element: tag.class and the box before and after.
+        const sources = (entry.sources ?? []).map((source) => {
+          const node = source.node;
+          const name =
+            node?.nodeType === 1
+              ? `${node.tagName.toLowerCase()}${node.className ? `.${String(node.className).trim().split(/\s+/).join(".")}` : ""}`
+              : String(node?.nodeName ?? "?");
+          const box = (rect) => [rect.x, rect.y, rect.width, rect.height].map((v) => Math.round(v * 10) / 10);
+          const preview = node?.nodeType === 1 && node.closest(".onb-make-window") !== null;
+          return {
+            node: name,
+            preview,
+            from: box(source.previousRect),
+            to: box(source.currentRect),
+          };
+        });
+        // The live preview (.onb-make-window) reflows to show a density pick (styles.css: "a pick reflows it in one
+        // transition"): a shift made only of its own parts is the pick showing, not the screen moving.
+        const preview = sources.length > 0 && sources.every((source) => source.preview);
+        globalThis.cmuxLayoutShifts.push({ value: entry.value, sources, preview });
+      }
     }).observe({ type: "layout-shift", buffered: true });
   });
   const query = new URLSearchParams({
@@ -126,6 +175,18 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     timeout: 90_000,
   });
   await frames(page);
+  if (shots) {
+    fs.mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: path.join(shots, `${arm}-${width}.png`) });
+  }
+  // Labels the screen cuts short as it opens (a text box narrower than its own text: "Clear Gl…"). Reported per walk
+  // and as the summary's `truncated_max`, not judged yet: the look that ships cuts some at the window's size.
+  const truncated = await page.evaluate(() =>
+    Array.from(document.querySelectorAll(".onb-make *"))
+      .filter((el) => el.children.length === 0 && el.textContent.trim() && el.scrollWidth > el.clientWidth + 1)
+      .filter((el) => getComputedStyle(el).overflowX !== "visible")
+      .map((el) => el.textContent.trim()),
+  );
   const opening = await page.evaluate(checkedValues);
   const radios = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.onb-make input[type="radio"]')).map((input) => ({
@@ -136,21 +197,38 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
   // Each choice that is not already checked, in the order a person reads them; then back to where it opened.
   const picks = radios.filter((radio) => opening[radio.name] !== radio.value);
   const steps = [];
-  const click = async (label, locator) => {
+  const click = async (label, locator, options = {}) => {
     const before = await page.evaluate(readBoxes, PARTS);
     await page.evaluate(() => {
       globalThis.cmuxOnboardingMockCalls.length = 0;
       globalThis.cmuxLayoutShifts.length = 0;
     });
-    await locator.click();
+    const { restoresDensity: _restoresDensity, ...clickOptions } = options;
+    await locator.click({ timeout: 10_000, ...clickOptions });
     await frames(page);
     await frames(page);
     const after = await page.evaluate(readBoxes, PARTS);
-    const { calls, cls } = await page.evaluate(() => ({
+    const { calls, cls, previewCls, shifted, allShifted } = await page.evaluate(() => ({
       calls: globalThis.cmuxOnboardingMockCalls.map((call) => call.op),
-      cls: globalThis.cmuxLayoutShifts.reduce((sum, value) => sum + value, 0),
+      cls: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).reduce((sum, shift) => sum + shift.value, 0),
+      previewCls: globalThis.cmuxLayoutShifts
+        .filter((shift) => shift.preview)
+        .reduce((sum, shift) => sum + shift.value, 0),
+      shifted: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).flatMap((shift) => shift.sources),
+      allShifted: globalThis.cmuxLayoutShifts.flatMap((shift) => shift.sources),
     }));
-    const step = { step: label, ops: calls, cls: Math.round(cls * 10000) / 10000, moved: moves(before, after) };
+    // Only a density change may reflow the preview: a density pick, or Skip writing a different opening density back
+    // (the revert shows that density the same way a pick does). A preview shift on any other step is a shift like any
+    // other.
+    const reflows = label.startsWith("density=") || (options.restoresDensity ?? false);
+    const step = {
+      step: label,
+      ops: calls,
+      cls: Math.round((reflows ? cls : cls + previewCls) * 10000) / 10000,
+      previewCls: reflows ? Math.round(previewCls * 10000) / 10000 : 0,
+      moved: moves(before, after),
+      shifted: reflows ? shifted : allShifted,
+    };
     steps.push(step);
     return step;
   };
@@ -162,7 +240,26 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     // The pick must show: a click the page sent but never drew would make every other check here vacuous.
     step.shown = (await page.evaluate(checkedValues))[name] === value;
   }
-  await click("skip", page.locator('[data-variant="subtle"]').first());
+  // Skip and Continue stay clickable after every pick: nothing the step draws lies over them.
+  const footerCovered = await page.evaluate(
+    (selectors) =>
+      selectors.flatMap((selector) => {
+        const button = document.querySelector(selector);
+        if (!button) return [`${selector}: missing`];
+        const box = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        if (hit && button.contains(hit)) return [];
+        return [
+          `${button.textContent?.trim()}: under ${hit ? `${hit.tagName.toLowerCase()}.${hit.className}` : "nothing"}`,
+        ];
+      }),
+    [SKIP, PRIMARY],
+  );
+  const densityBeforeSkip = (await page.evaluate(checkedValues)).density;
+  await click("skip", page.locator(SKIP), {
+    force: footerCovered.length > 0,
+    restoresDensity: densityBeforeSkip !== opening.density,
+  });
   const afterSkip = await page.evaluate(checkedValues);
   await context.close();
   return {
@@ -171,6 +268,8 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     variant,
     opening,
     afterSkip,
+    footerCovered,
+    truncated,
     skipRestores: JSON.stringify(afterSkip) === JSON.stringify(opening),
     steps,
   };
@@ -190,7 +289,27 @@ async function main() {
   const walks = [];
   const started = Date.now();
   try {
-    for (const arm of ARMS) for (const width of WIDTHS) walks.push(await walkArm(browser, baseUrl, arm, width));
+    for (const arm of ARMS) {
+      for (const width of WIDTHS) {
+        // One arm that cannot be walked is that arm's failure, not the run's: the report still carries every
+        // other arm (a Skip click once timed out on one arm and the whole run recorded no reading).
+        try {
+          walks.push(await walkArm(browser, baseUrl, arm, width));
+        } catch (error) {
+          const message = String(error?.message ?? error)
+            .split("\n")[0]
+            .slice(0, 240);
+          walks.push({
+            arm: arm.arm,
+            width,
+            variant: arm.variant,
+            error: message,
+            steps: [],
+            skipRestores: false,
+          });
+        }
+      }
+    }
   } finally {
     await browser.close();
     await server.close();
@@ -205,12 +324,18 @@ async function main() {
   };
   let shiftMax = 0;
   let clsMax = 0;
+  let previewClsMax = 0;
   let publishesMax = 0;
   for (const walk of walks) {
+    if (walk.error) {
+      judge(false, `${walk.arm}/${walk.width}: the walk could not finish: ${walk.error}`);
+      continue;
+    }
     for (const step of walk.steps) {
       const px = Math.max(0, ...step.moved.map((move) => move.px));
       shiftMax = Math.max(shiftMax, px);
       clsMax = Math.max(clsMax, step.cls);
+      previewClsMax = Math.max(previewClsMax, step.previewCls ?? 0);
       publishesMax = Math.max(publishesMax, step.ops.length);
       judge(
         step.moved.length === 0 && step.cls === 0,
@@ -222,6 +347,10 @@ async function main() {
         `${walk.arm}/${walk.width} ${step.step}: ${step.ops.length} ops (${step.ops.join(", ")})`,
       );
     }
+    judge(
+      walk.footerCovered.length === 0,
+      `${walk.arm}/${walk.width}: footer covered: ${walk.footerCovered.join("; ")}`,
+    );
     judge(
       walk.skipRestores,
       `${walk.arm}/${walk.width}: Skip left ${JSON.stringify(walk.afterSkip)}, opened on ${JSON.stringify(walk.opening)}`,
@@ -235,7 +364,9 @@ async function main() {
     pass_share: checks ? Math.round((passed / checks) * 10000) / 10000 : 0,
     shift_max_px: shiftMax,
     cls_max: clsMax,
+    preview_cls_max: previewClsMax,
     publishes_per_pick_max: publishesMax,
+    truncated_max: Math.max(0, ...walks.map((walk) => (walk.truncated ?? []).length)),
     skip_restores: walks.length > 0 && walks.every((walk) => walk.skipRestores),
     failures,
     walks,

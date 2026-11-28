@@ -405,6 +405,65 @@ fn checkpoint_pages_keep_their_original_live_tree_and_completeness() {
 }
 
 #[test]
+fn checkpoint_capture_starts_after_a_producer_finishes_replacing_the_index() {
+    let dir = std::env::temp_dir().join(unique("gcp-lock"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet"]);
+    write(&repo, "a.txt", "old\n");
+    git(&repo, &["add", "."]);
+    git(
+        &repo,
+        &["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "one"],
+    );
+
+    // Prepare the index a producer will install while the lock is held. The
+    // rename is the same atomic replacement git uses after writing its index.
+    write(&repo, "a.txt", "new\n");
+    let index = repo.join(".git/index");
+    let replacement = repo.join(".git/index.replacement");
+    std::fs::copy(&index, &replacement).unwrap();
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .env("GIT_INDEX_FILE", &replacement)
+        .args(["add", "a.txt"])
+        .status()
+        .unwrap();
+    assert!(status.success(), "git add with replacement index failed");
+
+    let lock = repo.join(".git/index.lock");
+    std::fs::write(&lock, "capture test lock").unwrap();
+    let mux = Mux::open_persistent(
+        unique("checkpoint-lock"),
+        SurfaceOptions::default(),
+        &dir.join("state"),
+    )
+    .unwrap();
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let path = repo.to_string_lossy();
+    let producer = std::thread::spawn({
+        let index = index.clone();
+        let replacement = replacement.clone();
+        let lock = lock.clone();
+        move || {
+            std::thread::sleep(Duration::from_millis(250));
+            std::fs::rename(replacement, index).unwrap();
+            std::fs::remove_file(lock).unwrap();
+        }
+    });
+    let created = client.read("git.checkpoint.create", json!({"path":path}));
+    producer.join().unwrap();
+    assert_eq!(created["value"]["complete"], true, "{created}");
+
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
     let dir = std::env::temp_dir().join(unique("gdu"));
     let repo = dir.join("repo");

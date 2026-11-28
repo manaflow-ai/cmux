@@ -259,6 +259,30 @@ fn a_source_machines_checkout_reads_as_this_machines_does() {
 }
 
 #[test]
+fn a_repository_with_no_origin_and_no_commit_moves_as_a_plain_folder() {
+    // Every lane VM's home is `git init`ed and never committed: a chat there has nothing to
+    // bundle, so both reads say no checkout and plan_folder makes it Folder::Plain.
+    let dir = tempfile::tempdir().unwrap();
+    let ok =
+        StdCommand::new("git").arg("-C").arg(dir.path()).args(["init", "-q"]).output().unwrap();
+    assert!(ok.status.success());
+    std::fs::write(dir.path().join("loose.txt"), "x").unwrap();
+    let out = run_here(CHECKOUT_SCRIPT, format!("{}\n", dir.path().display()).as_bytes()).unwrap();
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(parse_checkout(&out.stdout).unwrap(), None);
+    assert_eq!(checkout_of(dir.path()).unwrap(), None);
+    // With an origin it is still a checkout (its branch is pushed, or refused, as before).
+    let ok = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"])
+        .output()
+        .unwrap();
+    assert!(ok.status.success());
+    assert!(checkout_of(dir.path()).unwrap().is_some());
+}
+
+#[test]
 fn a_checkout_answer_without_a_plain_top_folder_is_refused() {
     assert!(parse_checkout("branch\tmain\n").is_err());
     assert!(parse_checkout("top\t/a/../b\nbranch\tmain\n").is_err());
@@ -361,9 +385,35 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
                 wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
             }
         });
+        // The target's daemon: a dry run that gets as far as a plan asks it, read-only, whether
+        // it takes the chat (`target_ask`), and nothing else.
+        let target_socket = socket_dir.path().join("target.sock");
+        let target_listener = tokio::net::UnixListener::bind(&target_socket).unwrap();
+        let target_server = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            // The client's own initialize, then the move's (whose reply it keeps).
+            let asked = [method::INITIALIZE, method::INITIALIZE, "_acpmux/transfer_preflight"];
+            for expected in asked {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, params } =
+                    Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "a dry run only asks the target");
+                if called != method::INITIALIZE {
+                    assert_eq!(params.unwrap_or_default()["manifest"]["sessionId"], "chat");
+                }
+                let result = json!({"takes": true});
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
         let client = Client::connect(&socket).await.unwrap();
-        let target =
-            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let about =
+            RemoteDaemon { socket: target_socket.to_string_lossy().into_owned(), ..about_ok(None) };
+        let target = Target { name: "target".into(), ssh: String::new(), probed: Some(about) };
         let mut targets =
             Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
         let args = MoveArgs {
@@ -381,6 +431,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             from: None,
             slow_ok: false,
             from_snapshot: false,
+            as_harness: None,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -394,6 +445,12 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             assert_eq!(outcome.error.is_some(), expected.is_some());
         }
         server.await.unwrap();
+        if expected.is_none() && !detached {
+            target_server.await.expect("the planned dry run asked the target");
+        } else {
+            // Refused before a plan: the target was never reached.
+            target_server.abort();
+        }
     }
 }
 
@@ -658,6 +715,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         resume_there: false,
         from: None,
         from_snapshot: false,
+        as_harness: None,
     };
     let mut src = MoveEnd::new("source", &client, None);
     let e = match begin_waiting(&mut src, "chat", "Chat", None, &args, None).await {
@@ -755,7 +813,7 @@ fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
     // The push script refuses any other ref: never refs/heads/main through a snapshot.
     let refused = run_here(PUSH_SCRIPT, format!("{}\nrefs/tags/x\n", src.display()).as_bytes());
     assert!(!refused.unwrap().ok);
-    assert_eq!(push_branch(&src, &dest).unwrap(), head);
+    assert_eq!(push_branch(&src, &dest, None).unwrap(), head);
     assert_eq!(git(&origin, &["rev-parse", "refs/heads/main"]), main_before, "main never pushed");
     assert_eq!(git(&origin, &["rev-parse", &dest]), head);
 
@@ -830,7 +888,7 @@ fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
     assert_eq!(log.trim(), format!("new o/r --at {head} --name move-{short}"));
     assert!(notes.is_empty(), "{notes:?}");
 
-    drop_ref(&src, &dest);
+    drop_ref(&src, &dest, None);
     assert!(git(&origin, &["for-each-ref", "refs/acpmux"]).is_empty(), "the move's ref is gone");
     assert_eq!(
         git(&origin, &["for-each-ref", "--format=%(refname)", "refs/heads"]),
@@ -896,6 +954,8 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
 /// it says why instead of waiting on. F3: the chats of one move are waited on together, one
 /// request for all still waited on, not one bounded wait per chat.
 #[tokio::test(start_paused = true)]
+#[cfg(unix)] // a daemon on a Unix socket
+#[cfg(unix)]
 async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -931,6 +991,11 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
                 wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
                 continue;
             }
+            if called == "_acpmux/peers" {
+                let peers = json!({"peers": [{"name": "t", "link": "reconnecting"}]});
+                wr.write_all(Message::ok(id, peers).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
             assert_eq!(called, method::MUX_INFO);
             asked.push(params.unwrap_or_default()["sessionIds"].clone());
             let reply = replies
@@ -944,19 +1009,19 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let both = vec![("t/s1".to_owned(), "s1".to_owned()), ("t/s2".to_owned(), "s2".to_owned())];
     let started = tokio::time::Instant::now();
     assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
     assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
     // A link that stays down: the wait ends at its bound and says why, per chat.
-    let one = vec!["s1".to_owned()];
+    let one = vec![("t/s1".to_owned(), "s1".to_owned())];
     let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
     assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
     assert_eq!(
         asked[..4],
-        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+        [json!(["t/s1", "t/s2"]), json!(["t/s1", "t/s2"]), json!(["t/s1"]), json!(["t/s1"])]
     );
     assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
@@ -967,6 +1032,65 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
     // Another chat's row says nothing of this one.
     assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
+    assert_eq!(arrived(&json!({"rows": [{"sessionId": "s1", "status": "idle"}]}), "s1"), Ok(()));
+    assert_eq!(
+        arrived(&json!({"rows": [{"sessionId": "s1", "status": "closed"}]}), "s1"),
+        Err("listed here as closed".to_owned())
+    );
+}
+
+/// A move to a peer whose link is offline (never reached, its attempts failed) ends at once,
+/// naming why, instead of waiting out the arrival bound: no row comes from that link within
+/// it, and the wait cost every such move the whole 5 s (the published move bench's floor).
+/// A chat on a local key or a peer on its way back is still waited on.
+#[tokio::test(start_paused = true)]
+#[cfg(unix)] // a daemon on a Unix socket
+#[cfg(unix)]
+async fn a_move_to_an_offline_peer_does_not_wait_out_the_arrival_bound() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+                panic!("expected a request");
+            };
+            let reply = match called.as_str() {
+                "_acpmux/peers" => json!({"peers": [
+                    {"name": "gone", "link": "offline", "error": "SSH connection refused"},
+                    {"name": "back", "link": "reconnecting"}]}),
+                _ => json!({"rows": []}),
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let poll = std::time::Duration::from_millis(50);
+    let bound = std::time::Duration::from_secs(5);
+    let started = tokio::time::Instant::now();
+    let one = vec![("gone/s1".to_owned(), "s1".to_owned())];
+    let late = await_arrival(&client, &one, bound, poll).await;
+    assert_eq!(late, vec![("s1".to_owned(), "peer offline: SSH connection refused".to_owned())]);
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO, "no poll waited");
+    // With a chat on a peer on its way back, that one is still waited on to the bound.
+    let both =
+        vec![("gone/s1".to_owned(), "s1".to_owned()), ("back/s2".to_owned(), "s2".to_owned())];
+    let started = tokio::time::Instant::now();
+    let late = await_arrival(&client, &both, bound, poll).await;
+    assert_eq!(late[0], ("s1".to_owned(), "peer offline: SSH connection refused".to_owned()));
+    assert_eq!(late[1].0, "s2");
+    assert!(started.elapsed() >= bound - poll, "{:?}", started.elapsed());
+    assert_eq!(
+        link_gone(&json!({"peers": [{"name": "x", "link": "authFailed"}]}), "x").as_deref(),
+        Some("peer authFailed")
+    );
+    assert_eq!(link_gone(&json!({"peers": [{"name": "x", "link": "connecting"}]}), "x"), None);
+    assert_eq!(link_gone(&json!({"peers": []}), "x"), None);
 }
 
 fn outcome(name: &str, error: Option<&str>) -> Outcome {
@@ -982,6 +1106,9 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         error: error.map(str::to_owned),
         error_code: None,
         preflight: preflight::Preflight::default(),
+        interrupts: None,
+        arrival_key: None,
+        reachable: None,
     }
 }
 
@@ -1078,4 +1205,220 @@ fn a_repo_with_no_remote_moves_as_a_bundle_with_its_changes_and_no_remote() {
     assert_ne!(Path::new(&again), new.as_path());
     assert!(again.starts_with(&format!("{top}.moved.")), "{again}");
     assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2", "untouched");
+}
+
+/// Leo: "any chat moves Mac↔Cloud and back in one action, keeping its live state". The way
+/// back from a machine reached only through the team hub, `--from MACHINE --machine local`,
+/// asks that machine as `MACHINE/ID` does instead of needing an ssh peer.
+#[test]
+fn from_a_hub_machine_names_its_chats_on_that_machine() {
+    let mut args = MoveArgs {
+        sessions: vec!["01a21a8f".into(), "other-host/abc".into()],
+        host: "local".into(),
+        all_idle: false,
+        interrupt: false,
+        after_turn: false,
+        turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: None,
+        dry_run: false,
+        resume_there: false,
+        from: Some("vm-b".into()),
+        from_snapshot: false,
+        as_harness: None,
+    };
+    from_hub_machine(&mut args, "vm-b");
+    assert_eq!(args.sessions, vec!["vm-b/01a21a8f", "other-host/abc"]);
+    assert_eq!(args.from, None);
+}
+
+#[test]
+fn a_moving_chats_lane_is_its_names_last_part() {
+    assert_eq!(lane_of("swarm-10/lane-12").as_deref(), Some("lane-12"));
+    assert_eq!(lane_of("lane-12").as_deref(), Some("lane-12"));
+    assert_eq!(lane_of("a/b c:d").as_deref(), Some("b-c-d"));
+    assert_eq!(lane_of("x/..."), None);
+    assert_eq!(lane_of(""), None);
+}
+
+#[test]
+fn a_refused_push_keeps_its_whole_reason() {
+    let refusal = "remote: feat is not allowed here: name it team/<name>\n\
+                   remote: see the server's rules\nerror: failed to push some refs to origin\n";
+    let why = push_refusal(refusal);
+    assert!(why.starts_with("remote: feat is not allowed here"), "{why}");
+    assert!(why.ends_with("failed to push some refs to origin"), "{why}");
+    assert_eq!(push_refusal(&"x".repeat(2000)).chars().count(), 600);
+}
+
+#[test]
+fn a_refused_branch_goes_under_the_prefix() {
+    assert_eq!(prefixed_branch("ux-trust", "lane/").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(prefixed_branch("feat/ux trust", "lane/").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(prefixed_branch("lane/ux-trust", "lane/"), None);
+    assert_eq!(prefixed_branch("...", "lane/"), None);
+}
+
+/// An origin that takes only branches under a prefix (its pre-receive hook here) refused a
+/// moving chat's branch, and the move failed. With ACPMUX_MOVE_BRANCH_PREFIX set, the move
+/// pushes it under the prefix; unset (the default), it fails as before.
+#[cfg(unix)]
+#[test]
+fn a_refused_push_goes_under_the_prefix_only_when_set() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let origin = base.path().join("origin.git");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare"]);
+    let src = base.path().join("src");
+    git(base.path(), &["clone", "-q", origin.to_str().unwrap(), "src"]);
+    git(&src, &["checkout", "-q", "-b", "ux-trust"]);
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    git(&src, &["add", "a.txt"]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+    let hook = origin.join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nwhile read -r old new ref; do case \"$ref\" in refs/heads/lane/*) ;; \
+         *) echo \"${ref#refs/heads/} is not allowed here: name it lane/<name>\" >&2; exit 1;; \
+         esac; done\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let on_origin = |r: &str| {
+        let out = StdCommand::new("git")
+            .arg("-C")
+            .arg(&origin)
+            .args(["rev-parse", "-q", "--verify", r])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+
+    // Before, and still with the setting off: the move fails, and its error keeps the reason.
+    let off = push_or_prefixed("refs/heads/ux-trust", None, |to| push_branch(&src, to, None))
+        .unwrap_err();
+    assert!(format!("{off:#}").contains("is not allowed here"), "{off:#}");
+    assert!(on_origin("refs/heads/lane/ux-trust").is_empty());
+
+    // After, with the setting on: the move pushes lane/ux-trust, and the target checks it out.
+    let (dest, commit) =
+        push_or_prefixed("refs/heads/ux-trust", Some("lane/"), |to| push_branch(&src, to, None))
+            .unwrap();
+    assert_eq!(dest, "refs/heads/lane/ux-trust");
+    assert_eq!(commit, head);
+    assert_eq!(on_origin("refs/heads/lane/ux-trust"), head);
+    assert!(on_origin("refs/heads/ux-trust").is_empty());
+
+    // A branch already under the prefix is not pushed twice.
+    let tries = std::cell::Cell::new(0);
+    let err = push_or_prefixed("refs/heads/lane/feat", Some("lane/"), |_| {
+        tries.set(tries.get() + 1);
+        Err(anyhow!("pushing lane/feat to origin failed: rejected (fetch first)"))
+    })
+    .unwrap_err();
+    assert!(format!("{err:#}").contains("fetch first"));
+    assert_eq!(tries.get(), 1);
+}
+
+/// lane-gh refuses a write that names no lane ("lease acquisition requires a lane session"): a
+/// move is driven from outside the chat (the broker strips `ACPMUX_SESSION*`), so before this
+/// the move's own pushes named none and swarm-10's held-drain moves were refused there. Origin's
+/// pre-receive hook stands in for lane-gh: it takes a push only as lane `lane-12`.
+#[cfg(unix)]
+#[test]
+fn every_push_a_move_makes_for_the_chat_names_its_lane() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let origin = base.path().join("origin.git");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare"]);
+    let src = base.path().join("src");
+    git(base.path(), &["clone", "-q", origin.to_str().unwrap(), "src"]);
+    git(&src, &["checkout", "-q", "-b", "feat"]);
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    git(&src, &["add", "a.txt"]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+    let log = base.path().join("lanes.log");
+    let hook = origin.join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\nprintf '%s|%s\\n' \"$LANE_GH_LANE\" \"$LANE_GH_SERVICE\" >> '{}'\n\
+             [ \"$LANE_GH_LANE\" = lane-12 ] && [ -z \"$LANE_GH_SERVICE\" ] && exit 0\n\
+             echo 'lease acquisition requires a lane session' >&2; exit 1\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let lane = lane_of("swarm-10/lane-12");
+    let lane = lane.as_deref();
+    let on_origin = |r: &str| {
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(&origin)
+            .args(["rev-parse", "-q", "--verify", r])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    };
+
+    // Before: a push that names no lane is refused, with lane-gh's words.
+    // (push_branch keeps git's last line, "pre-receive hook declined"; the script's stderr
+    // carries the hook's own words.)
+    let refused = push_branch(&src, "refs/heads/feat", None).unwrap_err();
+    assert!(format!("{refused:#}").contains("pushing feat to origin failed"), "{refused:#}");
+    let old_input = format!("{}\nrefs/heads/feat\n", src.display());
+    let refused = run_here(PUSH_SCRIPT, old_input.as_bytes()).unwrap();
+    assert!(!refused.ok && refused.stderr.contains("requires a lane session"), "{refused:?}");
+    assert!(!on_origin("refs/heads/feat"));
+
+    // After: the push here, the one over ssh (the same script) and the snapshot ref's delete
+    // each name the chat's lane.
+    assert_eq!(push_branch(&src, "refs/heads/feat", lane).unwrap(), head);
+    let dest = snapshot_ref();
+    let pushed = run_here(PUSH_SCRIPT, script_input(&src, &dest, lane).as_bytes()).unwrap();
+    assert!(pushed.ok, "{pushed:?}");
+    assert_eq!(pushed.stdout.trim(), head);
+    assert!(on_origin(&dest));
+    drop_ref(&src, &dest, None);
+    assert!(on_origin(&dest), "a delete that names no lane is refused too");
+    drop_ref(&src, &dest, lane);
+    assert!(!on_origin(&dest), "the move's ref is gone");
+    // A lane line of anything else is refused before git runs.
+    let odd = format!("{}\n{dest}\nlane 12\n", src.display());
+    assert!(!run_here(PUSH_SCRIPT, odd.as_bytes()).unwrap().ok);
+    let lanes = std::fs::read_to_string(&log).unwrap();
+    let lanes: Vec<&str> = lanes.lines().map(|l| l.split('|').next().unwrap_or("")).collect();
+    assert_eq!(lanes.iter().filter(|l| **l == "lane-12").count(), 3, "{lanes:?}");
 }

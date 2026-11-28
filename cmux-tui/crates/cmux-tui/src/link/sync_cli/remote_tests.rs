@@ -360,14 +360,221 @@ fn decoded(request: &Value) -> Vec<u8> {
     let wire = base64::engine::general_purpose::STANDARD
         .decode(request["bytes_base64"].as_str().unwrap())
         .unwrap();
-    if request["encoding"] != json!("deflate") {
-        return wire;
-    }
-    let mut out = Vec::new();
-    std::io::Read::read_to_end(&mut flate2::read::DeflateDecoder::new(wire.as_slice()), &mut out)
-        .unwrap();
+    let out = match request["encoding"].as_str() {
+        None => return wire,
+        Some("zstd") => zstd::stream::decode_all(wire.as_slice()).unwrap(),
+        Some("deflate") => {
+            let mut out = Vec::new();
+            std::io::Read::read_to_end(
+                &mut flate2::read::DeflateDecoder::new(wire.as_slice()),
+                &mut out,
+            )
+            .unwrap();
+            out
+        }
+        Some(other) => panic!("unknown encoding {other}"),
+    };
     assert_eq!(request["decoded_size"], json!(out.len()));
     out
+}
+
+/// Source-like text: lines that repeat with variation, as a project's files do.
+fn source_text(bytes: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes + 64);
+    let mut n = 0u64;
+    while out.len() < bytes {
+        n += 1;
+        let line = format!(
+            "    let value_{} = compute(input_{}, {}) + offset; // step {}\n",
+            n % 977,
+            n % 131,
+            n.wrapping_mul(2_654_435_761) % 100_000,
+            n
+        );
+        out.extend_from_slice(line.as_bytes());
+    }
+    out.truncate(bytes);
+    out
+}
+
+fn noise(bytes: usize) -> Vec<u8> {
+    let mut noise = vec![0u8; bytes];
+    getrandom::fill(&mut noise).unwrap();
+    noise
+}
+
+/// With `fs-write-zstd-v1`, text goes as zstd (smaller than deflate, which a machine with only
+/// deflate still gets) and noise as it is, over one line each on a machine with no stream.
+#[test]
+fn a_machine_with_zstd_gets_zstd_for_text_and_noise_stored() {
+    let (mut remote, writes) =
+        recording(json!(["fs-v1", "fs-write-deflate-v1", "fs-write-zstd-v1"]));
+    remote.negotiate();
+    let (mut deflate_only, deflate_writes) = recording(json!(["fs-v1", "fs-write-deflate-v1"]));
+    deflate_only.negotiate();
+    let text = source_text(1 << 20);
+    remote.write("/work/main.rs", &mut text.as_slice(), 0o644).unwrap();
+    deflate_only.write("/work/main.rs", &mut text.as_slice(), 0o644).unwrap();
+    let zstd = writes.recv().unwrap();
+    let deflate = deflate_writes.recv().unwrap();
+    assert_eq!(
+        (zstd["encoding"].as_str(), deflate["encoding"].as_str()),
+        (Some("zstd"), Some("deflate"))
+    );
+    assert_eq!(decoded(&zstd), text);
+    assert_eq!(decoded(&deflate), text);
+    let wire = |request: &Value| request["bytes_base64"].as_str().unwrap().len();
+    assert!(wire(&zstd) < wire(&deflate), "zstd {} deflate {}", wire(&zstd), wire(&deflate));
+
+    let noise = noise(1 << 20);
+    remote.write("/work/blob.bin", &mut noise.as_slice(), 0o644).unwrap();
+    let request = writes.recv().unwrap();
+    assert!(request.get("encoding").is_none(), "noise was compressed");
+    assert_eq!(decoded(&request), noise);
+    // An archive by name is stored without a compressor pass, however it would shrink.
+    let zeros = vec![0u8; 4096];
+    remote.write("/work/a.zip", &mut zeros.as_slice(), 0o644).unwrap();
+    assert!(writes.recv().unwrap().get("encoding").is_none());
+}
+
+/// What a fake stream-capable machine saw: each line request, and each write stream's header
+/// with its raw bytes.
+#[derive(Default)]
+struct Seen {
+    lines: Vec<Value>,
+    streams: Vec<(Value, Vec<u8>)>,
+}
+
+/// A fake machine daemon on a real socket that serves `capabilities` and, unless `refuse`,
+/// write streams on a dial of their own, as `server::fs_wire` routes a dial by its first line.
+/// A refusing one answers a stream as the line path does.
+fn streaming_machine(
+    capabilities: Value,
+    refuse: bool,
+) -> (cmux_unix_socket::TestDir, std::path::PathBuf, std::sync::Arc<std::sync::Mutex<Seen>>) {
+    let dir = cmux_unix_socket::short_test_dir("syncstr");
+    let socket = dir.path().join("machine.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Seen::default()));
+    let record = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let (capabilities, record) = (capabilities.clone(), record.clone());
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    line.clear();
+                    let answer =
+                        |data: Value| json!({"id": request["id"], "ok": true, "data": data});
+                    let reply = if request["stream"] == json!(true) && !refuse {
+                        let ready = answer(json!({"ready": true}));
+                        stream.write_all(format!("{ready}\n").as_bytes()).unwrap();
+                        let size = usize::try_from(request["size"].as_u64().unwrap()).unwrap();
+                        let mut wire = vec![0u8; size];
+                        reader.read_exact(&mut wire).unwrap();
+                        record.lock().unwrap().streams.push((request.clone(), wire));
+                        answer(json!({"entry": {"revision": "r2"}}))
+                    } else if request["stream"] == json!(true) {
+                        json!({"id": request["id"], "ok": false, "error_code": "params.invalid",
+                               "error": "a byte stream needs a link dial of its own"})
+                    } else if request["cmd"] == json!("identify") {
+                        answer(json!({"capabilities": capabilities}))
+                    } else {
+                        record.lock().unwrap().lines.push(request.clone());
+                        answer(json!({"entry": {"revision": "r1"}}))
+                    };
+                    if stream.write_all(format!("{reply}\n").as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (dir, socket, seen)
+}
+
+const ZSTD_MACHINE: [&str; 3] = ["fs-v1", "fs-write-deflate-v1", "fs-write-zstd-v1"];
+
+/// Noise of a megabyte goes over a write stream of its own: its raw bytes and nothing more,
+/// where a line carried a third more as base64. Text that zstd shrinks under the stream's
+/// floor stays one line. The wire bytes of both, and of the line writes before, are printed.
+#[test]
+fn noise_goes_raw_over_a_stream_and_text_as_zstd() {
+    let (_dir, socket, seen) = streaming_machine(json!(ZSTD_MACHINE), false);
+    let mut remote = Remote::connect_negotiated(&socket).unwrap();
+    let noise = noise(1 << 20);
+    let text = source_text(1 << 20);
+    let revision = remote.write("/work/blob.bin", &mut noise.as_slice(), 0o644).unwrap();
+    assert_eq!(revision, "r2");
+    remote.write("/work/main.rs", &mut text.as_slice(), 0o644).unwrap();
+    let seen = seen.lock().unwrap();
+    let (header, wire) = &seen.streams[0];
+    assert!(header.get("encoding").is_none(), "{header}");
+    assert_eq!(
+        (header["mode"].as_str(), header["permissions"].as_u64()),
+        (Some("overwrite"), Some(0o644))
+    );
+    assert_eq!(wire, &noise);
+    let noise_wire = header.to_string().len() + 1 + wire.len();
+    assert!(noise_wire <= noise.len() + 512, "{noise_wire}");
+    let text_line = seen.lines.last().unwrap();
+    assert_eq!(text_line["encoding"], "zstd");
+    assert_eq!(decoded(text_line), text);
+    let text_wire = text_line.to_string().len() + 1;
+
+    // Today's lines for the same bytes: base64 noise, deflate text.
+    let (mut today, writes) = recording(json!(["fs-v1", "fs-write-deflate-v1"]));
+    today.negotiate();
+    today.zstd = None;
+    today.write("/work/blob.bin", &mut noise.as_slice(), 0o644).unwrap();
+    today.write("/work/main.rs", &mut text.as_slice(), 0o644).unwrap();
+    let (old_noise, old_text) = (writes.recv().unwrap(), writes.recv().unwrap());
+    let (old_noise, old_text) = (old_noise.to_string().len() + 1, old_text.to_string().len() + 1);
+    eprintln!(
+        "wire bytes for 1 MiB: random {old_noise} -> {noise_wire} (stream), text {old_text} -> {text_wire} (zstd line)"
+    );
+    assert!(noise_wire < old_noise && text_wire < old_text);
+}
+
+/// A carrier that takes no stream (the line path's refusal) gets the part as a line, and every
+/// later part too without asking again; a file in parts still lands whole.
+#[test]
+fn a_carrier_without_streams_gets_lines() {
+    let (_dir, socket, seen) = streaming_machine(json!(ZSTD_MACHINE), true);
+    let mut remote = Remote::connect_negotiated(&socket).unwrap();
+    let data = noise(super::PART_BYTES + (1 << 20));
+    remote.write("/work/big.bin", &mut data.as_slice(), 0o600).unwrap();
+    assert!(!remote.streams);
+    let seen = seen.lock().unwrap();
+    let writes: Vec<&Value> = seen.lines.iter().filter(|line| line["cmd"] == "fs.write").collect();
+    assert_eq!(writes.len(), 2, "{} writes", writes.len());
+    let rebuilt: Vec<u8> = writes.iter().flat_map(|write| decoded(write)).collect();
+    assert!(rebuilt == data, "the lines do not make the file");
+}
+
+/// A file in parts streams each part: an overwrite of the part file, then appends that name
+/// the revision before them, as the line writes do.
+#[test]
+fn a_file_in_parts_streams_each_part() {
+    let (_dir, socket, seen) = streaming_machine(json!(ZSTD_MACHINE), false);
+    let mut remote = Remote::connect_negotiated(&socket).unwrap();
+    let data = noise(super::PART_BYTES * 2 + 4096);
+    remote.write("/work/big.bin", &mut data.as_slice(), 0o600).unwrap();
+    let seen = seen.lock().unwrap();
+    let modes: Vec<_> = seen
+        .streams
+        .iter()
+        .map(|(header, _)| header["mode"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(modes, ["overwrite", "append", "append"]);
+    assert_eq!(seen.streams[1].0["expected"], "r2");
+    assert!(seen.streams[0].0["path"].as_str().unwrap().ends_with(".big.bin.cmux-sync-part"));
+    let rebuilt: Vec<u8> = seen.streams.iter().flat_map(|(_, wire)| wire.clone()).collect();
+    assert!(rebuilt == data, "the streams do not make the file");
+    assert!(seen.lines.iter().any(|line| line["cmd"] == "fs.rename"));
 }
 
 /// A machine without `fs-write-deflate-v1` (every image before it) gets

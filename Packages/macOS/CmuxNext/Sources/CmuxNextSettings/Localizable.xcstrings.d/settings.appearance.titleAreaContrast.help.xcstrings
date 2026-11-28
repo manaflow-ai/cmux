@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.titleAreaContrast.help" : {
+      "comment" : "Help under the Title Area Contrast setting. The value is a number; 1 is the default.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much darker the title bar, tab bar and sidebar are. 1 is the default."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مقدار دُكنة شريط العنوان وشريط علامات التبويب والشريط الجانبي. القيمة الافتراضية 1."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koliko su naslovna traka, traka s karticama i bočna traka tamnije. Zadano je 1."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor meget mørkere titellinjen, fanelinjen og sidepanelet er. 1 er standard."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie viel dunkler Titelleiste, Tableiste und Seitenleiste sind. 1 ist der Standard."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuánto más oscuras son la barra de título, la barra de pestañas y la barra lateral. 1 es el valor predeterminado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "À quel point la barre de titre, la barre d’onglets et la barre latérale sont plus sombres. 1 est la valeur par défaut."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto sono più scure la barra del titolo, la barra delle schede e la barra laterale. 1 è il valore predefinito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タイトルバー、タブバー、サイドバーをどれだけ暗くするか。既定は 1 です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្រិតដែលរបារចំណងជើង របារផ្ទាំង និងរបារចំហៀង ងងឹតជាង។ 1 គឺលំនាំដើម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제목 막대, 탭 막대, 사이드바가 얼마나 어두운지 정합니다. 기본값은 1입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor mye mørkere tittellinjen, fanelinjen og sidefeltet er. 1 er standard."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak bardzo pasek tytułu, pasek kart i pasek boczny są ciemniejsze. Domyślnie 1."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto a barra de título, a barra de abas e a barra lateral são mais escuras. 1 é o padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Насколько заголовок, панель вкладок и боковая панель темнее. По умолчанию 1."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แถบชื่อเรื่อง แถบแท็บ และแถบด้านข้างเข้มกว่าเท่าใด ค่าเริ่มต้นคือ 1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Başlık çubuğunun, sekme çubuğunun ve kenar çubuğunun ne kadar koyu olduğu. Varsayılan 1'dir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наскільки заголовок, панель вкладок і бічна панель темніші. Типово 1."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thanh tiêu đề, thanh tab và thanh bên tối hơn bao nhiêu. Mặc định là 1."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标题栏、标签栏和侧边栏暗多少。默认值为 1。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "標題列、分頁列和側邊欄暗多少。預設值為 1。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

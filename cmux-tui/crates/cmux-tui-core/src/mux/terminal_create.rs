@@ -315,7 +315,7 @@ impl Mux {
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
@@ -345,7 +345,7 @@ impl Mux {
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let screen = state.workspaces[wi].screens[si].id;
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,
@@ -386,7 +386,7 @@ impl Mux {
                         pane_id,
                     ));
                     state.workspaces[wi].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::ScreenAdded,
@@ -505,7 +505,7 @@ impl Mux {
         if screens_before.is_some_and(|before| workspace.screens.len() > before) {
             let index =
                 workspace.screens.iter().position(|screen| screen.id == placement.screen)?;
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 state,
                 notifications,
                 TreeDeltaKind::ScreenAdded,

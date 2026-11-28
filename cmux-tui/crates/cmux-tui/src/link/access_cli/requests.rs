@@ -95,13 +95,16 @@ pub(super) fn request(
     let made =
         sync_cli::machine_call(&socket, "access-request", params).map_err(machine_failure)?;
     let request_id = made["request_id"].as_str().unwrap_or_default().to_string();
+    // This agent's alone: only a status read that brings it gets a secret's
+    // value (another chat's agent can list the request, not read it).
+    let read_token = made.get("read_token").and_then(Value::as_str).map(str::to_string);
     let deadline = Instant::now() + timeout;
     let mut withdraws = 0;
     loop {
         let status = sync_cli::machine_call(
             &socket,
             "access-request-status",
-            json!({"request_id": request_id}),
+            json!({"request_id": request_id, "read_token": read_token}),
         )
         .map_err(machine_failure)?;
         match status["state"].as_str() {
@@ -487,19 +490,23 @@ pub(super) fn answer(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_string());
     let once = format!("{root}/local/requests/{request_id}/{name}");
-    let at = if let How::Allow = how {
+    let (at, folder_remote) = if let How::Allow = how {
         // Once is for one file; a folder is shared with Always, whose
         // folder the card names.
         if is_dir {
             return Err(Failure::new("grant_refused", "a folder is shared with Always, not once"));
         }
         sync_cli::copy_file(socket, &target, &once).map_err(machine_failure)?;
-        once
+        (once, None)
     } else {
         always(socket, machine, session, root, &target, is_dir, shown.folder, &once)?
     };
     answer_machine(socket, request_id, json!({"outcome": "delivered", "path": at}))?;
-    Ok(json!({"request_id": request_id, "outcome": "delivered", "at": at}))
+    let mut answered = json!({"request_id": request_id, "outcome": "delivered", "at": at});
+    if let Some(folder_remote) = folder_remote {
+        answered.set("folder_remote", json!(folder_remote));
+    }
+    Ok(answered)
 }
 
 /// The grant of `session` on `machine` that already covers `target`.
@@ -531,7 +538,7 @@ fn always(
     is_dir: bool,
     shown: Option<&str>,
     once: &str,
-) -> Result<String, Failure> {
+) -> Result<(String, Option<String>), Failure> {
     let store = Store::open()?;
     let kept = covering(&store.grants, machine, session, target).cloned();
     let folder = match &kept {
@@ -551,7 +558,7 @@ fn always(
                 return Err(Failure::new("grant_refused", "it is in a read-write folder already"));
             }
             sync_cli::copy_file(socket, target, once).map_err(machine_failure)?;
-            return Ok(once.to_string());
+            return Ok((once.to_string(), None));
         }
         Some(grant) => grant.remote,
         None => {
@@ -564,12 +571,12 @@ fn always(
             if covering(&store.grants, machine, session, target).is_none() {
                 return Err(Failure::new("grant_not_found", "the folder was revoked meanwhile"));
             }
-            return at_copy(socket, &remote, &folder, target);
+            return Ok((at_copy(socket, &remote, &folder, target)?, Some(remote)));
         }
     };
     let at = at_copy(socket, &remote, &folder, target)?;
     drop(store);
-    Ok(at)
+    Ok((at, Some(remote)))
 }
 
 /// Where `target` is in the copy `remote` of `folder`; a file the copy

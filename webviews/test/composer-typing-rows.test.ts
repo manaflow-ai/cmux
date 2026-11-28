@@ -25,6 +25,12 @@ describe("composerTypingRows", () => {
     ]);
   });
 
+  test("the p50 reads the key's frame's paint where the page reported it, else the after-frame proxy", () => {
+    const samples = [{ paint: 40, painted: 5 }, { paint: 50, painted: 7 }, { paint: 9 }];
+    const rows = composerTypingRows([load({ samples })]);
+    expect(rows.find((row) => row.name.endsWith(".to_paint"))?.p50).toBe(7);
+  });
+
   test("an invalid load prints no timing row, so it never reads as fast", () => {
     const rows = composerTypingRows([load({ valid: false, to_paint_p95: 1, to_paint_p99: 1 })]);
     expect(rows.map((row) => [row.name, row.p95])).toEqual([["composer_typing.l1.webkit.rows60.invalid", 1]]);

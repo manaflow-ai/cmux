@@ -14,7 +14,8 @@ use cmux_cloud_wire::{
 use serde_json::{Value, json};
 
 use super::contract::{
-    Target, conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
+    AppKvRow, AppKvWrite, Target, appkv_snapshot_head, appkv_snapshot_rows, appkv_writes,
+    conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
 };
 use cmux_json::JsonSet as _;
 
@@ -50,6 +51,24 @@ pub enum CloudEvent {
     },
     InboxReset {
         seq: u64,
+        account: Option<String>,
+    },
+    /// The `appkv:<user>` stream's snapshot: every row (`None` when the
+    /// owner sent none). Only the daemon's synced app storage hears it.
+    AppKvReset {
+        seq: u64,
+        rows: Option<Vec<AppKvRow>>,
+        /// The head revision the snapshot was taken at.
+        revision: u64,
+        /// Every row is here; `false`: the owner sent only its newest rows
+        /// and `appkv.list` pages the rest.
+        complete: bool,
+        account: Option<String>,
+    },
+    /// One committed change of the `appkv:<user>` stream.
+    AppKvChanged {
+        seq: u64,
+        writes: Vec<AppKvWrite>,
         account: Option<String>,
     },
     /// New wakes in the leased chief's MuxDO queue: ids only.
@@ -129,6 +148,8 @@ impl CloudEvent {
             | Self::ConversationResynced { account, .. }
             | Self::InboxChanged { account, .. }
             | Self::InboxReset { account, .. }
+            | Self::AppKvReset { account, .. }
+            | Self::AppKvChanged { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. }
@@ -143,12 +164,15 @@ impl CloudEvent {
         self
     }
 
-    fn account(&self) -> Option<&str> {
+    /// The account of the lease whose socket produced a stream event.
+    pub fn account(&self) -> Option<&str> {
         match self {
             Self::ConversationChanged { account, .. }
             | Self::ConversationResynced { account, .. }
             | Self::InboxChanged { account, .. }
             | Self::InboxReset { account, .. }
+            | Self::AppKvReset { account, .. }
+            | Self::AppKvChanged { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. }
@@ -157,6 +181,27 @@ impl CloudEvent {
             | Self::Typing { account, .. }
             | Self::Presence { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } | Self::HostReplicaNeeded { .. } => None,
+        }
+    }
+
+    /// The `event` name of [`Self::wire_json`], read without building it.
+    pub const fn wire_name(&self) -> &'static str {
+        match self {
+            Self::ConversationChanged { .. } => "cloud-conversation-changed",
+            Self::ConversationResynced { .. } => "cloud-conversation-resynced",
+            Self::InboxChanged { .. } => "cloud-inbox-changed",
+            Self::InboxReset { .. } => "cloud-inbox-reset",
+            Self::AppKvReset { .. } => "cloud-appkv-reset",
+            Self::AppKvChanged { .. } => "cloud-appkv-changed",
+            Self::MuxWake { .. } => "cloud-mux-wake",
+            Self::MuxResynced { .. } => "cloud-mux-resynced",
+            Self::SubscriptionState { .. } => "cloud-subscription-state",
+            Self::SessionNeeded { .. } => "cloud-session-needed",
+            Self::HostReplicaNeeded { .. } => "cloud-host-replica-needed",
+            Self::RunChanged { .. } => "cloud-conversation-run-changed",
+            Self::Live { .. } => "cloud-conversation-live",
+            Self::Typing { .. } => "cloud-conversation-typing",
+            Self::Presence { .. } => "cloud-conversation-presence",
         }
     }
 
@@ -188,6 +233,9 @@ impl CloudEvent {
                 "entries": entries,
             }),
             Self::InboxReset { seq, .. } => json!({"event": "cloud-inbox-reset", "seq": seq}),
+            // The daemon's own (apps/synced.rs): the mux hands these only to
+            // the apps supervisor, so no client event exists for them.
+            Self::AppKvReset { .. } | Self::AppKvChanged { .. } => return Value::Null,
             Self::MuxWake { seq, wakes, .. } => {
                 json!({"event": "cloud-mux-wake", "seq": seq, "wakes": wakes})
             }
@@ -366,17 +414,27 @@ impl StreamState {
         self.subscribed
     }
 
+    /// Asks the owner for a snapshot now (a subscriber that needs every row
+    /// again: synced storage after an app starts syncing). The position is
+    /// forgotten, so a reconnect before it comes subscribes fresh too.
+    pub(crate) fn request_snapshot(&mut self) -> Vec<StreamAction> {
+        self.mirror.forget_position();
+        let out = self.mirror.resync();
+        self.send(out)
+    }
+
     fn stream_name(&self) -> Option<String> {
         match &self.target {
             Target::Conversation(id) => Some(format!("conv:{id}")),
             Target::Mux(agent) => Some(format!("mux:{agent}")),
             Target::Inbox => self.user.as_ref().map(|user| format!("inbox:{user}")),
+            Target::AppKv => self.user.as_ref().map(|user| format!("appkv:{user}")),
         }
     }
 
     fn frame(&self, kind: &str) -> Value {
         let mut frame = json!({"t": kind});
-        if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
+        if let (Target::Inbox | Target::AppKv, Some(stream)) = (&self.target, self.stream_name()) {
             frame.set("stream", json!(stream));
         }
         frame
@@ -388,7 +446,9 @@ impl StreamState {
         out.into_iter()
             .map(|out| {
                 let mut frame = out.to_value();
-                if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
+                if let (Target::Inbox | Target::AppKv, Some(stream)) =
+                    (&self.target, self.stream_name())
+                {
                     frame.set("stream", json!(stream));
                 }
                 StreamAction::Send(frame.to_string())
@@ -437,7 +497,9 @@ impl StreamState {
                         }
                     }
                     // The inbox stream is named after the principal.
-                    None if self.target == Target::Inbox => return vec![StreamAction::Forbidden],
+                    None if matches!(self.target, Target::Inbox | Target::AppKv) => {
+                        return vec![StreamAction::Forbidden];
+                    }
                     // Unknown principal: never resume a position it may not own.
                     None => {
                         self.mirror.reset(Value::Null);
@@ -652,6 +714,18 @@ impl StreamState {
                     Target::Inbox => {
                         Translated::Emit(CloudEvent::InboxReset { seq, account: None })
                     }
+                    Target::AppKv => {
+                        let rows = appkv_snapshot_rows(&frame);
+                        let held = rows.as_ref().map_or(0, Vec::len);
+                        let (revision, complete) = appkv_snapshot_head(&frame, held);
+                        Translated::Emit(CloudEvent::AppKvReset {
+                            seq,
+                            complete: complete && rows.is_some(),
+                            rows,
+                            revision,
+                            account: None,
+                        })
+                    }
                     Target::Mux(_) => Translated::Emit(CloudEvent::MuxResynced {
                         seq,
                         pending: mux_pending(&frame),
@@ -703,6 +777,14 @@ impl StreamState {
                             seq,
                             transaction,
                             entries,
+                            account: None,
+                        }),
+                        None => Translated::Resync,
+                    },
+                    Target::AppKv => match appkv_writes(&frame) {
+                        Some(writes) => Translated::Emit(CloudEvent::AppKvChanged {
+                            seq,
+                            writes,
                             account: None,
                         }),
                         None => Translated::Resync,

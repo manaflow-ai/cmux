@@ -63,6 +63,20 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/files/entries?path=%2Ftmp`,
     scope: "vm:files",
   },
+  {
+    name: "searchFiles",
+    method: "GET",
+    template: "/v1/vms/{vmId}/files/search",
+    path: (id) => `/v1/vms/${id}/files/search?path=%2Ftmp&query=needle`,
+    scope: "vm:files",
+  },
+  {
+    name: "seedFileReplica",
+    method: "POST",
+    template: "/v1/vms/{vmId}/files/replica",
+    path: (id) => `/v1/vms/${id}/files/replica?path=%2Ftmp`,
+    scope: "vm:files",
+  },
   // Snapshots and terminals (slice S3a).
   {
     name: "createSnapshot",

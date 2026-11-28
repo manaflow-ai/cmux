@@ -203,7 +203,6 @@ pub struct ServiceOptions {
     /// How long one upstream receive waits before the driver rechecks its
     /// subscribers and the lease.
     pub poll: Duration,
-    pub max_conversation_subscriptions: usize,
     /// Cloud HTTP requests the daemon runs at once; one more is refused with
     /// `cloud_unavailable` (retryable) instead of queueing.
     pub max_concurrent_requests: usize,
@@ -223,7 +222,6 @@ impl Default for ServiceOptions {
             backoff_min: Duration::from_secs(1),
             backoff_max: Duration::from_secs(30),
             poll: Duration::from_secs(1),
-            max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
             api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
                 .unwrap_or_default()
@@ -267,6 +265,9 @@ struct Subscription {
     /// Frames a client asked the driver to send on the socket (`run.live.get`,
     /// `typing`).
     outbox: Vec<String>,
+    /// A subscriber asked for a snapshot ([`CloudConversations::resync`]): the
+    /// driver asks the owner once its socket is live.
+    resync: bool,
     /// The client whose `cloud-conversation-typing` is on: the indicator is
     /// sent again after a reconnect (the owner turned it off when the old
     /// socket closed), and turned off when that client's connection closes.
@@ -811,6 +812,57 @@ impl CloudConversations {
         mutation_data(self.post("/v1/ops", &body)?)
     }
 
+    /// One synced app storage write (`appkv.set` or `appkv.delete`, the
+    /// daemon's own outbox, cmux-tui-core apps/synced.rs). The caller retries
+    /// an `Unavailable` with the same idempotency key.
+    ///
+    /// `account` is the account the write was queued for: it is sent only
+    /// with a lease of that account (a sign-in to another one between the
+    /// caller's check and this send must not carry it to the new account).
+    pub fn appkv_op(
+        &self,
+        account: &str,
+        app: &str,
+        key: &str,
+        value: Option<&Value>,
+        idempotency_key: &str,
+    ) -> Result<Value, CloudError> {
+        let body = contract::appkv_op_body(app, key, value, idempotency_key)?;
+        mutation_data(self.post_as(Some(account), "/v1/ops", &body)?)
+    }
+
+    /// One page of the person's synced storage rows (`appkv.list`) after
+    /// `after_revision`: the rows past a snapshot's newest ones.
+    pub fn appkv_list(&self, after_revision: u64, limit: u32) -> Result<Value, CloudError> {
+        if !(1..=500).contains(&limit) {
+            return Err(CloudError::BadRequest("limit must be 1-500".into()));
+        }
+        let params = json!({"after_revision": after_revision, "limit": limit});
+        let reply = self.post("/v1/read", &read_body("appkv.list", params))?;
+        // The head revision the page was read at comes beside the value.
+        let (mut value, revision) = read_value(reply)?;
+        if value.get("revision").is_none() {
+            value.set("revision", revision);
+        }
+        Ok(value)
+    }
+
+    /// Asks `target`'s owner for a snapshot once its socket is live (a
+    /// subscriber that needs every row again). Nothing without a subscription.
+    pub fn resync(&self, target: &Target) {
+        if let Some(subscription) =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).get_mut(target)
+        {
+            subscription.resync = true;
+        }
+        self.inner.notify();
+    }
+
+    /// The cloud user id (`sub`) of the current lease, if any.
+    pub fn lease_account(&self) -> Option<String> {
+        self.inner.lease_account()
+    }
+
     /// Validates a `cloud-inbox-op` before it leaves the request loop.
     pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
         contract::inbox_op_body(request).map(|_| ())
@@ -907,7 +959,25 @@ impl CloudConversations {
     }
 
     pub(crate) fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
+        self.post_as(None, path, body)
+    }
+
+    /// [`Self::post`] with the lease it uses held to `account` when one is
+    /// named: another account's lease sends nothing.
+    fn post_as(
+        &self,
+        account: Option<&str>,
+        path: &str,
+        body: &Value,
+    ) -> Result<HttpReply, CloudError> {
         let session = self.inner.usable_session()?;
+        if let Some(account) = account
+            && session.account.as_deref() != Some(account)
+        {
+            return Err(CloudError::Unavailable(
+                "the cloud lease is no longer the account this write was made for".into(),
+            ));
+        }
         let reply = self
             .inner
             .backend
@@ -947,18 +1017,8 @@ impl CloudConversations {
                 subscription.idle_since = None;
                 (None, subscription.state.reply(&target))
             } else {
-                let conversations = subscriptions
-                    .keys()
-                    .filter(|target| matches!(target, Target::Conversation(_)))
-                    .count();
-                if matches!(target, Target::Conversation(_))
-                    && conversations >= self.inner.options.max_conversation_subscriptions
-                {
-                    return Err(CloudError::daemon_reject(
-                        "too_many_subscriptions",
-                        "too many cloud conversation subscriptions",
-                    ));
-                }
+                // No count cap: an open conversation costs one driver thread
+                // and one socket, and ends `linger` after its last subscriber.
                 let reply = initial.reply(&target);
                 let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
@@ -969,6 +1029,7 @@ impl CloudConversations {
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        resync: false,
                         typing_by: None,
                         viewing: BTreeSet::new(),
                         presence: None,
@@ -1403,6 +1464,11 @@ impl Inner {
         subscriptions.get_mut(target).map(|s| std::mem::take(&mut s.outbox)).unwrap_or_default()
     }
 
+    fn take_resync(&self, target: &Target) -> bool {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        subscriptions.get_mut(target).is_some_and(|s| std::mem::take(&mut s.resync))
+    }
+
     fn remove(&self, target: &Target) {
         self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
     }
@@ -1630,6 +1696,15 @@ fn pump(
                     return Ended::Dropped;
                 }
             }
+            if inner.take_resync(target) {
+                for action in stream.request_snapshot() {
+                    if let StreamAction::Send(frame) = action
+                        && wire.send(&frame).is_err()
+                    {
+                        return Ended::Dropped;
+                    }
+                }
+            }
         }
         let now = inner.now();
         // A snapshot that did not decode is asked for again when its backoff ends.
@@ -1695,8 +1770,12 @@ fn valid_selfhost_user(user: &str) -> bool {
 
 #[path = "owner_wire.rs"]
 mod owner_wire;
-pub use owner_wire::{OwnerWire, OwnerWireError};
+pub use owner_wire::{LeaseBearer, OwnerWire, OwnerWireError};
 
 #[cfg(test)]
 #[path = "service_presence_order_tests.rs"]
 mod presence_order_tests;
+
+#[cfg(test)]
+#[path = "service_appkv_account_tests.rs"]
+mod appkv_account_tests;

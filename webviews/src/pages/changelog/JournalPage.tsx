@@ -8,15 +8,43 @@
 //  - Then one section per release day ("Today", "Yesterday", "Oct 6"), its builds merged; the
 //    build numbers are small and selectable, never a headline.
 //  - A run of builds with no human change says "Maintenance and fixes", never a blank row.
-// J and K move between sections. Notes load as a day nears the viewport (the span at once).
+// J and K move between sections. Notes load as a day nears the viewport (the span at once). A long
+// index draws only the days on screen and a few either side (useDayWindow), each day redrawn only
+// when its own notes or builds change (sameDay).
 // The Ledger (u5099, the default) is this page laid out as conductor.build/changelog: each day's
 // newest version as a small tag and its date sit sticky in the left margin, the changes beside them.
-import type { KeyboardEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  defaultRangeExtractor,
+  measureElement,
+  useWindowVirtualizer,
+  type Range,
+  type Virtualizer,
+} from "@tanstack/react-virtual";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
+import {
+  BuildNumbers,
+  ChangesFold,
+  Groups,
+  Hero,
+  Maintenance,
+  NotesUnavailable,
+  type PartsContext,
+} from "./ReleaseParts";
 import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, NewsLayout, ReleaseNotes } from "./types";
@@ -34,35 +62,57 @@ export function JournalPage({
   ledger?: boolean;
   news?: NewsLayout;
 }) {
-  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger, news };
-  const span = new Set(s.inSpan);
-  const fresh = s.builds.filter((b) => span.has(b.build));
-  const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;
+  const ctx = useMemo<PartsContext>(
+    () => ({ strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger, news }),
+    [strings, store, ledger, news],
+  );
+  const { fresh, earlier } = useMemo(() => {
+    const span = new Set(s.inSpan);
+    return {
+      fresh: s.builds.filter((b) => span.has(b.build)),
+      earlier: s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds,
+    };
+  }, [s.builds, s.inSpan, s.span]);
+  const days = useMemo(() => groupByDay(earlier), [earlier]);
+  const list = useRef<HTMLDivElement>(null);
+  const shown = useDayWindow(list, days, DAY_HEIGHT);
   return (
     <KeyboardScope className="clw" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} />}
+        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} store={store} />}
         <div className={ledger ? "clj cll" : "clj"}>
           {!s.span && s.failed && <p className="cl-error">{s.failed}</p>}
           {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
           {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
           {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
-          {groupByDay(earlier).map((day) => (
-            <DaySection
-              key={day.day + day.builds[0]!.build}
-              day={day.day}
-              builds={day.builds}
-              s={s}
-              store={store}
-              ctx={ctx}
-              ledger={ledger}
-            />
-          ))}
+          <div className="clj-days" ref={list} onFocus={shown.onFocus}>
+            {shown.days.map(({ index, gap }) => {
+              const day = days[index]!;
+              return (
+                <DayRoom key={dayKey(day)} gap={gap}>
+                  <DaySection
+                    index={index}
+                    measure={shown.measure}
+                    day={day.day}
+                    builds={day.builds}
+                    s={s}
+                    store={store}
+                    ctx={ctx}
+                    ledger={ledger}
+                  />
+                </DayRoom>
+              );
+            })}
+            {shown.after > 0 && <div aria-hidden="true" style={{ height: shown.after }} />}
+          </div>
         </div>
       </main>
     </KeyboardScope>
   );
 }
+
+/** About how tall a journal day is before it is drawn: its placeholder, date and build numbers. */
+const DAY_HEIGHT = 220;
 
 /** The update's own section: what changed from the version before it to this one. It spans the
     tab's width up to a cap (Leo 2026-10-21: "how are you still going this narrow"), above the
@@ -72,11 +122,13 @@ function SpanSection({
   fresh,
   ctx,
   failed,
+  store,
 }: {
   s: ChangelogSnapshot;
   fresh: IndexEntry[];
   ctx: PartsContext;
   failed?: string;
+  store: ChangelogStore;
 }) {
   const loaded = fresh.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -99,12 +151,21 @@ function SpanSection({
           {span.to}
         </span>
       </div>
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} news />
+      <SectionBody
+        view={view}
+        pending={pending}
+        ctx={ctx}
+        // The span's builds are not in the list yet: Try again reads the list again (store.ts `retry`).
+        onRetryUnpublished={fresh.length === 0 ? () => void store.retry() : undefined}
+        news
+      />
     </section>
   );
 }
 
-function DaySection({
+const DaySection = memo(function DaySection({
+  index,
+  measure,
   day,
   builds,
   s,
@@ -112,6 +173,9 @@ function DaySection({
   ctx,
   ledger = false,
 }: {
+  /** Its place in the day list, which useDayWindow's `measure` reads. */
+  index: number;
+  measure: (el: Element | null) => void;
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
@@ -121,7 +185,7 @@ function DaySection({
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
-  const near = loadNear(builds, store, pending);
+  const near = dayRef(measure, loadNear(builds, store, pending));
   const view = mergedView(loaded, ctx.strings.language);
   const installed = builds.some((b) => b.build === s.current);
   const title = ledger ? releaseTitle(loaded, ctx.strings.language) : undefined;
@@ -129,7 +193,12 @@ function DaySection({
   const heroTitled = !title || !view.hero || !title.startsWith(view.hero.title);
   if (ledger)
     return (
-      <section className="clj-section cll-release" ref={near} aria-label={dayLabel(day, ctx.strings.language)}>
+      <section
+        className="clj-section cll-release"
+        ref={near}
+        data-index={index}
+        aria-label={dayLabel(day, ctx.strings.language)}
+      >
         <div className="cll-gutter">
           <div className="cll-gutter-in">
             <span className="cll-version">{cardVersion(builds[0]!.shortVersion)}</span>
@@ -145,7 +214,7 @@ function DaySection({
       </section>
     );
   return (
-    <section className="clj-section" ref={near} aria-label={dayLabel(day, ctx.strings.language)}>
+    <section className="clj-section" ref={near} data-index={index} aria-label={dayLabel(day, ctx.strings.language)}>
       <div className="clj-day-row">
         <h2 className="clj-day">
           <time dateTime={day}>{dayLabel(day, ctx.strings.language)}</time>
@@ -156,6 +225,158 @@ function DaySection({
       <SectionBody view={view} pending={pending} ctx={ctx} />
     </section>
   );
+}, sameDay);
+
+/** Whether a day draws the same: the same props, and in the snapshot the same notes and the same
+    running build for its own builds. A note that loads for one day leaves every other day as it was. */
+export function sameDay<P extends { s: ChangelogSnapshot; builds: IndexEntry[] }>(a: P, b: P): boolean {
+  for (const key in a) if (key !== "s" && !Object.is(a[key], b[key])) return false;
+  if (a.s === b.s) return true;
+  if (a.s.current !== b.s.current) return false;
+  return a.builds.every(
+    ({ build }) => a.s.loaded[build] === b.s.loaded[build] && a.s.unavailable[build] === b.s.unavailable[build],
+  );
+}
+
+/** A day's key in the list: its date and newest build. */
+export function dayKey(day: { day: string; builds: IndexEntry[] }): string {
+  return day.day + day.builds[0]!.build;
+}
+
+/** A drawn day, after the room the days above it that are not drawn would take. */
+export function DayRoom({ gap, children }: { gap: number; children: ReactNode }) {
+  return (
+    <>
+      {gap > 0 && <div aria-hidden="true" style={{ height: gap }} />}
+      {children}
+    </>
+  );
+}
+
+/** A day section's ref: `measure` sizes it for the day list (and lets it go when it unmounts),
+    `near` loads its notes. */
+export function dayRef(measure: (el: Element | null) => void, near: ReturnType<typeof loadNear>) {
+  return (el: HTMLElement | null) => {
+    measure(el);
+    const stop = near(el);
+    return () => {
+      if (typeof stop === "function") stop();
+      measure(null);
+    };
+  };
+}
+
+/** A day list longer than this draws only the days in or near the viewport; a shorter one draws
+    every day, as the page always did. */
+export const WINDOW_DAYS = 40;
+
+/** How many days past each edge of the viewport a long list keeps drawn. A day is about a screen
+    tall or more, so this is a screen or more either side: J and K always find the next day drawn. */
+const DAY_OVERSCAN = 2;
+
+const NO_DAYS: readonly number[] = [];
+
+/** What a day list draws: `days`, the indexes of the days in or near the viewport in order (every
+    day, under WINDOW_DAYS), each with the room the days not drawn above it take (`gap`); `after`,
+    the room under the last; `measure`, each drawn day's ref (with `data-index`), which sizes it;
+    `onFocus`, the list's, which keeps the day holding the focus drawn. */
+export interface DayWindow {
+  days: { index: number; gap: number }[];
+  after: number;
+  measure: (el: Element | null) => void;
+  onFocus: (event: FocusEvent<HTMLElement>) => void;
+}
+
+/** Windows a page's day list over the document's scroll (TanStack's window virtualizer): a long
+    nightly index mounts the days on screen and DAY_OVERSCAN either side, and holds the rest as
+    room, so the page is as tall, scrolls and keeps its place as with every day mounted. `list` wraps
+    the days; `height` guesses a day's height before it is drawn; `pinned` days stay drawn wherever
+    the page is scrolled (the days a focus may scroll to), and so does the day holding the keyboard
+    focus, so scrolling it away keeps the focus, and J and K, in the page. */
+export function useDayWindow(
+  list: RefObject<HTMLElement | null>,
+  days: { day: string; builds: IndexEntry[] }[],
+  height: number | ((day: { day: string; builds: IndexEntry[] }) => number),
+  pinned: readonly number[] = NO_DAYS,
+): DayWindow {
+  const windowed = days.length > WINDOW_DAYS;
+  // Where the list starts on the page: what is above it (the update's section) grows as it loads.
+  const [top, setTop] = useState(0);
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (!windowed || !element) return undefined;
+    const place = () =>
+      setTop(Math.round(element.getBoundingClientRect().top + (element.ownerDocument.defaultView?.scrollY ?? 0)));
+    place();
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(place) : undefined;
+    resize?.observe(element.closest("main") ?? element);
+    return () => resize?.disconnect();
+  }, [list, windowed]);
+  const [focused, setFocused] = useState<number>();
+  const onFocus = (event: FocusEvent<HTMLElement>) => {
+    const index = Number((event.target as Element).closest("[data-index]")?.getAttribute("data-index"));
+    setFocused(Number.isInteger(index) ? index : undefined);
+  };
+  // Each day's key, read once per list: TanStack asks for every day's key after a day changes size.
+  const keys = useMemo(() => days.map(dayKey), [days]);
+  // A day not drawn yet is guessed as tall as the first day measured, so drawing one as the page
+  // scrolls does not move every day under it (TanStack places each again when a size differs from
+  // its guess); `height` guesses until then.
+  const first = useMemo<{ size?: number }>(() => ({}), []);
+  const sizes = useMemo(
+    () => ({
+      estimateSize: (index: number) => first.size ?? (typeof height === "number" ? height : height(days[index]!)),
+      getItemKey: (index: number) => keys[index]!,
+      measureElement: (
+        element: Element,
+        entry: ResizeObserverEntry | undefined,
+        instance: Virtualizer<Window, Element>,
+      ) => {
+        const size = withMarginBelow(element, entry, instance);
+        if (first.size === undefined && size > 0) first.size = size;
+        return size;
+      },
+    }),
+    [days, keys, height, first],
+  );
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const near = defaultRangeExtractor(range);
+      const held = focused === undefined ? pinned : [...pinned, focused];
+      const far = held.filter((index) => index < range.count && !near.includes(index));
+      return far.length === 0 ? near : [...new Set([...far, ...near])].sort((a, b) => a - b);
+    },
+    [pinned, focused],
+  );
+  const virtualizer = useWindowVirtualizer({
+    count: days.length,
+    enabled: windowed,
+    overscan: DAY_OVERSCAN,
+    scrollMargin: top,
+    rangeExtractor,
+    ...sizes,
+  });
+  if (!windowed) return { days: days.map((_, index) => ({ index, gap: 0 })), after: 0, measure: noMeasure, onFocus };
+  let end = top;
+  const shown = virtualizer.getVirtualItems().map((item) => {
+    const gap = item.start - end;
+    end = item.end;
+    return { index: item.index, gap };
+  });
+  const after = Math.max(0, virtualizer.getTotalSize() + top - end);
+  return { days: shown, after, measure: virtualizer.measureElement, onFocus };
+}
+
+const noMeasure = () => {};
+
+/** A day's height with the margin under it (styles.css .clj-section), which its box leaves out. */
+function withMarginBelow(
+  element: Element,
+  entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<Window, Element>,
+) {
+  const margin = element.ownerDocument.defaultView?.getComputedStyle(element).marginBottom;
+  return measureElement(element, entry, instance) + (Number.parseFloat(margin ?? "") || 0);
 }
 
 /** A day section's ref: it loads the notes of `builds` once the section nears the viewport (at once
@@ -191,18 +412,20 @@ function SectionBody({
   view,
   pending,
   ctx,
-  unpublished = false,
+  onRetryUnpublished,
   heroTitled = true,
   news = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
-  unpublished?: boolean;
+  /** Set when the section's builds are not published in the list yet: its line and Try again. */
+  onRetryUnpublished?: () => void;
   heroTitled?: boolean;
   /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
   news?: boolean;
 }) {
+  const unpublished = onRetryUnpublished !== undefined;
   // The update waits for every build of its span (they load at once): drawn early, its fold would
   // open on the first build's bare changes and close again when a later build's notes arrive.
   if (pending && (news || (view.count === 0 && view.changes.length === 0)))
@@ -211,7 +434,7 @@ function SectionBody({
     <>
       {!news && view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
-      {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
+      {onRetryUnpublished && <NotesUnavailable strings={ctx.strings} onRetry={onRetryUnpublished} />}
       {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
       {/* With no curated notes the changes are the news, so the update opens them. */}
       <ChangesFold

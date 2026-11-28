@@ -31,8 +31,9 @@ extension AgentPaneView {
     /// its own window over the pane, so the page lies outside the window until it reports its first frame and comes
     /// back in that turn, with the picture's clearing (``AgentPaneModel/whenPainted(_:)``). It never draws over the
     /// picture in pieces (the composer row drawn twice, 2026-10-24) and the picture is what the pane shows meanwhile.
-    public func holdChromiumPageUntilPainted() {
-        guard pageDrawsOverCovers, model.newTab != nil, !model.hasPainted, !holdsPageAway else { return }
+    /// `rebuilt`: a shown chat built again over its own picture (`AgentPageRendererPacking`) is held the same way.
+    public func holdChromiumPageUntilPainted(rebuilt: Bool = false) {
+        guard pageDrawsOverCovers, model.newTab != nil || rebuilt, !model.hasPainted, !holdsPageAway else { return }
         holdPageAway(moved: { [weak self] in self?.page?.chromiumWindowMoved() })
     }
 
@@ -136,13 +137,48 @@ extension AgentPaneView {
         guard !(drawn && landed) else {
             pageContent.layoutSubtreeIfNeeded()
             move.moved()
-            return
+            return movedPageShown()
         }
         holdsPageAway = true
         pageContent.frame = Self.awayFrame(of: rest)
         pageContent.layoutSubtreeIfNeeded()
         move.moved()
+        // Out of sight under a paint hold's clear pane: it shows to Chromium there, and draws.
+        if drawsUnseenForHold { page?.setChromiumVisibility(true) }
         waitForChromiumMove(move, at: rest.size, drawn: drawn)
+    }
+
+    /// A Chromium page moved here waits outside the window for its frame at the size its pane rests at
+    /// (``placeChromiumMove(at:)``), or will at its next layout: a pane that showed another tab keeps it until then
+    /// (``PanePaintHold``), not its bare ground (Leo 2026-11-22: "the content within neeeds to be ... settling ...
+    /// instantly"). False for a page that shows in the layout it lands in (laid out at its pane's size already).
+    public var movedPageWaits: Bool {
+        guard pageDrawsOverCovers, model.hasPainted else { return false }
+        if chromiumMoveWait != nil { return holdsPageAway }
+        guard let move = chromiumMove, page?.showsChromium == true, !bounds.isEmpty else { return false }
+        let frame = topBar.pageFrame(in: bounds)
+        let rest = restingFrame(of: frame)
+        return move.requiresFrame || !Self.near(rest.size, move.parkedSize, within: 0.5) || !Self.near(frame.size, rest.size, within: 0.5)
+    }
+
+    /// Runs `body` once the Chromium page moved here shows in place (``placeChromiumMove(at:)``); false when no move
+    /// is pending or waits, and the caller waits as for any page.
+    public func whenMovedPageShows(_ body: @escaping () -> Void) -> Bool {
+        guard chromiumMove != nil || chromiumMoveWait != nil else { return false }
+        movedPageWaiters.append(body)
+        return true
+    }
+
+    /// Runs `body` once the page drew at the size it shows at: a moved Chromium page once it shows in place
+    /// (``whenMovedPageShows(_:)``), else after its redraw there (``AgentPageRedraw/when(_:_:)``).
+    public func whenDrawnAtItsSize(_ body: @escaping () -> Void) {
+        if !whenMovedPageShows(body) { redraw.when(self, body) }
+    }
+
+    private func movedPageShown() {
+        let waiting = movedPageWaiters
+        movedPageWaiters = []
+        waiting.forEach { $0() }
     }
 
     private static func near(_ a: CGSize, _ b: CGSize, within limit: CGFloat) -> Bool {
@@ -187,17 +223,20 @@ extension AgentPaneView {
     }
 
     /// Brings the page of `wait` back in place; nothing for a wait another one replaced.
+    /// Under a paint hold that waits for it, the page stays away: the hold ends, and brings it back in its transaction
+    /// (``endDrawingUnseen()``), with the tab it kept going.
     private func showMovedChromiumPage(_ wait: ChromiumMoveWait) {
         guard chromiumMoveWait === wait else { return }
         chromiumMoveWait = nil
         wait.deadline.cancel()
-        guard holdsPageAway else { return }
+        guard holdsPageAway, !(drawsUnseenForHold && !movedPageWaiters.isEmpty) else { return movedPageShown() }
         holdsPageAway = false
         pageContent.frame = topBar.pageFrame(in: bounds)
         applyNativeRects() // the tab row's holes, taken while it was away, follow it back
         pageContent.layoutSubtreeIfNeeded()
         wait.move.moved()
         needsLayout = true
+        movedPageShown()
     }
 }
 
@@ -206,9 +245,24 @@ extension AgentPaneView {
 /// it on screen until this page drew at the new size. In place the page's window is hidden for the hold and draws no
 /// frame, so the hold lasted its whole limit. The page lies outside the window for the hold, at the size its pane
 /// rests at, where it draws; the hold's end puts it back in the transaction that shows it.
+///
+/// A page moved here that waits for its frame at its new pane's size (``movedPageWaits``: a chat that waited drawn
+/// while its tab moved to a pane that showed another chat) lies outside the window for that wait already: the hold
+/// keeps the tab before it until the wait is over, and brings the page back as it ends.
 extension AgentPaneView: PanePaintHoldUnseen {
     public func drawUnseenForPaintHold() -> Bool {
-        guard pageDrawsOverCovers, model.hasPainted, !holdsPageAway, chromiumMove == nil, chromiumMoveWait == nil else { return false }
+        guard pageDrawsOverCovers, model.hasPainted, !drawsUnseenForHold else { return false }
+        if movedPageWaits {
+            drawsUnseenForHold = true
+            guard !holdsPageAway else { return true }
+            // Away now, before the hold clears its pane: a page in place under a clear pane is hidden to Chromium.
+            holdsPageAway = true
+            pageContent.frame = heldPageFrame(of: topBar.pageFrame(in: bounds))
+            page?.chromiumWindowMoved()
+            needsLayout = true
+            return true
+        }
+        guard !holdsPageAway, chromiumMove == nil, chromiumMoveWait == nil else { return false }
         holdsPageAway = true
         drawsUnseenForHold = true
         pageContent.frame = heldPageFrame(of: topBar.pageFrame(in: bounds))
@@ -220,7 +274,8 @@ extension AgentPaneView: PanePaintHoldUnseen {
     public func endDrawingUnseen() {
         guard drawsUnseenForHold else { return }
         drawsUnseenForHold = false
-        guard holdsPageAway else { return }
+        // A move's wait that is not over (the hold's limit passed): the page shows when it drew, as without a hold.
+        guard holdsPageAway, chromiumMoveWait == nil else { return }
         holdsPageAway = false
         pageContent.frame = topBar.pageFrame(in: bounds)
         applyNativeRects() // the tab row's holes, taken while it was away, follow it back

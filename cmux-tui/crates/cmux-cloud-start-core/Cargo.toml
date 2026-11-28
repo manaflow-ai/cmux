@@ -10,6 +10,8 @@ description = "The NEXT Cloud start's decisions (pure; the macOS app asks them o
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 toml = { workspace = true }
 
 [lints]

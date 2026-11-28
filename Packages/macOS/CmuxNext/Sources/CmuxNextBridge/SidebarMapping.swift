@@ -12,7 +12,7 @@ public struct SidebarMapping {
     /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
     /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
     /// NIGHTLY hang in a row flush, 2026-10-29).
-    let home: String
+    public let home: String
     /// `home` followed by "/".
     private let homeFolderPrefix: String
 
@@ -39,20 +39,31 @@ public struct SidebarMapping {
     /// another computer's home gives its workspace, the account's name, not the work. Only a shell's: a tab the person
     /// named, a chat, a terminal running an agent, or one whose shell or program set its own title (OSC 0/2) keeps a
     /// label that happens to be that word. A title that is only the folder's path or the shell's name (`zsh`) is the
-    /// shell saying where it is.
-    static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
-        guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash), abbreviateRemote(cwd) == "~",
+    /// shell saying where it is. The rule is the machine's (`homeNamesAccount`), not the folder's: a Cloud Mac's
+    /// `/Users/admin` names its account as this Mac's own home does. `home`, when given (this Mac's), is the one home
+    /// that counts: another account's `/Users/someone` on this Mac is a folder like any other.
+    static func namesHome(_ label: String?, tab: TabModel?, home: String? = nil) -> Bool {
+        guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash),
+              home.map { cwd == Self.trimmingSlash($0) } ?? (abbreviateRemote(cwd) == "~"),
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
         return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
 
+    /// Whether an idle shell at a machine's home names its account there, not the work: this Mac (a new Mac's first
+    /// terminal read "admin", its login name; first-run findings row 19) and a Cloud machine ("cmux", #36283). Such a
+    /// workspace reads `terminalTitle` ("Terminal"). An SSH computer or a paired server keeps its folder: the account
+    /// there names which computer it is.
+    public static func homeNamesAccount(_ kind: SidebarMachine.Kind) -> Bool { kind == .local || kind == .cloud }
+
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
     /// (`namesHome`), else nil: the one rule the sidebar row and the titlebar, palette and rename prompt
     /// (`WorkspaceAutoNameReader.titlebarName`) both read, so a Cloud home shell reads "Terminal" on all of them.
-    public static func homeShellName(_ title: String?, workspace: WorkspaceModel, label: String?, face: TabModel?) -> String? {
-        title.flatMap { workspace.isUnnamed && namesHome(label, tab: face) ? $0 : nil }
+    /// `home`: this Mac's home folder when the workspace is on this Mac (`namesHome`), nil on another machine.
+    public static func homeShellName(_ title: String?, workspace: WorkspaceModel, label: String?, face: TabModel?,
+                                     home: String? = nil) -> String? {
+        title.flatMap { workspace.isUnnamed && namesHome(label, tab: face, home: home) ? $0 : nil }
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later (a row of
     /// the pass's face batch: the feed maps every row it remaps in a turn in one call).
@@ -69,19 +80,14 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
-        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``), or a Cloud machine's
-        /// desktop: the row's trailing cloud mark.
-        public var startsInCloud = false
         /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the display icon), in place of a favicon:
         /// a cmux page is no site, so its row never wears the no-favicon globe.
         public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, startsInCloud: Bool = false,
-                    icon: IconName? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
-            self.startsInCloud = startsInCloud
             self.icon = icon
         }
     }
@@ -109,7 +115,8 @@ public struct SidebarMapping {
     /// (for example, an acpmux session that was purged while its tab lingers).
     /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
     /// observation, so the pass reads no workspace's tabs (`SidebarRowFeed`).
-    /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
+    /// `terminalTitle` (localized by the App) names an unnamed workspace whose shell idles at its home on this Mac or a
+    /// Cloud machine (`homeNamesAccount`).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -134,7 +141,7 @@ public struct SidebarMapping {
             machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
             newTabTitle: newTabTitle, pageFace: pageFace,
             tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
-            homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
+            homeShellTitle: Self.homeNamesAccount(machine.kind) ? terminalTitle : nil, faces: faces))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
         // the Home item in the top section shows; neither is also a workspace row (nxdog28)
         // while that item is in the layout (`hidesHomeWorkspace`).
@@ -260,6 +267,7 @@ public struct SidebarMapping {
     public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
                                     workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
                                     explicitWorkspaceTitle: String? = nil, sessionName: String?, displayName: String? = nil,
+                                    formerSessionNames: [String] = [],
                                     chatTitle: String?, explicitChatTitle: String? = nil, taskSummary: String?) -> String {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
@@ -267,7 +275,8 @@ public struct SidebarMapping {
         // the session name. Revision zero also supports launcher-named workspaces.
         if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
-            || originalName == sessionName || originalName == shortSessionName(sessionName)
+            || isSessionNamed(originalName, sessionName: sessionName, displayName: displayName,
+                              formerSessionNames: formerSessionNames)
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
         if let displayName, !displayName.isEmpty { return displayName }
@@ -278,6 +287,20 @@ public struct SidebarMapping {
            value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
            value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame { return value }
         return workspaceTitle
+    }
+
+    /// Whether a workspace's `name` is only a name its agent had: its session name now, its given name, or a name
+    /// it had before a rename (acpmux `formerNames`). Such a workspace was named by its launcher, not forced by a
+    /// person or agent, so it keeps following the agent's name as that changes (Leo, 2026-11-24: "if it wasn't
+    /// manually adjusted and forecd by the user or agent to be a particular way, can keep being like... the main
+    /// one's name. which can change").
+    public static func isSessionNamed(_ name: String, sessionName: String?, displayName: String? = nil,
+                                      formerSessionNames: [String] = []) -> Bool {
+        guard !name.isEmpty else { return false }
+        return ([sessionName, displayName] + formerSessionNames.map(Optional.some)).contains { candidate in
+            guard let candidate, !candidate.isEmpty else { return false }
+            return name == candidate || name == shortSessionName(candidate)
+        }
     }
 
     /// Peers qualify session names for routing; the sidebar already shows the host separately.

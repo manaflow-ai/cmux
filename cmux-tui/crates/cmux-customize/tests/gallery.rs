@@ -99,7 +99,7 @@ fn every_entry_points_at_something_in_the_repo() {
         }
     }
     // Every look folder in the repo is listed, so the gallery cannot fall behind.
-    for group in ["looks", "gallery"] {
+    for group in ["looks", "gallery", "setups"] {
         for dir in fs::read_dir(examples().join(group)).unwrap() {
             let dir = dir.unwrap().path();
             if dir.join(setup::SETUP_FILE).is_file() {
@@ -211,7 +211,7 @@ fn round_trip(dir: &Path, rel: &str) {
     }
 }
 
-/// Every setup folder under examples/looks and examples/gallery, listed in the index or not
+/// Every setup folder under examples/looks, examples/gallery and examples/setups, listed in the index or not
 /// (`looks/APP/FEATURE` included), but one whose index entry `needs` an unmerged change.
 #[test]
 fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
@@ -221,7 +221,7 @@ fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
         .map(|entry| entry["path"].as_str().unwrap().to_owned())
         .collect();
     let mut folders = Vec::new();
-    for group in ["looks", "gallery"] {
+    for group in ["looks", "gallery", "setups"] {
         setup_folders(&examples().join(group), &mut folders);
     }
     folders.sort();
@@ -234,15 +234,47 @@ fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
     }
 }
 
-/// The particles document of a look that needs cmux#47525: until that lands, the shape checks
-/// here stand in for `cmux_app_host::particles::validate` (which then checks it on install).
+/// The thinking-dots look keeps its particles document as a file of the look, and `setup::read_dir`
+/// puts that file's document in place of the `{"$file": PATH}` reference (`setup::inline_files`).
+/// The shape checks here stand beside `cmux_app_host::particles::validate`, which checks it on install.
 #[test]
 fn the_thinking_dots_document_holds_together() {
     let dir = examples().join("gallery/thinking-dots");
+    let raw = cmux_config::jsonc::parse(&fs::read_to_string(dir.join("cmux-setup.json")).unwrap())
+        .unwrap();
+    assert!(
+        raw["settings"]["agentPane.display.thinking.glyph"]["$file"].is_string(),
+        "the look names its glyph as a {{\"$file\": PATH}} reference"
+    );
     let read = setup::read_dir(&dir).unwrap();
-    let setting = &read.manifest.settings["agentPane.display.thinking.glyph"];
-    let file = setting["$file"].as_str().expect("the glyph is a {\"$file\": PATH} reference");
-    let doc = cmux_config::jsonc::parse(&fs::read_to_string(dir.join(file)).unwrap()).unwrap();
+    glyph_holds_together(&read.manifest.settings["agentPane.display.thinking.glyph"]);
+}
+
+/// The claude-code look names its four-dot glyph by file in each folder that sets the glyph, and
+/// keeps two other takes beside it (`thinking-glyph-row.json`, `thinking-glyph-pulse.json`) that a
+/// person points the setting at to try; every one of them holds together the same way.
+#[test]
+fn the_claude_code_look_glyphs_hold_together() {
+    for folder in ["looks/claude-code/profile", "looks/claude-code/whole"] {
+        let dir = examples().join(folder);
+        let read = setup::read_dir(&dir).unwrap_or_else(|error| panic!("{folder}: {error}"));
+        glyph_holds_together(&read.manifest.settings["agentPane.display.thinking.glyph"]);
+        for take in ["thinking-glyph.json", "thinking-glyph-row.json", "thinking-glyph-pulse.json"]
+        {
+            let text = fs::read_to_string(dir.join("agent-pane").join(take))
+                .unwrap_or_else(|error| panic!("{folder}/agent-pane/{take}: {error}"));
+            let doc = cmux_config::jsonc::parse(&text).unwrap();
+            glyph_holds_together(&doc);
+            // The same check the setting gets when a person points it at this take.
+            let schema = cmux_config::schema::Schema::embedded();
+            let row = schema.row("agentPane.display.thinking.glyph").expect("the glyph row");
+            cmux_config::schema::accepts(row, &doc, &cmux_config::Domains::default())
+                .unwrap_or_else(|refusal| panic!("{folder}/agent-pane/{take}: {refusal:?}"));
+        }
+    }
+}
+
+fn glyph_holds_together(doc: &Value) {
     assert_eq!(doc["$schema"], "cmux.particles/1");
     let max = doc["particle"]["max"].as_u64().unwrap() as usize;
     let phases = doc["phases"].as_object().unwrap();

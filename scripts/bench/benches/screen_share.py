@@ -3,7 +3,7 @@
 Two harnesses, one bench:
 
   mode=eval (default)  scripts/measure/screen-stream-eval.sh on one fleet Mac (host and viewer on that Mac,
-                       targets rd,webrtc by default; the daily workflow's run). Its results.json
+                       targets rd,webrtc by default, rd,webrtc,iphone-sim in the daily workflow's run). Its results.json
                        (schema cmux.screen-stream-eval/1) becomes rows labelled target=<the harness's target>.
   mode=vs              cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py `run`: cmux's session path
                        against the OS's built-in screen sharing on two Macs. Its JSON lines (--out FILE, or
@@ -34,7 +34,7 @@ VS_MARKER = "cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift"
 VS_ARTIFACT = "artifacts/screen-share-vs.jsonl"
 WINDOW_PHASES = ("idle", "typing", "scroll")
 # screen-stream-eval.sh's own arguments a bench run may pass through (--arg KEY=VALUE, same names).
-EVAL_PASS = ("targets", "samples", "repeats", "input-frame-now", "scene-marker", "netem-rtt-ms", "netem-loss-pct",
+EVAL_PASS = ("targets", "samples", "repeats", "input-frame-now", "ltr", "scene-marker", "netem-rtt-ms", "netem-loss-pct",
              "netem-seed", "video", "video-sha256")
 # screen-share-vs.py run's options a bench run may set (--arg KEY=VALUE; KEY with _ or -).
 VS_PASS = ("host", "viewer", "host-ip", "link", "link-bind", "via", "root", "bin", "cua-vnc", "rig-launch", "stacks",
@@ -141,6 +141,8 @@ class ScreenShare(Bench):
         base = {"method": "eval", "link": link}
         if str(run.get("rd_input_frame_now", "0")) == "1":
             base["input_frame_now"] = "1"
+        if str(run.get("rd_ltr", "0")) == "1":
+            base["ltr"] = "1"
         if run.get("netem_rtt_ms") not in (None, ""):
             base["netem"] = f"{run.get('netem_rtt_ms')}ms/{run.get('netem_loss_pct', 0)}%"
         for name, t in (data.get("targets") or {}).items():

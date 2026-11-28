@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextHomeModel
 import Foundation
 
 nonisolated extension CloudHomeSource {
@@ -163,20 +164,12 @@ nonisolated extension CloudHomeSource {
         return summary.id
     }
 
-    /// The masked form the Worker shows for an address (home-core `maskAddress`).
+    /// The masked form the Worker shows for an address (home-core
+    /// `maskAddress`; cmux-home-rules' `cloud.source_masked`).
     static func masked(_ contact: ContactAddress) -> String {
-        switch contact {
-        case .email(let value):
-            let pieces = value.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-            guard pieces.count == 2 else { return "***" }
-            return "\(pieces[0].prefix(1))***@\(pieces[1])"
-        case .phone(let value):
-            // E.164 with a country code and ten national digits at least, so
-            // the last four never show most of the number; anything else shows nothing.
-            let digits = value.dropFirst()
-            guard value.hasPrefix("+"), (11...15).contains(digits.count), digits.allSatisfy({ ("0"..."9").contains($0) }) else { return "***" }
-            return "+\(digits.dropLast(10)) *** *** \(value.suffix(4))"
-        }
+        let wire = switch contact { case .email(let value): ["email": value]; case .phone(let value): ["phone": value] }
+        let reply = try? HomeRules.call("cloud.source_masked", ["contact": wire]) as [String: String]
+        return reply?["masked"] ?? "***"
     }
 
     /// The transport and account for a read, or for an intent whose key

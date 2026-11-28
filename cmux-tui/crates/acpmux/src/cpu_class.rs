@@ -3,9 +3,27 @@
 //! and a busy Mac makes a dragged pane's page trail it (cmuxterm-hq#4947: p95 55 ms with 14 busy
 //! processes at the default class, 6 ms with the same load at background class).
 //!
-//! `background` (the default) puts the harness in `PRIO_DARWIN_BG`, as cmux-git starts its git
-//! children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
-//! background-class new sockets. `normal` leaves the harness at its starter's class.
+//! `normal` (the default) runs the harness and every tool it starts as a shell in a terminal runs
+//! them: the daemon's CPU priority (never above nice 0) and the default disk tier. acpmux lowers
+//! nothing. `background` (opt-in) puts the harness in `PRIO_DARWIN_BG`, as cmux-git starts its
+//! git children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
+//! background-class new sockets.
+//!
+//! `dynamic` (opt-in) keeps the terminal's class while the Mac is calm and uses
+//! `PRIO_DARWIN_BG` only during measured contention. It returns to the terminal's class after
+//! clear samples, so a temporary CPU peak cannot strand a chat at background priority. A person's
+//! attended turn stays above background class until its first token, thought, or completed
+//! tool result arrives; subsequent work may yield under pressure.
+//!
+//! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
+//! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
+//! the disk whenever the Mac was busy. Over 130 sessions in 21 days on one Mac, tests took 37 s at
+//! the median against 11 s in a terminal, `git push` 79 s against 43 s, and the slowest tenth of
+//! builds 220 s against 52 s. The same `git grep` took 6 s at normal class and 61 s at background
+//! class, and 32 s against 962 s on another run. A 1-commit rebase took 87 minutes at 0% CPU, and a
+//! task with an 11-minute change took 3 h 55 min. The model's and the hooks' time per call were
+//! the same in both apps. The app's own main thread already runs at the frontmost app's priority
+//! (`qos.rs`), so the GUI does not need the agents' tools lowered below a terminal's.
 //!
 //! The start never runs at background class. A caller may retain a real hazard bound, and a
 //! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
@@ -20,16 +38,17 @@
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
-//!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
-//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
+//!    The exec and the harness's own start run at normal CPU class. Its disk I/O goes back to the
+//!    default tier at its exec (`qos::default_disk_io`): its agent host's `IOPOL_UTILITY` is
+//!    throttled behind any default-tier disk work, and a terminal's shell does not take it.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
-//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
-//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    macOS allows on another process of the same user, with its whole process group at the agent
+//!    tier's nice (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority) in one
 //!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
-//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
+//!    launcher's agent. A `normal` harness is left as it started on macOS; on Linux it goes to
+//!    nice +5 and its host's session group with it. Every process a `background` harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
@@ -60,16 +79,29 @@
 //!    The cost: any process of the tree that works (an MCP server's timer) keeps a hung harness
 //!    counted as working, so that case falls to its caller's longer bound (Chief's start ceiling,
 //!    the pool's `START_HAZARD`).
+//! 6. A person's own turn (their prompt, not a trigger's delivery: `prompt_sender::person_turn`)
+//!    lifts a `background` harness out of background class for the turn, at the agent tier's
+//!    nice (+11, below the app), and puts it back once the turn ended (`hub/turns.rs`). The tools
+//!    it starts while a person waits inherit that, not `PRIO_DARWIN_BG`: background class keeps a
+//!    process off the performance cores and throttles its disk, so with the Mac busy a person's
+//!    tool call waited on whatever the app left idle (Lucas's report, 2026-11-25: with the app at
+//!    high CPU, agents' tool calls ran at background priority;
+//!    `scripts/measure/agent-tool-priority.sh` has the numbers). Turns nobody waits on (triggers, deliveries,
+//!    scheduled work) keep background class, and a tool a person's turn started keeps the agent
+//!    tier after the turn.
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
-//! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
-//! `background`, or `normal` for a Claude Code launcher. Linux sessions get their
+//! (`acpmux config --set session.cpu_class=background`), then [`default_for`] the harness:
+//! `normal` ([`DEFAULT`]), or `normal` for a Claude Code launcher and Codex's `app-server` even
+//! if [`DEFAULT`] changes. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
 use serde::{Deserialize, Serialize};
+
+pub mod pressure;
 
 /// The knob, in a profile's env or the daemon's.
 pub const ENV: &str = "ACPMUX_SESSION_CPU_CLASS";
@@ -81,12 +113,15 @@ pub enum CpuClass {
     /// Its starter's class: acpmux lowers nothing.
     #[default]
     Normal,
+    /// The terminal's class while calm, and background class only while the host is
+    /// contended and nobody waits on its turn (`cpu_class/pressure.rs`).
+    Dynamic,
     /// `PRIO_DARWIN_BG` on macOS, from the end of its start on.
     Background,
 }
 
 /// The class a session runs at when nothing names one, and its harness is no launcher.
-pub const DEFAULT: CpuClass = CpuClass::Background;
+pub const DEFAULT: CpuClass = CpuClass::Normal;
 
 /// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
 /// path into one of them is Claude Code under another name: the native installer's `claude` is a
@@ -115,12 +150,22 @@ pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClas
 }
 
 impl CpuClass {
-    /// `normal` or `background` (any case, trimmed); None for anything else.
+    /// `normal`, `dynamic` or `background` (any case, trimmed); None for anything else.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "normal" => Some(Self::Normal),
+            "dynamic" => Some(Self::Dynamic),
             "background" => Some(Self::Background),
             _ => None,
+        }
+    }
+
+    /// Its name, as `parse` reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Dynamic => "dynamic",
+            Self::Background => "background",
         }
     }
 
@@ -161,7 +206,9 @@ impl CpuClass {
             let value = value?;
             let class = Self::parse(value);
             if class.is_none() {
-                tracing::warn!("{source} {ENV}={value:?} names no CPU class (normal, background)");
+                tracing::warn!(
+                    "{source} {ENV}={value:?} names no CPU class (normal, dynamic, background)"
+                );
             }
             class
         };
@@ -172,34 +219,45 @@ impl CpuClass {
     }
 
     /// Puts the running harness `pid` in this class once its session's start is over, and only
-    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
-    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
-    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// lowers. `Background`: its process group at the agent tier's nice value (`qos::AGENT_NICE`)
+    /// unless `ACPMUX_QOS=off`, then the harness in background class (macOS). `Normal`: nothing on
+    /// macOS, where it keeps a terminal shell's priority (module docs); on Linux the agent tier's
+    /// nice (its host's session too) unless `ACPMUX_QOS=off`. The start itself ran at the daemon's tier (`qos.rs`). `pid` must
     /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
     /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        // Both classes leave the start's priority for the agent tier: on Linux that is all the
-        // lowering there is (it has no background class), and on macOS it takes the processes the
-        // harness started during its start (its MCP servers) with it, as the utility clamp did.
-        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
+        // On Linux the agent tier is all the lowering there is (it has no background class); on
+        // macOS a background harness takes the processes it started during its start (its MCP
+        // servers) with it, as the utility clamp did.
+        let tier = || crate::qos::enabled() && imp::to_agent_tier(pid);
         match self {
-            Self::Background => imp::set_background(pid, true) || tier,
-            Self::Normal => tier,
+            Self::Background => {
+                let tier = tier();
+                imp::set_background(pid, true) || tier
+            }
+            Self::Normal | Self::Dynamic => cfg!(target_os = "linux") && tier(),
         }
     }
 }
 
-/// The class a session's harness takes at its exec: its starter's, without a background class it
-/// would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
+/// The class a session's harness takes at its exec: its starter's, without a background class or
+/// a utility disk tier it would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
 /// deadline (module docs, item 1).
 pub fn start_at_normal(cmd: &mut tokio::process::Command) {
+    // The disk tier only under acpmux's own policy: with `ACPMUX_QOS=off` its host took no utility
+    // tier, and a starter's own (`taskpolicy -d`) is kept. Read here: the hook reads no env.
     #[cfg(target_os = "macos")]
-    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) call
-    // on itself: no allocation, no lock, async-signal-safe. It never fails the spawn: a harness
-    // whose class could not be cleared starts as before.
+    let reset_disk = crate::qos::enabled();
+    #[cfg(target_os = "macos")]
+    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) and
+    // at most one setiopolicy_np(3) call on itself: no allocation, no lock, async-signal-safe. It
+    // never fails the spawn: a harness whose class could not be cleared starts as before.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, 0);
+            if reset_disk {
+                crate::qos::default_disk_io();
+            }
             Ok(())
         });
     }
@@ -223,6 +281,31 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
 /// applies to `pid`. True when the call succeeded.
 pub fn clear_running(pid: u32) -> bool {
     imp::set_background(pid, false)
+}
+
+/// The most processes of one harness's tree a class change reaches. A turn's build can fork
+/// many compilers, and each pass costs a few microseconds per process.
+pub const CLASS_TREE_MAX: usize = 1024;
+
+/// Puts the harness `pid` and every process under it in background class (`on`) or takes them
+/// out (macOS, elsewhere nothing). A class change reaches processes already started, not only
+/// those started next. The descendants are read from the kernel and bounded by
+/// [`CLASS_TREE_MAX`]. Returns the number of processes that accepted the change.
+pub fn set_tree_background(pid: u32, on: bool) -> usize {
+    imp::tree_pids(pid, CLASS_TREE_MAX).into_iter().filter(|p| imp::set_background(*p, on)).count()
+}
+
+/// Whether another process put `pid` in background class. None when it cannot be read.
+pub fn is_background(pid: u32) -> Option<bool> {
+    imp::is_background(pid)
+}
+
+/// A `background` harness `pid` during a person's own turn (`on`) and after it (module docs,
+/// item 6): out of background class while a person waits on its tools, back in once the turn
+/// ended. It keeps the agent tier's nice ([`CpuClass::enter`] set it on its group), so the turn's
+/// tools stay below the app. The same caution as [`CpuClass::enter`] applies to `pid`.
+pub fn person_turn(pid: u32, on: bool) -> bool {
+    imp::set_background(pid, !on)
 }
 
 /// What a harness was doing when its start missed its deadline or failed, read from the kernel
@@ -298,7 +381,7 @@ impl HarnessState {
     }
 }
 
-/// The state of the running process `pid` (macOS; elsewhere None). None once it ended or when the
+/// The state of the running process `pid` (macOS, Linux; elsewhere None). None once it ended or when the
 /// kernel refuses (another user's process).
 pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
@@ -309,6 +392,20 @@ pub fn harness_state(pid: u32) -> Option<HarnessState> {
 /// its kernel CPU accounting. Platforms without a per-process signal return None.
 pub fn harness_cpu_ticks(pid: u32) -> Option<u64> {
     imp::cpu_ticks(pid)
+}
+
+/// `root` and the processes under it, read the same way as a start's harness tree (only the
+/// descendants of a process acpmux spawned and holds, no process listing; at most 64 on macOS,
+/// 256 on Linux). Elsewhere `root` alone. The host budget's per-session use reads it
+/// (`hub/session_usage.rs`, RFD 0072 piece 2).
+pub fn own_tree(root: u32) -> Vec<u32> {
+    imp::own_tree(root)
+}
+
+/// A Linux process's `/proc/<pid>/stat` fields after the command name (field 3 first).
+#[cfg(target_os = "linux")]
+pub fn stat_fields(pid: u32) -> Option<Vec<String>> {
+    imp::stat(pid)
 }
 
 /// What a start's deadline error can say about its harness.
@@ -448,6 +545,26 @@ mod imp {
         set
     }
 
+    pub(super) fn tree_pids(pid: u32, max: usize) -> Vec<u32> {
+        let Some(root) = libc::c_int::try_from(pid).ok().filter(|p| *p > 0) else {
+            return Vec::new();
+        };
+        tree_bounded(root, max).into_iter().filter_map(|(p, _)| u32::try_from(p).ok()).collect()
+    }
+
+    pub(super) fn is_background(pid: u32) -> Option<bool> {
+        let id: libc::id_t = pid;
+        if id == 0 {
+            return None;
+        }
+        let errno = || unsafe { libc::__error() };
+        unsafe {
+            *errno() = 0;
+            let value = libc::getpriority(libc::PRIO_DARWIN_PROCESS, id);
+            (*errno() == 0).then_some(value != 0)
+        }
+    }
+
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
     ///
     /// # Safety
@@ -469,17 +586,23 @@ mod imp {
     /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
     /// acpmux spawned and holds: no other process is listed.
     fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        tree_bounded(root, TREE_MAX)
+    }
+
+    /// [`tree`] with its bound `max`.
+    fn tree_bounded(root: libc::c_int, max: usize) -> Vec<(libc::c_int, libc::c_int)> {
+        let max = max.max(1);
         let mut all = vec![(root, 0)];
         let mut next = 0;
-        while next < all.len() && all.len() < TREE_MAX {
+        let mut kids = vec![0 as libc::c_int; max];
+        while next < all.len() && all.len() < max {
             let parent = all[next].0;
-            let mut kids = [0 as libc::c_int; TREE_MAX];
-            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
-            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            let n = usize::try_from(n).unwrap_or(0).min(max);
             for kid in kids[..n].iter().copied() {
-                if all.len() == TREE_MAX {
+                if all.len() == max {
                     break;
                 }
                 if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {
@@ -489,6 +612,11 @@ mod imp {
             next += 1;
         }
         all
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        let Ok(root) = libc::c_int::try_from(root) else { return Vec::new() };
+        tree(root).into_iter().filter_map(|(pid, _)| u32::try_from(pid).ok()).collect()
     }
 
     // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
@@ -592,6 +720,14 @@ mod imp {
         false
     }
 
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
+    }
+
     /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
     /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
     /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
@@ -629,7 +765,7 @@ mod imp {
 
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
-    fn stat(pid: u32) -> Option<Vec<String>> {
+    pub(super) fn stat(pid: u32) -> Option<Vec<String>> {
         let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let (_, fields) = raw.rsplit_once(')')?;
         Some(fields.split_whitespace().map(str::to_owned).collect())
@@ -648,8 +784,134 @@ mod imp {
         ticks(pid)
     }
 
-    pub(super) fn state(_pid: u32) -> Option<HarnessState> {
-        None
+    /// The kernel's clock ticks per second (`USER_HZ`), for `/proc` CPU times.
+    fn clock_ticks() -> u64 {
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        u64::try_from(hz).ok().filter(|hz| *hz > 0).unwrap_or(100)
+    }
+
+    /// The processes `pid` started, from each of its threads' `children` file (no process
+    /// listing). Empty where the kernel lacks `CONFIG_PROC_CHILDREN`.
+    fn children(pid: u32) -> Vec<u32> {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return Vec::new() };
+        let mut kids = Vec::new();
+        for task in tasks.flatten() {
+            let Ok(text) = std::fs::read_to_string(task.path().join("children")) else { continue };
+            kids.extend(text.split_whitespace().filter_map(|k| k.parse::<u32>().ok()));
+        }
+        kids
+    }
+
+    /// `pid` and every process under it, `(pid, parent)`, at most 256 (a harness never has
+    /// more; a runaway tree is not walked whole).
+    fn tree(root: u32) -> Vec<(u32, u32)> {
+        let mut out = vec![(root, 0)];
+        let mut i = 0;
+        while i < out.len() && out.len() < 256 {
+            let (pid, _) = out[i];
+            for kid in children(pid) {
+                if !out.iter().any(|(p, _)| *p == kid) {
+                    out.push((kid, pid));
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        tree(root).into_iter().map(|(pid, _)| pid).collect()
+    }
+
+    /// How many of `pid`'s threads were on a CPU or ready for one (`R`) when read.
+    fn running_threads(pid: u32) -> i32 {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return 0 };
+        let mut running = 0;
+        for task in tasks.flatten() {
+            let Ok(raw) = std::fs::read_to_string(task.path().join("stat")) else { continue };
+            if raw.rsplit_once(')').and_then(|(_, f)| f.split_whitespace().next()) == Some("R") {
+                running += 1;
+            }
+        }
+        running
+    }
+
+    fn comm(pid: u32) -> String {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .map(|s| s.trim_end().to_owned())
+            .unwrap_or_default()
+    }
+
+    /// One process's record: CPU ticks, threads, major faults (pages read in), priority, start
+    /// time in ticks since boot.
+    struct Record {
+        ticks: u64,
+        threads: i32,
+        majflt: u64,
+        priority: i32,
+        started: u64,
+    }
+
+    /// `/proc/<pid>/stat` after the command name: index 9 `majflt` (field 12), 11 and 12
+    /// `utime`/`stime`, 15 `priority`, 17 `num_threads`, 19 `starttime`.
+    fn record(pid: u32) -> Option<Record> {
+        let f = stat(pid)?;
+        let num = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok());
+        Some(Record {
+            ticks: num(11)?.saturating_add(num(12)?),
+            majflt: num(9).unwrap_or(0),
+            priority: f.get(15).and_then(|v| v.parse::<i32>().ok()).unwrap_or(20),
+            threads: i32::try_from(num(17).unwrap_or(1)).unwrap_or(i32::MAX),
+            started: num(19).unwrap_or(0),
+        })
+    }
+
+    /// The state of `pid` and the processes under it, from `/proc` (no-hangs, 2026-11-24: Linux
+    /// read none, so a start that waited on its harness (`StartWatch`) never ended there however
+    /// long the harness sat idle).
+    pub(super) fn state(pid: u32) -> Option<HarnessState> {
+        let root = record(pid)?;
+        let hz = clock_ticks();
+        let to_ms = |ticks: u64| ticks.saturating_mul(1000) / hz;
+        let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
+            (0u64, 0i32, 0i32, 0u64, 0i32);
+        let mut first: Option<(u64, u32, Record)> = None;
+        for (p, parent) in tree(pid) {
+            let Some(r) = record(p) else { continue };
+            ticks = ticks.saturating_add(r.ticks);
+            threads = threads.saturating_add(r.threads);
+            running = running.saturating_add(running_threads(p));
+            pageins = pageins.saturating_add(r.majflt);
+            processes += 1;
+            if parent == pid && first.as_ref().is_none_or(|(at, k, _)| (r.started, p) < (*at, *k)) {
+                first = Some((r.started, p, r));
+            }
+        }
+        let uptime = std::fs::read_to_string("/proc/uptime")
+            .ok()
+            .and_then(|s| s.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()))
+            .unwrap_or(0.0) as u64;
+        let first_child = first.map(|(_, kid, r)| super::ChildSeen {
+            pid: kid,
+            name: comm(kid),
+            cpu_ms: to_ms(r.ticks),
+            pageins: r.majflt,
+        });
+        Some(HarnessState {
+            pid,
+            priority: root.priority,
+            // Linux has no background class acpmux sets (`set_background`).
+            background: false,
+            ran_secs: uptime.saturating_sub(root.started / hz),
+            cpu_ms: to_ms(ticks),
+            threads,
+            threads_running: running,
+            processes,
+            pageins,
+            name: comm(pid),
+            first_child,
+        })
     }
 }
 
@@ -659,6 +921,14 @@ mod imp {
 
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
         false
+    }
+
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
     }
 
     pub(super) fn to_agent_tier(_pid: u32) -> bool {
@@ -672,195 +942,12 @@ mod imp {
     pub(super) fn cpu_ticks(_pid: u32) -> Option<u64> {
         None
     }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        vec![root]
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::HarnessKind;
-
-    /// `sr2 claude` is the case that starved (module docs, item 2).
-    #[test]
-    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
-        let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
-        for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
-            assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
-        }
-        for agent in [
-            "claude",
-            "/opt/homebrew/bin/claude",
-            "/x/bin/claude.exe",
-            "/Users/me/.local/share/claude/versions/2.1.34",
-            "/Users/me/.claude/local/node_modules/.bin/cli",
-            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
-        ] {
-            assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
-        }
-        // An empty argv runs `claude`.
-        assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
-        // Another protocol keeps the default: no case of a relay is known there.
-        assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
-        assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
-    }
-
-    /// 2026-11-15: Codex's app-server at background class failed its own TLS (`UnknownIssuer`)
-    /// and answered a turn in 167 s, against 3.4 s at normal class (module docs, item 2).
-    #[test]
-    fn a_codex_app_server_defaults_to_normal() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        for launch in [
-            argv(&["/Users/me/.local/bin/codex", "app-server"]),
-            argv(&[
-                "codex",
-                "-c",
-                "agents.max_depth=16",
-                "-c",
-                "tools.update_plan.enabled=true",
-                "app-server",
-            ]),
-        ] {
-            assert_eq!(default_for(HarnessKind::Acp, &launch), CpuClass::Normal, "{launch:?}");
-        }
-        // Other Codex commands, and the profile's own `cpuClass`, still decide as before.
-        assert_eq!(
-            default_for(HarnessKind::Acp, &argv(&["codex", "app-server", "proxy"])),
-            DEFAULT
-        );
-        let bg = CpuClass::resolve(Some("background"), None, None, CpuClass::Normal);
-        assert_eq!(bg, CpuClass::Background);
-    }
-
-    #[test]
-    fn the_first_valid_source_names_the_class_else_the_default() {
-        let bg = Some(CpuClass::Background);
-        let normal = Some(CpuClass::Normal);
-        let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
-        assert_eq!(resolve(None, None, None), CpuClass::Background);
-        assert_eq!(resolve(None, None, normal), CpuClass::Normal);
-        // The daemon's env overrides config; the profile overrides both.
-        assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(resolve(Some("background"), Some("normal".into()), None), CpuClass::Background);
-        assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
-        // A value that names no class is skipped.
-        assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(resolve(Some(""), None, None), CpuClass::Background);
-        // What the harness defaults to comes last: any named class wins over it.
-        let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
-        assert_eq!(launcher(None, None), CpuClass::Normal);
-        assert_eq!(launcher(Some("background"), None), CpuClass::Background);
-        assert_eq!(launcher(None, bg), CpuClass::Background);
-    }
-
-    /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
-    /// that only waits must not read as a harness that does nothing.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_launchers_harness_state_counts_the_work_of_the_agent_it_started() {
-        use std::io::BufRead;
-        // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
-        // spends CPU, says so, then waits on its input.
-        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; cat";
-        let mut launcher = std::process::Command::new("/bin/sh")
-            .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .expect("spawn the launcher");
-        let mut said = String::new();
-        let stdout = launcher.stdout.take().expect("its stdout");
-        std::io::BufReader::new(stdout).read_line(&mut said).expect("the agent's line");
-        assert_eq!(said.trim(), "worked");
-        let state = harness_state(launcher.id()).expect("read the launcher");
-        drop(launcher.stdin.take());
-        let _ = launcher.kill();
-        let _ = launcher.wait();
-        // The launcher alone used a few ms; its agent's loop took far more.
-        assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
-        // The error names the launcher and the agent it started, with the agent's own work.
-        // Named by the kernel (macOS's `/bin/sh` runs as `bash`, so no fixed name is asserted).
-        assert!(!state.name.is_empty(), "the launcher's name: {state:?}");
-        let agent = state.first_child.as_ref().expect("the agent the launcher started");
-        assert!(!agent.name.is_empty(), "the agent's name: {state:?}");
-        assert_ne!(agent.pid, state.pid);
-        assert!(agent.cpu_ms >= 50, "the agent's own CPU time: {state:?}");
-        let said = state.to_string();
-        let named =
-            format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
-        assert!(said.contains(&named), "{said}");
-    }
-
-    /// #36028: a start's error says which process it read and what its launcher started, so a
-    /// launcher that never started its agent reads apart from an agent that is slow.
-    #[test]
-    fn a_deadline_clause_names_the_launcher_and_the_agent_it_started() {
-        let launcher = HarnessState {
-            pid: 9104,
-            priority: 20,
-            background: false,
-            ran_secs: 87,
-            cpu_ms: 140,
-            threads: 20,
-            threads_running: 0,
-            processes: 2,
-            pageins: 1800,
-            name: "sr2".to_owned(),
-            first_child: Some(ChildSeen {
-                pid: 9120,
-                name: "claude".to_owned(),
-                cpu_ms: 40,
-                pageins: 1700,
-            }),
-        };
-        assert_eq!(
-            launcher.to_string(),
-            "its agent process (pid 9104, sr2, 2 processes in all) is alive at normal CPU class \
-             (priority 20), ran 87 s, used 0.1 s of CPU, 0 of 20 threads running, 1800 page-ins; \
-             the first process it started is claude (pid 9120), which used 0.0 s of CPU and 1700 \
-             page-ins"
-        );
-        let alone = HarnessState { first_child: None, processes: 1, ..launcher.clone() };
-        assert!(alone.to_string().ends_with("; it has started no process"), "{alone}");
-        // A platform that names no process adds nothing.
-        let unnamed = HarnessState { name: String::new(), ..alone };
-        assert!(unnamed.to_string().ends_with(" page-ins"), "{unnamed}");
-    }
-
-    #[test]
-    fn a_page_in_or_a_process_change_is_work_and_waiting_alone_is_not() {
-        let idle = HarnessState {
-            pid: 1,
-            priority: 31,
-            background: false,
-            ran_secs: 60,
-            cpu_ms: 100,
-            threads: 12,
-            threads_running: 0,
-            processes: 2,
-            pageins: 500,
-            name: String::new(),
-            first_child: None,
-        };
-        let w = WORK_WINDOW;
-        assert!(!idle.worked_since(&idle, w));
-        assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle, w));
-        assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle, w));
-        assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle, w));
-        // #36028: an idle launcher's runtime ticks (0.6 ms per 10 s for `sr2`) are not work.
-        assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle, w));
-        assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle, w));
-        // The bar is a rate: a read 1 s on asks for a whole window's budget, a read 30 s on (a
-        // skipped tick) for three.
-        let second = std::time::Duration::from_secs(1);
-        assert!(!HarnessState { cpu_ms: 104, ..idle.clone() }.worked_since(&idle, second));
-        assert!(HarnessState { cpu_ms: 105, ..idle.clone() }.worked_since(&idle, second));
-        let late = std::time::Duration::from_secs(30);
-        assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
-        assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_harness_cpu_ticks_reads_one_process_record() {
-        assert!(harness_cpu_ticks(std::process::id()).is_some());
-    }
-}
+#[path = "cpu_class_tests.rs"]
+mod tests;

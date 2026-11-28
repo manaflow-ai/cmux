@@ -28,9 +28,10 @@ import Testing
         #expect(probe.exemption == nil)
     }
 
-    /// Only media the person resumes from outside the page keeps it: a muted autoplay or ad video, or
-    /// sound with no element, still freezes; a muted player whose page handles media keys does not.
-    @Test func aMutedAutoplayVideoStillFreezes() {
+    /// Only media the person resumes from outside the page is a session: a muted autoplay or ad video, or
+    /// sound with no element, is none; a muted player whose page handles media keys is one. A muted video that
+    /// plays keeps the page from a freeze anyway (`PageProbe.mediaPlays`, `PlayingMediaFreezeTests`).
+    @Test func aMutedAutoplayVideoIsNoSession() {
         #expect(!PageProbe.resumable(BrowserMediaState(title: "hero", isPlaying: true, isMuted: true, isVideo: true)))
         #expect(!PageProbe.resumable(BrowserMediaState(title: "sound", isPlaying: false, isSoundOnly: true)))
         #expect(!PageProbe.resumable(nil))
@@ -59,6 +60,37 @@ import Testing
         let tab = try #require(rig.services.cache.browsers[player]?.tab as? WebKitTab)
         tab.apply(.mediaChanged(nil))
         try await rig.until("the player freezes once its session ends") { rig.hibernation.frozen.contains(player) }
+    }
+
+    /// A command from outside the page (Pause from the media card, a load, a zoom) wakes a frozen page to run
+    /// (`WebKitTab.resumeIfSuspended`). The planner hears it and freezes the page again after `freezeSeconds`;
+    /// before, it still counted the page frozen and, with no other deadline pending, left it awake for good.
+    @Test func aPageACommandWokeFreezesAgain() async throws {
+        let rig = try NeighborTabsWakeTests.Rig()
+        defer { rig.close() }
+        let reporting = ReportingFreezer()
+        rig.hibernation.freezer = { [weak rig] tab -> (any BrowserFreezing)? in
+            tab.id.rawValue == reporting.key ? reporting : rig?.recorders[tab.id.rawValue]
+        }
+        reporting.key = try await hiddenPage("plain", in: rig)
+        try await rig.until("the page freezes") { rig.hibernation.frozen.contains(reporting.key) }
+        #expect(reporting.calls == [true])
+
+        reporting.wake()
+        #expect(!rig.hibernation.frozen.contains(reporting.key), "the planner still counts the woken page frozen")
+        try await rig.until("the woken page freezes again") { reporting.calls == [true, true] }
+        #expect(rig.hibernation.frozen.contains(reporting.key))
+    }
+
+    /// A freezer that reports its page's wakes, as `WebKitTab` does.
+    @MainActor final class ReportingFreezer: @MainActor BrowserFreezeReporting {
+        var key = ""
+        var calls: [Bool] = []
+        private(set) var isFrozen = false
+        var onFrozenPageChange: (@MainActor (BrowserFrozenPageChange) -> Void)?
+        func setFrozen(_ frozen: Bool) -> Bool { calls.append(frozen); isFrozen = frozen; return true }
+        /// A command ran in the page.
+        func wake() { isFrozen = false; onFrozenPageChange?(.woke) }
     }
 
     /// A loaded WebKit page, `prepare`d, installed as a tab, shown once, then hidden.

@@ -26,10 +26,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// the split room check all honor it.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// Smallest content width of a docked agent chat column (``DockRole/agentChat``): the Home
-    /// list at its avatar-only minimum (76 pt), its divider and a transcript of about 30
+    /// column at its avatar-only minimum (100 pt: Messages' 92 pt narrow list and its panel's 8 pt
+    /// inset, `HomeSidebarWidth.minimum`), its divider and a transcript of about 30
     /// characters (280 pt, `HomeSidebarWidth.transcriptMinimum`). The generic pane minimum let
     /// that column shrink to 216 pt and its bubbles wrap one word per line (dogfood 2026-10-19).
-    public var minimumAgentChatContentWidth: CGFloat = 360
+    public var minimumAgentChatContentWidth: CGFloat = 381
     /// Inset between a pane's cell and its rounded content rect (tab strip
     /// plus content). Token: `Metrics.panePadding`. 0 is edge to edge.
     public var panePadding: CGFloat = 0
@@ -49,6 +50,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneSeparation: PaneSeparation = .borders
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
+    /// The theme's glow around the focused pane (`appearance.accentGlow.*`); nil draws none.
+    public var accentGlow: ThemeFlourishes.Glow?
     /// The attention ring of panes with an unread notification
     /// (`notifications.attention.*`).
     public var attention = AttentionSettings()
@@ -132,6 +135,7 @@ extension LayoutStyle {
         style.drawsLines = Borders.drawsLines
         style.paneSeparation = Metrics.paneSeparation
         style.focusRing = DesignSettings.shared.focusRing
+        style.accentGlow = DesignSettings.shared.flourishes.accentGlow
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value

@@ -106,6 +106,21 @@ fn remote_http_enables_remote_daemon_mode() {
 }
 
 #[test]
+fn daemon_takes_more_relay_registrations_than_the_old_cap() {
+    // A daemon once refused more than 4 relay registrations.
+    let count = 6;
+    let relays = relay_daemon_options(
+        (0..count).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+        (0..count).map(|index| format!("route-key-{index}")).collect(),
+        (0..count)
+            .map(|index| RelayCredentialArg::File(format!("/tmp/relay-ticket-{index}").into()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(relays.len(), count);
+}
+
+#[test]
 fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
     let error = relay_daemon_options(
         vec!["relay+wss://dont-leak-me@[".into()],

@@ -22,7 +22,12 @@ struct Stuck {
 impl std::io::Write for Stuck {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let _ = self.entered.try_send(());
-        let _ = self.release.lock().unwrap_or_else(PoisonError::into_inner).recv();
+        // Bounded: a test that never lets it go (or panics first) frees the writer after 30 s.
+        let _ = self
+            .release
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recv_timeout(Duration::from_secs(30));
         Ok(buf.len())
     }
 

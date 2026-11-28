@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_LAUNCH_IMAGE_ABI_VERSION 1
+#define CMUX_LAUNCH_IMAGE_ABI_VERSION 2
 
 /*
  The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
@@ -31,6 +31,18 @@
  `cmux_launch_image_schedule_note`'s reply when no capture is due.
  */
 #define CMUX_LAUNCH_IMAGE_NOT_DUE -1
+
+/*
+ The most a page image may lag the composite it is painted into (`crate::region`).
+ */
+#define CMUX_LAUNCH_IMAGE_MAX_PAGE_IMAGE_LAG_MS 120000
+
+/*
+ `cmux_launch_image_page_region`: paint the page's cached image. Every other reply paints the
+ region plain: 1 no image, 2 the page's version moved, 3 the page changed after the image, 4 the
+ image is too old, 5 the image is newer than the composite.
+ */
+#define CMUX_LAUNCH_IMAGE_REGION_IMAGE 0
 
 /*
  One window's capture schedule.
@@ -50,6 +62,22 @@ typedef struct {
      */
     char path[CMUX_LAUNCH_IMAGE_PATH_CAPACITY];
 } CmuxLaunchImage;
+
+/*
+ One page region of a window at capture time (`crate::region::PageRegion`): times in one monotonic
+ clock's milliseconds, versions the page's picture version. A `has_*` false means the value is
+ unknown.
+ */
+typedef struct {
+    bool has_image;
+    uint64_t image_taken_ms;
+    bool has_image_version;
+    uint64_t image_version;
+    uint64_t page_version;
+    bool has_page_changed;
+    uint64_t page_changed_ms;
+    uint64_t composite_ms;
+} CmuxLaunchImagePageRegion;
 
 /*
  Writes `png` (`len` bytes) as window `window_id`'s newest image in folder `dir` (made when
@@ -156,5 +184,14 @@ uint64_t cmux_launch_image_schedule_epoch(const CmuxLaunchImageSchedule *schedul
  As `cmux_launch_image_schedule_note`.
  */
 bool cmux_launch_image_schedule_is_current(const CmuxLaunchImageSchedule *schedule, uint64_t epoch);
+
+/*
+ Whether a page's cached image may fill its region of a capture: `CMUX_LAUNCH_IMAGE_REGION_IMAGE`
+ paints it; any other reply (see that constant) paints the region plain. Null gives 1 (no image).
+
+ # Safety
+ `region` is null or valid for reads of one `CmuxLaunchImagePageRegion`.
+ */
+uint8_t cmux_launch_image_page_region(const CmuxLaunchImagePageRegion *region);
 
 #endif  /* CMUX_LAUNCH_IMAGE_H */

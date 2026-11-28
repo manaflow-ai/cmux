@@ -7,10 +7,8 @@
 set -uo pipefail
 sha="${1:?usage: rust-test-at-commits.sh SHA PACKAGE TEST FILTER}" package="${2:?}" test="${3:?}" filter="${4:?}"
 root="$(git rev-parse --show-toplevel)"
-# A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
-depth=()
-[[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
-git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
+source "$root/scripts/measure/fetch-commit.sh"
+measure_fetch_commit "$root" "$sha" 2 || exit 1
 parent="$(git -C "$root" rev-parse "$sha^")"
 tests=()
 while IFS= read -r path; do tests+=("$path"); done < <(git -C "$root" diff --name-only "$parent" "$sha" | grep -E '^cmux-tui/crates/[^/]+/tests/')

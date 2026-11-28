@@ -1,5 +1,5 @@
 import React from "react";
-import { rowMark, MARK_PROMPT, MARK_INDICATOR } from "../transcriptGrid";
+import { rowMark, MARK_PROMPT, MARK_INDICATOR, ownMessagesJoin } from "../transcriptGrid";
 import { LoadFadeWindow } from "../../shared/loadFade";
 import {
   type AcpmuxRow,
@@ -18,6 +18,7 @@ import {
   rowPropsWindow,
 } from "../model";
 import { RowFrameCache } from "../conversation/rowFrameCache";
+import { settledRowHeight } from "../conversation/settledRowSkip";
 import { type ReferenceScope } from "../conversation/bareReferences";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { isEditRow } from "../turnChanges/sessionRows";
@@ -31,6 +32,8 @@ import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { rowDomId, RowFrame, RowContent } from "./RowFrame";
+import { mountsOffscreen, skipsOffscreenRows, entersUnseen } from "../conversation/offscreenRows";
+import { shelvedHeight } from "../conversation/shelvedRows";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
@@ -59,7 +62,18 @@ const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
   return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
 };
 
+/// The rows array is immutable. Keep the control list by that array and start index so a divider
+/// drag does not rescan every settled row under an open Worked-for disclosure on every frame.
+const disclosureControlsByRows = new WeakMap<readonly AcpmuxRow[], Map<number, string | undefined>>();
+
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  let byStart = disclosureControlsByRows.get(rows);
+  if (!byStart) {
+    byStart = new Map();
+    disclosureControlsByRows.set(rows, byStart);
+  }
+  if (byStart.has(after)) return byStart.get(after);
+
   const ids: string[] = [];
   for (let index = after; index < rows.length; index += 1) {
     const row = rows[index]!;
@@ -69,7 +83,9 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
     if (!row.settled) break;
     ids.push(rowDomId(row.id));
   }
-  return ids.length > 0 ? ids.join(" ") : undefined;
+  const controls = ids.length > 0 ? ids.join(" ") : undefined;
+  byStart.set(after, controls);
+  return controls;
 };
 
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
@@ -84,7 +100,18 @@ export type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  /// The chat render pipeline experiment (settledRowSkip.ts): settled rows hold their indexed height
+  /// while the browser skips them off screen. Rows above `settledBefore` are settled by position.
+  skipSettledRows: boolean;
+  settledBefore: number;
+  geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
+  /// The content in view, in the geometry's offsets: rows mounted far from it skip their contents
+  /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
+  viewTop: number;
+  viewHeight: number;
+  /// Rows that end above this offset (the geometry's) are shelved (conversation/shelvedRows.ts);
+  /// -Infinity shelves none.
+  shelfAbove: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -107,6 +134,7 @@ type RowFramesView = {
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   onToggleActivity: (id: string) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   onOpenDiff: OpenDiff | undefined;
   streams: boolean | undefined;
   sessionId: string | undefined;
@@ -152,6 +180,9 @@ export function drawRowFrames(
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
+  const skips = view.viewHeight > 0 && skipsOffscreenRows();
+  // The screen's height bounds the window's, and reading it forces no layout (innerHeight may).
+  const windowHeight = skips ? (window.screen?.height ?? 0) : 0;
   cache.begin([
     view.frameKey,
     view.registry,
@@ -164,6 +195,7 @@ export function drawRowFrames(
     view.onFocus,
     view.onRowKeyDown,
     view.onToggleActivity,
+    view.onLoadFold,
     view.onOpenDiff,
     view.streams,
     view.sessionId,
@@ -177,6 +209,7 @@ export function drawRowFrames(
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
+      inputs.intrinsicHeight = settledRowHeight(view.skipSettledRows, row, absoluteIndex, view.settledBefore, geometry);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -186,10 +219,11 @@ export function drawRowFrames(
       inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
       inputs.enter = entering?.has(frameId) ?? false;
       inputs.loadFade = loadFade?.fades(row.id) ?? false;
+      inputs.shelved = shelvedHeight(inputs.top, geometry.heightAt(absoluteIndex), view.shelfAbove);
       inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
-      // An open Worked-for row names every row under it (`disclosureControls`): drawn each time.
+      // An open Worked-for row names every row under it (`disclosureControls`), cached by rows.
       const opensDisclosure = row.kind === WORKED && isExpanded;
       // Kept by frame id: the session's `frameKey` is in what every frame shares (`begin`).
       const keptFrame = opensDisclosure ? undefined : cache.take(frameId, rows);
@@ -216,6 +250,9 @@ export function drawRowFrames(
           opensTurn={opensBackgroundTurn(row, prev)}
           beforeFooter={isBeforeFooter(row, next)}
           beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+          beforeOwnMessage={
+            next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_PROMPT && ownMessagesJoin()
+          }
           replyActions={keepsReplyRoom(row, next)}
           status={statusEdge(row, next, prev)}
           lastFooter={isLastFooter(row, next)}
@@ -224,6 +261,7 @@ export function drawRowFrames(
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
           setSizeRef={view.setSizeRef}
+          intrinsicHeight={inputs.intrinsicHeight}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -234,6 +272,7 @@ export function drawRowFrames(
           enter={inputs.enter}
           onEntered={view.onEntered}
           loadFade={inputs.loadFade}
+          shelved={inputs.shelved}
           onLoadFaded={view.onLoadFaded}
           older={inputs.older as OlderRowFade | undefined}
           onOlderShown={view.onOlderShown}
@@ -248,6 +287,17 @@ export function drawRowFrames(
           onOpenDiff={view.onOpenDiff}
           githubRepository={inputs.repository}
           referenceScope={inputs.scope as ReferenceScope | undefined}
+          // Read by the frame's first mount only, and not compared (sameRowFrame): no frame draws again
+          // for them, and a kept frame's values are the ones it mounted with.
+          offscreen={
+            skips &&
+            mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
+          }
+          placedHeight={geometry.heightAt(absoluteIndex)}
+          // An arrival out of view draws in place (read on the first mount only, like `offscreen`).
+          enterUnseen={
+            inputs.enter && entersUnseen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight)
+          }
         >
           <RowContent
             Component={Component}
@@ -256,6 +306,7 @@ export function drawRowFrames(
             replyActions={hasReplyActions(row, next)}
             sessionId={view.sessionId}
             onToggleActivity={view.onToggleActivity}
+            onLoadFold={view.onLoadFold}
             onOpenDiff={view.onOpenDiff}
             expanded={isExpanded}
             controls={controls}

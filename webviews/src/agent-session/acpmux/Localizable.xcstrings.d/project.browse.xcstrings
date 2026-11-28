@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "project.browse" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "استعراض…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pregledaj…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gennemse…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Durchsuchen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browse…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Examinar…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parcourir…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sfoglia…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参照…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រកមើល…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "찾아보기…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bla gjennom…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przeglądaj…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Procurar…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Обзор…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกดู…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gözat…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Огляд…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Duyệt…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "浏览…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "瀏覽…"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

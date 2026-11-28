@@ -15,11 +15,12 @@
 use crate::Result;
 use crate::manifest::Manifest;
 use crate::read::Pack;
-use crate::store::{Id, Store, chunk_id, decode_chunk, hex};
+use crate::store::{Id, MAX_STORED_CHUNK_BYTES, Store, hex};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 
 const MAGIC: &[u8; 6] = b"CSPB1\n";
+const MAX_MANIFEST_BYTES: usize = 128 << 20;
 
 /// What a bundle held.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -141,8 +142,7 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     }
     let mut len = [0u8; 4];
     input.read_exact(&mut len)?;
-    let mut json = vec![0u8; u32::from_le_bytes(len) as usize];
-    input.read_exact(&mut json)?;
+    let json = read_bounded(input, u32::from_le_bytes(len), MAX_MANIFEST_BYTES, "manifest")?;
     let manifest = if json.is_empty() { None } else { Some(Manifest::parse(&json)?) };
     loop {
         let mut id: Id = [0u8; 32];
@@ -151,13 +151,9 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
             _ => input.read_exact(&mut id[1..])?,
         }
         input.read_exact(&mut len)?;
-        let mut file = vec![0u8; u32::from_le_bytes(len) as usize];
-        input.read_exact(&mut file)?;
-        let (kind, payload) = decode_chunk(&file)?;
-        if chunk_id(kind, &payload) != id {
-            return Err(format!("chunk {} does not hash to its id", hex(&id)).into());
-        }
-        store.put_stored(&id, &file)?;
+        let file =
+            read_bounded(input, u32::from_le_bytes(len), MAX_STORED_CHUNK_BYTES, "stored chunk")?;
+        store.receive(&id, &file)?;
     }
     let Some(manifest) = manifest else { return Ok(None) };
     if lacking == Lacking::Refuse
@@ -167,4 +163,50 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     }
     manifest.save(store)?;
     Ok(Some(manifest))
+}
+
+pub(crate) fn read_bounded(
+    input: &mut dyn Read,
+    len: u32,
+    max: usize,
+    what: &str,
+) -> Result<Vec<u8>> {
+    let len = len as usize;
+    if len > max {
+        return Err(format!("a {what} of {len} bytes is over the {max} byte limit").into());
+    }
+    // The stream may end immediately after its header. Grow only for bytes it
+    // supplies, never for its claimed length, including claims below the cap.
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 64 << 10];
+    while bytes.len() < len {
+        let n = len.saturating_sub(bytes.len()).min(buffer.len());
+        let chunk = buffer.get_mut(..n).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "bundle read exceeds buffer")
+        })?;
+        let n = match input.read(chunk) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if n == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                format!("a {what} says {len} bytes and holds {}", bytes.len()),
+            )
+            .into());
+        }
+        let chunk = chunk.get(..n).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "bundle reader exceeded its buffer",
+            )
+        })?;
+        let wanted = bytes.len().saturating_add(n);
+        if wanted > bytes.capacity() {
+            let capacity = wanted.max(bytes.capacity().saturating_mul(2)).min(len);
+            bytes.try_reserve_exact(capacity.saturating_sub(bytes.len()))?;
+        }
+        bytes.extend_from_slice(chunk);
+    }
+    Ok(bytes)
 }

@@ -12,11 +12,26 @@
 // the art frosted under the box at the menu level's tint, as Glass.makeSurface draws it before macOS 26
 // (HostGlass.gallery.tsx does the same). The real material is in the Mac captures on the PR.
 import { type CSSProperties, type ReactNode, useEffect } from "react";
-import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
+import liquidWallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
+import { overPicture, readEnv, SHELL_DEFAULT_BACKGROUND } from "../../gallery/env";
+import { BACKGROUND_PICTURES } from "../../gallery/frame/background";
 import { CheckIcon } from "../../agent-session/acpmux/ComposerPickers";
 import { componentEntry } from "../../gallery/format";
 
 type Scheme = "dark" | "light";
+
+/** The art behind the stage: this entry's own wallpaper, or the background axis's picture when the link
+ * names one other than the shell's default (`background=photo-busy` and the rest), so the same three
+ * surfaces are judged over every background, photos included (glass-photo.capture.json). */
+function stageArt(): string {
+  if (typeof window === "undefined") return liquidWallpaper;
+  const env = readEnv(new URLSearchParams(window.location.search));
+  const name = env.background;
+  return overPicture(env) && name && name !== "none" && name !== SHELL_DEFAULT_BACKGROUND
+    ? BACKGROUND_PICTURES[name].image
+    : liquidWallpaper;
+}
+const wallpaper = stageArt();
 /** before: each surface's own look as shipped until 2026-11-11. one: every surface the menu level on
  * the page's glass. host-clear / host-veil: the App's glass under every surface, with no page veil or
  * the one 40% veil (ships). dense: every surface at the old + menu's 86%. */

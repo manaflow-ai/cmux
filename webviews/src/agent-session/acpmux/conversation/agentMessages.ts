@@ -15,6 +15,9 @@ export type AgentMessage = {
   from?: string;
   /// The recipient: a session, a terminal surface or workspace, or a mailbox.
   to?: string;
+  /// The name the daemon gave `to` (a SendMessage's subagent, `tool.recipient`): the row reads it
+  /// when the page holds no row of the Agent call that named the subagent.
+  toName?: string;
   /// The message, or its summary when the tool carries one; empty when it came from stdin.
   text: string;
 };
@@ -43,7 +46,12 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
     const body = input.message ?? input.summary ?? input.content;
     const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
-    return { channel: "agent", to: input.to, text: oneMessage(text) };
+    return {
+      channel: "agent",
+      to: input.to,
+      ...(tool.recipient ? { toName: tool.recipient } : {}),
+      text: oneMessage(text),
+    };
   }
   // The cmux-sessions MCP server's message to a chat (session_mcp.rs, #21858), as a harness names
   // an MCP tool: `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session` or bare.
@@ -144,6 +152,20 @@ const FEEDS = new Set(["echo", "printf", "cat"]);
 /// also builds, pushes or tests (`git push && tell-coordinator "pushed"`) stays a command row,
 /// so its output stays reachable.
 export function commandMessage(command: string): AgentMessage | undefined {
+  // Read for every shell row on every reshape of the running turn: the same command line is split
+  // and tokenized once. A copy goes out, so no caller shares the kept one.
+  let kept = commandMessages.get(command);
+  if (kept === undefined) {
+    if (commandMessages.size >= 2000) commandMessages.clear();
+    kept = readCommandMessage(command) ?? null;
+    commandMessages.set(command, kept);
+  }
+  return kept ? { ...kept } : undefined;
+}
+
+const commandMessages = new Map<string, AgentMessage | null>();
+
+function readCommandMessage(command: string): AgentMessage | undefined {
   const heredoc = heredocBody(command);
   const steps = shellStepParts(withoutHeredoc(command)).map(({ text, pipesNext }) => {
     const { words, redirects } = parseStep(text);

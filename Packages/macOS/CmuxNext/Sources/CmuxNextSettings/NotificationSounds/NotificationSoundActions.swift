@@ -1,7 +1,6 @@
 import AppKit
 public import CmuxNextActions
 import Foundation
-import UniformTypeIdentifiers
 
 /// The notification sound actions: a sound (or no sound, or inherit) and a volume for a workspace,
 /// a group, an agent kind or one event; a preview; an import. Every surface (the workspace row and
@@ -12,50 +11,39 @@ import UniformTypeIdentifiers
 public final class NotificationSoundActions {
     private let host: any NotificationSoundHost
     private let gate: NotificationSoundGate
-    private let library: NotificationSoundLibrary
-    /// Installed sound names, listed off the main thread at bind and after each import.
-    private var names: [String] = []
+    private let importer: NotificationSoundImport
 
     /// A target the invocation does not name (its message is the person's).
     private struct Refusal: Error {
         let message: String
     }
 
-    /// Where one change lands.
-    private enum Level {
-        case workspace(String)
-        case group(String)
-        case agent(String)
-        case event(NotificationSoundEvent)
-    }
-
     /// - Parameters:
     ///   - host: The App's side (preferences, settings write, targets, groups).
-    ///   - gate: The notification service's sound gate: previews play through its player, and it
-    ///     learns the person's groups from `host`.
-    ///   - library: Where sounds are listed and imported.
-    public init(host: any NotificationSoundHost, gate: NotificationSoundGate, library: NotificationSoundLibrary = NotificationSoundLibrary()) {
+    ///   - gate: The notification service's sound gate: previews play through its player, it
+    ///     learns the person's groups from `host`, and its library lists and imports sounds.
+    public init(host: any NotificationSoundHost, gate: NotificationSoundGate) {
         self.host = host
         self.gate = gate
-        self.library = library
+        importer = NotificationSoundImport(host: host, gate: gate)
     }
 
     /// Binds the actions, the palette's sound and agent lists, and the menus' checked sound.
     public func bind(into registry: ActionRegistry) {
         gate.groups = { [weak host] in host?.soundGroups(ofWorkspace: $0) ?? [] }
-        refreshNames()
+        Task { [gate, host] in await gate.refreshSounds(work: host.soundWork) }
         registry.bindEffect("notifications.setWorkspaceSound", effect: { [self, weak registry] invocation in
-            level(registry, "notifications.setWorkspaceSound", invocation) { try .workspace(self.host.soundWorkspace($0)) }
+            level(registry, "notifications.setWorkspaceSound", invocation) { try Self.level("workspace", self.host.soundWorkspace($0)) }
         })
         registry.bindEffect("notifications.setGroupSound", effect: { [self, weak registry] invocation in
-            level(registry, "notifications.setGroupSound", invocation) { try .group(self.host.soundGroup($0).id) }
+            level(registry, "notifications.setGroupSound", invocation) { try Self.level("group", self.host.soundGroup($0).id) }
         })
         registry.bindEffect("notifications.setAgentSound", effect: { [self, weak registry] invocation in
             level(registry, "notifications.setAgentSound", invocation) { invocation in
                 guard let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces).lowercased(), !agent.isEmpty else {
                     throw Refusal(message: NotificationSoundStrings.noAgent)
                 }
-                return .agent(agent)
+                return Self.level("agent", agent)
             }
         })
         registry.bindEffect("notifications.setEventSound", effect: { [self, weak registry] invocation in
@@ -63,7 +51,7 @@ public final class NotificationSoundActions {
                 guard let event = invocation["event"]?.stringValue.flatMap(NotificationSoundEvent.init(rawValue:)) else {
                     throw Refusal(message: NotificationSoundStrings.noEvent)
                 }
-                return .event(event)
+                return Self.level("event", event.rawValue)
             }
         })
         registry.bindEffect("notifications.previewSound", effect: { [self] invocation in preview(invocation) })
@@ -71,7 +59,7 @@ public final class NotificationSoundActions {
             let file = Self.file(invocation)
             // action-wait-allow: the person picks a file in the open panel (or the CLI names one), and the copy reads the disk; nothing changes before it lands
             return .waiting(.fileSystem) { [self] in
-                if case .failure(let failure) = await importSound(file) { return failure }
+                if case .failure(let failure) = await importer.run(file) { return failure }
                 return nil
             }
         })
@@ -82,8 +70,8 @@ public final class NotificationSoundActions {
 
     /// One change at the level `target` names (its refusal is the person's message).
     private func level(_ registry: ActionRegistry?, _ id: ActionID, _ invocation: ActionInvocation,
-                       _ target: (ActionInvocation) throws -> Level) -> ActionEffect {
-        let level: Level
+                       _ target: (ActionInvocation) throws -> JSONValue) -> ActionEffect {
+        let level: JSONValue
         do { level = try target(invocation) } catch let refusal as Refusal {
             return .refused(refusal.message)
         } catch {
@@ -110,7 +98,7 @@ public final class NotificationSoundActions {
         }
         // action-wait-allow: the person picks a file in the open panel (or the CLI names one), and the copy reads the disk; nothing changes before it lands
         return .waiting(.fileSystem) { [self] in
-            switch await importSound(file) {
+            switch await importer.run(file) {
             case .failure(let failure): return failure
             case .success(nil): return nil
             case .success(let name?):
@@ -123,34 +111,20 @@ public final class NotificationSoundActions {
         }
     }
 
-    /// Applies one change to the live preferences and returns what to write and what to restore.
-    private func apply(_ level: Level, sound: String?, event: NotificationSoundEvent?, volume: Double?)
-        -> (before: NotificationSoundPreferences, path: [String], value: JSONValue?) {
-        var sounds = host.soundPreferences.sounds
-        let before = sounds
-        let root = ["notifications", "sounds"]
-        let result: (path: [String], value: JSONValue?)
-        switch level {
-        case .event(let event):
-            if let sound { sounds.events[event] = sound == "inherit" ? nil : sound }
-            result = (root + ["events", event.rawValue], sounds.events[event].map(JSONValue.string))
-        case .workspace(let key):
-            result = (root + ["workspaces"], Self.edit(&sounds.workspaces, key, sound: sound, event: event, volume: volume))
-        case .group(let key):
-            result = (root + ["groups"], Self.edit(&sounds.groups, key, sound: sound, event: event, volume: volume))
-        case .agent(let key):
-            result = (root + ["agents"], Self.edit(&sounds.agents, key, sound: sound, event: event, volume: volume))
-        }
-        host.applySoundPreferences(sounds)
-        return (before, result.path, result.value)
-    }
+    /// Where one change lands (`notifications.sound_edit`'s level).
+    private static func level(_ kind: String, _ key: String) -> JSONValue { ["kind": .string(kind), "key": .string(key)] }
 
-    /// Edits `key`'s rule in `map` and returns the map as cmux.json holds it (nil when empty).
-    private static func edit(_ map: inout [String: NotificationSoundRule], _ key: String, sound: String?,
-                             event: NotificationSoundEvent?, volume: Double?) -> JSONValue? {
-        let rule = (map[key] ?? NotificationSoundRule()).applying(sound: sound, event: event, volume: volume)
-        map[key] = rule.isEmpty ? nil : rule
-        return map.isEmpty ? nil : .object(map.mapValues(\.json))
+    /// Applies one change to the live preferences and returns what to write and what to restore.
+    private func apply(_ level: JSONValue, sound: String?, event: NotificationSoundEvent?, volume: Double?)
+        -> (before: NotificationSoundPreferences, path: [String], value: JSONValue?) {
+        let before = host.soundPreferences.sounds
+        let reply = SettingsRust.answer("notifications.sound_edit", [
+            "sounds": SettingsRust.json(before), "level": level, "sound": sound.map(JSONValue.string) ?? .null,
+            "event": event.map { .string($0.rawValue) } ?? .null, "volume": volume.map(JSONValue.number) ?? .null,
+        ])
+        host.applySoundPreferences(SettingsRust.decode(reply["sounds"]) ?? before)
+        let path = (reply["path"]?.arrayValue ?? []).compactMap(\.stringValue)
+        return (before, path, reply["value"].flatMap { $0 == .null ? nil : $0 })
     }
 
     // MARK: Preview
@@ -160,23 +134,15 @@ public final class NotificationSoundActions {
         let workspace: String
         do { workspace = try host.soundWorkspace(invocation) } catch { return .refused(host.soundRefusal(error)) }
         let event = invocation["event"]?.stringValue.flatMap(NotificationSoundEvent.init(rawValue:)) ?? .finished
-        let prefs = host.soundPreferences
         let scope = NotificationSoundScope(workspace: workspace, groups: host.soundGroups(ofWorkspace: workspace))
-        guard !prefs.mutedWorkspaces.contains(workspace),
-              let choice = prefs.sounds.choice(for: event, in: scope, fallback: prefs.sound(for: Self.source(of: event))) else {
+        let reply = SettingsRust.answer("notifications.preview_choice", [
+            "prefs": SettingsRust.json(host.soundPreferences), "scope": SettingsRust.json(scope), "event": .string(event.rawValue),
+        ])
+        guard let choice = SettingsRust.decode(reply["choice"], as: NotificationSoundChoice.self) else {
             return .refused(NotificationSoundStrings.silent)
         }
         gate.preview(choice.name, volume: choice.volume)
         return .done
-    }
-
-    /// The source whose `notifications.sound` an event falls back to.
-    private static func source(of event: NotificationSoundEvent) -> NotificationSource {
-        switch event {
-        case .finished, .needsInput, .error: .agent
-        case .bell: .terminal
-        case .message: .cli
-        }
     }
 
     // MARK: Import
@@ -185,42 +151,6 @@ public final class NotificationSoundActions {
     private static func file(_ invocation: ActionInvocation) -> URL? {
         guard let path = invocation["file"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-    }
-
-    /// Imports `file`, or the file the person picks (nil name: they cancelled).
-    private func importSound(_ file: URL?) async -> Result<String?, ActionWorkFailure> {
-        var picked = file
-        if picked == nil { picked = await choose() }
-        guard let url = picked else { return .success(nil) }
-        let library = library
-        do {
-            let name = try await host.soundWork.run(.userBlocking, mayBlock: .files) { try library.importSound(from: url) }
-            refreshNames()
-            return .success(name)
-        } catch let refusal as NotificationSoundLibrary.ImportRefusal {
-            return .failure(ActionWorkFailure(refusal.message))
-        } catch {
-            return .failure(ActionWorkFailure(NotificationSoundStrings.importFailed(url.lastPathComponent)))
-        }
-    }
-
-    /// The sound file the person picks, nil on cancel.
-    private func choose() async -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.audio]
-        panel.message = NotificationSoundStrings.chooseMessage
-        panel.prompt = NotificationSoundStrings.choosePrompt
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
-            if let anchor = host.soundAnchorWindow {
-                panel.beginSheetModal(for: anchor) { continuation.resume(returning: $0) }
-            } else {
-                panel.begin { continuation.resume(returning: $0) }
-            }
-        }
-        return response == .OK ? panel.url : nil
     }
 
     // MARK: Lists
@@ -232,7 +162,7 @@ public final class NotificationSoundActions {
             guard let self else { return otherSuggestions?(source) ?? [] }
             switch source {
             case ActionSuggestions.notificationSounds:
-                return names.map { ActionEnumCase(value: $0, title: $0) }
+                return gate.soundNames.map { ActionEnumCase(value: $0, title: $0) }
             case ActionSuggestions.notificationAgents:
                 let kinds = Set(host.soundAgentKinds.compactMap(NotificationSoundGate.agentKind))
                 return kinds.sorted().map { ActionEnumCase(value: $0, title: $0) }
@@ -252,15 +182,6 @@ public final class NotificationSoundActions {
             default:
                 return otherState?(action, target)
             }
-        }
-    }
-
-    /// Lists the installed sounds off the main thread.
-    private func refreshNames() {
-        let library = library, work = host.soundWork
-        Task { [weak self] in
-            let listed = (try? await work.run(.bestEffort, mayBlock: .files) { library.names() }) ?? []
-            self?.names = listed
         }
     }
 }

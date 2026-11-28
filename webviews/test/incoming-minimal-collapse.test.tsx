@@ -8,8 +8,6 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
-import { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -43,6 +41,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
+const { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } =
+  await import("../src/agent-session/acpmux/chatDisplay");
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
@@ -132,7 +133,7 @@ test("switching Minimal Mode leaves a closed message its one line", async () => 
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {
+test("the reader's toggle opens the panel at full ink in one frame and fades it out on close, never animating its height", async () => {
   const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
   const motion = { ...foldMotion };
   const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
@@ -145,10 +146,11 @@ test("the reader's toggle plays the fold: the panel's height grows on open and c
   try {
     const { toggle } = await line("fold-1");
     await act(async () => toggle().click());
-    expect(frames.length).toBeGreaterThan(0);
-    expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
+    // The card opens its panel with no fade (`fadeIn={false}`): the open plays nothing.
+    expect(frames).toEqual([]);
     await act(async () => toggle().click());
     expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
+    expect(frames.flat().some((frame) => frame.height !== undefined || frame.maxHeight !== undefined)).toBe(false);
   } finally {
     delete proto.animate;
     Object.assign(foldMotion, motion);

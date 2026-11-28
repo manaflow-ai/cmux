@@ -29,11 +29,46 @@ public struct AgentChatPerfControl: Sendable {
         self.find = find
     }
 
+    /// How many chat pages the app holds now and has let go, read with `page_source: true` beside the
+    /// counts: `chat` built pages of existing chats now (New Tab pages apart, `new_tab`), `frozen` of
+    /// those hidden and asleep, `released` let go while hidden since launch (``HiddenChatPages``).
+    public struct PageCounts: Sendable, Equatable {
+        public var chat: Int
+        public var newTab: Int
+        public var frozen: Int
+        public var released: Int
+
+        public init(chat: Int, newTab: Int, frozen: Int, released: Int) {
+            self.chat = chat
+            self.newTab = newTab
+            self.frozen = frozen
+            self.released = released
+        }
+
+        /// From the App's page map: `views` every built agent page, `newTab` the New Tab pages among them.
+        public init(views: Int, newTab: Int, frozen: Int, released: Int) {
+            self.init(chat: max(0, views - newTab), newTab: newTab, frozen: frozen, released: released)
+        }
+
+        public var json: JSONValue {
+            .object([
+                "chat": .number(Double(chat)),
+                "new_tab": .number(Double(newTab)),
+                "frozen": .number(Double(frozen)),
+                "released": .number(Double(released)),
+            ])
+        }
+    }
+
     /// The App's control service registers this (`AppControl`). `sources`: the app's page-source counts
     /// (``AgentPageSources``, its ``AgentPageRetirer``'s), which `page_source: true` reads; nil before the app made its tabs.
-    public func controlMethod(sources: @escaping @MainActor @Sendable () -> AgentPageSources? = { nil }) -> ControlMethod {
+    /// `pages`: the app's ``PageCounts`` for the same read (its `pages` object), nil before the app made its tabs.
+    public func controlMethod(
+        sources: @escaping @MainActor @Sendable () -> AgentPageSources? = { nil },
+        pages: @escaping @MainActor @Sendable () -> PageCounts? = { nil }
+    ) -> ControlMethod {
         let find = find
-        return .async(Self.method) { call in try await Self.run(call.params, find: find, sources: sources) }
+        return .async(Self.method) { call in try await Self.run(call.params, find: find, sources: sources, pages: pages) }
             .withDeadline(.fixed(.seconds(Self.maxSeconds + 15)))
             .withLimit { request, _ in .seconds(((try? Self.seconds(request.params)) ?? Self.maxSeconds) + 15) }
     }
@@ -48,8 +83,12 @@ public struct AgentChatPerfControl: Sendable {
     }
 
     /// The `page_source` read: `sources`' counts (all zero when the app has none yet); `reset` zeroes them after.
-    static func pageSourceReport(_ sources: AgentPageSources?, reset: Bool) -> JSONValue {
-        sources?.report(reset: reset) ?? .object(["page_source": AgentPageSourceCounts().json])
+    /// `pages`, when the app has them, adds its ``PageCounts`` as `pages` (`reset` leaves them).
+    static func pageSourceReport(_ sources: AgentPageSources?, reset: Bool, pages: PageCounts? = nil) -> JSONValue {
+        let report = sources?.report(reset: reset) ?? .object(["page_source": AgentPageSourceCounts().json])
+        guard let pages, case .object(var object) = report else { return report }
+        object["pages"] = pages.json
+        return .object(object)
     }
 
     /// The page call: the capture's JSON as text, or an error object when the page has no capture.
@@ -62,9 +101,13 @@ public struct AgentChatPerfControl: Sendable {
     /// On the main actor: the tab is found, and a frozen page refused, in the same turn that sends the call.
     @MainActor
     static func run(_ params: [String: JSONValue], find: @MainActor @Sendable (String) -> ChatPage,
-                    sources: @MainActor @Sendable () -> AgentPageSources? = { nil }) async throws -> JSONValue {
-        // `page_source: true` (no tab): how the chat pages made since launch got their page (``AgentPageSourceCounts``).
-        if params["page_source"]?.boolValue == true { return pageSourceReport(sources(), reset: params["reset"]?.boolValue == true) }
+                    sources: @MainActor @Sendable () -> AgentPageSources? = { nil },
+                    pages: @MainActor @Sendable () -> PageCounts? = { nil }) async throws -> JSONValue {
+        // `page_source: true` (no tab): how the chat pages made since launch got their page (``AgentPageSourceCounts``),
+        // and how many the app holds and has let go (``PageCounts``). No page is asked anything.
+        if params["page_source"]?.boolValue == true {
+            return pageSourceReport(sources(), reset: params["reset"]?.boolValue == true, pages: pages())
+        }
         let seconds = try seconds(params)
         guard let raw = params["tab"]?.stringValue, !raw.isEmpty else {
             throw ControlError.invalidParams(Text.needsTab)
@@ -111,9 +154,11 @@ public struct AgentChatPerfControl: Sendable {
                 bundle: .localizedModule)
         }
         static var noCapture: String {
+            // retry-prompt-ok: a developer's perf capture command; they re-run it
             String(localized: "agentPane.chatPerf.noCapture", defaultValue: "That chat's page can't measure itself. Update cmux, then try again.", bundle: .localizedModule)
         }
         static var running: String {
+            // retry-prompt-ok: a developer's perf capture command; they re-run it
             String(localized: "agentPane.chatPerf.running", defaultValue: "That chat is already being measured. Try again when that capture ends.", bundle: .localizedModule)
         }
     }

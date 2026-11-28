@@ -293,6 +293,10 @@ pub(super) enum Phase {
     Reconnect,
     /// The established session's carrier reattach.
     Resume,
+    /// A failed search for an established session's next route
+    /// (`CarrierRoutes::next_group`): the session's next resume runs on the
+    /// carrier it had, so this line says why no other one took over.
+    Discover,
 }
 
 impl Phase {
@@ -301,6 +305,7 @@ impl Phase {
             Self::Connect => "connect",
             Self::Reconnect => "reconnect",
             Self::Resume => "resume",
+            Self::Discover => "discover",
         }
     }
 
@@ -357,6 +362,14 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
     if let Some(code) = digits_after("(close ") {
         return Some(code);
     }
+    // How an ssh run exited when its link ended (`the ssh link ended (ssh
+    // exit 255)`): 255 is ssh's own failure, any other the remote command's.
+    if let Some(code) = digits_after("(ssh exit ") {
+        return Some(format!("exit_{code}"));
+    }
+    if let Some(signal) = digits_after("(ssh signal ") {
+        return Some(format!("signal_{signal}"));
+    }
     if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
         return Some(format!("http_{status}"));
     }
@@ -372,6 +385,38 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         return Some(if token { code } else { "other".into() });
     }
     let word = [
+        // The session's own resume errors (`ConnectionError`, `SessionError`):
+        // a resume that ends on one names it, not `other`.
+        ("reconnect deadline expired", "resume_deadline"),
+        ("stale connection generation", "stale_generation"),
+        ("connection generation changed", "generation_changed"),
+        ("generation exhausted", "generation_exhausted"),
+        ("no longer has the requested logical session", "session_gone"),
+        ("too many connected clients", "daemon_full"),
+        ("replay buffer is full", "replay_full"),
+        ("delivery window is full", "window_full"),
+        ("outbound queue is full", "queue_full"),
+        ("sequence gap", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame", "invalid_frame"),
+        ("ssh bootstrap failed", "ssh_bootstrap"),
+        ("does not support", "unsupported_auth"),
+        ("no reconnect routes", "no_routes"),
+        ("no such route", "no_route"),
+        ("no transport provider handles", "no_provider"),
+        ("ssh connection group is closed", "ssh_group_closed"),
+        ("could not start ssh", "ssh_spawn"),
+        ("closed the link before its welcome", "no_welcome"),
+        ("closed the link before link-ready", "no_link_ready"),
+        ("link closed during handshake", "handshake_closed"),
+        ("link is closed", "link_closed"),
+        ("did not finish within", "open_timeout"),
+        ("network changed", "network_changed"),
+        ("link protocol failed", "link_protocol"),
+        ("noise handshake", "noise"),
+        ("authorization failed", "unauthorized"),
+        ("connection is closed", "closed"),
         ("connection refused", "connect_refused"),
         ("tls error", "tls"),
         ("deadline passed", "deadline"),
@@ -422,7 +467,11 @@ pub(super) enum PhasesOf {
 
 /// The per-step line, appended only to the connect log beside each route
 /// line (never on stderr, whose lines `dial` and `serve` pin):
-/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n>`.
+/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n> net=<wifi|wired|cell|other|unknown> region=<relay host|unknown>`.
+/// `net` and `region` (RFD 0223 row 1, Mac-side connect by network and region) come last, so
+/// readers that take the earlier fields by key read the line as before. `net` is this machine's
+/// primary interface kind ([`super::net_kind`]); `region` is the relay host the answer named
+/// (`relay+do://<host>`; the Durable Object's colo is not in the answer), or `unknown`.
 /// `carrier` is the relay's index in the answer's relay list (one relay
 /// today, so `relay:0`). It holds no `cloud.connect`, so readers of the
 /// route line (cmuxterm-hq's start matrix fails any `cloud.connect` line of
@@ -433,13 +482,29 @@ pub(super) fn phases_line(
     outcome: Option<Step>,
     times: PhaseTimes,
     elapsed: Duration,
+    relay: Option<&str>,
 ) -> String {
+    phases_line_on(machine, of, outcome, times, elapsed, super::net_kind::current(), relay)
+}
+
+/// [`phases_line`] with the `net` tag given (tests).
+pub(super) fn phases_line_on(
+    machine: &str,
+    of: PhasesOf,
+    outcome: Option<Step>,
+    times: PhaseTimes,
+    elapsed: Duration,
+    net: &str,
+    relay: Option<&str>,
+) -> String {
+    let region =
+        relay.filter(|r| !r.is_empty() && !r.contains(char::is_whitespace)).unwrap_or("unknown");
     let phase = match of {
         PhasesOf::Attempt(phase) => phase.name(),
         PhasesOf::Stream => "stream",
     };
     format!(
-        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={}\n",
+        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={} net={net} region={region}\n",
         outcome.map_or("ok", Step::error_code),
         times.ticket.as_millis(),
         times.relay.as_millis(),
@@ -468,10 +533,27 @@ pub(super) fn routes_line(
     outcome: Option<Step>,
     detail: Option<&str>,
 ) -> String {
+    routes_line_on(machine, phase, ssh, carrier, None, outcome, detail)
+}
+
+/// [`routes_line`] of a failed resume that ran on route `tried` (`relay:0`,
+/// `ssh:0`): each `why` code the failure's text does not place on a route
+/// is placed on `tried` (`relay_link_closed`), so a resume that kept
+/// failing on a dead carrier says which one.
+pub(super) fn routes_line_on(
+    machine: &str,
+    phase: Phase,
+    ssh: Option<&str>,
+    carrier: Option<&str>,
+    tried: Option<&str>,
+    outcome: Option<Step>,
+    detail: Option<&str>,
+) -> String {
     let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    let tried = tried.and_then(route_word);
     let why = detail
         .filter(|_| outcome.is_some())
-        .and_then(why_codes)
+        .and_then(|detail| why_codes_on(detail, tried))
         .map_or_else(String::new, |why| format!(" why={why}"));
     let said = detail
         .and_then(cmux_remote::provider::ssh_stderr_of)
@@ -491,9 +573,19 @@ pub(super) fn routes_line(
 /// in the order the routes failed. A carrier ssh failure says which of its
 /// steps stopped it (`ssh_refused`: the platform dropped the route;
 /// `ssh_key_timeout`/`ssh_key`: the key was not authorized; `killed`: the
-/// route was killed); anything else is its [`detail_code`]. A captured ssh
+/// route was killed), followed by the platform's refusal when it named one
+/// (`ssh_refused_403_auth_forbidden`, [`platform_refusal`]); anything else
+/// is its [`detail_code`], after the route it failed on when the route
+/// runner named one ([`route_of`]). A captured ssh
 /// stderr tail is left out: it has its own quoted field.
+#[cfg(test)]
 pub(super) fn why_codes(detail: &str) -> Option<String> {
+    why_codes_on(detail, None)
+}
+
+/// [`why_codes`], with `tried` (`relay` or `ssh`) the route of every code
+/// the text names no route for.
+pub(super) fn why_codes_on(detail: &str, tried: Option<&'static str>) -> Option<String> {
     const MAX_WHY_CODES: usize = 4;
     let mut rest = detail;
     let mut text = String::new();
@@ -516,14 +608,69 @@ pub(super) fn why_codes(detail: &str) -> Option<String> {
         ]
         .into_iter()
         .find(|(marker, _)| lower.contains(marker))
-        .map(|(_, code)| code.to_string())
-        .or_else(|| detail_code(part));
+        .map(|(_, code)| match platform_refusal(&lower) {
+            Some(refusal) => format!("{code}_{refusal}"),
+            None => code.to_string(),
+        })
+        .or_else(|| {
+            detail_code(part).map(|code| match route_of(&lower).or(tried) {
+                Some(route) if !code.starts_with(route) => format!("{route}_{code}"),
+                _ => code,
+            })
+        });
         if let Some(code) = code.filter(|code| !codes.contains(code)) {
             codes.push(code);
         }
     }
     codes.truncate(MAX_WHY_CODES);
     (!codes.is_empty()).then(|| codes.join(","))
+}
+
+/// Which route a part of the route runner's "all reconnect route providers
+/// failed: <route>: <error>; <route>: <error>" names, by its scheme only
+/// (`relay` or `ssh`), so a resume that failed on both routes says which
+/// failure was whose (`relay_other,ssh_bootstrap`).
+fn route_of(lower: &str) -> Option<&'static str> {
+    let rest = lower
+        .split_once("all reconnect route providers failed: ")
+        .map_or(lower, |(_, rest)| rest)
+        .trim_start();
+    if rest.starts_with("ssh://") {
+        Some("ssh")
+    } else if rest.starts_with("relay+") || rest.starts_with("relay://") {
+        Some("relay")
+    } else {
+        None
+    }
+}
+
+/// The route word of a connect log carrier (`relay:0` is `relay`, `ssh:0`
+/// is `ssh`; `none` and anything else is none).
+fn route_word(carrier: &str) -> Option<&'static str> {
+    match carrier.split(':').next() {
+        Some("relay") => Some("relay"),
+        Some("ssh") => Some("ssh"),
+        _ => None,
+    }
+}
+
+/// The platform's refusal in a carrier ssh failure (`cmux-platform answered
+/// 403 auth.forbidden`, [`super::answer::read_ssh_endpoint`]) as one code,
+/// `403_auth_forbidden`: which of ssh-endpoint's refusals dropped the route.
+/// Only a 3-digit status and a code of `[a-z0-9._]` (cmux-platform's own
+/// fixed codes) are kept; anything else is no code.
+fn platform_refusal(lower: &str) -> Option<String> {
+    const MAX_REFUSAL_CODE: usize = 40;
+    let (_, rest) = lower.split_once("cmux-platform answered ")?;
+    let (status, rest) = rest.split_once(' ')?;
+    let code = rest.split(|c: char| c.is_whitespace() || c == ';').next()?;
+    let status_ok = status.len() == 3 && status.bytes().all(|b| b.is_ascii_digit());
+    let code_ok = !code.is_empty()
+        && code.len() <= MAX_REFUSAL_CODE
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_');
+    (status_ok && code_ok).then(|| format!("{status}_{}", code.replace('.', "_")))
 }
 
 /// The most of a captured ssh stderr line a `carrier.routes` line keeps:

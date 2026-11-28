@@ -63,6 +63,24 @@ struct AgentSessionShareRequestTests {
         ]))
     }
 
+    /// Access requests (cmux-tui-core agent_session_shares.rs `Approve`, `Uninvite`): approve takes
+    /// the role only when given; list's pending requests decode with their snake_case fields.
+    @Test func approveAndDeclineNameTheShareAndTheAccount() throws {
+        #expect(try fields(AgentSessionShareRequestApproveRequest(shareId: "s1", account: "@theo", role: "talk")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-request-approve"), "share_id": .string("s1"),
+            "account": .string("@theo"), "role": .string("talk"),
+        ]))
+        #expect(try fields(AgentSessionShareRequestApproveRequest(shareId: "s1", account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-request-approve"), "share_id": .string("s1"), "account": .string("@theo"),
+        ]))
+        #expect(try fields(AgentSessionShareRequestDeclineRequest(shareId: "s1", account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-request-decline"), "share_id": .string("s1"), "account": .string("@theo"),
+        ]))
+        let listed = #"{"ok":true,"data":{"shares":[{"share_id":"s1","session":"acp-1","surface":3,"created_at":1,"expires_at":2,"expires_in_secs":1,"uses_left":0,"state":"active","guests":[],"requests":[{"account":"mei@x.co","name":"Mei","avatar_url":"https://a/m.png","requested_at":7,"state":"pending"}]}]}}"#
+        let list = try WireCoding.decodeResponse(AgentSessionShareList.self, from: Data(listed.utf8))
+        #expect(list.shares.first?.requests == [AgentSessionShareAccessRequest(account: "mei@x.co", name: "Mei", avatarUrl: "https://a/m.png", requestedAt: 7)])
+    }
+
     /// `agent-session-share-invite-chat` names the chat (its surface and the session the caller saw) and
     /// the account; the share's terms and the owner token go only when given.
     @Test func inviteChatNamesTheChatAndTheAccount() throws {

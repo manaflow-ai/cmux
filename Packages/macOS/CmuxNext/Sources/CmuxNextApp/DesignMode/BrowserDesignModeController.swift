@@ -4,6 +4,7 @@ import CmuxNextSettings
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDiff
 import CmuxNextHome
 import Foundation
 
@@ -13,6 +14,12 @@ import Foundation
 /// Chief's Home composer shown in the browser's window, else to the agent chat of the browser's
 /// workspace whose pane was focused last. A pick the chat lets go of (its chip removed, or sent)
 /// leaves the page, so the pins always match the chips.
+///
+/// Comment threads (cmuxterm-hq goals/all-surface-comments-round-trip.md): when the chat's session
+/// host keeps them (`diff-comments-threads-v1`), Command-Return in a pick's bubble sends the pick to that
+/// chat at once (``BrowserCommentThreads``: `diff.comments.save` as a browser comment, then
+/// a threaded `diff.comments.send`), with no chip, and the pick's thread card on the page shows
+/// "Sent", then the agent's reply; Resolve deletes it. Without the capability the chip path stays.
 @MainActor
 final class BrowserDesignModeController {
     private weak var services: AppServices?
@@ -20,6 +27,15 @@ final class BrowserDesignModeController {
     private let strings = BrowserDesignModeStrings()
     /// What each tab (by tab key) already sent, so a scroll or a repaint sends nothing.
     private var cards: [String: BrowserDesignModeCards] = [:]
+    /// The comment threads sent from picks, keyed by card id; each change is drawn on its pick's page.
+    private lazy var threads: BrowserCommentThreads = {
+        let threads = BrowserCommentThreads()
+        threads.onChange = { [weak self, weak threads] id, thread in
+            guard let pick = threads?.picks[id], let page = self?.services?.cache.existingBrowser(pick.tab)?.tab else { return }
+            Task { [weak page] in await page?.setDesignModeThread(pick.selector, state: thread?.state.rawValue, reply: thread?.reply) }
+        }
+        return threads
+    }()
 
     init(services: AppServices) { self.services = services }
 
@@ -29,10 +45,14 @@ final class BrowserDesignModeController {
         modes.designMode.toggle()
         let on = modes.designMode, tab = entry.tab
         cards[key] = on ? BrowserDesignModeCards() : nil
+        _ = threads.offer(nil, on: key)
         Task { [weak self, state = entry.state] in
             guard on else { return await tab.disableDesignMode() }
             do {
                 try await tab.enableDesignMode(self?.script ?? BrowserDesignModeScript())
+                self?.offerSend(on: tab, key: key)
+                guard let self, let target = threadTarget(near: key), let url = tab.state.url else { return }
+                await threads.restore(url: url, tab: key, git: target.git, folder: target.folder, put: tab.restoreDesignModeThread)
             } catch {
                 modes.designMode = false
                 state.showNotice(self?.strings.couldNotStart ?? "")
@@ -48,6 +68,10 @@ final class BrowserDesignModeController {
             return
         }
         guard var tracker = cards[key], !page.completeDesignModeCapture(message) else { return }
+        if let request = BrowserDesignModeCards.threadRequest(message) {
+            return handle(request, tracker: tracker, page: page, key: key)
+        }
+        offerSend(on: page, key: key)
         let change = tracker.change(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !change.cards.isEmpty || !change.removed.isEmpty else { return }
@@ -55,10 +79,14 @@ final class BrowserDesignModeController {
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
         let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
-        let chat = home == nil ? chatView(near: key) : nil
-        // A highlight removed on the page takes its card out of whichever composer holds it.
-        for id in change.removed { takeOut(id, home: home, chat: chat) }
-        let made = change.cards
+        let chat = home == nil ? self.chat(near: key)?.view : nil
+        // A highlight removed on the page takes its card out of whichever composer holds it; a
+        // threaded pick removed on the page resolves its thread.
+        for id in change.removed {
+            if threads.threads[id] != nil { resolveThread(id) } else { takeOut(id, home: home, chat: chat) }
+        }
+        // A pick sent as a thread has no chip: its thread card on the page holds it.
+        let made = change.cards.filter { threads.threads[$0.id] == nil }
         guard !made.isEmpty else { return }
         let deliveries = made.map { BrowserDesignModeDelivery($0, homeShown: home != nil, agentChat: chat != nil) }
         if deliveries.contains(.nowhere) {
@@ -74,7 +102,8 @@ final class BrowserDesignModeController {
             guard let page else { return }
             // Only the agent chat shows the crop; Home's one file per pick is the card's text.
             let shot = home == nil ? await page.designModeSnapshot() : nil
-            for card in rest {
+            // A pick sent as a thread meanwhile (Command-Return right after the snapshot) gets no chip.
+            for card in rest where self?.threads.threads[card.id] == nil {
                 let png = shot.flatMap { card.crop(from: $0) }
                 if let home {
                     // One file per pick: Home draws each file as its own chip, and two per pick
@@ -90,8 +119,9 @@ final class BrowserDesignModeController {
     }
 
     /// Takes the picks of card `ids` off their pages: a chat removed their chips, or sent them.
+    /// A pick sent as a thread stays: its chip left because the thread holds it.
     func release(_ ids: [String]) {
-        for id in ids {
+        for id in ids where threads.threads[id] == nil {
             guard let (key, tracker) = cards.first(where: { $0.value.selector(of: id) != nil }), let selector = tracker.selector(of: id),
                   let page = services?.cache.existingBrowser(key)?.tab else { continue }
             Task { [weak page] in await page?.removeDesignModePick(selector) }
@@ -137,18 +167,91 @@ final class BrowserDesignModeController {
         homePicks.record(card.id, added: added)
     }
 
-    /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
-    private func chatView(near key: String) -> AgentPaneView? {
-        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
-        let store = services.daemon(for: pane).store
+    /// The agent chat in the workspace of browser tab `key` whose pane was focused last, with its tab
+    /// and the workspace that holds both.
+    private func chat(near key: String) -> (view: AgentPaneView, tab: TabModel, workspace: WorkspaceModel)? {
+        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key),
+              let chat = services.workspaceAgentChat(near: pane) else { return nil }
+        return (chat.view, chat.tab, chat.workspace)
+    }
+}
+
+extension AppServices {
+    /// The agent chat in the workspace of `pane` whose pane was focused last: its tab, view and the
+    /// workspace that holds both. Design mode's picks and a terminal selection's comments go to it.
+    func workspaceAgentChat(near pane: PaneModel) -> (tab: TabModel, view: AgentPaneView, workspace: WorkspaceModel)? {
+        let store = daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }
         let panes = workspace.screens.flatMap(\.panes).sorted { $0.focusedAt > $1.focusedAt }
         for candidate in panes {
             let selected = candidate.tabs.indices.contains(candidate.defaultTabIndex) ? [candidate.tabs[candidate.defaultTabIndex]] : []
             for tab in selected + candidate.tabs {
-                if let view = services.agentTabs.existingView(tab.id), !services.agentTabs.isNewTabPage(tab.id) { return view }
+                if let view = agentTabs.existingView(tab.id), !agentTabs.isNewTabPage(tab.id) {
+                    return (tab, view, workspace)
+                }
             }
         }
         return nil
+    }
+}
+
+// MARK: Comment threads
+
+extension BrowserDesignModeController {
+    /// Where a pick of browser tab `key` goes as a thread: the chat ``chat(near:)`` picks, when it
+    /// has an acpmux session and its session host keeps comment threads (`diff-comments-threads-v1`),
+    /// while Labs `labs.commentThreads` is on (off: the card sends a chip, as before).
+    private func threadTarget(near key: String) -> (view: AgentPaneView, session: String, git: DiffAgentGit,
+                                                     folder: String?)? {
+        guard let services, services.settings?.snapshot.commentThreads == true, let (view, tab, workspace) = chat(near: key),
+              let session = tab.agentSession?.session, !session.isEmpty,
+              let link = services.viewers.diffPages.gitLink(for: tab), link.supportsDiffCommentThreads else { return nil }
+        let folder = NewTerminalStart.folder(of: tab, services: services) ?? workspace.agentFolder
+        return (view, session, DiffAgentGit(link: link), folder)
+    }
+
+    /// Tells the page of tab `key` whether Command-Return sends, when that changed.
+    /// Home's composer takes picks while it is shown, so sending is only for the workspace's chat.
+    private func offerSend(on page: any BrowserTab, key: String) {
+        let available = HomeNativeTranscriptView.shown(in: page.contentView.window) == nil && threadTarget(near: key) != nil
+        guard threads.offer(available, on: key) else { return }
+        Task { [weak page] in await page?.setDesignModeSendAvailable(available) }
+    }
+
+    /// Command-Return on a pick (a real key in its bubble) sends it to the workspace's chat as a
+    /// thread under a fresh opid; its chip, if any, leaves. Resolve on its card, or the pick removed,
+    /// deletes the thread and takes the pick off the page.
+    private func handle(_ request: BrowserDesignModeThreadRequest, tracker: BrowserDesignModeCards, page: any BrowserTab, key: String) {
+        switch request {
+        case .send(let selector):
+            guard let card = tracker.card(at: selector), HomeNativeTranscriptView.shown(in: page.contentView.window) == nil,
+                  threads.threads[card.id].map({ $0.state == .failed && $0.commentID == nil }) ?? true else { return }
+            guard let target = threadTarget(near: key) else { return notice(strings.noAgentChat, key) }
+            let pick = threads.hold(card.id, pick: BrowserCommentPick(tab: key, selector: selector))
+            AgentPaneDesignSelection.remove(card.id, from: target.view)
+            let comment = BrowserComment(card, url: page.state.url, title: page.state.title)
+            Task { [weak self] in
+                do {
+                    try await self?.threads.send(comment, key: card.id, pick: pick, git: target.git,
+                                                 folder: target.folder, acpSession: target.session, opid: "browser-comment-" + UUID().uuidString)
+                } catch { self?.notice(self?.strings.sendFailed ?? "", key) }
+            }
+        case .resolve(let selector):
+            guard let id = tracker.card(at: selector)?.id ?? threads.key(of: BrowserCommentPick(tab: key, selector: selector)) else { return }
+            resolveThread(id)
+        }
+    }
+
+    private func notice(_ text: String, _ key: String) {
+        services?.cache.existingBrowser(key)?.state.showNotice(text)
+    }
+
+    private func resolveThread(_ id: String) {
+        let pick = threads.picks[id]
+        Task { [weak self] in
+            try? await self?.threads.resolve(id)
+            guard let pick, let page = self?.services?.cache.existingBrowser(pick.tab)?.tab else { return }
+            await page.removeDesignModePick(pick.selector)
+        }
     }
 }

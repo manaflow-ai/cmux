@@ -26,8 +26,8 @@ import Testing
         return chrome
     }
 
-    /// Toolbar buttons are the bar's height (Helium's 28 pt at Compact), Compact's 28 at Default (its glyphs are Compact's;
-    /// Lucas 2026-11-18: Compact's padding), and keep the tab's hover shape.
+    /// Toolbar buttons are a tab tall, as the tab bar's ⋮ above them (Lawrence 2026-11-23: "all buttons need to have same
+    /// derived size, which is same height as the tabs"), and keep the tab's hover shape.
     @Test(arguments: DensityPreset.allCases)
     func toolbarButtonsScaleDefaultsSquareAndHover(preset: DensityPreset) {
         DensityTokens.$scoped.withValue(preset.tokens) {
@@ -35,8 +35,8 @@ import Testing
             defer { window.close() }
             let chrome = chrome(in: window)
             let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-            let row: CGFloat = (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
-            #expect(OmnibarStyle.buttonSize == row, "\(preset): the button token is \(OmnibarStyle.buttonSize), want \(row)")
+            let row = Metrics.tabHeight
+            #expect(OmnibarStyle.buttonSize == row, "\(preset): the buttons are \(OmnibarStyle.buttonSize), a tab is \(row)")
             // Drawn on the window's pixels: a 1x display draws whole points, and the button stays square
             // (Spacious's 37.5 pt drew 38 x 37 there before the sizes snapped once, `OmnibarStyle.onPixels`).
             let drawn = ((row) * window.backingScaleFactor).rounded() / window.backingScaleFactor
@@ -98,15 +98,14 @@ import Testing
         }
     }
 
-    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle, with Helium's own 4 pt
-    /// corner on its 14 pt square (`RoundRectHighlightPathGenerator`), not one nested in the pill (Lawrence 2026-11-13:
-    /// "need to match the X icon on helium in terms of hover too (like roundness of it), should be applied to all
-    /// densities"; `HeliumTabCloseButtonTests` checks every density).
+    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle: Helium's 14 pt square with
+    /// a 4 pt corner at Default (`HeliumTabCloseButtonTests` checks every density).
     @Test func tabCloseHoverIsHeliumsRoundedSquare() {
         DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
             let metrics = TabStripMetrics.standard
-            #expect(metrics.closeCornerRadius == (metrics.closeButtonSize * 4 / 14 * 2).rounded() / 2)
-            #expect(metrics.closeCornerRadius < metrics.closeButtonSize / 2, "a rounded square, not a circle")
+            // tab_close_button.cc: a 4 pt rounded square, the 14 pt visible square itself on a tab under 32 pt.
+            #expect(metrics.closePlateSide == 14 && metrics.closeCornerRadius == 4)
+            #expect(metrics.closeCornerRadius < metrics.closePlateSide / 2, "a rounded square, not a circle")
         }
     }
 }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.feed.mirrorAgents.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent and cmux notify notifications go to your feed and can reach your iPhone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントと cmux notify の通知がフィードに送られ、iPhone に届くことがあります。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُرسل إشعارات الوكلاء و cmux notify إلى موجزك وقد تصل إلى iPhone."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obavijesti agenata i cmux notify idu u vaš feed i mogu stići na vaš iPhone."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Notifikationer fra agenter og cmux notify går til dit feed og kan nå din iPhone."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mitteilungen von Agents und cmux notify gehen in deinen Feed und können dein iPhone erreichen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las notificaciones de agentes y de cmux notify van a tu feed y pueden llegar a tu iPhone."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les notifications des agents et de cmux notify vont dans votre flux et peuvent atteindre votre iPhone."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le notifiche degli agenti e di cmux notify vanno nel tuo feed e possono arrivare al tuo iPhone."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជូនដំណឹងពីភ្នាក់ងារ និង cmux notify ទៅកាន់ព័ត៌មានរបស់អ្នក ហើយអាចទៅដល់ iPhone របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트와 cmux notify의 알림이 피드로 전송되며 iPhone에 도착할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Varsler fra agenter og cmux notify går til feeden din og kan nå iPhonen din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiadomienia agentów i cmux notify trafiają do Twojego kanału i mogą dotrzeć do iPhone’a."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Notificações de agentes e do cmux notify vão para seu feed e podem chegar ao seu iPhone."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомления агентов и cmux notify попадают в вашу ленту и могут прийти на iPhone."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การแจ้งเตือนจากเอเจนต์และ cmux notify จะไปที่ฟีดของคุณและอาจส่งถึง iPhone ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajan ve cmux notify bildirimleri akışınıza gider ve iPhone'unuza ulaşabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сповіщення агентів і cmux notify потрапляють у вашу стрічку й можуть надійти на iPhone."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông báo từ tác tử và cmux notify được gửi vào bảng tin và có thể đến iPhone của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理和 cmux notify 的通知会进入你的动态，并可能推送到你的 iPhone。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理和 cmux notify 的通知會進入你的動態，並可能推送到你的 iPhone。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

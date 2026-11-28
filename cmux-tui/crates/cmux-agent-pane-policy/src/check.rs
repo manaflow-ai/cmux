@@ -9,7 +9,7 @@
 //! object: the host sends a fresh serialization of it ([`encode`]), never the
 //! page's bytes.
 //!
-//! What it does not do (host state, see the crate docs): redeem tickets,
+//! What it does not do (host state, see the crate docs): validate tickets,
 //! record or spend gestures, check paths against the roots, spend scope
 //! credit, map request ids.
 
@@ -18,8 +18,8 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_initialize_opt_ins,
-    stripping_prompt_meta, take_gesture_ticket,
+    params_rule_violation, requested_setting, session_refusal, stripping_initialize_opt_ins,
+    stripping_prompt_meta, stripping_unknown_params, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +51,35 @@ pub struct FrameState<'a> {
     pub gesture: Gesture,
     pub scope: &'a dyn PaneScope,
     pub options: &'a PermissionOptions,
+}
+
+/// Native input that a host verified while consuming an answer ticket.
+/// There is deliberately no conversion from a page value or [`Gesture::Key`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerTicketOrigin {
+    Click,
+    QuestionReturn,
+}
+
+/// A ticket redemption request derived from the checked frame, never from
+/// a separately supplied page intent.
+pub struct AnswerTicketRequest<'a> {
+    pub ticket: &'a str,
+    pub pick: &'a GesturePick,
+    pub session_id: Option<&'a str>,
+}
+
+/// The trusted host's one-time answer-ticket redemption boundary. The host
+/// must remove the ticket even on failure and verify its connection, age,
+/// exact pick/session binding, approval and native input provenance. Return
+/// additionally requires the still-current, non-repeating native question
+/// witness; posted input and a generic key grant cannot provide it.
+///
+/// This interface neither issues tickets nor changes the C ABI. It is an
+/// integration prerequisite: the host must prove its implementation before
+/// adopting [`check_frame_with_answer_tickets`].
+pub trait AnswerTicketVerifier {
+    fn redeem(&mut self, request: AnswerTicketRequest<'_>) -> Option<AnswerTicketOrigin>;
 }
 
 /// The pick a gesture ticket is bound to (`AgentPaneGesturePick`): the method
@@ -185,6 +214,10 @@ pub struct Setting {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Facts {
     pub is_first: bool,
+    /// The params the frame carried that this host's lists do not name,
+    /// dropped before it was sent (`limit`, `_meta.acpmux.peerRowBatches`):
+    /// the host logs them, once each, so a page newer than the host shows.
+    pub dropped: Vec<String>,
     pub method: Option<String>,
     /// The page's JSON-RPC id as raw JSON.
     pub page_id: Option<String>,
@@ -196,21 +229,21 @@ pub struct Facts {
     /// click": "go remove this").
     pub ticket: Option<String>,
     pub other_meta: bool,
+    /// Sorted names accompanying a ticket; metadata values never enter diagnostics.
+    pub other_meta_keys: Vec<String>,
+    /// A trusted host already redeemed this ticket and consumed its input
+    /// credit. Do not redeem or spend another click/grant for this frame.
+    /// All other facts (path, scope and setting approval) still apply.
+    pub redeemed_answer: Option<AnswerTicketOrigin>,
     pub pick: Option<GesturePick>,
     pub session_id: Option<String>,
     pub needs_gesture: bool,
-    /// The gesture the frame needs is a click (`policy.json` `click_only`):
-    /// the check passed it only because the host holds one
-    /// ([`FrameState::gesture`]). One click answers one time: the host
-    /// spends the click that it named, and its gesture grant, on this frame,
-    /// and holds no click after it until the person clicks again. (The
-    /// Swift transport spends its grant only and keeps the click's time;
-    /// a host on this check must not copy that.) A `ticket` in the facts is
-    /// still the host's to redeem; for such a frame the ticket holds the
-    /// grant, so the host spends only the click. The ticket does not stand
-    /// in for the click: a host that spends the click when it gives the
-    /// ticket gets a refuse for the ticketed frame (see the difference note
-    /// in [`check_frame`]).
+    /// The frame requires native answer input (`policy.json` `click_only`).
+    /// With no `redeemed_answer`, the host must spend the click it named
+    /// in [`FrameState::gesture`] and its grant once, redeeming any ticket
+    /// that holds that grant. With `redeemed_answer`, the verifier already
+    /// consumed the ticket/input credit: do not spend a second click.
+    /// A raw ticket or generic key never satisfies this requirement.
     /// Implies `needs_gesture`.
     pub needs_click: bool,
     pub needs_path_check: bool,
@@ -264,16 +297,25 @@ impl Facts {
             })
         });
         let pick = self.pick.as_ref().map(GesturePick::to_json);
-        serde_json::json!({
+        let mut value = serde_json::json!({
             "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
             "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
+            "other_meta_keys": self.other_meta_keys,
             "session_id": self.session_id, "needs_gesture": self.needs_gesture,
             "needs_click": self.needs_click,
             "needs_path_check": self.needs_path_check, "setting": setting,
             "attach_session": self.attach_session, "foreign_source": self.foreign_source,
             "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
             "starts_local_session": self.starts_local_session, "free": self.free(),
-        })
+        });
+        if let (Some(origin), Some(object)) = (self.redeemed_answer, value.as_object_mut()) {
+            let origin = match origin {
+                AnswerTicketOrigin::Click => "click",
+                AnswerTicketOrigin::QuestionReturn => "question_return",
+            };
+            object.insert("redeemed_answer".into(), Value::String(origin.into()));
+        }
+        value
     }
 }
 
@@ -330,6 +372,25 @@ pub fn redacted(frame: &Map<String, Value>) -> Value {
 
 /// The full check of `text` (see the module docs).
 pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
+    check_frame_inner(text, state, None)
+}
+
+/// Check with a host-owned ticket verifier. The legacy API and C ABI never
+/// enter this path. A failed redemption still returns `spend` (idempotently
+/// discard the ticket); a successful one is explicit in `redeemed_answer`.
+pub fn check_frame_with_answer_tickets(
+    text: &str,
+    state: &FrameState<'_>,
+    verifier: &mut dyn AnswerTicketVerifier,
+) -> Checked {
+    check_frame_inner(text, state, Some(verifier))
+}
+
+fn check_frame_inner(
+    text: &str,
+    state: &FrameState<'_>,
+    verifier: Option<&mut dyn AnswerTicketVerifier>,
+) -> Checked {
     let p = policy();
     let mut object = match allowlist_check(text, state.is_first) {
         Err(refused) => return Checked::Refuse { refused, spend: None },
@@ -338,8 +399,21 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins
     // are removed before every rule, so they never reach the daemon and never
     // fail the connect (cmux#46563; Swift `strippingInitializeOptIns`).
-    if let Some((stripped, _keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
+    // Its keys are dropped keys like P0's, so the facts name them too.
+    let mut opt_ins = Vec::new();
+    if let Some((stripped, keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
         object = stripped;
+        opt_ins = keys.into_iter().map(|k| format!("_meta.acpmux.{k}")).collect();
+    }
+    // P0: any other key this host's lists do not name is dropped, not refused
+    // ([`stripping_unknown_params`]): a newer page never loses its chat to it.
+    let (object, mut dropped) = match stripping_unknown_params(&object, state.mode_fields) {
+        Some((stripped, dropped)) => (stripped, dropped),
+        None => (object, Vec::new()),
+    };
+    if !opt_ins.is_empty() {
+        dropped.extend(opt_ins);
+        dropped.sort();
     }
     let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
     let page_id = object.get("id").and_then(raw_id);
@@ -356,28 +430,49 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     {
         return Checked::Refuse { refused, spend: carried };
     }
-    if breaks_params_rule(&object, state.mode_fields) {
-        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+    if let Some(cause) = params_rule_violation(&object, state.mode_fields) {
+        let refused = Refused {
+            refusal: Refusal::IntentInvalid,
+            method,
+            request_id: page_id,
+            cause: Some(cause),
+        };
         return Checked::Refuse { refused, spend: carried };
     }
+    // One permission generation supplies answer validation and the gesture
+    // decision. Copy only this permission, not the pane's growing history.
+    let options = state.options.snapshot_for(params.get("permissionId").and_then(Value::as_str));
     // Answers go only to a pending question, keyed by its items and bounded.
-    if crate::answers::breaks_answers_rule(&object, state.options) {
-        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+    if let Some(cause) = crate::answers::answers_rule_violation(&object, |permission| {
+        options.question_keys(permission)
+    }) {
+        let refused = Refused {
+            refusal: Refusal::IntentInvalid,
+            method,
+            request_id: page_id,
+            cause: Some(cause),
+        };
         return Checked::Refuse { refused, spend: carried };
     }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
-    let mut facts =
-        Facts { is_first: state.is_first, method: method.clone(), page_id, ..Facts::default() };
+    let mut facts = Facts {
+        is_first: state.is_first,
+        method: method.clone(),
+        page_id,
+        dropped,
+        ..Facts::default()
+    };
     if !state.is_first {
         let taken = take_gesture_ticket(&frame);
         frame = taken.object;
         facts.other_meta = taken.other_meta;
+        facts.other_meta_keys = taken.other_meta_keys;
         if taken.ticket.is_some() {
             facts.pick = Some(GesturePick::new(method.as_deref(), params));
             facts.session_id = params.get("sessionId").and_then(Value::as_str).map(str::to_owned);
         }
         facts.ticket = taken.ticket;
-        facts.needs_gesture = needs_gesture(&frame, |p, o| state.options.is_deny(p, o));
+        facts.needs_gesture = needs_gesture(&frame, |p, o| options.is_deny(p, o));
         // The click rule. An answer goes on the person's click only: a
         // gesture that typing left does not answer. A click-only method
         // with no gesture rule (a fault in policy.json) needs a click on
@@ -386,18 +481,38 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         let ruled = method.as_deref().is_some_and(|m| p.gesture_rules.contains_key(m));
         facts.needs_click = needs_click(click_only, ruled, facts.needs_gesture);
         facts.needs_gesture |= facts.needs_click;
-        // DIFFERENCE TO THE SWIFT HOST: a ticket is no click here, so a
-        // click-only frame with a ticket and no click is refused. The Swift
-        // host passes such a frame on its ticket alone, in two cases: it
-        // gave the ticket after a click, or for the person's Return key on
-        // a question (`reserveGesture`, `takeQuestionKeyTicket`). This check
-        // refuses both, so on a host that uses it a question is answered by
-        // a click, not by Return. The move of the Swift host onto this
-        // check must bring those ticket rules with it (tests/click_only.rs
-        // `a_ticket_is_no_click_which_differs_from_the_swift_host`).
-        if facts.needs_click && state.gesture != Gesture::Click {
-            let refused =
-                Refused { refusal: Refusal::GestureRequired, method, request_id: facts.page_id };
+        // A raw ticket or key is never proof. Only the opt-in host verifier
+        // may supply already-consumed native click/Return provenance.
+        if facts.needs_click
+            && state.gesture != Gesture::Click
+            && !facts.other_meta
+            && let (Some(verifier), Some(ticket), Some(pick)) =
+                (verifier, facts.ticket.as_deref().filter(|t| !t.is_empty()), facts.pick.as_ref())
+        {
+            let origin = verifier.redeem(AnswerTicketRequest {
+                ticket,
+                pick,
+                session_id: facts.session_id.as_deref(),
+            });
+            let question_allow = method.as_deref() == Some("_acpmux/permission_respond")
+                && params.get("answers").is_some_and(Value::is_object)
+                && params.get("permissionId").and_then(Value::as_str).is_some_and(|permission| {
+                    options.question_keys(permission).is_some()
+                        && params
+                            .get("optionId")
+                            .and_then(Value::as_str)
+                            .is_some_and(|option| options.is_known_allow(permission, option))
+                });
+            facts.redeemed_answer =
+                origin.filter(|origin| *origin == AnswerTicketOrigin::Click || question_allow);
+        }
+        if facts.needs_click && state.gesture != Gesture::Click && facts.redeemed_answer.is_none() {
+            let refused = Refused {
+                refusal: Refusal::GestureRequired,
+                method,
+                request_id: facts.page_id,
+                cause: None,
+            };
             return Checked::Refuse { refused, spend: carried };
         }
         facts.needs_path_check = needs_path_check(&frame);

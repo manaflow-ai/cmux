@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks that a built cmux-next-ios app carries none of the DEBUG-only surface:
-# launch overrides, the Developer page, demo drivers, and mock content (the
-# mock terminal script, mock agent/Feed/Chief scripts, sample data). Mock code
-# is compiled out with `#if DEBUG`; this proves it on the binary.
+# launch overrides, the Developer page, demo drivers, and mock content (mock
+# agent/Feed/Chief scripts, sample data). Mock code is compiled out with
+# `#if DEBUG`; this proves it on the binary. The scripted terminal is the one
+# exception: the App Review demo account's simulated Mac ships it (see below).
 #
 # usage: cmux-next-ios/scripts/check-production-binary.sh <CmuxMobileApp.app> [expected bundle id] [--shipping | --staging-shipping]
 #
@@ -28,21 +29,30 @@ staging_api=https://cmux-mobile-api-dev.debussy.workers.dev
 forbidden=(
   # Launch overrides and the Developer page.
   CMUX_MOBILE_MOCK_AUTH CMUX_MOBILE_STACK_EMAIL CMUX_MOBILE_CLEAR_AUTH "Demo at next launch" -cmux-mobile-demo
+  # The switch that forces the App Review demo on any account (UI tests, fleet proof).
+  CMUX_MOBILE_REVIEW_DEMO
   "Mock data signs in as a sample user" "Slow mock Face ID"
   # Demo drivers.
   DemoDriver TerminalDemoRoot TerminalDemoDriver FakeCodexSession FeedDemoScript ParityDemoScript OnboardingDemoScript
-  # The mock terminal: its session, its scripted shell, a fake git log line.
-  MockTerminalSession MockOutput "cmux-next-ios: design specification" "hostd: splice daemon channel with allowlist"
-  # Mock agent chat, Feed, Chief, artifacts and workspaces.
+  # Not here on purpose: the scripted terminal (MockTerminalSession, MockOutput, its
+  # fake git log) and its sample files (MockArtifactSource) ship in every build since
+  # #47190. They are the App Review demo account's simulated Mac (AppStore.loadReviewDemo),
+  # used only for that account (CmuxMobileAuthModel.isReviewDemoAccount) and never for
+  # any other, which TerminalSessionChoiceTests and ReviewDemoAccountTests check.
+  # Mock agent chat, Feed, Chief and workspaces.
   MockAgentSession "Every link frame is a fixed 9-byte header"
   "Which channel should this build go to first?"
   ChiefMockBackend "Overnight: Codex finished the pricing page fix"
-  MockArtifactSource MockWorkspaceCreationBackend
+  MockWorkspaceCreationBackend
   # Demo choreography, the mock terminal screen's "Mock session · local"
   # label (strings stops at the middle dot), the mock sign-in
   # user, and the old fake terminal placeholder page.
   DemoDirector WorkspaceDemoDirector "Mock session" "aziz@example.com"
   "Last login: Sun Oct 12" "Live terminal arrives with CmuxMobileTerminal"
+  # Swift live code (Packages/Shared/CmuxLiveCode on iOS, CmuxMobileLive LiveCodeLinkFeed): the
+  # loader, the interposer, the device patch check and the link feed are DEBUG only.
+  dyld_dynamic_interpose CMUX_LIVE_CODE_DIR CMUX_LIVE_CODE_LINK LiveCodeLinkFeed LiveCodeDeviceSigner
+  LiveCodeRedraw MachOCodeSignature "cmux-live-code/live"
 )
 
 # Every Mach-O in the bundle: the executable, Frameworks/, and the

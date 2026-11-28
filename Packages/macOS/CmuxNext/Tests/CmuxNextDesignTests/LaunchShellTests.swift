@@ -61,9 +61,29 @@ struct LaunchShellTests {
         #expect(LaunchShellReplay.kind(.mouseMoved) == 8 && LaunchShellReplay.kind(.appKitDefined) == 0)
     }
 
+    /// A fresh home (no launch record, no layout cache) knows no theme: stage 0 makes no window rather
+    /// than paint a guessed colour that flashes to the real theme (startup video at e77af242).
+    @Test func noSavedLookMakesNoWindow() throws {
+        let support = FileManager.default.temporaryDirectory.appending(path: "launch-shell-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let marks = LaunchShellMarks()
+        let shell = LaunchShell.prepare(support: support, build: "test+0", mark: { marks.append($0) })
+        shell.show(title: "stage 0")
+        #expect(shell.window == nil)
+        #expect(marks.all.contains("launch_shell.none_unknown_look"))
+    }
+
     @Test func theBuildKeyKeepsOnlyKeyCharacters() {
         #expect(LaunchShellPaths.build(info: ["CFBundleVersion": "4294", "CMUXCommit": "abc123"]) == "4294+abc123")
         #expect(LaunchShellPaths.build(info: ["CFBundleVersion": "1/../2 x"]) == "1..2x")
         #expect(LaunchShellPaths.build(info: [:]) == "unknown")
     }
+}
+
+private nonisolated final class LaunchShellMarks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+    func append(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
+    var all: [String] { lock.lock(); defer { lock.unlock() }; return values }
 }

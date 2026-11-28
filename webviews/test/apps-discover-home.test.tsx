@@ -6,11 +6,15 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Strings } from "../src/pages/shared/i18n";
-import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
+import { GRID_ROW_ESTIMATE } from "../src/pages/apps/model";
 import type { CatalogApp } from "../src/pages/apps/types";
-import { languageDirection, UiProvider } from "../src/ui/UiProvider";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+import { installVirtualSizes } from "./support/virtualSizes";
+
+const { AppsPage } = await importWithDom(() => import("../src/pages/apps/AppsPage"));
+const { languageDirection, UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,6 +31,10 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The catalog is windowed: give its scroll area a viewport and its rows a height, as a browser would.
+  installVirtualSizes(window, (element) =>
+    element.classList.contains("apps-scroll") ? 800 : element.dataset.size ? GRID_ROW_ESTIMATE : 0,
+  );
   host = window.document.getElementById("root")!;
 });
 

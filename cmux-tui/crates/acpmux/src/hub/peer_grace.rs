@@ -165,7 +165,7 @@ impl Hub {
                     continue;
                 }
                 () = cache_wait => {
-                    let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                    let dirty: Vec<_> = self.peers.load()
                         .values()
                         .filter(|p| p.cache_is_dirty())
                         .map(|p| (p.name.clone(), p.generation))
@@ -175,7 +175,7 @@ impl Hub {
                     }
                     // A save that runs now, failed, or was put off again leaves its peer dirty:
                     // one more round then. Nothing dirty: no timer until the next kick.
-                    let still = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                    let still = self.peers.load()
                         .values()
                         .any(|p| p.cache_is_dirty());
                     cache_due = still
@@ -199,8 +199,7 @@ impl Hub {
         }
         let dirty: Vec<_> = self
             .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .load()
             .values()
             .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))
@@ -237,13 +236,18 @@ impl Hub {
         grace: Arc<Grace>,
         mut stop: tokio::sync::watch::Receiver<bool>,
     ) {
+        // A queued notice that could not join a run of changed rows: applied next, alone.
+        let mut pending: Option<Work> = None;
         loop {
             if *stop.borrow() {
                 break;
             }
-            let work = tokio::select! {
-                work = rx.recv() => work,
-                _ = stop.changed() => break,
+            let work = match pending.take() {
+                Some(work) => Some(work),
+                None => tokio::select! {
+                    work = rx.recv() => work,
+                    _ = stop.changed() => break,
+                },
             };
             let Some(work) = work else { break };
             // A strong hub only while one item is applied: between items a shard holds none, as
@@ -258,13 +262,27 @@ impl Hub {
             };
             let started = Instant::now();
             let queued = rx.len() as u64;
-            let label = notice.label();
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
             let Some(current) = this.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
+            let notice = match notice {
+                PeerNotice::WaitingList(number) => {
+                    let Some(rows) = current.take_waiting_list(number) else {
+                        continue;
+                    };
+                    PeerNotice::Sessions(rows)
+                }
+                other => other,
+            };
+            if matches!(notice, PeerNotice::SessionsPatch { .. })
+                && current.list_baseline_missing.load(Ordering::SeqCst)
+            {
+                continue;
+            }
+            let label = notice.label();
             let settles = matches!(
                 notice,
                 PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
@@ -322,9 +340,66 @@ impl Hub {
                     if matches!(notice, PeerNotice::Connected) {
                         this.restore_peer_journals(&peer, generation);
                     }
-                    this.apply_peer_notice(&peer, generation, notice);
-                    if warms {
-                        this.warm_peer_copies(&peer);
+                    let run_of = this.batchable_change(&peer, &notice).map(str::to_owned);
+                    if let Some(mux) = run_of {
+                        // Changed rows queued behind this one join it under one taking of the
+                        // rows writer lock (`peers/changes.rs`), each a different session, in
+                        // the order they came; the first that cannot join goes next, alone.
+                        let mut seen = HashSet::from([(peer.clone(), mux)]);
+                        let mut run = vec![(peer.clone(), generation, notice)];
+                        let mut labels = Vec::new();
+                        while run.len() < super::peers::CHANGES_PER_HOLD {
+                            let Ok(next) = rx.try_recv() else { break };
+                            let joins = |p: &String, g: u64, n: &PeerNotice| {
+                                let current = this.peer(p).filter(|c| c.generation == g)?;
+                                let mux = this.batchable_change(p, n)?;
+                                (!seen.contains(&(p.clone(), mux.to_owned())))
+                                    .then(|| (current, mux.to_owned()))
+                            };
+                            let joined = match &next {
+                                Work::Notice(p, g, n) => joins(p, *g, n),
+                                Work::Expire(..) => None,
+                            };
+                            match (next, joined) {
+                                (Work::Notice(p, g, n), Some((current, mux))) => {
+                                    {
+                                        let mut state = grace.lock();
+                                        let key = (p.clone(), g);
+                                        state.drops.remove(&key);
+                                        state.firing.remove(&key);
+                                    }
+                                    current.outage_ended.store(false, Ordering::SeqCst);
+                                    labels.push(n.label());
+                                    seen.insert((p.clone(), mux));
+                                    run.push((p, g, n));
+                                }
+                                (other, _) => {
+                                    pending = Some(other);
+                                    break;
+                                }
+                            }
+                        }
+                        let mut warm = vec![peer.clone()];
+                        for change in this.apply_session_changes(run) {
+                            if !warm.iter().any(|p| p == change.peer()) {
+                                warm.push(change.peer().to_owned());
+                            }
+                            this.session_change_announce(change);
+                        }
+                        for p in &warm {
+                            this.warm_peer_copies(p);
+                        }
+                        // Each joined notice counted as applied, at the run's time.
+                        let micros =
+                            u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+                        for label in labels {
+                            crate::gauges::peer_notices().applied(label, micros, queued);
+                        }
+                    } else {
+                        this.apply_peer_notice(&peer, generation, notice);
+                        if warms {
+                            this.warm_peer_copies(&peer);
+                        }
                     }
                 }
             }

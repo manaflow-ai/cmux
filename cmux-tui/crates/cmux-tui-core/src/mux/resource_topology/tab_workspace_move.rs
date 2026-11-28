@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// An empty destination gained a screen between the look and the commit;
+/// [`Mux::move_tab_to_workspace_placed`] looks again.
+const DESTINATION_CHANGED: &str = "the destination workspace kept changing while the tab moved";
+
 impl Mux {
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
@@ -42,7 +46,41 @@ impl Mux {
         .context("moved tab has no workspace")
     }
 
+    /// Moves `surface` into `workspace` (a new one when `None`). An empty
+    /// destination that gained a screen between the look and the commit is
+    /// moved into again at once: the second look takes its active pane, so
+    /// nobody is asked to retry the move. Nothing was committed by the try
+    /// that saw the change.
     pub(super) fn move_tab_to_workspace_placed(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+        group: Option<String>,
+        group_index: Option<usize>,
+        name: Option<String>,
+    ) -> anyhow::Result<()> {
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let result = self.move_tab_to_workspace_placed_once(
+                actor,
+                surface,
+                workspace,
+                group.clone(),
+                group_index,
+                name.clone(),
+            );
+            match result {
+                Err(error)
+                    if tries < 3
+                        && error.chain().any(|cause| cause.to_string() == DESTINATION_CHANGED) => {}
+                result => return result,
+            }
+        }
+    }
+
+    fn move_tab_to_workspace_placed_once(
         self: &Arc<Self>,
         actor: &Actor,
         surface: SurfaceId,
@@ -116,14 +154,10 @@ impl Mux {
                         state.workspace_index(id).context("destination workspace disappeared")?;
                     anyhow::ensure!(
                         state.workspaces[index].screens.is_empty(),
-                        "destination layout changed; retry the move"
+                        DESTINATION_CHANGED
                     );
                     (index, state.workspaces[index].clone())
                 } else {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     (
                         new_workspace_position(
                             state,

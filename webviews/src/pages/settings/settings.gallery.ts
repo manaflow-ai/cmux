@@ -9,14 +9,15 @@ import type {
   HarnessesState,
   HostLists,
   ProviderAccount,
+  IntegrationRow,
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
-import { minutesAgo } from "../../gallery/clock";
+import { minutesAgo, GALLERY_NOW } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import { mockDevicesState } from "./mockProvider";
+import { mockDevicesState, mockDomains } from "./mockProvider";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -70,6 +71,7 @@ const cmuxSignedOut: AccountsCmux = {
   status: "Signed out",
   statusKind: "attention",
   buttons: [button("cmux.signIn", "Sign In to cmux")],
+  signInBackend: "Signs in to Development backend · dev-abc.cmux.dev",
   error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
 };
 const cmuxSigningIn: AccountsCmux = {
@@ -117,6 +119,8 @@ const host: Partial<HostLists> = {
       active: true,
       color: "#7F5FA8",
       color_key: "research build machine",
+      // A Remote machine's AutoCloud enrollment (_acpmux/autocloud_enroll there), off: opt-in for customers.
+      autocloud: { on: false, error: null },
     },
     // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
     {
@@ -198,6 +202,26 @@ const rowShapeMachines: HostLists["machines"] = [
     vm_host: { on: true, busy: false, error: null },
   },
 ];
+/** One Remote machine with its AutoCloud enrollment in `autocloud`, for the autocloud-* variants. */
+function autoCloudMachines(autocloud: NonNullable<HostLists["machines"][number]["autocloud"]>): HostLists["machines"] {
+  return [
+    {
+      id: "sample-remote-mac",
+      title: "Studio Mac",
+      subtitle: "Online · Remote",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "studio mac",
+      autocloud,
+    },
+  ];
+}
+const macCaps = ["arm64", "macos", "xcode", "ios-simulator", "gpu-metal"];
+const autoCloudPlay = async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+  const card = ctx.find({ selector: '[data-card="machines"]' });
+  card.setAttribute("data-gallery-capture", "");
+  card.scrollIntoView({ block: "center" });
+};
 const rowShapeEnvironments: CloudEnvironmentsState = {
   available: true,
   loading: false,
@@ -275,6 +299,11 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     return [setting.key, value];
   }),
 );
+/** A `link-<app>` row of `agent hook status` (cmux-tui agent_hook_links.rs). */
+function linkRow(app: string, path: string, state: IntegrationRow["state"]): IntegrationRow {
+  return { id: `link-${app}`, path, state, reason: null, detail: null, error: null };
+}
+
 const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => {
   // A section that is neither a category id nor one of its aliases opens General (categoryOf), so
   // a state's steps wait for a card that is never drawn: say which section is wrong instead.
@@ -341,6 +370,25 @@ const variants: Record<string, SettingsPageVariant> = {
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
+  }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
     note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
@@ -376,6 +424,10 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+/// A window's reset time `minutes` after the stage clock (installGalleryClock, GALLERY_NOW), so the
+/// reset labels and even-pace marks read the same in every capture.
+const resetsIn = (minutes: number) => GALLERY_NOW / 1000 + minutes * 60;
+
 // Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
 const providerAccounts: ProviderAccount[] = [
   {
@@ -390,11 +442,12 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
-    // Read when Settings opened (`_acpmux/account/usage`); no reset times, so the capture holds still.
+    // Read when Settings opened (`_acpmux/account/usage`); reset times on the stage clock, so the
+    // capture holds still. Both under even pace (40% and 71% of their windows gone).
     usage: {
       windows: [
-        { id: "session", usedPercent: 22, windowMins: 300 },
-        { id: "weekly", usedPercent: 41, windowMins: 10080 },
+        { id: "session", usedPercent: 22, windowMins: 300, resetsAt: resetsIn(180) },
+        { id: "weekly", usedPercent: 41, windowMins: 10080, resetsAt: resetsIn(2 * 1440) },
       ],
       plan: "pro",
       credits: { balance: "56766" },
@@ -412,7 +465,11 @@ const providerAccounts: ProviderAccount[] = [
     email: "sam@example.com",
     enabled: false,
     builtin: false,
-    usage: { windows: [{ id: "session", usedPercent: 87.5, windowMins: 300 }], plan: "plus" },
+    // Ahead of even pace: 87.5% used with 20% of the 5 hours gone.
+    usage: {
+      windows: [{ id: "session", usedPercent: 87.5, windowMins: 300, resetsAt: resetsIn(240) }],
+      plan: "plus",
+    },
   },
   {
     id: "claude-login",
@@ -426,6 +483,14 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
+    // Claude's windows carry no length (claude_stdio/usage_limits.rs); the mark reads it by id. The
+    // 5-hour window is near its reset (80% gone, 58% used); the week is ahead (29% gone, 70% used).
+    usage: {
+      windows: [
+        { id: "session", usedPercent: 58, resetsAt: resetsIn(60) },
+        { id: "weekly", usedPercent: 70, resetsAt: resetsIn(5 * 1440) },
+      ],
+    },
   },
 ];
 
@@ -444,7 +509,7 @@ const codexHarness: HarnessesState["harnesses"] = [
 
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and each signed-in account's 5-hour and weekly usage read at rest, with an even-pace mark on every bar (ChatGPT 2's and Claude's week run ahead of it, in the warning color), and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
@@ -486,6 +551,60 @@ Object.assign(variants, {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
+  // "Your other apps": the cmux MCP server in Claude desktop, Claude Code and Codex
+  // (`agent hook status` link- rows), above the hooks.
+  "agents-integrations-links": variant("agents", {
+    note: "Your other apps: Claude desktop connected, Claude Code not yet, Codex linked by another cmux build (Reconnect).",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        linkRow("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "installed"),
+        linkRow("claude-code", "~/.claude.json", "absent"),
+        linkRow("codex", "~/.codex/config.toml", "partial"),
+        { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+        { id: "codex", path: "~/.codex/hooks.json", state: "absent", reason: null, detail: null, error: null },
+      ],
+    },
+  }),
+  "agents-integrations-links-blocked": variant("agents", {
+    note: "Your other apps: Codex already has a server named cmux that cmux did not add (no Connect); Claude desktop's settings file is unreadable.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow(
+            "claude-desktop",
+            "~/Library/Application Support/Claude/claude_desktop_config.json",
+            "unavailable",
+          ),
+          reason: "unreadable",
+        },
+        { ...linkRow("codex", "~/.codex/config.toml", "conflict"), reason: "not_owned" },
+      ],
+    },
+  }),
+  "agents-integrations-links-error": variant("agents", {
+    note: "Your other apps: Connect on Claude Code failed because its CLI is not on the login PATH; the row says what to run.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow("claude-code", "~/.claude.json", "absent"),
+          error: "link-claude-code: the claude CLI is not on PATH; run: claude mcp add-json --scope user cmux '{…}'",
+        },
+        linkRow("codex", "~/.codex/config.toml", "installed"),
+      ],
+    },
   }),
   "agents-harnesses-account-added": variant("agents", {
     note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
@@ -999,6 +1118,59 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "autocloud-off": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({ on: false, error: null }),
+    },
+    note: "A Remote machine not in AutoCloud: Off, where to turn it on, the always-on idle note (customers' default).",
+    play: autoCloudPlay,
+  }),
+  "autocloud-accepting": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: true,
+        owner_idle: true,
+        policy: { teams: [], agents: [], hours: null },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled and taking work while the owner is away: the owner-only policy and the Mac's capability badges.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-owner-active": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: false,
+        owner_idle: false,
+        policy: {
+          teams: ["Sample team"],
+          agents: ["claude", "codex"],
+          hours: { from: 22, to: 7 },
+        },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled with a team, agents and overnight hours, waiting because the owner is using it.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-error": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: false,
+        error: "Studio Mac did not answer.",
+      }),
+    },
+    note: "The machine's AutoCloud report could not be read: its error under the idle note.",
+    play: autoCloudPlay,
+  }),
   "machines-row-shape": variant("accounts", {
     host: { ...host, machines: rowShapeMachines },
     options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
@@ -1088,6 +1260,16 @@ Object.assign(variants, {
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
   }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
+  }),
   // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
   "agent-blocked-banner": variant("notifications", {
     focus: "notifications.delivery.blocked",
@@ -1148,7 +1330,7 @@ Object.assign(variants, {
   "theme-app-separate": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
-    note: "An app theme apart from the terminal theme (appearance.appTheme).",
+    note: "An app theme apart from the terminal theme (appearance.appTheme); the one Match System Appearance switch sets both.",
   }),
   "theme-app-light-dark": variant("theme", {
     allThemes: true,
@@ -1159,7 +1341,7 @@ Object.assign(variants, {
         "appearance.accent": "magenta",
       },
     },
-    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+    note: "One Theme card: one Match System Appearance for the terminal and the app theme together, then the accent.",
   }),
   "theme-long-name": variant("theme", {
     allThemes: true,
@@ -2038,6 +2220,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",

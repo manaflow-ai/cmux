@@ -5,11 +5,11 @@
 // first-content selector: moving the marker to the transcript would hide the regression.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type SurfaceFrame = { at: number; main: boolean; rows: number; prompt: boolean; reply: boolean };
@@ -24,7 +24,12 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
   setDefaultTimeout(120_000);
   const entry = "agent-pane.transcript";
   const params = { variant: "conversation", colorScheme: "dark" };
-  const engines = { chromium, webkit };
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: Record<string, BrowserType> = {};
+  for (const [name, engine] of Object.entries({ chromium, webkit }))
+    if (await probeEngineOrSkip("gallery-transcript-first-frame.test.ts", name, engine)) engines[name] = engine;
+  if (Object.keys(engines).length === 0) return;
   const browsers = new Map<string, Browser>();
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -39,10 +44,10 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    // No engine fallback: this regression needs both engines, including in an explicit fleet run.
+    // Both engines where the lane is required (GitHub Actions); elsewhere the ones that launch.
     for (const [name, engine] of Object.entries(engines))
       browsers.set(name, await engine.launch({ headless: true, timeout: 30_000 }));
-    await warmGalleryFrame(vite, entry, { browser: browsers.get("chromium"), params });
+    await warmGalleryFrame(vite, entry, { browser: browsers.values().next().value, params });
   });
   afterAll(async () => {
     try {

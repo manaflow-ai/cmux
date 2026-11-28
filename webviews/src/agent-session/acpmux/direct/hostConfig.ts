@@ -66,6 +66,8 @@ export function newSessionParams(
   model?: string,
   additionalDirectories?: readonly string[],
   restricted = false,
+  cloudRegistryId?: string,
+  autoPlace = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -82,6 +84,7 @@ export function newSessionParams(
       acpmux: {
         harness,
         ...(host.peer ? { peer: host.peer } : {}),
+        ...(host.peer && cloudRegistryId ? { cloudRegistryId } : {}),
         // The model the page showed, for a chat on another machine (acpmux `model_request`).
         ...(model ? { model } : {}),
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
@@ -89,6 +92,9 @@ export function newSessionParams(
         ...(noProject ? { noProject: true } : {}),
         // Read-only in a folder the person declined (acpmux hub/restricted.rs).
         ...(restricted ? { restricted: true } : {}),
+        // The person's place pick was Auto: with no room anywhere acpmux may wait for a machine
+        // being added (hub/admission.rs). An explicit This Mac or machine never sends it.
+        ...(autoPlace ? { autoPlace: true } : {}),
       },
     },
   };

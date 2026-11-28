@@ -516,9 +516,11 @@ impl HttpSource {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
-        // try connects with no connect timeout. Both clients carry the space.
+        // try connects with no connect timeout. Both clients carry the space, and go through the
+        // system's proxy when it names one for the platform (macOS PAC included; `cmux-proxy`).
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_tui::carrier::answer")
+                .proxy(reqwest::Proxy::custom(cmux_proxy::proxy::http_proxy_url))
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(FETCH_TIMEOUT)
@@ -576,6 +578,8 @@ impl HttpSource {
         timeout: Duration,
     ) -> Result<(u16, Value), SourceError> {
         let credential = self.request_credential().await?;
+        // The proxy answer, asked off this thread once; later requests read it cached.
+        cmux_proxy::proxy::warm(&self.api).await;
         let mut request = self
             .clients
             .fast
@@ -761,6 +765,7 @@ impl TicketCache {
 
     /// The ticket alone, for a control socket's authentication: it spends no
     /// grant.
+    #[cfg(test)]
     pub(super) async fn ticket(&self) -> Result<String, ()> {
         self.take(false).await.map(|credential| credential.ticket.to_string())
     }

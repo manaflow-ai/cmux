@@ -148,24 +148,45 @@ public struct TeamAppearance: Hashable, Sendable, Codable {
 public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public var name: String
-    public var isOnline: Bool
+    /// Whether the Mac is up, for every screen: the cmux service lists it online, or this phone
+    /// holds a live link to it. A live link is proof the service's presence can lag (a signaling
+    /// socket reset, a stale heartbeat), so no screen says a Mac is offline while the phone is
+    /// talking to it (Aziz, 2026-11-26: "im also getting this in several screens despite my mac
+    /// being connected"). Setting it sets ``listedOnline``.
+    public var isOnline: Bool {
+        get { listedOnline || linked }
+        set { listedOnline = newValue }
+    }
+    /// What the cmux service last said (its presence), alone. The link machine reads this: a
+    /// dropped link to a Mac the service lists offline means the Mac is gone.
+    public var listedOnline: Bool
+    /// This phone's link to the Mac is up now (``AppStore/macConnection`` is `.connected`).
+    /// The store keeps it; never saved.
+    public var linked = false
     public var lastSeenAt: Date?
     /// Who registered the Mac (nil when not known: mock data, older snapshots).
     public var ownerUserID: String?
     /// The computer it runs on (PROTOCOL.md "Devices"): the same for every cmux
-    /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
-    /// never said (an older host); a name is never used instead.
+    /// build of one account on one Mac. Lists do not group by it (``MacRoster``
+    /// lists each build as its own Mac). Nil when the Mac never said (an older host).
     public var machineID: String?
     /// How long the cmux service had not heard the Mac's heartbeat when it last said, in ms,
-    /// kept only past ``MacReachability/freshMillis`` (PROTOCOL.md "Mac freshness") and rounded
+    /// kept only past the service's freshness bound (``MacReachability/lateQuiet(_:)``) (PROTOCOL.md "Mac freshness") and rounded
     /// down to 10 s, so a healthy Mac's every poll changes nothing. Nil: fresh, offline or unknown.
     public var quietMs: Int?
+
+    // Saved snapshots keep the service's presence under its old key; `linked` is not saved.
+    private enum CodingKeys: String, CodingKey {
+        case id, name
+        case listedOnline = "isOnline"
+        case lastSeenAt, ownerUserID, machineID, quietMs
+    }
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
                 machineID: String? = nil, quietMs: Int? = nil) {
         self.id = id
         self.name = name
-        self.isOnline = isOnline
+        self.listedOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.ownerUserID = ownerUserID
         self.machineID = machineID

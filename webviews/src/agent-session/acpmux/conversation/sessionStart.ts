@@ -10,13 +10,12 @@ import { modelIdName } from "../defaultChoice";
 /// sr2's harness (`~/.config/cmux/harnesses/claude-sr2.toml`).
 export const SR2_HARNESS = "claude-sr2";
 
-/// Which way the chat reaches Claude: sr2's gateway, the configured CodeRouter route, or the
-/// person's own Claude Code setup (their `claude` and its settings).
-export type ClaudeRoute = "sr2" | "coderouter" | "own";
+/// Which way the chat reaches Claude: sr2's gateway, or the person's own Claude Code setup (their
+/// `claude` and its settings).
+export type ClaudeRoute = "sr2" | "own";
 
 export function routeOf(harness: string | undefined): ClaudeRoute {
   if (harness === SR2_HARNESS) return "sr2";
-  if (harness === "claude-cr") return "coderouter";
   return "own";
 }
 
@@ -80,20 +79,12 @@ export function sessionStartLabels(start: AcpmuxSessionStart, t: Translate): { s
   const short = [
     t("sessionStart.agent"),
     start.model ? modelIdName(start.model, t) : undefined,
-    route === "sr2"
-      ? t("sessionStart.routeShort.sr2")
-      : route === "coderouter"
-        ? t("sessionStart.routeShort.coderouter")
-        : undefined,
+    route === "sr2" ? t("sessionStart.routeShort.sr2") : undefined,
   ].filter((fact): fact is string => !!fact);
   const facts = [
     t("sessionStart.claudeCode", { version: start.version }),
     start.model,
-    route === "sr2"
-      ? t("sessionStart.route.sr2")
-      : route === "coderouter"
-        ? t("sessionStart.route.coderouter")
-        : t("sessionStart.route.own"),
+    route === "sr2" ? t("sessionStart.route.sr2") : t("sessionStart.route.own"),
     start.cwd ? foldHome(start.cwd) : undefined,
   ].filter((fact): fact is string => !!fact);
   return { short: short.join(" · "), facts: facts.join(" · ") };

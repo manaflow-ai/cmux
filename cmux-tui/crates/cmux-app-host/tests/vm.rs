@@ -54,6 +54,38 @@ mod apps {
         assert_eq!(ops.last().expect("ops")["op"], "root");
     }
 
+    /// `Particles {choreography}`: the host passes a valid document through and sends a refused one
+    /// as null, with a warning naming the first bad path (particles.rs).
+    #[test]
+    fn a_refused_choreography_leaves_the_host_as_null_with_a_warning() {
+        let mut h = Harness::new(&app(
+            r#"const doc = (duration) => ({ "$schema": "cmux.particles/1", particle: { size: 3 },
+                phases: { dot: { duration, frames: [{ at: 0, dots: [[0, 0, 1]] }] } } })
+            return { render: () => VStack([
+                Particles({ choreography: doc(400), trigger: "read" }),
+                Particles({ choreography: doc(10) }),
+            ]) }"#,
+        ));
+        assert_eq!(h.mount("m1", "render", json!({})), None);
+        let ops = &h.batches("m1")[0];
+        let fields: Vec<&Value> = ops
+            .iter()
+            .filter(|o| o["type"] == "Particles")
+            .map(|o| &o["props"]["choreography"])
+            .collect();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0]["phases"]["dot"]["duration"], 400);
+        assert_eq!(fields[1], &Value::Null);
+        let warnings: Vec<&String> =
+            h.logs.iter().filter(|(level, _)| level == "warn").map(|(_, m)| m).collect();
+        assert_eq!(warnings.len(), 1, "{:?}", h.logs);
+        assert!(
+            warnings[0].ends_with("phases.dot.duration: must be from 50 to 30000"),
+            "{}",
+            warnings[0]
+        );
+    }
+
     #[test]
     fn render_errors_and_missing_exports_are_error_strings() {
         let mut h = Harness::new(&app(r#"return { render: () => { throw new Error("boom") } }"#));
@@ -379,8 +411,9 @@ mod apps {
 
     #[test]
     fn settings_and_strings_reach_the_app() {
+        // `main`'s top level reads them too (`init` runs before it), not only a render.
         let mut h = Harness::with(
-            "",
+            "globalThis.atLoad = [cmux.app.settings().login, cmux.app.locale]",
             json!({ "settings": { "login": "octo" }, "locale": "ja", "strings": { "greeting": "こんにちは {name}" } }),
             Limits::default(),
         );
@@ -388,6 +421,7 @@ mod apps {
             h.eval(r#"[cmux.t("greeting", { name: "Ada" }), cmux.app.locale]"#),
             json!(["こんにちは Ada", "ja"])
         );
+        assert_eq!(h.eval("globalThis.atLoad"), json!(["octo", "ja"]));
         h.vm.set_settings(&json!({ "login": "hubot" })).expect("settings");
         h.pump().expect("pump");
         assert_eq!(h.eval("cmux.app.settings().login"), json!("hubot"));
@@ -466,5 +500,72 @@ mod apps {
             ),
             json!(["CmuxError", "zone.unknown"])
         );
+    }
+
+    /// `cmux.state`: init's `state` seeds the signal, a write sends the whole kept object.
+    #[test]
+    fn kept_state_seeds_from_init_and_mirrors_writes() {
+        let mut h = Harness::with(
+            &app(
+                r#"const [open, setOpen] = cmux.state("open", false); globalThis.setOpen = setOpen; return { render: () => Text(() => open() ? "open" : "closed") }"#,
+            ),
+            json!({ "state": { "open": true, "scroll": 120 } }),
+            Limits::default(),
+        );
+        assert_eq!(h.mount("m1", "render", json!({})), None);
+        assert_eq!(h.texts("m1"), vec!["open".to_string()]);
+        h.eval(r#"setOpen(false)"#);
+        assert_eq!(h.texts("m1"), vec!["closed".to_string()]);
+        assert_eq!(h.kept.last(), Some(&json!({ "open": false, "scroll": 120 })));
+    }
+
+    /// Over the key or byte cap the VM sends no `State`, only a warn line, and init drops an
+    /// over-cap seed the same way.
+    #[test]
+    fn kept_state_over_the_cap_is_refused() {
+        let mut h = Harness::new(&app("return {}"));
+        h.eval(
+            r#"(() => { for (let i = 0; i < 300; i++) cmux.state("k" + i, 0)[1](1); return 0 })()"#,
+        );
+        assert!(
+            h.kept.iter().all(|v| v.as_object().is_some_and(|m| m.len() <= 256)),
+            "{:?}",
+            h.kept.len()
+        );
+        assert!(
+            h.logs.iter().any(|(l, m)| l == "warn" && m.contains("256 key cap")),
+            "{:?}",
+            h.logs
+        );
+        let mut b = Harness::new(&app("return {}"));
+        b.eval(r#"(() => { cmux.state("big", "")[1]("x".repeat(70000)); return 0 })()"#);
+        assert!(b.kept.is_empty(), "{:?}", b.kept.len());
+        assert!(b.logs.iter().any(|(l, m)| l == "warn" && m.contains("byte cap")), "{:?}", b.logs);
+
+        let big: serde_json::Map<String, Value> =
+            (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
+        let mut seeded = Harness::with(
+            &app(r#"globalThis.k0 = cmux.state("k0", 7)[0]; return {}"#),
+            json!({ "state": Value::Object(big) }),
+            Limits::default(),
+        );
+        assert_eq!(seeded.eval("k0()"), json!(7));
+        assert!(
+            seeded.logs.iter().any(|(l, m)| l == "warn" && m.contains("key cap")),
+            "{:?}",
+            seeded.logs
+        );
+    }
+
+    /// The supervisor re-checks with the same rule: an object within 256 keys and 64 KiB.
+    #[test]
+    fn kept_state_refusal_rules() {
+        use cmux_app_host::protocol::kept_state_refusal;
+        assert_eq!(kept_state_refusal(&json!({ "a": 1 }), 7), None);
+        assert!(kept_state_refusal(&json!([1]), 3).is_some());
+        let many: serde_json::Map<String, Value> =
+            (0..257).map(|i| (format!("k{i}"), json!(1))).collect();
+        assert!(kept_state_refusal(&Value::Object(many), 10).unwrap().contains("key cap"));
+        assert!(kept_state_refusal(&json!({}), 64 * 1024 + 1).unwrap().contains("byte cap"));
     }
 }

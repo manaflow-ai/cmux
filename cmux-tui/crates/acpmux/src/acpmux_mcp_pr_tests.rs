@@ -47,18 +47,81 @@ fn a_merged_pr_says_its_merge_commit() {
 
 #[test]
 fn an_open_green_pr_is_ok() {
-    let pr = open(
-        json!([check("build", "COMPLETED", "SUCCESS"), check("lint", "COMPLETED", "SKIPPED")]),
-        json!([]),
-    );
+    let pr = open(json!([check("build", "COMPLETED", "SUCCESS")]), json!([]));
     let (text, s) = pr_state(&pr);
     assert_eq!(
         text.lines().next().unwrap(),
         "#1609 open at 4db9066b: mergeable, checks green, no review"
     );
     assert_eq!(s["status"], "ok");
-    assert_eq!(s["passedChecks"], 2);
+    assert_eq!(s["passedChecks"], 1);
+    assert_eq!(s["noVerdictChecks"], json!([]));
     assert!(text.contains(&format!("head {HEAD} -> main")), "{text}");
+}
+
+#[test]
+fn a_skipped_check_is_neither_passed_nor_failed_and_is_named() {
+    let pr = open(
+        json!([
+            check("build", "COMPLETED", "SUCCESS"),
+            check("clippy (changed cmux-tui packages)", "COMPLETED", "SKIPPED"),
+        ]),
+        json!([]),
+    );
+    let (text, s) = pr_state(&pr);
+    assert_eq!(
+        text.lines().next().unwrap(),
+        "#1609 open at 4db9066b: mergeable, checks green, 1 gave no verdict, no review"
+    );
+    // Not a failure: a skipped check is no red, so the PR is still landable.
+    assert_eq!(s["status"], "ok");
+    assert_eq!(s["failingChecks"], json!([]));
+    // Not a pass either: folding it into passed hid that nothing linted the change.
+    assert_eq!(s["passedChecks"], 1);
+    assert_eq!(s["noVerdictChecks"], json!(["clippy (changed cmux-tui packages)"]));
+    assert!(
+        text.contains(
+            "checks: 1 passed, 0 failing, 0 pending, 1 no verdict \
+             (clippy (changed cmux-tui packages))"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn each_conclusion_lands_on_one_group() {
+    let rollup = json!([
+        check("ok", "COMPLETED", "SUCCESS"),
+        check("red", "COMPLETED", "FAILURE"),
+        check("nothing-to-do", "COMPLETED", "SKIPPED"),
+        check("stopped", "COMPLETED", "CANCELLED"),
+        check("still-going", "IN_PROGRESS", ""),
+    ]);
+    let (_, s) = pr_state(&open(rollup, json!([])));
+    assert_eq!(s["passedChecks"], 1);
+    assert_eq!(s["pendingChecks"], 1);
+    // Cancellation keeps its separate routing while also recording that it gave no verdict.
+    assert_eq!(s["failingChecks"], json!(["red"]));
+    assert_eq!(s["cancelledChecks"], json!(["stopped"]));
+    assert_eq!(s["noVerdictChecks"], json!(["nothing-to-do", "stopped"]));
+}
+
+#[test]
+fn a_rollup_of_only_skipped_checks_is_not_green() {
+    let rollup: Vec<Value> =
+        ["a", "b", "c", "d"].iter().map(|n| check(n, "COMPLETED", "SKIPPED")).collect();
+    let (text, s) = pr_state(&open(json!(rollup), json!([])));
+    assert_eq!(
+        text.lines().next().unwrap(),
+        "#1609 open at 4db9066b: mergeable, no check gave a verdict (a, b, c, +1 more), no review"
+    );
+    assert_eq!(s["status"], "ok");
+    assert_eq!(s["passedChecks"], 0);
+    assert_eq!(s["noVerdictChecks"].as_array().unwrap().len(), 4);
+    assert!(
+        text.contains("checks: 0 passed, 0 failing, 0 pending, 4 no verdict (a, b, c, +1 more)"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -180,7 +243,7 @@ fn receipt_lines_parse_and_others_do_not() {
 }
 
 #[test]
-fn targets_take_numbers_and_urls() {
+fn targets_take_numbers_refs_and_urls() {
     assert_eq!(target(&json!({"pr": 12})).unwrap(), Target { selector: "12".into(), repo: None });
     assert_eq!(
         target(&json!({"pr": "#12", "repo": "acme/widgets"})).unwrap(),
@@ -190,6 +253,20 @@ fn targets_take_numbers_and_urls() {
         target(&json!({"pr": "https://github.com/acme/widgets/pull/34/files"})).unwrap(),
         Target { selector: "34".into(), repo: Some("acme/widgets".into()) }
     );
+    // Every tool and published row prints OWNER/REPO#N, so a caller pasting one back must get an answer, not a
+    // usage error (this lane's own `pr_state manaflow-ai/cmux#50814` came back refused).
+    assert_eq!(
+        target(&json!({"pr": "acme/widgets#56"})).unwrap(),
+        Target { selector: "56".into(), repo: Some("acme/widgets".into()) }
+    );
+    // An explicit repo still wins over the one the ref carries.
+    assert_eq!(
+        target(&json!({"pr": "acme/widgets#56", "repo": "acme/other"})).unwrap(),
+        Target { selector: "56".into(), repo: Some("acme/other".into()) }
+    );
+    assert!(target(&json!({"pr": "acme/widgets#"})).is_err());
+    assert!(target(&json!({"pr": "no-slash#56"})).is_err());
+    assert!(target(&json!({"pr": "a/b; rm -rf#56"})).is_err());
     assert!(target(&json!({})).is_err());
     assert!(target(&json!({"pr": "abc"})).is_err());
     assert!(target(&json!({"pr": 1, "repo": "no-slash"})).is_err());

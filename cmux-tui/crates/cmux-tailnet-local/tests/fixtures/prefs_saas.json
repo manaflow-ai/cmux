@@ -1,0 +1,1 @@
+{"ControlURL":"https://controlplane.tailscale.com","RouteAll":true,"ExitNodeID":"","CorpDNS":true,"WantRunning":true,"LoggedOut":false,"Hostname":"","Config":{"PrivateNodeKey":"privkey:redacted"}}

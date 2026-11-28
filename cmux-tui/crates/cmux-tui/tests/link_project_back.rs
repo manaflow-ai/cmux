@@ -410,7 +410,7 @@ fn fifty_edits(folder: &Path, files: usize) {
 }
 
 #[test]
-#[ignore = "a bench: CMUX_WAY_BACK_FILES=100000 cargo test --test link_project_back -- --ignored --nocapture"]
+#[ignore = "a bench: CMUX_WAY_BACK_FILES=100000 cargo test --test it -- link_project_back:: --ignored --nocapture"]
 fn a_bench_of_bring_back() {
     if !fuse_here() {
         eprintln!("skipping: no FUSE here");
@@ -497,4 +497,73 @@ fn plan_alone(files: usize) -> Value {
     }
     samples.sort_unstable();
     json!({"path": "plan only (in memory)", "files": files, "edits": 50, "plan_us": samples[10]})
+}
+
+/// An agent's turn that touches many files on the machine (Leo, 2026-11-25: "i wonder what happens
+/// if an agent touches a lot of files"): `build` files of build output and dependencies (half in
+/// the repository's ignored `target/`, half in a new `node_modules/`) and a codemod of `edits` of
+/// the folder's own files. Bring Back must carry the codemod and leave the rest on the machine
+/// without stalling. Ignored by default: `CMUX_MANY_FILES=100000 CMUX_MANY_EDITS=10000 cargo test
+/// --test link_project_back an_agent_touching -- --ignored --nocapture`.
+#[test]
+#[ignore = "a bench: CMUX_MANY_FILES=100000 cargo test --test link_project_back an_agent_touching -- --ignored --nocapture"]
+fn an_agent_touching_many_files_comes_back_without_its_build_tree() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let env = |name: &str, default: usize| {
+        std::env::var(name).ok().and_then(|n| n.parse().ok()).unwrap_or(default)
+    };
+    let build = env("CMUX_MANY_FILES", 100_000);
+    let edits = env("CMUX_MANY_EDITS", 10_000);
+    let w = world(edits.max(100));
+    // The repository ignores its dependencies, as nearly every one does.
+    write(&w.local.join("app/.gitignore"), "target/\nnode_modules/\n");
+    let state = w.base.join("state");
+    past_the_limits(&w.local);
+    let (remote, started) =
+        start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, KEYS[1]);
+    let name = started["projected"]["name"].as_str().unwrap().to_owned();
+
+    let touched_at = Instant::now();
+    let app = remote.join("app");
+    for index in 0..build {
+        let (folder, file) = if index % 2 == 0 {
+            ("target/debug/deps", format!("d{:03}/u{index:06}.o", index / 2000))
+        } else {
+            ("node_modules", format!("p{:04}/lib/i{index:06}.js", index / 200))
+        };
+        write(&app.join(folder).join(file), "x\n");
+    }
+    for index in 0..edits {
+        write(
+            &remote.join(format!("notes/d{:04}/f{index:06}.md", index / 100)),
+            &format!("note {index}, codemod\n"),
+        );
+    }
+    let touch = touched_at.elapsed();
+
+    let (answer, took) = bring_back(&state, &w.socket, &w.local, &remote);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["mode"], "projection", "{answer}");
+    assert_eq!(answer["written"].as_u64(), Some(edits as u64), "{}", answer["timings"]);
+    let read = |path: &str| std::fs::read_to_string(w.local.join(path)).ok();
+    assert_eq!(read("notes/d0000/f000000.md").as_deref(), Some("note 0, codemod\n"));
+    assert!(!w.local.join("app/node_modules").exists(), "dependencies stay on the machine");
+    assert!(!w.local.join("app/target").exists(), "build output stays on the machine");
+    let row = json!({
+        "build_files": build,
+        "codemod_edits": edits,
+        "touch_ms": touch.as_millis(),
+        "bring_back_ms": took.as_millis(),
+        "timings": answer["timings"],
+        "listing_bytes": answer["listing_bytes"],
+        "bytes": answer["bytes"],
+        "kept_on_machine": answer["kept_on_machine"],
+        "skipped": answer["report"]["skipped"].as_array().map(Vec::len),
+    });
+    println!("MANY-FILES {row}");
+    let _ = name;
+    stop(&state, &remote);
 }

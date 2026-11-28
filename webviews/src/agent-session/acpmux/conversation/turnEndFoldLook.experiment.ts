@@ -102,18 +102,18 @@ export const turnEndFoldLook = defineExperiment({
 /// 2026-11-22: "that's the recap. you can decide on whatever you want, or r&d more animations." and "i think
 /// the fade in from the bottom is pretty awkward sometimes when you finish chats". Recommended: `place`, the card
 /// drawn whole where it lands (the fold matrix: full ink on its first frame, against the fade's 148 ms
-/// while the view follows it up, which read as a fade up from below). `hold` stays the default until Leo tries it.
+/// while the view follows it up, which read as a fade up from below). Shipped: `place`.
 export const turnEndRecapLook = defineExperiment({
   id: "turn-end-recap-entrance",
   title: "Finished turn recap entrance",
   description: "How the wrap-up recap card comes in under the answer as a finished turn folds.",
   arms: {
-    hold: { label: "Fade (shipped)", description: "Waits until nothing crosses it, then fades in." },
+    hold: { label: "Fade", description: "Waits until nothing crosses it, then fades in." },
     rise: { label: "Rise", description: "Fades in as it rises half a line into its place." },
     unfurl: { label: "Unfurl", description: "Opens down from its top edge as it fades in." },
     bead: { label: "Bead", description: "Fades in as it grows from 96% from its top edge." },
     place: {
-      label: "In place (recommended)",
+      label: "In place (shipped)",
       description: "Drawn at full ink in its place at once, with no entrance.",
     },
     open: {
@@ -121,7 +121,7 @@ export const turnEndRecapLook = defineExperiment({
       description: "Full ink, its room opening down from its top as the rows above rise into it at a line a frame.",
     },
   },
-  defaultArm: "hold",
+  defaultArm: "place",
 });
 
 /// How a subagent block gets to its place as a finished turn folds (turnEndFold.ts `TurnEndSubagent`).
@@ -136,4 +136,35 @@ export const turnEndSubagentLook = defineExperiment({
     dip: { label: "Dip", description: "Fades out where it was, then in where it lands." },
   },
   defaultArm: "slide",
+});
+
+/// How a finished turn's fold plays when it crosses the person's message (turnEndFold.ts
+/// `TurnEndCross`): the work drawn above a steer folds into the one Worked for over it, and an answer
+/// that was drawn over a steer it came in under (turns.ts `lateSteersLast`) lands under it. Leo,
+/// 2026-11-25: "well, i think we want this tho. specifically. cuz the final ultra fold simply... takes it
+/// all away. we simply need to make sure it looks good while doing so. aka fast fades and comfy (maybe
+/// eased) and fast and snappy and satisfying transition animations". Before, such a swap drew in one
+/// frame (`snap`). Shipped: `quick`, the snappiest whose fade still reads.
+export const turnEndCrossLook = defineExperiment({
+  id: "turn-end-fold-cross",
+  title: "Finished turn fold across your message",
+  description: "How the fold at a turn's end plays when it pulls work across a message you sent.",
+  arms: {
+    snap: { label: "Snap (before)", description: "No motion: the folded turn is drawn in the frame it ends." },
+    quick: {
+      label: "Quick (shipped)",
+      // motion-allow: prose naming the shipped arm's timing for the reviewer, not a duration anything plays
+      description: "The work fades out over 120 ms on an ease-out, then the rows under it move up as one over 180 ms.",
+    },
+    even: {
+      label: "Even",
+      description: "The work fades out over 140 ms on an ease-out, then the rows under it move up as one over 200 ms.",
+    },
+    eased: {
+      label: "Eased",
+      description:
+        "The work fades out over 160 ms, then the rows under it move up as one over 220 ms, eased in and out.",
+    },
+  },
+  defaultArm: "quick",
 });

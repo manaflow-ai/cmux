@@ -15,13 +15,15 @@
 //   - a frame drawn before the attach shows the chat's listed title, harness and model.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
-import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
-import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
-import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { HANDOFF_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/handoff/protocol"));
+const { PERMISSION_GROUP_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/permissions/protocol"));
+const { askOnSingleCard } = await importWithDom(() => import("../src/agent-session/acpmux/permissionKeys"));
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -357,7 +359,7 @@ test("a hidden tail starts no whole-history read, and closing cancels its deferr
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
   const { client, last } = await paneOn(daemon);
   try {
-    expect(text(last())).toContain("Tail ready.");
+    expect(last()).toBeUndefined();
     await turns();
     expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
     client.close();

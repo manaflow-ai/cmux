@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.profileMenu.style.help" : {
+      "comment" : "Settings row help: what each profile menu style shows.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ما يفتحه زر الملف الشخصي أسفل الشريط الجانبي: قائمة التطبيق، أو قائمة حساب بحساباتك وفرقك للتبديل بينها، ثم الإعدادات والاستخدام والمساعدة وتسجيل الخروج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Šta otvara dugme profila na dnu bočne trake: meni aplikacije ili meni računa s vašim računima i timovima za prebacivanje, zatim Postavke, Korištenje, Pomoć i Odjava."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvad profilknappen nederst i sidepanelet åbner: appmenuen eller en kontomenu med dine konti og teams at skifte mellem, derefter Indstillinger, Forbrug, Hjælp og Log ud."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Was die Profiltaste unten in der Seitenleiste öffnet: das App-Menü oder ein Kontomenü mit deinen Konten und Teams zum Wechseln, dann Einstellungen, Nutzung, Hilfe und Abmelden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lo que abre el botón de perfil al pie de la barra lateral: el menú de la app, o un menú de cuenta con tus cuentas y equipos para cambiar entre ellos, y después Ajustes, Uso, Ayuda y Cerrar sesión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce qu'ouvre le bouton de profil en bas de la barre latérale : le menu de l'app, ou un menu de compte avec vos comptes et équipes entre lesquels basculer, puis Réglages, Utilisation, Aide et Se déconnecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cosa apre il pulsante del profilo in fondo alla barra laterale: il menu dell'app, oppure un menu account con i tuoi account e team tra cui passare, poi Impostazioni, Utilizzo, Aiuto ed Esci."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サイドバー下部のプロフィールボタンで開くもの：アプリメニュー、または切り替え可能なアカウントとチーム、設定、使用量、ヘルプ、サインアウトを並べたアカウントメニュー。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្វីដែលប៊ូតុងប្រូហ្វាល់នៅខាងក្រោមរបារចំហៀងបើក៖ ម៉ឺនុយកម្មវិធី ឬម៉ឺនុយគណនីដែលមានគណនី និងក្រុមរបស់អ្នកសម្រាប់ប្ដូរ បន្ទាប់មកការកំណត់ ការប្រើប្រាស់ ជំនួយ និងចាកចេញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바 하단의 프로필 버튼이 여는 메뉴: 앱 메뉴, 또는 전환할 계정과 팀, 설정, 사용량, 도움말, 로그아웃이 있는 계정 메뉴."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hva profilknappen nederst i sidepanelet åpner: appmenyen, eller en kontomeny med kontoene og teamene dine å bytte mellom, deretter Innstillinger, Bruk, Hjelp og Logg ut."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Co otwiera przycisk profilu u dołu paska bocznego: menu aplikacji albo menu konta z kontami i zespołami do przełączania, a potem Ustawienia, Użycie, Pomoc i Wyloguj."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O que o botão de perfil no rodapé da barra lateral abre: o menu do app, ou um menu de conta com suas contas e equipes para alternar, depois Ajustes, Uso, Ajuda e Sair."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Что открывает кнопка профиля внизу боковой панели: меню приложения или меню аккаунта с вашими аккаунтами и командами для переключения, затем Настройки, Использование, Справка и Выйти."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สิ่งที่ปุ่มโปรไฟล์ด้านล่างแถบด้านข้างเปิด: เมนูแอป หรือเมนูบัญชีที่มีบัญชีและทีมของคุณให้สลับ ตามด้วยการตั้งค่า การใช้งาน ความช่วยเหลือ และออกจากระบบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kenar çubuğunun altındaki profil düğmesinin açtığı şey: uygulama menüsü ya da geçiş yapabileceğiniz hesaplarınız ve ekiplerinizle bir hesap menüsü, ardından Ayarlar, Kullanım, Yardım ve Çıkış Yap."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Що відкриває кнопка профілю внизу бічної панелі: меню застосунку або меню облікового запису з вашими обліковими записами й командами для перемикання, потім Налаштування, Використання, Довідка та Вийти."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nút hồ sơ ở cuối thanh bên mở gì: menu ứng dụng, hoặc menu tài khoản với các tài khoản và nhóm để chuyển đổi, rồi Cài đặt, Mức sử dụng, Trợ giúp và Đăng xuất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "侧边栏底部的个人资料按钮打开的内容：应用菜单，或包含可切换的账户和团队，以及设置、用量、帮助和退出登录的账户菜单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "側邊欄底部的個人檔案按鈕開啟的內容：App 選單，或包含可切換的帳號和團隊，以及設定、用量、說明和登出的帳號選單。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

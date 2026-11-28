@@ -1,3 +1,4 @@
+import CmuxNextSettings
 public import Foundation
 
 /// Why the host's socket refused a page frame or stopped. The raw value is the code the page
@@ -61,10 +62,35 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     public var connection: Int
     public var frames: [String]
     public var closed: AgentPaneTransportClose?
+    /// The push's number on its transport: the page acks it by this once it applied it
+    /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``). Nil: no ack wanted.
+    public var seq: Int?
+
+    /// `seq` defaults to nil: a host-made push (a question key's announcement) wants no ack.
+    public init(connection: Int, frames: [String], closed: AgentPaneTransportClose?, seq: Int? = nil) {
+        self.connection = connection
+        self.frames = frames
+        self.closed = closed
+        self.seq = seq
+    }
+
+    /// The push as the page host sends it, built without a Foundation round trip.
+    var value: JSONValue {
+        var object: [String: JSONValue] = ["connection": .number(Double(connection))]
+        if !frames.isEmpty { object["frames"] = .array(frames.map(JSONValue.string)) }
+        if let seq { object["seq"] = .number(Double(seq)) }
+        if let closed {
+            var close: [String: JSONValue] = ["code": .number(Double(closed.code)), "reason": .string(closed.reason)]
+            if let error = closed.error { close["error"] = .string(error.rawValue) }
+            object["closed"] = .object(close)
+        }
+        return .object(object)
+    }
 
     var object: [String: Any] {
         var object: [String: Any] = ["connection": connection]
         if !frames.isEmpty { object["frames"] = frames }
+        if let seq { object["seq"] = seq }
         if let closed {
             var close: [String: Any] = ["code": closed.code, "reason": closed.reason]
             if let error = closed.error { close["error"] = error.rawValue }
@@ -73,7 +99,13 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
         return object
     }
 
-    /// The old host's push: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts).
+    /// The old host's push body for `callAsyncJavaScript`, with ``object`` as its `event` argument:
+    /// one fixed text for every push. A new script text per push (``script``) made WebKit's web process
+    /// keep each one: +8.45 MB/min at 20 pushes a second, flat with this body (RFD 0062, renderer idle growth).
+    static let receiveBody = "window.cmuxAcpmuxTransport?.receive(event);"
+
+    /// The same push as one script text: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts). Benches
+    /// measure its cost; the host pushes ``receiveBody`` with ``object`` instead.
     var script: String {
         let json = (try? JSONSerialization.data(withJSONObject: object)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return "window.cmuxAcpmuxTransport?.receive(\(json));"

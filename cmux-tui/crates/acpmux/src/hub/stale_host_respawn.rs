@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. An agent host whose binary was moved or replaced since it
 //! started restarts on the binary installed now and resumes the same conversation (`claude
-//! --resume`, ACP `session/load`), the way an update's restart does (`route_switch.rs`
-//! `restart_harnesses`): between turns now, in a turn when the turn ends, never cancelled, and
-//! never across an open permission prompt. Checked once the daemon has adopted the agents the
+//! --resume`, ACP `session/load`) once nothing runs in it: no turn, no question, no background
+//! process or subagent, nothing under it but its MCP servers (`idle.rs` `respawn_when_quiet`).
+//! Never cancelled, never cut mid-work. Checked once the daemon has adopted the agents the
 //! previous one left (`daemon.rs`).
 //!
 //! An app update moves the bundle that every running host was started from: nightly-update swaps
@@ -30,9 +30,20 @@ use std::path::Path;
 type FileId = (u64, u64);
 
 impl Hub {
-    /// Restarts every live local agent whose host runs a binary other than the one now at the
-    /// path it was started as. A session with no running agent is left alone: it starts on the
+    /// Every live local agent whose host runs a binary other than the one now at the path it was
+    /// started as: an idle one ends at once and stays asleep (`end_idle_stale`); any other is
+    /// marked to restart once nothing runs in it (`Session::respawn_when_quiet`): the idle pass
+    /// ends it after a short quiet period, under every gate an idle exit has (no turn, nothing
+    /// queued, no question, no background process or subagent, no sub-session at work, the
+    /// census of what runs under it), and its next prompt starts it on the installed binary, as a
+    /// hibernated chat wakes. A session with no running agent is left alone: it starts on the
     /// installed binary at its next prompt.
+    ///
+    /// Before, an agent at work restarted at once when no turn was open, or when its turn ended,
+    /// whatever ran in it: each cmux NIGHTLY install (every 20-30 min, 2026-11-17) restarted a
+    /// coordinator 10-20 s after the new daemon adopted its host, its 10-15 background subagents
+    /// and waits cut mid-task. The host it ran on was alive and adopted. Leo: "the dream is
+    /// infinite chats of infinite length".
     pub(crate) async fn respawn_stale_hosts(self: &Arc<Self>) -> HarnessRestarts {
         let mut hosts = Vec::new();
         for session in self.sessions() {
@@ -47,7 +58,7 @@ impl Hub {
                 hosts.push((session.id.clone(), running_file(pid), launched_file(pid)));
             }
         }
-        let mut stale = stale_hosts(hosts);
+        let stale = stale_hosts(hosts);
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
@@ -55,26 +66,24 @@ impl Hub {
         // binary, as a hibernated chat wakes (`idle.rs`). Restarting it at once started an agent
         // for every chat that was up at an update, the idle Chief sub-sessions among them: 30 at
         // one cmux NIGHTLY relaunch (2026-11-15), each a Claude process for its two idle minutes.
-        let mut slept: usize = 0;
-        for id in stale.clone() {
-            if let Ok(session) = self.resolve(&id)
-                && self.end_idle_stale(&session).await
-            {
-                stale.remove(&id);
+        let (mut slept, mut marked): (usize, usize) = (0, 0);
+        for id in &stale {
+            let Ok(session) = self.resolve(id) else { continue };
+            if self.end_idle_stale(&session).await {
                 slept = slept.saturating_add(1);
+            } else {
+                self.respawn_when_quiet(&session);
+                marked = marked.saturating_add(1);
             }
         }
         tracing::info!(
-            count = stale.len(),
+            count = marked,
             slept,
             "agent hosts run a binary that was moved or replaced since they started: the idle \
-             ones ended and start on the installed one when opened or sent to; the rest restart \
-             between turns"
+             ones ended, the rest end once nothing runs in them; each starts on the installed one \
+             when opened or sent to"
         );
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }
 
     /// Restarts every live local agent sent through a vault egress proxy start other than this
@@ -82,7 +91,8 @@ impl Hub {
     /// may be closed and whose CA the agent trusts, is gone with it. On one machine
     /// (2026-11-21 21:44Z) 20 chats went `harness_unavailable` on `ECONNREFUSED` this way after
     /// daemon restarts, each retried in the same process until the retries ran out. Idle ones
-    /// end and start fresh when opened or sent to; the rest restart between turns, never in one.
+    /// hibernate only after the idle gates and census find no work, then start fresh when
+    /// opened or sent to.
     pub(crate) async fn respawn_stale_proxies(self: &Arc<Self>) -> HarnessRestarts {
         let mut stale = BTreeSet::new();
         for session in self.sessions() {
@@ -93,26 +103,28 @@ impl Hub {
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
-        let mut slept: usize = 0;
-        for id in stale.clone() {
-            if let Ok(session) = self.resolve(&id)
-                && self.end_idle_stale_for(&session, "stale-proxy").await
-            {
-                stale.remove(&id);
-                slept = slept.saturating_add(1);
+        let mut now = 0;
+        let mut marked = 0;
+        for id in &stale {
+            if let Ok(session) = self.resolve(id) {
+                // A proxy can become stale while a chat is between turns. Reuse the
+                // full quietness/census path immediately in that case; active work stays
+                // marked and is hibernated only after it really becomes quiet.
+                if self.end_quiet_stale(&session, "stale-proxy", None).await {
+                    now += 1;
+                } else {
+                    self.respawn_when_quiet_required(&session);
+                    marked += 1;
+                }
             }
         }
         tracing::info!(
             code = "vault.egress_stale_agents",
-            count = stale.len(),
-            slept,
-            "agents were sent through a vault egress proxy an earlier daemon ran: the idle ones \
-             ended and start fresh when opened or sent to; the rest restart between turns"
+            now,
+            after_turn = marked,
+            "agents on a stale proxy wait for quiet and hibernate before their next prompt"
         );
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { now, after_turn: marked, ..HarnessRestarts::default() }
     }
 
     /// Whether `session`'s live agent was started on another start of this machine's vault
@@ -128,54 +140,191 @@ impl Hub {
     /// Before an automatic retry of a cut turn (`auto_resume.rs`): an agent [`Self::proxy_stale`]
     /// ends first, so the retry's prompt starts a fresh one on this daemon's proxy and resumes
     /// the same conversation, instead of sending the retry into the process that cannot reach
-    /// it. Only between turns: a turn, an open question or a start under way leaves it as it
-    /// is. Whether it ended the agent.
-    pub(super) async fn end_stale_proxy_before_retry(&self, session: &Arc<Session>) -> bool {
+    /// it. The idle gates and census must find no work; only this firing continuation is
+    /// exempt, since its prompt starts the replacement. Whether it ended the agent.
+    pub(super) async fn end_stale_proxy_before_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fired_gen: u64,
+    ) -> bool {
         if !self.proxy_stale(session).await {
             return false;
         }
-        let turn = session.turn_lock.try_lock();
-        let using = session.harness_use.try_write();
-        let spawning = session.spawn_lock.try_lock();
-        if turn.is_err()
-            || using.is_err()
-            || spawning.is_err()
-            || session.turn().is_some()
-            || !session.pending_permissions().is_empty()
-        {
+        let ended = self.end_quiet_stale(session, "stale-proxy-retry", Some(fired_gen)).await;
+        if !ended {
+            self.respawn_when_quiet_required(session);
+        }
+        ended
+    }
+
+    /// A route, credential or gateway change marks a live harness to restart when quiet. An
+    /// automatic continuation is the one prompt that must not run on the old environment, so it
+    /// may hibernate that marked harness immediately before firing. The continuation itself is
+    /// exempted by [`Self::retry_restart_eligible`]; every other idle gate and the process census
+    /// still applies, and a queued prompt, question or descendant keeps the old harness alive.
+    pub(super) async fn end_marked_restart_before_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fired_gen: u64,
+    ) -> bool {
+        if !session.respawn_when_quiet.load(Ordering::SeqCst) {
             return false;
         }
-        tracing::info!(session = %session.id, code = "vault.egress_stale_agent_restart", "its agent was sent through an earlier daemon's vault egress proxy: restarting it before the retry");
-        self.detach_child(session).await;
-        true
+        self.end_quiet_stale(session, "restart-when-quiet-retry", Some(fired_gen)).await
     }
 
     /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
     /// `idle_eligible`, under the same leases) and marks the chat hibernated, so a person's open
     /// wakes it. A turn, a queued prompt, a question, a background process or subagent, or any
-    /// start under way keeps it for the restart between turns.
+    /// start under way keeps it for the restart once quiet (`respawn_when_quiet`).
     async fn end_idle_stale(&self, session: &Arc<Session>) -> bool {
         self.end_idle_stale_for(session, "stale-binary").await
     }
 
     async fn end_idle_stale_for(&self, session: &Arc<Session>, cause: &'static str) -> bool {
+        self.end_quiet_stale(session, cause, None).await
+    }
+
+    /// The immediate automatic exit uses the same leases, activity checks, census and
+    /// hibernation as the idle pass. Unknown descendants keep the agent alive. Only the
+    /// firing retry caller may omit its own continuation from the eligibility check.
+    pub(super) async fn end_quiet_stale(
+        &self,
+        session: &Arc<Session>,
+        cause: &'static str,
+        firing_retry: Option<u64>,
+    ) -> bool {
+        let eligible = || {
+            if self.shutting_down() {
+                return false;
+            }
+            if let Some(generation) = firing_retry {
+                session.auto_resume.current(generation) && self.retry_restart_eligible(session)
+            } else {
+                self.idle_eligible(session)
+            }
+        };
+        if !eligible() {
+            return false;
+        }
+        let Some(child) = session.child.lock().await.clone() else { return false };
+        let sidecars = self.sidecars(session, &child).await;
         let turn = session.turn_lock.try_lock();
         let using = session.harness_use.try_write();
         let spawning = session.spawn_lock.try_lock();
-        if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(session) {
+        let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
+        if turn.is_err() || using.is_err() || spawning.is_err() || !same || !eligible() {
             return false;
         }
-        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
-        self.detach_child(session).await;
-        if session.status() == SessionStatus::Closed {
-            self.clear_hibernation(session);
-            return true;
+        let Some((seen, link_lost)) =
+            self.quiet_stale_census(session, &child, sidecars, &eligible).await
+        else {
+            return false;
+        };
+        if !self.hibernate_held(session, link_lost, Some(seen), firing_retry).await {
+            return false;
         }
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
-            crate::store::now_ms().max(1);
-        self.save_meta(session);
-        tracing::info!(session = %session.id, cause, "hibernated: its agent was stale and idle; a fresh one starts when it is opened or sent to");
+        tracing::info!(session = %session.id, cause, "hibernated: stale agent passed every quietness gate and the census");
         true
+    }
+
+    async fn quiet_stale_census(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        sidecars: Option<crate::sidecar_census::Servers>,
+        eligible: &impl Fn() -> bool,
+    ) -> Option<(u64, bool)> {
+        let seen = session.last_active.load(Ordering::SeqCst);
+        let census = self.idle_census(child.pid, sidecars).await;
+        if !matches!(census, super::idle_census::Census::Clear) {
+            self.note_refusal(session, &census);
+            return None;
+        }
+        let link_lost = child.host_record().is_some() && !child.is_alive().await;
+        Self::drain_inbound(session).await;
+        (session.last_active.load(Ordering::SeqCst) == seen && eligible())
+            .then_some((seen, link_lost))
+    }
+
+    /// Called with the next prompt's turn claimed. The admission deadline can return that
+    /// prompt to the durable queue while it waits. Every new claimant runs the same gate.
+    pub(super) async fn wait_required_prompt_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        cancels: u64,
+        no_wait: bool,
+    ) -> Result<(), RpcError> {
+        while session.respawn_required.load(Ordering::SeqCst) {
+            if self.shutting_down() {
+                return Err(super::shutdown::shutting_down_error());
+            }
+            if session.moving().is_some() {
+                return Err(super::queue::moving_error(session));
+            }
+            if session.cancels.load(Ordering::SeqCst) != cancels
+                || session.status() == SessionStatus::Closed
+            {
+                return Err(super::turns::stopped_before_prompt());
+            }
+            if self.try_required_prompt_restart(session, cancels).await {
+                break;
+            }
+            if no_wait {
+                return Err(super::auto_resume::retry_turn::busy());
+            }
+            // An unreported descendant can exit without notifying the daemon. Only the
+            // prompt that owns the turn needs to recheck its census.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Ok(())
+    }
+
+    async fn try_required_prompt_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        cancels: u64,
+    ) -> bool {
+        let Ok(using) = session.harness_use.clone().try_write_owned() else { return false };
+        let Ok(spawning) = session.spawn_lock.clone().try_lock_owned() else { return false };
+        let restart = async {
+            let child = session.child.lock().await.clone();
+            let Some(child) = child else { return true };
+            let eligible = || self.required_prompt_restart_eligible(session, cancels);
+            if !eligible() {
+                return false;
+            }
+            let sidecars = self.sidecars(session, &child).await;
+            let Some((seen, link_lost)) =
+                self.quiet_stale_census(session, &child, sidecars, &eligible).await
+            else {
+                return false;
+            };
+            let hub = Arc::clone(self);
+            let session = Arc::clone(session);
+            // task-owner: the spawn and harness-use leases serialize committed teardown.
+            // Admission can defer while it finishes. Only teardown outlives the caller.
+            self.scope
+                .spawn_named("required-prompt-restart", async move {
+                    let _leases = (using, spawning);
+                    if !hub.required_prompt_restart_eligible(&session, cancels) {
+                        return false;
+                    }
+                    hub.hibernate_held(&session, link_lost, Some(seen), None).await
+                })
+                .await
+                .unwrap_or(false)
+        };
+        tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, restart)
+            .await
+            .unwrap_or(false)
+    }
+
+    fn required_prompt_restart_eligible(&self, session: &Session, cancels: u64) -> bool {
+        session.respawn_required.load(Ordering::SeqCst)
+            && session.cancels.load(Ordering::SeqCst) == cancels
+            && session.moving().is_none()
+            && self.prompt_restart_eligible(session)
     }
 
     /// Once the agents the previous daemon left are adopted, on a task of its own: an agent whose
@@ -264,66 +413,5 @@ fn launched_file(_pid: u32) -> Option<FileId> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_host_whose_running_file_differs_from_its_launch_path_is_stale() {
-        let stale = stale_hosts([
-            ("moved".to_owned(), Some((1, 10)), Some((1, 20))),
-            ("current".to_owned(), Some((1, 20)), Some((1, 20))),
-            ("unreadable".to_owned(), None, Some((1, 20))),
-            ("relative".to_owned(), Some((1, 10)), None),
-        ]);
-        assert_eq!(stale, BTreeSet::from(["moved".to_owned()]));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_moved_file_is_stale_and_a_symlink_or_hard_link_to_it_is_not() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("cmux");
-        std::fs::write(&bin, b"old").unwrap();
-        let link = dir.path().join("acpmux");
-        std::os::unix::fs::symlink(&bin, &link).unwrap();
-        let hard = dir.path().join("hard");
-        std::fs::hard_link(&bin, &hard).unwrap();
-        let running = file_id(&bin);
-        assert_eq!(running, file_id(&link));
-        assert_eq!(running, file_id(&hard));
-        // The update: the old file moves away and a new one takes its path.
-        std::fs::rename(&bin, dir.path().join("backup-cmux")).unwrap();
-        std::fs::write(&bin, b"new").unwrap();
-        assert_ne!(running, file_id(&link));
-    }
-
-    #[test]
-    fn this_process_is_not_stale() {
-        let pid = std::process::id();
-        if let (Some(running), Some(launched)) = (running_file(pid), launched_file(pid)) {
-            assert_eq!(running, launched);
-        }
-    }
-
-    #[tokio::test]
-    async fn a_daemon_with_no_running_agents_restarts_no_stale_proxy_agent() {
-        let mut config: crate::config::Config =
-            serde_json::from_value(serde_json::json!({"harnesses": {}})).unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.profile_sources = crate::config::ProfileSources::none();
-        let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
-        let out = Hub::new(config, store).respawn_stale_proxies().await;
-        assert_eq!((out.now, out.after_turn, out.failed.len()), (0, 0, 0));
-    }
-
-    #[tokio::test]
-    async fn a_daemon_with_no_running_agents_restarts_nothing() {
-        let mut config: crate::config::Config =
-            serde_json::from_value(serde_json::json!({"harnesses": {}})).unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.profile_sources = crate::config::ProfileSources::none();
-        let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
-        let out = Hub::new(config, store).respawn_stale_hosts().await;
-        assert_eq!((out.now, out.after_turn, out.failed.len()), (0, 0, 0));
-    }
-}
+#[path = "stale_host_respawn_tests.rs"]
+mod tests;

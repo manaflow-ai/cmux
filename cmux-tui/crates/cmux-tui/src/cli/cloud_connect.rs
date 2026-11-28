@@ -1,7 +1,7 @@
 //! `cmux cloud connect claude|api-key|chatgpt` and `cmux cloud connections`: add the model
 //! connection a Cloud session runs on, from a terminal or an agent, the way Settings > Models does.
 //!
-//! A secret goes into the login Keychain first (service `cmux-model-key`, account
+//! A secret goes into the login Keychain first, written by acpmux (service `cmux-model-key`, account
 //! `claude-token-<8 hex>` or `<provider>-<8 hex>`, the items the app's own flow writes), and
 //! acpmux's `_acpmux/connections/*.add` gets only its reference, `keychain:cmux-model-key/ACCOUNT`.
 //! A refused add takes the item back out. The secret is never in argv, never printed and never
@@ -24,10 +24,10 @@ use super::{OutputMode, UsageError};
 #[path = "cloud_connect/capture.rs"]
 pub(super) mod capture;
 
-/// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
-pub(super) const SERVICE: &str = "cmux-model-key";
 /// What `claude setup-token` prints (`claudeTokenPrefix` in the app).
-pub(super) const TOKEN_PREFIX: &str = "sk-ant-oat";
+pub(super) use acpmux::claude_token::pty::TOKEN_PREFIX;
+/// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
+pub(super) use acpmux::claude_token::store::SERVICE;
 /// The longest key or token (`keyLimit` in the app).
 const KEY_LIMIT: usize = 16_384;
 /// The providers `api-key` adds.
@@ -35,13 +35,14 @@ pub(super) const KEY_PROVIDERS: &[&str] = &["anthropic", "openai"];
 /// How long `chatgpt` waits for the browser sign-in by default.
 const CHATGPT_TIMEOUT: Duration = Duration::from_secs(600);
 
-const USAGE: &str = "usage: cmux cloud connect claude [--label L] | cmux cloud connect api-key --provider anthropic|openai [--label L] | cmux cloud connect chatgpt [--id ID] [--no-wait] [--timeout SECONDS] | cmux cloud connect chatgpt --wait ATTEMPT [--timeout SECONDS] | cmux cloud connect chatgpt --cancel ATTEMPT | cmux cloud connections";
+const USAGE: &str = "usage: cmux cloud connect claude [--label L] [--token-stdin] | cmux cloud connect api-key --provider anthropic|openai [--label L] | cmux cloud connect chatgpt [--id ID] [--no-wait] [--timeout SECONDS] | cmux cloud connect chatgpt --wait ATTEMPT [--timeout SECONDS] | cmux cloud connect chatgpt --cancel ATTEMPT | cmux cloud connections [--remove ID [--keychain-account ACCOUNT]]";
 
 const HELP: &str = "\
 cmux cloud connect claude [--label L]
     Runs `claude setup-token` here: open the link it shows, sign in, paste the code back. The
     sk-ant-oat token it prints is captured straight into the Keychain (cmux-model-key /
     claude-token-XXXXXXXX), never shown, and added as a Claude subscription connection.
+    --token-stdin reads an sk-ant-oat token from stdin instead (an unattended run: CI, a script).
 cmux cloud connect api-key --provider anthropic|openai [--label L]
     Reads the key from a hidden prompt (or stdin), stores it in the Keychain (cmux-model-key /
     PROVIDER-XXXXXXXX) and adds it as an API key connection.
@@ -51,6 +52,9 @@ cmux cloud connect chatgpt [--id ID] [--no-wait] [--timeout SECONDS]
     returns, --wait ATTEMPT waits for it later, --cancel ATTEMPT ends it. --id signs in again.
 cmux cloud connections
     Lists the model connections and which of them a Cloud session can run on.
+cmux cloud connections --remove ID [--keychain-account ACCOUNT]
+    Removes connection ID; with --keychain-account, also the cmux-model-key Keychain item
+    `connect` stored for it (the `keychain.account` its --json answer names).
 Every verb takes --json.";
 
 /// `Some(exit code)` when `args` is `cloud connect …` or `cloud connections …`.
@@ -89,7 +93,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let io = Io {
         daemon: &daemon,
-        keychain: &LiveKeychain,
+        keychain: &LiveKeychain(&daemon),
         claude_token: &|| capture::claude_setup_token(),
         api_key: &|provider: &str| {
             acpmux::cli::harness_secret::read_value(&format!("the {provider} API key"))
@@ -109,8 +113,20 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 pub(super) enum Command {
     Help,
     Connections,
-    Claude { label: Option<String> },
-    ApiKey { provider: String, label: Option<String> },
+    /// `token_stdin`: the token from stdin, not `claude setup-token` (an unattended run).
+    Claude {
+        label: Option<String>,
+        token_stdin: bool,
+    },
+    /// `connections --remove ID`, and the Keychain item `connect` stored for it.
+    Remove {
+        id: String,
+        keychain_account: Option<String>,
+    },
+    ApiKey {
+        provider: String,
+        label: Option<String>,
+    },
     Chatgpt(Chatgpt),
 }
 
@@ -137,18 +153,35 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> 
         return Ok(Command::Help);
     }
     if verb == "connections" {
-        return if args.is_empty() {
-            Ok(Command::Connections)
-        } else {
-            Err(UsageError::new(USAGE))
+        if args.is_empty() {
+            return Ok(Command::Connections);
+        }
+        let options = Flags::parse(args)?;
+        options.only(&["remove", "keychain-account"])?;
+        let id = options.value("remove").map(str::trim).filter(|id| !id.is_empty());
+        let id = id.ok_or_else(|| UsageError::new(USAGE))?;
+        let keychain_account = match options.value("keychain-account") {
+            None => None,
+            Some(account) if MODEL_KEY_STORES.iter().any(|store| is_item_of(account, store)) => {
+                Some(account.to_owned())
+            }
+            Some(account) => {
+                return Err(UsageError::new(format!(
+                    "--keychain-account {account:?} is not an item `cmux cloud connect` stores"
+                )));
+            }
         };
+        return Ok(Command::Remove { id: id.to_owned(), keychain_account });
     }
     let Some((kind, rest)) = args.split_first() else { return Ok(Command::Help) };
     let options = Flags::parse(rest)?;
     match kind.as_str() {
         "claude" => {
-            options.only(&["label"])?;
-            Ok(Command::Claude { label: options.label()? })
+            options.only(&["label", "token-stdin"])?;
+            Ok(Command::Claude {
+                label: options.label()?,
+                token_stdin: options.flag("token-stdin"),
+            })
         }
         "api-key" | "key" => {
             options.only(&["provider", "label"])?;
@@ -207,7 +240,7 @@ impl Flags {
             let Some(name) = args.get(index).and_then(|arg| arg.strip_prefix("--")) else {
                 return Err(UsageError::new(USAGE));
             };
-            if name == "no-wait" || name == "keep" {
+            if matches!(name, "no-wait" | "keep" | "token-stdin") {
                 out.push((name.to_owned(), None));
             } else if let Some((name, value)) = name.split_once('=') {
                 out.push((name.to_owned(), Some(value.to_owned())));
@@ -280,8 +313,45 @@ pub(super) fn run(
     match command {
         Command::Help => Ok(json!({ "usage": HELP })),
         Command::Connections => io.daemon.call(method::MUX_CONNECTIONS, json!({})),
-        Command::Claude { label } => {
-            let token = (io.claude_token)()?;
+        Command::Remove { id, keychain_account } => {
+            let listed = io.daemon.call(method::MUX_CONNECTIONS, json!({}))?;
+            let instance = listed
+                .get("connections")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find(|connection| {
+                    connection.get("id").and_then(Value::as_str) == Some(id.as_str())
+                })
+                .and_then(|connection| connection.get("credential_instance"))
+                .and_then(Value::as_str)
+                .filter(|instance| !instance.is_empty())
+                .ok_or_else(|| {
+                    crate::localization::catalog()
+                        .cli_connection
+                        .model_connection_unverified
+                        .to_owned()
+                })?;
+            let state = io
+                .daemon
+                .call(method::MUX_CONNECTIONS_REMOVE, json!({ "id": id, "instance": instance }))?;
+            if let Some(account) = keychain_account {
+                io.keychain.delete(account);
+            }
+            Ok(json!({
+                "removed": id,
+                "keychain": keychain_account.as_ref().map(|account| json!({ "service": SERVICE, "account": account })),
+                "connections": state.get("connections").cloned().unwrap_or(Value::Null),
+            }))
+        }
+        Command::Claude { label, token_stdin } => {
+            let token = if *token_stdin {
+                // `claude setup-token` wraps its token; a pasted or piped one loses its whitespace (#56100).
+                let read = (io.api_key)("the Claude setup-token")?;
+                Zeroizing::new(read.split_whitespace().collect::<String>())
+            } else {
+                (io.claude_token)()?
+            };
             check_secret(&token)?;
             if !token.starts_with(TOKEN_PREFIX) {
                 return Err(format!("claude setup-token printed no {TOKEN_PREFIX} token"));
@@ -304,7 +374,7 @@ pub(super) fn run(
                 provider,
                 trimmed,
                 method::MUX_CONNECTIONS_KEY_ADD,
-                json!({ "provider": provider }),
+                json!({ "provider": provider, "servesCloud": true }),
                 label,
             )
         }
@@ -346,10 +416,16 @@ pub(super) fn check_secret(secret: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The Keychain account for a new item: `<store>-<8 hex>`, as the app names it.
-fn new_account(store: &str) -> String {
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    format!("{store}-{}", id.get(..8).unwrap_or(&id))
+use acpmux::claude_token::store::new_account;
+
+/// The `store` prefixes of the Keychain items `connect` writes (`new_account(store)`: `STORE-<8 hex>`).
+const MODEL_KEY_STORES: &[&str] = &["claude-token", "anthropic", "openai"];
+
+/// Whether `account` is a `new_account(store)` item: `STORE-` then 8 lowercase hex.
+fn is_item_of(account: &str, store: &str) -> bool {
+    account.strip_prefix(store).and_then(|rest| rest.strip_prefix('-')).is_some_and(|hex| {
+        hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 /// `value` into the Keychain as a new `<store>-…` item, then `add_method` with its reference only;
@@ -470,6 +546,10 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
     let id = |v: &Value| v.get("id").and_then(Value::as_str).unwrap_or("?").to_owned();
     match command {
         Command::Connections => table(value),
+        Command::Remove { id, keychain_account } => match keychain_account {
+            Some(account) => format!("Removed {id} and its Keychain item {SERVICE} / {account}."),
+            None => format!("Removed {id}."),
+        },
         Command::Claude { .. } | Command::ApiKey { .. } => {
             let account = value.pointer("/keychain/account").and_then(Value::as_str).unwrap_or("?");
             let connection = value.get("connection").filter(|c| !c.is_null());
@@ -610,34 +690,24 @@ impl Daemon for LiveDaemon {
     }
 }
 
-/// The login Keychain (`security -i`, the value on its stdin only); `secret-tool` off macOS.
-struct LiveKeychain;
+/// The login Keychain, written by the daemon (`connections/secret.store`): on macOS acpmux adds the
+/// item through the Security framework, so it trusts acpmux, which reads it, and not this `cmux` or
+/// `/usr/bin/security`. The value goes only over the unix socket.
+struct LiveKeychain<'a>(&'a LiveDaemon);
 
-fn os() -> &'static str {
-    if cfg!(target_os = "macos") { "macos" } else { "linux" }
-}
-
-impl Keychain for LiveKeychain {
+impl Keychain for LiveKeychain<'_> {
     fn store(&self, account: &str, label: &str, value: &str) -> Result<(), String> {
-        use acpmux::cli::harness_secret::{run_store, store_item};
-        let command =
-            store_item(os(), SERVICE, account, label, value).map_err(|e| e.to_string())?;
-        run_store(&command).map_err(|error| format!("cannot store it in the Keychain: {error}"))
+        self.0
+            .call(
+                method::MUX_CONNECTIONS_SECRET_STORE,
+                json!({ "account": account, "label": label, "secret": value }),
+            )
+            .map(|_| ())
+            .map_err(|error| format!("cannot store it in the Keychain: {error}"))
     }
 
     fn delete(&self, account: &str) {
-        let argv: &[&str] = if os() == "macos" {
-            &["/usr/bin/security", "delete-generic-password", "-s", SERVICE, "-a", account]
-        } else {
-            &["secret-tool", "clear", "service", SERVICE, "account", account]
-        };
-        let Some((program, rest)) = argv.split_first() else { return };
-        let _ = cmux_process::Command::new(program)
-            .args(rest)
-            .stdin(cmux_process::Stdio::null())
-            .stdout(cmux_process::Stdio::null())
-            .stderr(cmux_process::Stdio::null())
-            .status();
+        let _ = self.0.call(method::MUX_CONNECTIONS_SECRET_DELETE, json!({ "account": account }));
     }
 }
 

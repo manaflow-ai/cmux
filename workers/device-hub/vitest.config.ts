@@ -1,5 +1,10 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { tmpdir } from "node:os";
 import { defineConfig } from "vitest/config";
+
+// workerd's SQLite writes its temp files to SQLITE_TMPDIR, else TMPDIR, else /var/tmp: on a runner whose /var/tmp was
+// unlinked that failed Durable Object writes with SQLITE_CANTOPEN (backend/apps/api/vitest.config.ts has the runs).
+process.env.SQLITE_TMPDIR ||= process.env.RUNNER_TEMP || tmpdir();
 
 async function testKey(): Promise<string> {
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -30,6 +35,8 @@ export default defineConfig({
           TURN_KEY_API_TOKEN: "turn-token",
           // Short provisional window for socket-close end reasons (default 3 s).
           CLOSE_GRACE_MS: "300",
+          // Serves dev build spaces (src/buildSpace.ts); wrangler.toml's top level is production, which refuses them.
+          ENVIRONMENT: "test",
         },
       },
     }),

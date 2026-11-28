@@ -3,6 +3,12 @@
 // virtual clock, built with script.ts. `longRun` makes a chat as long as asked (10k+ rows, hours).
 import { sim, type SimBuilder, type SimScenario } from "./script";
 
+const compaction = (state: string) => ({
+  jsonrpc: "2.0",
+  method: "session/update",
+  params: { sessionId: "agent-1", update: { sessionUpdate: "compaction", state } },
+});
+
 const PARAGRAPH =
   "I read the retry helper and the test that covers it. The loop allows one attempt too many, and the first retry waits zero milliseconds, so the test that counts calls sees four instead of three. ";
 
@@ -10,20 +16,96 @@ const PARAGRAPH =
 function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = true } = {}): SimBuilder {
   for (let call = 0; call < calls; call += 1) {
     if (thoughts) b.think(`Checking step ${call + 1} before running it.`);
-    b.tool(`rg -n "retry" src/api/part${call}.ts`, { ms: 600 + (call % 3) * 400 });
+    b.tool(`rg -n "retry" src/api/part${call}.ts`, {
+      ms: 600 + (call % 3) * 400,
+    });
     if (middleText && call === Math.floor(calls / 2)) b.say(PARAGRAPH, { chunks: 6 });
   }
   return b;
 }
 
 export const SCENARIOS: Record<string, () => SimScenario> = {
+  "fork-mid-stream": () => forkMidStream(),
+  // Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and
+  // messages and situations come in and subagents come in and out", "i am still seeing flickers and flashes of
+  // bullshit. sub-second in and out bullshit." A coordinator's busy turn: thoughts between quick commands,
+  // steers that land mid-turn, subagents that start and finish, another agent's message, a turn that settles
+  // and a prompt sent right after it.
+  churn: () => {
+    const b = sim(
+      "churn",
+      "A busy coordinator turn: quick commands, thoughts, steers, subagents in and out, then a prompt right after the turn settles.",
+    );
+    b.prompt("Find out why the land keeps waiting on broker calls.");
+    b.think("Reading the land's log first.", { chunks: 2 });
+    b.tool("Inspect stuck wt reclaim process", { ms: 400 });
+    b.think("The stdout pipe is full at 16384 bytes.", { chunks: 2 });
+    b.tool("List open files of the stuck process", { ms: 300 });
+    b.say("Its stdout pipe holds 16384 bytes, which looks like a full buffer. I'll find who holds the read end.", {
+      chunks: 3,
+    });
+    b.tool("Find the reader end of the pipe", { ms: 350 });
+    b.subagent("Fix doubled handbook row on hq main", { ms: 2_500, report: "finished" });
+    b.steer("not sure why there are 595 held for you", { after: 300, readMs: 1_200 });
+    b.tool("Inspect tail and parent processes", { ms: 300 });
+    b.think("I'm puzzled why tail -3 seems alive but isn't reading.", {
+      chunks: 2,
+    });
+    b.say("Leo's question first: why 595 messages are held for me.", {
+      chunks: 2,
+    });
+    for (let call = 0; call < 3; call += 1) b.tool(`Show acpmux inbox step ${call + 1}`, { ms: 250 + call * 150 }, 150);
+    b.think("I'm looking for where the held count in the chat UI comes from.", { chunks: 2 });
+    b.subagent("Summarize held inbox messages by sender", { ms: 1_800, report: "finished" });
+    b.steer("and the pill keeps popping in and out", { after: 200, readMs: 800 });
+    b.steer("remove it", { after: 400, readMs: 600 });
+    b.tool("Show my acpmux session info", { ms: 300 });
+    b.think("Both steers ask for the same thing.", { chunks: 2 });
+    for (let call = 0; call < 4; call += 1) b.tool(`rg -n held src/part${call}.ts`, { ms: 200 + call * 100 }, 120);
+    b.say("The held count is the inbox's unread total; I'll take the pill out.", { chunks: 3 });
+    b.turnEnd();
+    b.wait(4_000);
+    // The prompt sent right after the turn settled (Leo, 21:41Z: "it was as if briefliy the worked for
+    // disappeared and then reappeared").
+    b.prompt("these should just be gone", 0);
+    b.think("Sorting out what Leo asked for.", { chunks: 2 });
+    b.tool("Find lanes owning update pill and chat folding", { ms: 600 });
+    b.say("Two lanes own these; I'll forward it.", { chunks: 2 });
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-22 21:37Z: "when i sent that message it was as if briefliy the worked for disappeared and then
+  // reappeared ... accounting for space for the worked for/working heading should always be there anyways". A
+  // turn with work settles and folds under its Worked for; a prompt sent after it is answered with a thought and
+  // a short reply, no calls.
+  "send-after-settle": () => {
+    const b = sim(
+      "send-after-settle",
+      "A turn with work settles; the next prompt is answered at once, with no calls: its heading must hold its place.",
+    );
+    b.prompt("Find out why the land waits.");
+    b.think("Reading the log.", { chunks: 2 });
+    b.tool("Inspect the stuck process", { ms: 400 });
+    b.tool("List its open files", { ms: 300 });
+    b.say("The stdout pipe is full.", { chunks: 2 });
+    b.turnEnd();
+    b.wait(4_000);
+    b.prompt("thanks, now just say done", 0);
+    b.think("A short answer.", { chunks: 1 });
+    b.say("Done.", { chunks: 1 });
+    return b.turnEnd().build();
+  },
+
   basic: () =>
     sim("basic", "One prompt: a thought, commands with text between, a reply, the turn ends.")
       .prompt("The retry test is flaky. Find out why and fix it.")
       .think("Reading the helper first.")
       .tool("sed -n 1,80p src/api/client.ts", { kind: "read" })
       .say(PARAGRAPH)
-      .tool("bun test api/client.test.ts", { status: "failed", output: "1 fail" })
+      .tool("bun test api/client.test.ts", {
+        status: "failed",
+        output: "1 fail",
+      })
       .say("Fixed: the loop now makes exactly `attempts` calls.")
       .turnEnd()
       .build(),
@@ -62,9 +144,95 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     workTurn(b, 2);
     b.say("Done.");
     b.turnEnd();
-    b.wait(10_000).incoming("Can you also rebase on main?", { kind: "agent_message", fromName: "coord-deputy" });
+    b.wait(10_000).incoming("Can you also rebase on main?", {
+      kind: "agent_message",
+      fromName: "coord-deputy",
+    });
     b.tool("git fetch origin && git rebase origin/main", { ms: 2_000 });
     b.say("Rebased; the branch is up to date.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
+  // properly getting treated like the tool call ish thing it should be and instead as if it were a
+  // message?" Rule (d) holds each message on the tool rows' pitch.
+  "messages-mid-turn": () => {
+    const b = sim("messages-mid-turn", "Other agents' messages steer into a running turn between its commands.");
+    b.prompt("Land the retry fix.");
+    workTurn(b, 2, { middleText: false });
+    b.steerIncoming("CI is green on the head; merge when ready.", { fromName: "ci-watch" });
+    b.tool("gh pr merge 12 --squash", { ms: 800 });
+    b.steerIncoming("Hold the merge: base is red.", { fromName: "coordinator" });
+    b.steerIncoming("Base is green again.", { fromName: "coordinator" });
+    b.tool("gh pr merge 12 --squash", { ms: 800 });
+    b.tool("git log -1 origin/main", { ms: 300 });
+    b.say("Merged.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25: "this is extremely strange". A background task the last turn started ends 2 minutes later;
+  // its notice opens a turn that only thinks and answers in two sentences. His pane drew "Background task finished",
+  // then "Worked for 2m 28s" with the answer folded inside it: the answer was hidden, and the time ran from far
+  // before the turn's own start.
+  "notice-no-tool-turn": () => {
+    const b = sim(
+      "notice-no-tool-turn",
+      "A background task's end opens a turn of one thought and a two-sentence answer, no tools.",
+    );
+    b.prompt("Run the tests and merge when green.");
+    b.think("Starting the test and merge run in the background.");
+    b.background("bun test && gh pr merge 123", { ms: 140_000 });
+    b.say("The test and merge run is going in the background; I'll report when it ends.");
+    b.turnEnd();
+    b.wait(140_000).backgroundEnds();
+    b.bgDone("bg-call-1", "test+merge 123", { after: 200 });
+    b.think("Already known: the run passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    b.say("The tests passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25: "there are situations in which i steer RIGHT before you finish a turn but your completed sent
+  // message goes above mine ... worked for above my message and then yours and then boom that's it". Running, rows
+  // draw as they came; ended: the prompt, Worked for, his steer, the answer, the footer.
+  "late-steer": () => {
+    const b = sim(
+      "late-steer",
+      "The person steers while the agent streams its final answer; the turn ends right after.",
+    );
+    b.prompt("Fix the flaky test.");
+    b.think("The test races the timer.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.say("Fixed: the test now waits on the timer.", { chunks: 2 });
+    b.steer("also check the other timer test", { after: 50, readMs: 300 });
+    b.say(" It passes 50 runs in a row.", { chunks: 1, after: 60 });
+    return b.turnEnd("completed", 300).build();
+  },
+
+  "late-steer-mid-tool": () => {
+    const b = sim(
+      "late-steer-mid-tool",
+      "The person steers while the agent's last call runs; the call ends, the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    const call = b.nextCallId();
+    b.tool("bun test flaky.test.ts", { open: true });
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.toolEnd(call, { ms: 800 });
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  "late-steer-compaction": () => {
+    const b = sim(
+      "late-steer-compaction",
+      "The person steers while the agent compacts its context at the end of its work; the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.record("in", "compaction", compaction("started"), 300, "compaction started");
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.record("in", "compaction", compaction("completed"), 1_200, "compaction completed");
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
     return b.turnEnd().build();
   },
 
@@ -149,6 +317,30 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.subagent("Scan the last 50 CI logs for flaky tests", { ms: 8_000 });
     b.tool("rg -n 'retry' test/", { ms: 600 });
     b.say("Three tests are flaky; the subagent's list matches mine.");
+    return b.turnEnd().build();
+  },
+
+  // A chat forked from a subagent (Fork with <model>… on its composer chips, SubagentForkChips.tsx):
+  // the subagent's own history by reference, the `forked` line naming the subagent and its chat, then
+  // the fork's first turn on the model it was forked onto.
+  "subagent-fork": () => {
+    const b = sim(
+      "subagent-fork",
+      "A chat forked from a subagent: its history, the Forked from line, then its own turn.",
+    );
+    b.prompt("Split unit and integration coverage for the fetch helper.");
+    b.say("Retries have no tests. Splitting unit and integration coverage.");
+    b.turnEnd();
+    b.record(
+      "mux",
+      "forked",
+      { parentId: "sim-parent-chat", subagentId: "a39e817af38ddf5e7", subagentName: "Test coverage" },
+      400,
+      "forked from subagent",
+    );
+    b.prompt("Now write the integration tests, on Sonnet.");
+    b.tool("bun test src/net", { ms: 900 });
+    b.say("Integration tests added; all pass.");
     return b.turnEnd().build();
   },
 
@@ -277,40 +469,6 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
-  "plan-checklist": () => {
-    const b = sim(
-      "plan-checklist",
-      "A turn writes a checklist, ticks it off between commands, and the next turn clears it.",
-    );
-    b.prompt("Migrate the three services.");
-    b.plan([
-      ["Migrate auth", "in_progress"],
-      ["Migrate billing", "pending"],
-      ["Migrate mail", "pending"],
-    ]);
-    b.tool("bun run migrate auth", { ms: 800 });
-    b.plan([
-      ["Migrate auth", "completed"],
-      ["Migrate billing", "in_progress"],
-      ["Migrate mail", "pending"],
-    ]);
-    b.say("Auth is done.");
-    b.tool("bun run migrate billing", { ms: 800 });
-    b.tool("bun run migrate mail", { ms: 800 });
-    b.plan([
-      ["Migrate auth", "completed"],
-      ["Migrate billing", "completed"],
-      ["Migrate mail", "completed"],
-    ]);
-    b.say("All three migrated.");
-    b.turnEnd();
-    b.prompt("Now the docs.", 5_000);
-    b.plan([]);
-    b.tool("rg -n migrate docs", { ms: 500 });
-    b.say("Docs updated.");
-    return b.turnEnd().build();
-  },
-
   "long-output": () => {
     const b = sim(
       "long-output",
@@ -324,10 +482,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say(
       Array.from({ length: 50 }, (_, part) =>
         part % 10 === 4
-          ? "| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | 12000 |\n"
+          ? `| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | ${12000 + part} |\n`
           : part % 10 === 7
             ? "```sh\nbun run build --profile\n```\n"
-            : `${PARAGRAPH}\n`,
+            : `${part}. ${PARAGRAPH}\n`,
       ).join("\n"),
       { chunks: 120, chunkMs: 30 },
     );
@@ -351,6 +509,22 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say("Three pass; docs has two failures.");
     b.tool("bun test docs/ --only-failures", { ms: 800 });
     b.say("Both failures are stale snapshots.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts". A thought streams, then the
+  // reply streams under it: nothing drawn over the reply moves when the thought ends or the reply starts.
+  "think-then-answer": () => {
+    const b = sim("think-then-answer", "A thought streamed in deltas, then the reply streamed under it, twice.");
+    b.prompt("Why does the retry path double the wait?");
+    b.think("Weighing the retry path and what the jitter does to the wait between attempts.", { chunks: 8 });
+    b.say("The jitter is added after the backoff doubles, so the wait grows twice per attempt.", { chunks: 8 });
+    b.turnEnd();
+    b.prompt("And the fix?", 4_000);
+    b.think("The jitter should be drawn once per attempt, before the doubling.", { chunks: 6 });
+    b.tool("bun test retry", { ms: 600 });
+    b.think("The test passes with the jitter drawn first.", { chunks: 4 });
+    b.say("Draw the jitter before doubling; the retry test passes.", { chunks: 6 });
     return b.turnEnd().build();
   },
 
@@ -536,7 +710,95 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say("Fixed: the loop now makes exactly `attempts` calls. " + PARAGRAPH, { chunks: 6 });
     return b.turnEnd().build();
   },
+
+  // Leo, 2026-11-25: "the compaction starting from idle should not go from thinking to idle potentially. just
+  // the compacting conversation to start with so it skips the unnecesssary animation". The records a real
+  // /compact sent to a hibernated chat wrote, in their order: the prompt, the agent host waking (`host_started`,
+  // `resumed`, `status: ready`), the turn's start, and the compaction's first note about 50 ms after it.
+  "compact-from-idle": () => {
+    const b = sim("compact-from-idle", "/compact sent from an idle chat whose agent host hibernated.");
+    b.prompt("Look at the retry helper.");
+    workTurn(b, 2, { middleText: false });
+    b.say("Done: the helper retries three times.");
+    b.turnEnd();
+    b.record("mux", "stopped", { code: 143, hibernated: true }, 2_000, "host hibernated");
+    b.record("mux", "status", { status: "idle" }, 0, "status idle");
+    b.prompt("/compact", 3_000, {}, { wake: true });
+    b.record("in", "compaction", compaction("running"), 50, "compaction running");
+    b.record("in", "compaction", compaction("running"), 6_000, "compaction still running");
+    b.record("in", "compaction", compaction("completed"), 3_000, "compaction completed");
+    return b.turnEnd("completed", 200).build();
+  },
+
+  // Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the
+  // worked for collapsing the compaction and then the next worked for + thinking is weird. layout shifts and
+  // awkward looking animations".
+  "compact-steer": () => {
+    const b = sim("compact-steer", "/compact from idle, and the person steers while it compacts.");
+    b.prompt("Look at the retry helper.");
+    workTurn(b, 2, { middleText: false });
+    b.say("Done: the helper retries three times.");
+    b.turnEnd();
+    b.prompt("/compact", 3_000);
+    b.record("in", "compaction", compaction("running"), 50, "compaction running");
+    const steerId = `steer-${b.events.length + 1}`;
+    b.steer("then add a test for the retry count", { after: 2_500, readMs: false });
+    b.record("in", "compaction", compaction("running"), 3_000, "compaction still running");
+    b.record("in", "compaction", compaction("completed"), 2_000, "compaction completed");
+    b.record("mux", "steer_read", { promptId: steerId, turnId: b.current().turnId }, 400, "steer_read");
+    b.think("Adding the test now.");
+    b.tool("bun test src/api", { ms: 900 });
+    b.say("Added a test that the helper makes exactly three attempts.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25, on a finished reply's action row with about 120 px of nothing under it, then the next
+  // turn's "Working for 22s" and "Received 3 messages": "and then this unnecesssary space". Three agent
+  // messages arrive after a reply and start a turn of their own.
+  "turn-after-reply-gap": () => {
+    const b = sim("turn-after-reply-gap", "A reply ends its turn; three agent messages then start the next turn.");
+    b.prompt("Is the deploy safe to leave?");
+    workTurn(b, 2, { middleText: false });
+    b.say("Yes. The deploy finished and its checks are green. You don't need to do anything.");
+    b.turnEnd();
+    b.incoming("Lane report: merged PR 101.", { kind: "agent_message", fromName: "lane-a" }, 4_000);
+    b.message("Lane report: merged PR 102.", { fromName: "lane-b", after: 200 });
+    b.message("Lane report: merged PR 103.", { fromName: "lane-c", after: 200 });
+    b.think("Three lanes reported merges.");
+    b.tool("gh pr list --state merged", { ms: 900 });
+    b.say("All three merged.");
+    return b.turnEnd().build();
+  },
 };
+
+/// The prompts and the cut-off reply a fork made mid-stream holds (fork-hammer, #50021): its records
+/// are the chat's through the cut, its running turn ended `cancelled` there, then its `forked` record.
+export const FORK_MID_STREAM = {
+  prompts: ["Remember codeword PELICAN-41.", "Write the numbers from 1 to 400 as words."],
+  partial: "one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen",
+};
+
+/// A fork of a chat made while its reply streams (Fork Conversation on a working chat): the rows
+/// the fork draws are the turns its records hold, the cut-off reply included, and the fork is idle.
+/// The daemon's half of the invariant (those turns are the ones the fork's agent holds) is
+/// `cmux-tui/crates/acpmux/tests/hub_integration/fork_context.rs`.
+export function forkMidStream(): SimScenario {
+  const b = sim("fork-mid-stream", "A fork made while the chat's reply streamed: its copy of the turn ends cut off.");
+  const [codeword, numbers] = FORK_MID_STREAM.prompts as [string, string];
+  b.prompt(codeword).say("Noted.").turnEnd();
+  b.prompt(numbers).say(FORK_MID_STREAM.partial, { chunks: 6 });
+  // The fork's copy of the running turn ends now (acpmux hub/fork.rs), then its own history begins.
+  b.record(
+    "mux",
+    "turn_result",
+    { status: "cancelled", stopReason: "cancelled", detail: "forked" },
+    50,
+    "turn_result cut",
+  );
+  b.record("mux", "status", { status: "ready" }, 5, "status ready");
+  b.record("mux", "forked", { parentId: "sim-parent", forkSeq: 40, midTurn: true }, 5, "forked");
+  return b.build();
+}
 
 /// A monstrously long chat: `turns` turns of mixed work (prompts and incoming messages, thoughts,
 /// commands, text, a compaction every 25 turns, a background shell every 10), about 12 rows a turn,
@@ -554,7 +816,9 @@ export function longRun(turns: number): SimScenario {
     const calls = 2 + (turn % 5);
     for (let call = 0; call < calls; call += 1) {
       if (call % 2 === 0) b.think(`Planning call ${call + 1}.`, { chunks: 2 });
-      b.tool(`run step ${turn}.${call}`, { ms: 500 + ((turn * 7 + call * 13) % 9) * 700 });
+      b.tool(`run step ${turn}.${call}`, {
+        ms: 500 + ((turn * 7 + call * 13) % 9) * 700,
+      });
       if (call === 1) b.say(`Progress on turn ${turn + 1}: ${PARAGRAPH}`, { chunks: 3 });
     }
     if (turn % 25 === 24) b.compaction();

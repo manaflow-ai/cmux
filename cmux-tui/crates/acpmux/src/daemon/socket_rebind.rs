@@ -29,11 +29,24 @@ pub(super) async fn rebind(
         anyhow::bail!("{why}");
     }
     let listener = crate::server::bind_unix(socket).await?;
+    // The listener a restart's exec in place keeps is this one now (`daemon/handoff.rs`).
+    super::handoff::keep_unix(std::os::fd::AsRawFd::as_raw_fd(&listener));
     let bound = Owned::now(&[socket]);
     if bound.is_none() && socket.is_absolute() {
         anyhow::bail!("{} went away as it was bound again", socket.display());
     }
     Ok((listener, bound))
+}
+
+/// The accept loop serving now. It ends with this task: a restart that execs in place aborts
+/// this task to stop accepting at once, and its kept copy of the listener holds new dials in the
+/// backlog for the next image (`daemon/handoff.rs`).
+struct Serving(tokio::task::JoinHandle<anyhow::Result<()>>);
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 /// Serve `listener`, and each listener `swap` brings in its place. Connections already accepted
@@ -45,17 +58,17 @@ pub(super) async fn serve(
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> anyhow::Result<()> {
     let mut serving =
-        tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
+        Serving(tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone())));
     loop {
         tokio::select! {
-            served = &mut serving => return served?,
+            served = &mut serving.0 => return served?,
             next = swap.recv() => match next {
                 Some(listener) => {
-                    serving.abort();
-                    let _ = (&mut serving).await;
-                    serving = tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
+                    serving.0.abort();
+                    let _ = (&mut serving.0).await;
+                    serving = Serving(tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone())));
                 }
-                None => return serving.await?,
+                None => return (&mut serving.0).await?,
             },
         }
     }

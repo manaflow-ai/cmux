@@ -83,10 +83,18 @@ struct MarkdownBlockMarker: ViewModifier {
     }
 }
 
+extension EnvironmentValues {
+    /// The view is being drawn once into a still picture (a tab card, `ImageRenderer`), which
+    /// draws any UIKit-backed view (a web view, a text view) as the system's yellow square with
+    /// a red prohibition sign. A view that would use one draws in SwiftUI instead when this is set.
+    @Entry public var drawsStillPicture = false
+}
+
 /// One block of a markdown document (a transcript draws a long answer block by block).
 public struct MarkdownBlockView: View {
     let block: MarkdownBlock
     let margin: CGFloat
+    @Environment(\.drawsStillPicture) private var still
 
     public init(block: MarkdownBlock, margin: CGFloat = 20) {
         self.block = block
@@ -101,7 +109,7 @@ public struct MarkdownBlockView: View {
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
-            if MarkdownInlineMath.contains(text) {
+            if MarkdownInlineMath.contains(text), !still {
                 WebMarkdownView(markdown: text, style: .body, allowsTextSelection: true)
             } else {
                 InlineText(source: text)
@@ -119,7 +127,14 @@ public struct MarkdownBlockView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
         case .math(let tex):
-            WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body, allowsTextSelection: true)
+            if still {
+                // A still picture cannot hold the web view that typesets math (it would draw as
+                // the system's yellow "cannot draw" mark): the source, in the code face.
+                Text(tex).font(.callout.monospaced()).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body, allowsTextSelection: true)
+            }
         case .rule:
             Divider().padding(.vertical, 4)
         }
@@ -156,10 +171,14 @@ struct MarkdownListView: View {
     }
 }
 
-/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges.
+/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges. A grid narrower
+/// than the column sits centered in it; a wider one scrolls sideways in its own box (Leo
+/// 2026-11-22: "i dont know why we dont simply center tables in our agent chats.").
 struct MarkdownTableView: View {
     let table: MarkdownTable
     let margin: CGFloat
+    /// The scroll area's width: the grid is at least this wide, its own content centered in it.
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -179,7 +198,9 @@ struct MarkdownTableView: View {
                 }
             }
             .padding(.horizontal, margin - 12)
+            .frame(minWidth: viewport)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
         .scrollIndicators(.hidden)
         .trailingOverflowFade()
         .padding(.horizontal, -margin)

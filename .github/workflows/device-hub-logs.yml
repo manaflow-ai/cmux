@@ -9,6 +9,13 @@ name: device-hub entitlement logs
 # Dispatch only, from feat-cmux-next. Existing credentials only: the Cloudflare read token (the same one
 # cmux-mobile-link-stats.yml uses; the device hub lives in that account).
 on:
+  # GitHub only accepts a dispatch for a workflow it has registered, and a dispatch-only file that lives off the
+  # default branch never registers (dispatch by name answers 404). This push trigger, limited to this file on
+  # feat-cmux-next, gives it a run so it registers; the job's `if` below skips that run, so it reads nothing.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/device-hub-logs.yml
   workflow_dispatch:
     inputs:
       env:
@@ -34,13 +41,15 @@ concurrency:
 jobs:
   read:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds the Cloudflare API token; keeps the ephemeral_only linux_4 pool
     environment: cmux-next-production
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          sparse-checkout: scripts/cmux-next/device-hub-logs.py
+          sparse-checkout: |
+            scripts/cmux-next/device-hub-logs.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Query the window

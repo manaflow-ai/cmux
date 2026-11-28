@@ -34,6 +34,9 @@ NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
 NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 # The GUI suites take the owned pool's gui label, never the generic side label.
 GUI = "glaeda-gui-std-xcode-26.6"
+# #61222 (RFD 0185): the workflow routes read the unified mac-* labels; the runners above keep the old ones too.
+SIDE_ROUTE = "mac-std"
+GUI_ROUTE = "mac-gui"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 # glaeda#1530: jobs that need a logged-in session but not the console gui token. They take the
 # session label while an online runner carries it, else the gui label exactly as before.
@@ -1104,7 +1107,8 @@ class LightRerunRoute(unittest.TestCase):
         jobs = CmuxNextWiring().workflow()["jobs"]
         place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
         literal = re.findall(r"'([a-z -]+)'", place["env"]["LIGHT_FIT_JOBS"])
-        self.assertEqual(set(literal[-1].split()), measured)
+        # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556): the PR-only list names the rest.
+        self.assertEqual(set(literal[-1].split()), measured - {"fast-tier"})
         # Exactly these jobs read light_jobs on the attempt their placement ran (the rescue moves only them).
         rerun_clause = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
                                   r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
@@ -1580,6 +1584,7 @@ class GatewayRoute(unittest.TestCase):
             free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
             with mock.patch.object(placement.pool, "GitHub") as github, \
                     mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    mock.patch.object(placement, "fleet_queue_p90", return_value=None), \
                     contextlib.redirect_stdout(io.StringIO()):
                 github.return_value.runners.return_value = runners
                 placement.main(values)
@@ -1655,6 +1660,32 @@ class GatewayRoute(unittest.TestCase):
         dropped = placement.fleet_gateway(placed, values, one, LIGHT_SIDE)
         self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
         self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
+
+    def test_a_fleet_client_is_not_listed_when_the_fleet_queue_outlasts_its_wait(self):
+        # note-558: with the fleet's light queue p90 past the client's 20 minutes, no client got a verdict
+        # and its steps ran for nobody; the job keeps its route. An unread p90 fails open.
+        values = {"GATEWAY_LABEL": LIGHT_SIDE}
+        placed = self.fleet_placed("fast-tier")
+        idle = self.light(False, False)
+        wait = placement.FLEET_CLIENT_QUEUE_WAIT_S
+        self.assertEqual(placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, wait).fleet_jobs,
+                         ("fast-tier",))
+        self.assertEqual(placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, None).fleet_jobs,
+                         ("fast-tier",))
+        dropped = placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, 3317)
+        self.assertEqual(dropped.fleet_jobs, ())
+        self.assertIn("light queue p90 is 55 min", dropped.why)
+        status = b'{"step_queue_wait_p90_seconds": {"light": 3317.0, "exclusive": 10}}'
+        self.assertEqual(placement.fleet_queue_p90({}, lambda url: status), 3317.0)
+        self.assertIsNone(placement.fleet_queue_p90({}, lambda url: b"not json"))
+        self.assertIsNone(placement.fleet_queue_p90({}, lambda url: b"{}"))
+
+        def unreachable(url):
+            raise OSError("down")
+        self.assertIsNone(placement.fleet_queue_p90({}, unreachable))
+        seen = []
+        placement.fleet_queue_p90({"CMUX_FLEET_CONTROLLER": "http://c:1/"}, lambda url: seen.append(url) or b"{}")
+        self.assertEqual(seen, ["http://c:1/v1/status"])
 
     def test_a_kept_fleet_job_leaves_its_blacksmith_label_and_a_dropped_one_keeps_it(self):
         # next_macos_cascade.place() lists a job a Blacksmith macOS label took (cmux#38130: a cold 6 vCPU
@@ -1940,12 +1971,16 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
+                                                            # The PR's live labels (#57329), as path_route exports them.
+                                                            "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
+                            # PR Mac jobs wait for the Linux cargo fast tier to be not red.
+                            "fast-tier-cargo": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -1983,7 +2018,7 @@ class CmuxNextWiring(unittest.TestCase):
         """STACK_SLOT (cmux#45498, 2026-11-17): a labelled same-repository PR's Mac jobs take the nightly slot, a label
         no other PR job asks for, instead of queueing behind the side label's backlog. The placement's real output,
         with an idle std side runner and free Blacksmith slots, is fed into each job's runs-on."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "mac-nightly"  # #61222 (RFD 0185)
         place = next(step for step in self.workflow()["jobs"][self.PLACEMENT]["steps"] if step.get("id") == "place")
         expression = place["env"]["STACK_SLOT"]
         label = [{"name": "stack-blocker"}]
@@ -1996,6 +2031,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
+                context["needs"]["path_route"]["outputs"]["labels"] = "," + ",".join(l["name"] for l in labels) + ","
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2014,6 +2050,7 @@ class CmuxNextWiring(unittest.TestCase):
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 context = self.context()
                 context["github"]["event"]["pull_request"]["labels"] = label
+                context["needs"]["path_route"]["outputs"]["labels"] = ",stack-blocker,"
                 context["needs"][self.PLACEMENT]["outputs"].update(values, placed_attempt="1")
                 routes = {name: evaluate(runs_on_route(self.workflow()["jobs"][name], name), context) for name in JOBS}
                 if stack:
@@ -2037,7 +2074,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.push_context(runner=SIDE)), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.push_context(runner=STD)), on(name, STD))
                 # Skipped or unreadable placement keeps today's configured route.
-                self.assertEqual(evaluate(runs_on, self.push_context(fallback_jobs=None)), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.push_context(fallback_jobs=None)),
+                                 GUI_ROUTE if name in GUI_JOBS else SIDE)
                 # A person's re-run carries attempt 1's reading: Blacksmith, never the owned label.
                 self.assertEqual(evaluate(runs_on, self.push_context("2")), FALLBACK)
                 # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
@@ -2070,7 +2108,7 @@ class CmuxNextWiring(unittest.TestCase):
             gui_overflow=FALLBACK, placed_attempt="1")
         overflow["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
         for name in GUI_JOBS:
-            self.assertEqual(evaluate(runs_on_route(jobs[name], name), overflow), SIDE, name)
+            self.assertEqual(evaluate(runs_on_route(jobs[name], name), overflow), SIDE_ROUTE, name)
 
     def test_pr_routes_ignore_missing_stale_or_gui_only_placement(self):
         jobs = self.workflow()["jobs"]
@@ -2113,7 +2151,7 @@ class CmuxNextWiring(unittest.TestCase):
                             with self.subTest(job=name, attempt=attempt, actor=actor, side=side, placed=placed):
                                 # Attempt 1 with its placement skipped keeps the owned side label; a re-run
                                 # carrying another attempt's reading takes the moving Blacksmith label.
-                                self.assertEqual(evaluate(expression, context), SIDE if attempt == "1" else FALLBACK)
+                                self.assertEqual(evaluate(expression, context), (side if side == SIDE else SIDE_ROUTE) if attempt == "1" else FALLBACK)
                                 for owned in ("", "0"):
                                     context["vars"]["CI_PR_POOL_OWNED"] = owned
                                     self.assertEqual(evaluate(expression, context), FALLBACK)
@@ -2432,7 +2470,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
             gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
-            self.assertTrue(evaluate(gate, self.context()))
+            # A pull request's Swift canary is pr-pipeline.yml's `mac` job (note-556): it runs here off the PR only.
+            self.assertEqual(evaluate(gate, self.context()), name != "swift-canary", name)
             # A PR with no placement output takes the static owned side fallback;
             # display/session labels are only considered for non-PR pushes.
             self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
@@ -2553,10 +2592,11 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
-    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
+    """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
+    # RFD 0165: the pipeline's host-only Mac leg ignores the Blacksmith overflow switch.
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch", FALLBACK),
+            ("pr-pipeline.yml", "ios-macos", CMUX_MAC))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:
@@ -2566,14 +2606,14 @@ class SmallMacChecks(unittest.TestCase):
         return context
 
     def test_own_branch_runs_take_cmux_mac_and_a_fork_blacksmith(self):
-        for name, job in self.JOBS:
+        for name, job, overflow_route in self.JOBS:
             runs_on = runs_on_route(yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job], job)
             with self.subTest(workflow=name):
                 for event in ("pull_request", "push", "workflow_dispatch"):
                     self.assertEqual(evaluate(runs_on, self.context(event=event)), CMUX_MAC, event)
                 self.assertEqual(evaluate(runs_on, self.context(attempt="2")), CMUX_MAC)
                 self.assertEqual(evaluate(runs_on, self.context(owned="0")), CMUX_MAC)
-                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), overflow_route)
                 self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
@@ -2793,7 +2833,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
-        self.assertEqual(build["needs"], "placement")
+        # portable-tests (#57324): the Linux portable FFI tests gate the Mac build, and placement routes it.
+        self.assertEqual(build["needs"], ["placement", "portable-tests"])
         self.assertIn("!cancelled()", build["if"])
 
 

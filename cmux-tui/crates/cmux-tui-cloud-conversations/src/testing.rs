@@ -83,12 +83,14 @@ pub struct FakeBackend {
     pub got: Mutex<Vec<Posted>>,
     /// `PUT` requests: url and byte count; replies come from `replies` by path.
     pub put: Mutex<Vec<(String, usize)>>,
+    /// Platform `PUT` requests with an install bearer (a project's default environment).
+    pub platform_put: Mutex<Vec<Posted>>,
     /// Objects a ranged read serves, by path without the query: (mime, bytes).
     pub objects: Mutex<HashMap<String, (String, Vec<u8>)>>,
 }
 
 fn path_of(url: &str) -> String {
-    url.find("/v1/").map_or(url, |at| &url[at..]).to_string()
+    url.find("/v1/").and_then(|at| url.get(at..)).unwrap_or(url).to_string()
 }
 
 impl FakeBackend {
@@ -182,6 +184,7 @@ impl CloudBackend for FakeBackend {
             "GET" => &self.got,
             "POST" => &self.posted,
             "PATCH" => &self.patched,
+            "PUT" => &self.platform_put,
             _ => return Err(TransportError("unsupported platform method".into())),
         };
         requests.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
@@ -233,7 +236,7 @@ impl CloudBackend for FakeBackend {
             status: 206,
             content_type: Some(mime.clone()),
             total: Some(bytes.len() as u64),
-            body: bytes[start..end].to_vec(),
+            body: bytes.get(start..end).unwrap_or_default().to_vec(),
         })
     }
 

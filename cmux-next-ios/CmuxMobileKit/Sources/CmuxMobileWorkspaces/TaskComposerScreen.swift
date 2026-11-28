@@ -28,6 +28,9 @@ struct TaskComposerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var phase: TaskComposerPhase = .loading
+    /// A failed agent list is read again on its own (no button): the pill keeps "Loading"
+    /// through a short failure; past the quiet bound it says why, with no button.
+    @State private var autoRetry = AutoRetry()
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
@@ -46,6 +49,9 @@ struct TaskComposerScreen: View {
     private var draft: TaskDraft { sent ?? creator.taskDraft }
     private var mac: MacDevice? { creator.taskMac(for: draft) }
     private var folder: String? { mac.flatMap { creator.taskFolder(for: draft, on: $0.id) } }
+    /// The Cloud machine it runs on (Task Options), when one is chosen and listed.
+    private var cloud: CloudTaskTarget? { creator.taskCloud(for: draft) }
+    private var onCloud: Bool { draft.cloudID != nil }
     private var catalog: AgentCatalog? {
         if case .loaded(let catalog) = phase { return catalog }
         return nil
@@ -53,6 +59,8 @@ struct TaskComposerScreen: View {
 
     private var blocker: TaskStartBlocker? {
         if let blocker = creator.taskBlocker(draft) { return blocker }
+        // A Cloud machine starts Claude itself: no Mac agent list to wait for.
+        if onCloud { return nil }
         // Start names its agents, so it waits for the Mac's list.
         guard let catalog else { return .noAgent }
         if draft.picks.isEmpty, TaskComposerPhase.defaultHarness(catalog) == nil { return .noAgent }
@@ -109,7 +117,11 @@ struct TaskComposerScreen: View {
                 }
         }
         .task(id: mac?.id) { await reload() }
+        .autoRetry(autoRetry, failing: mac != nil && phase.isFailed) { await reload(retrying: true) }
         .task { await creator.taskDrafts.load() }
+        // The Cloud machines Task Options offers beside the Macs, read again when the live link
+        // or its focused Mac changes.
+        .task(id: creator.cloudTaskTargetsSource?()) { await creator.refreshCloudTaskTargets() }
         .onAppear { promptFocused = true }
         // A sheet takes the keyboard away (it would cover the sheet's rows); closing it brings
         // the keyboard back. Classic kept the keyboard up over its sheets and menus.
@@ -152,7 +164,8 @@ struct TaskComposerScreen: View {
     }
 
     private var placeholder: String {
-        folder.map { "Describe a coding task in \(NewWorkspaceButton.folderName($0))" } ?? "Describe a task"
+        if onCloud { return cloud.map { "Describe a coding task for \($0.name)" } ?? "Describe a task" }
+        return folder.map { "Describe a coding task in \(NewWorkspaceButton.folderName($0))" } ?? "Describe a task"
     }
 
     /// The task's name as its workspace gets it: the typed name, else the prompt's first line,
@@ -169,7 +182,8 @@ struct TaskComposerScreen: View {
 
     /// Where the task opens and in which folder: "Terminal · cmux".
     private var subtitle: String {
-        [draft.launch.title, folder.map(NewWorkspaceButton.folderName)].compactMap { $0 }.joined(separator: " · ")
+        if onCloud { return ["Chat", cloud?.name ?? "Cloud"].joined(separator: " · ") }
+        return [draft.launch.title, folder.map(NewWorkspaceButton.folderName)].compactMap { $0 }.joined(separator: " · ")
     }
 
     private var macName: String { mac.map { sameNames.displayName($0) } ?? "the Mac" }
@@ -197,8 +211,13 @@ struct TaskComposerScreen: View {
                 attachMenu
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        agentsPill
-                        settingsPills
+                        if !creator.cloudTaskTargets.isEmpty || onCloud { placePill }
+                        if onCloud {
+                            cloudAgentPill
+                        } else {
+                            agentsPill
+                            settingsPills
+                        }
                     }
                     .padding(.horizontal, 4)
                 }
@@ -276,7 +295,8 @@ struct TaskComposerScreen: View {
         .buttonStyle(.cmuxPressGlass)
         .disabled(sent != nil)
         .accessibilityLabel("Task Options")
-        .accessibilityValue([mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
+        .accessibilityValue(onCloud ? (cloud?.name ?? "Cloud")
+            : [mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
             .compactMap { $0 }.joined(separator: ", "))
         .accessibilityIdentifier("taskComposer.options")
     }
@@ -313,12 +333,52 @@ struct TaskComposerScreen: View {
     /// The agents that run the task (classic's agent pill and menu). Past classic, several at
     /// once: a tap toggles an agent and the menu stays open, each picked agent has its model,
     /// and each one gets the task in its own workspace.
+    /// On a Cloud machine the agent is Claude, asking before it acts (the machine's start takes
+    /// no other agent from a phone): a label, not a menu.
+    /// Where it runs, one tap from the prompt: shown once a Cloud machine is listed (with Macs
+    /// only, the place stays in Task Options as before).
+    private var placePill: some View {
+        TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
+            HStack(spacing: 7) {
+                Image(systemName: onCloud ? "cloud" : "desktopcomputer").accessibilityHidden(true)
+                Text(onCloud ? (cloud?.name ?? "Cloud") : macName).lineLimit(1).fixedSize()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
+            }
+            .modifier(TaskComposerPillLabel(isError: false))
+        }
+        .disabled(sent != nil)
+        .accessibilityLabel("Runs on")
+        .accessibilityValue(onCloud ? (cloud?.name ?? "Cloud") : macName)
+        .accessibilityIdentifier("taskComposer.place")
+    }
+
+    private var cloudAgentPill: some View {
+        HStack(spacing: 7) {
+            AgentBrandMark(agent: "claude", size: 16, style: .brand)
+                .frame(width: 18, height: 18)
+                .accessibilityHidden(true)
+            Text("Claude").fixedSize()
+            Image(systemName: "cloud")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(theme.colors.label2.color)
+                .accessibilityHidden(true)
+        }
+        .modifier(TaskComposerPillLabel(isError: false))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Agent")
+        .accessibilityValue("Claude, on \(cloud?.name ?? "the Cloud machine")")
+        .accessibilityIdentifier("taskComposer.agents.cloud")
+    }
+
     private var agentsPill: some View {
         Menu {
             agentsMenu
         } label: {
             HStack(spacing: 7) {
-                switch phase {
+                switch shownPhase {
                 case .loading:
                     // The spinner where the agent's mark goes, then the pill's name: one short pill.
                     CmuxSpinner()
@@ -360,8 +420,9 @@ struct TaskComposerScreen: View {
     }
 
     @ViewBuilder private var agentsMenu: some View {
-        switch phase {
+        switch shownPhase {
         case .loading:
+            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             Button("Loading agents…") {}
                 .disabled(true)
                 .accessibilityIdentifier("taskComposer.agents.loading")
@@ -372,8 +433,13 @@ struct TaskComposerScreen: View {
             }
             .disabled(true)
             .accessibilityIdentifier("taskComposer.agents.failed")
-            Button("Try Again", systemImage: "arrow.clockwise") { Task { await reload() } }
-                .accessibilityIdentifier("taskComposer.agents.retry")
+            // No button: the list is read again on its own (`autoRetry`). With no Mac
+            // there is nothing to read again (the message says to pick one).
+            if mac != nil {
+                Button(AutoRetryQuietLine.defaultText) {}
+                    .disabled(true)
+                    .accessibilityIdentifier("autoRetry.quietLine")
+            }
         case .loaded(let catalog):
             if catalog.harnesses.isEmpty {
                 Button {} label: {
@@ -417,8 +483,15 @@ struct TaskComposerScreen: View {
         .accessibilityIdentifier("taskComposer.agent.\(harness.id)")
     }
 
+    /// What the pill and its menu show: a failure the screen is still retrying reads as
+    /// loading until the quiet bound (a Mac with no phone to ask fails at once).
+    private var shownPhase: TaskComposerPhase {
+        if phase.isFailed, mac != nil, !autoRetry.isQuietLineShown { return .loading }
+        return phase
+    }
+
     private var agentsPillIsError: Bool {
-        switch phase {
+        switch shownPhase {
         case .failed: true
         case .loaded(let catalog): shownAgents(catalog).isEmpty
         case .loading: false
@@ -426,7 +499,7 @@ struct TaskComposerScreen: View {
     }
 
     private var agentsValue: String {
-        switch phase {
+        switch shownPhase {
         case .loading: "Loading"
         case .failed(let message): message
         case .loaded(let catalog):
@@ -489,7 +562,7 @@ struct TaskComposerScreen: View {
 
     /// Start: where it opens is the subtitle's (chosen in Task Options).
     private var startButton: some View {
-        let count = max(1, draft.picks.count)
+        let count = onCloud ? 1 : max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
         let tinted = enabled
         // The send arrow (where it opens is the subtitle's, chosen in Task Options).
@@ -519,7 +592,7 @@ struct TaskComposerScreen: View {
         .buttonStyle(.cmuxPressGlass)
         .disabled(!enabled)
         .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
-        .accessibilityValue("in \(draft.launch.title)")
+        .accessibilityValue(onCloud ? "on \(cloud?.name ?? "Cloud")" : "in \(draft.launch.title)")
         .accessibilityHint(blocker?.message ?? (count > 1 ? "Starts the task on \(count) agents, one workspace each" : ""))
         .accessibilityIdentifier("taskComposer.start")
     }
@@ -546,7 +619,19 @@ struct TaskComposerScreen: View {
     }
 
     private func start() {
-        guard blocker == nil, sent == nil, loadingPhotos == 0, loadingFiles == 0, let catalog else { return }
+        guard blocker == nil, sent == nil, loadingPhotos == 0, loadingFiles == 0 else { return }
+        if onCloud {
+            sent = draft
+            guard creator.startCloudTask(draft) else {
+                sent = nil
+                theme.haptics.warning()
+                return
+            }
+            theme.haptics.impactLight()
+            close()
+            return
+        }
+        guard let catalog else { return }
         var task = draft
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
             task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
@@ -572,12 +657,20 @@ struct TaskComposerScreen: View {
         started(made)
     }
 
-    private func reload() async {
+    /// Reads the Mac's agents. A retry (`autoRetry`) keeps the failure until it answers, so
+    /// the pill does not blink.
+    private func reload(retrying: Bool = false) async {
         guard let mac else {
             phase = .failed(TaskStartBlocker.noMac.message)
             return
         }
-        phase = .loading
+        let cache = AgentCatalogCache.shared
+        let cached = cache.load(macID: mac.id)
+        if let cached {
+            phase = .loaded(cached)
+        } else if !retrying {
+            phase = .loading
+        }
         do {
             let catalog = try await creator.agentCatalog(on: mac.id)
             // A Mac switched meanwhile: its own load answers.
@@ -585,8 +678,13 @@ struct TaskComposerScreen: View {
             // Picks the Mac no longer offers (or a phone can't start) are dropped.
             creator.taskDraft.picks = creator.taskDraft.picks.filter { catalog.harness($0.harness)?.canStart == true }
             phase = .loaded(catalog)
+            cache.save(catalog, for: mac.id)
         } catch {
             guard !Task.isCancelled else { return }
+            if let cached {
+                phase = .loaded(cached)
+                return
+            }
             phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
     }
@@ -647,6 +745,11 @@ enum TaskComposerPhase: Equatable {
     case loading
     case loaded(AgentCatalog)
     case failed(String)
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 
     /// The agent a task with no pick starts: the Mac's own pick (its last New Agent Chat),
     /// else its default. Start sends it by name, so the phone starts what it shows.
@@ -720,7 +823,7 @@ struct TaskFileChip: View {
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.65))
+                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color, CmuxMobileTheme.standard.colors.surfaceRaised.color)
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
@@ -814,7 +917,10 @@ struct TaskComposerSettingsMenus: View {
         if !efforts.isEmpty {
             picker("Effort", id: "effort", current: pick.effort, choices: efforts) { value in update { $0.effort = value } }
         }
-        if harness.modes.count > 1 {
+        // The mode the chat starts in is named before the first send, also when it is the only
+        // one a phone may start (Leo, 2026-11-22: "dont make it show mode if auto is the default").
+        // `pick` is `settled`, which Start sends too: the pill names what the chat runs.
+        if !harness.modes.isEmpty {
             picker("Mode", id: "mode", current: pick.mode, choices: harness.modes) { value in update { $0.mode = value } }
         }
         // A terminal launch passes the model, effort and mode on the CLI's command line, not the
@@ -949,7 +1055,7 @@ struct TaskImageThumb: View {
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.65))
+                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color, CmuxMobileTheme.standard.colors.surfaceRaised.color)
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)

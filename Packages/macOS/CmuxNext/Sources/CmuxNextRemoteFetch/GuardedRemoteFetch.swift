@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
@@ -105,6 +106,8 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
             guard !Task.isCancelled else { return .failure(.failed) }
             guard Self.allows(url), let host = Self.host(of: url) else { return .failure(.refused) }
             if let hosts, !Self.isListed(url, in: hosts) { return .failure(.refused) }
+            // The egress gate judges the name, before DNS: the connection only sees the checked address.
+            guard (try? CmuxEgress.check(host, site: "CmuxNextRemoteFetch.GuardedRemoteFetch")) != nil else { return .failure(.refused) }
             let addresses: [RemoteAddress]
             if let literal = RemoteAddress(literal: host) {
                 addresses = [literal]

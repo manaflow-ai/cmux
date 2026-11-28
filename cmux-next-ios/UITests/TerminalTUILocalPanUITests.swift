@@ -71,7 +71,9 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                "-CmuxMobileTerminalDemoPhases", "tuipan-\(variant)"]
+                                "-CmuxMobileTerminalDemoPhases", "tuipan-\(variant)",
+                                // The DEBUG paint-latency overlay rides along: its number is read below.
+                                "-cmuxMobile.dev.paintLatencyOverlay", "YES"]
         app.launch()
         defer { app.terminate() }
 
@@ -104,9 +106,12 @@ final class TerminalTUILocalPanUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
             demo = probe.label
         }
+        // The overlay (Δ newest, p50, p95, ± clock error; then each hop's p95), as the person reads it.
+        let overlay = app.staticTexts["terminal.paintLatencyOverlay"]
+        let overlayText = overlay.exists ? overlay.label : "missing"
         // The readout as a text attachment: a UI test's print never reaches
         // the step's exported logs, its attachments do.
-        let numbers = XCTAttachment(string: "tui-local-pan \(demo) drags=\(drags)\n")
+        let numbers = XCTAttachment(string: "tui-local-pan \(demo) drags=\(drags) overlay=[\(overlayText)]\n")
         numbers.name = "tui-local-pan-\(variant)"
         numbers.lifetime = .keepAlways
         add(numbers)
@@ -119,6 +124,8 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         let values = Self.values(demo)
         XCTAssertTrue(demo.contains(primary ? "isTUI=false" : "isTUI=true"), "the mock is on the screen it emulates: \(demo)")
         XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
+        XCTAssertTrue(overlayText.hasPrefix("Δ") && !overlayText.contains("p95  –"),
+                      "the paint-latency overlay shows a number: \(overlayText)")
         if primary {
             XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan over the primary screen sent the Mac nothing: \(demo)")
             XCTAssertEqual(values["appScrolls"] ?? -1, 0, "nothing scrolled the app: \(demo)")

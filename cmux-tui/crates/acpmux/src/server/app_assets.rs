@@ -42,6 +42,14 @@ pub(super) async fn serve(path: &str) -> Response {
     }
     let exe = std::env::current_exe().unwrap_or_default();
     let configured = std::env::var_os("ACPMUX_APP_ASSETS_DIR").map(PathBuf::from);
+    // A signed patch bundle's file wins over the shipped copy (RFD 0224 phase 5); a missing
+    // or partial patch root falls back file by file, so it never fails a page.
+    if configured.is_none()
+        && let Some(patched) = patch_web_root(&crate::config::default_home())
+        && let Some(response) = patched_file(&patched, relative, kind).await
+    {
+        return response;
+    }
     if configured.is_none() && !SHIPPED.is_empty() {
         return shipped(relative, kind);
     }
@@ -55,6 +63,27 @@ pub(super) async fn serve(path: &str) -> Response {
         b"NEXT pane assets are not installed with this daemon".to_vec(),
         "text/plain",
     )
+}
+
+/// Where `host self-update` writes a patch bundle's `web/` files for this host's release
+/// target (`host_self_update_bundle.rs`: `<home>/patches/<target>/files`). Bundles ship to
+/// the Linux hosts self-update keeps; anywhere else there is none.
+fn patch_web_root(home: &Path) -> Option<PathBuf> {
+    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
+        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+        _ => return None,
+    };
+    Some(home.join("patches").join(target).join("files").join("web"))
+}
+
+/// The patched copy of `relative`, when the patch root has that file; None falls back.
+async fn patched_file(root: &Path, relative: &str, kind: &'static str) -> Option<Response> {
+    if !tokio::fs::metadata(root.join(relative)).await.is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let response = read(root, relative, kind).await;
+    (response.0 == "200 OK").then_some(response)
 }
 
 fn shipped(relative: &str, kind: &'static str) -> Response {
@@ -93,81 +122,5 @@ async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn app_assets_paths_are_only_production_outputs() {
-        for path in [
-            "/app/",
-            "/app/index.html",
-            "/app/pane.js",
-            "/app/pane.css",
-            "/app/pane-copy.css",
-            "/app/chunks/chunk-AB12.js",
-            "/app/locales/zh-Hant.js",
-            "/app/highlight-worker.js",
-            "/app/image-worker.js",
-            "/app/chat-snapshot.js",
-            "/app/__snapshot/chat.js",
-        ] {
-            assert!(asset(path).is_some(), "{path}");
-        }
-        for path in [
-            "/app",
-            "/app/../config.json",
-            "/app/%2e%2e/config.json",
-            "/app/chunks/../../secret.js",
-            "/app/chunks/%2e%2e.js",
-            "/app/chunks/..\\secret.js",
-            "/app/chunks/.hidden.js",
-            "/app/pane.js.map",
-            "/app/config.json",
-            "/app/locales/",
-            "/app//pane.js",
-            "/app/chunks/a/b.js",
-        ] {
-            assert!(asset(path).is_none(), "{path}");
-        }
-    }
-
-    #[tokio::test]
-    async fn app_assets_preserve_bytes_and_only_change_browser_csp() {
-        let dir = tempfile::tempdir().unwrap();
-        let original = b"<meta content=\"script-src 'self'; connect-src 'none'\">";
-        tokio::fs::write(dir.path().join("index.html"), original).await.unwrap();
-        let (status, body, kind) = read(dir.path(), "index.html", "text/html").await;
-        assert_eq!(status, "200 OK");
-        assert_eq!(kind, "text/html");
-        assert_eq!(body, b"<meta content=\"script-src 'self'; connect-src 'self'\">");
-        assert_eq!(tokio::fs::read(dir.path().join("index.html")).await.unwrap(), original);
-        let bytes = [0, 255, 128, 42];
-        tokio::fs::write(dir.path().join("pane.js"), bytes).await.unwrap();
-        assert_eq!(read(dir.path(), "pane.js", "text/javascript").await.1, bytes);
-        assert_eq!(read(dir.path(), "missing.js", "text/javascript").await.0, "404 Not Found");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn app_assets_symlinks_cannot_escape_the_resource_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let secret = outside.path().join("secret.js");
-        tokio::fs::write(&secret, "private").await.unwrap();
-        std::os::unix::fs::symlink(secret, dir.path().join("pane.js")).unwrap();
-        assert_eq!(read(dir.path(), "pane.js", "text/javascript").await.0, "404 Not Found");
-    }
-
-    #[test]
-    fn app_assets_use_only_explicit_or_adjacent_resources() {
-        let exe = Path::new("/Applications/cmux.app/Contents/Resources/bin/acpmux");
-        let candidates = roots(exe, None);
-        assert!(candidates.contains(&PathBuf::from(
-            "/Applications/cmux.app/Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane"
-        )));
-        assert_eq!(
-            roots(exe, Some("/packaged/pane".into())),
-            vec![PathBuf::from("/packaged/pane")]
-        );
-    }
-}
+#[path = "app_assets_tests.rs"]
+mod tests;

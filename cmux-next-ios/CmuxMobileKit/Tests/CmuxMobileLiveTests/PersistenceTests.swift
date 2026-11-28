@@ -188,13 +188,17 @@ import Testing
 
     @Test func theMacIsAskedToForgetThisPhoneWithASignedUnpair() async throws {
         let keys = PhoneKeys(userID: "user-a", service: "test.unpair", store: MemorySecretStore(), enclave: false)
-        let pairing = LinkPairing(keys: keys, phoneID: "phone-1", name: "iPhone", pins: MacPins(file: nil))
+        var pairing = LinkPairing(keys: keys, phoneID: "phone-1", name: "iPhone", pins: MacPins(file: nil))
+        // The test host has its own bundle id and build: pin them, so the Mac's log sees which app asked (#63408).
+        pairing.bundleID = "dev.cmux.test"
+        pairing.appBuild = "42"
         let channel = AuthChannel(.object(["challenge": .string("nonce-1"), "mac": .string("mac-1")]))
         let link = RecordingLink(channel)
         await pairing.unpair(link: link, macID: "mac-1")
         let (identity, approval) = try keys.publicKeys()
         #expect(link.opened.map(\.0) == ["auth"])
-        #expect(link.opened.first?.1 == ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair"])
+        #expect(link.opened.first?.1 == ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
+                                         "bundleId": "dev.cmux.test", "appBuild": "42"])
         let sent = try #require(channel.sent.first)
         let reply = try JSONDecoder().decode(JSONValue.self, from: sent)
         let signatureHex = try #require(reply["signature"]?.stringValue)
@@ -228,11 +232,13 @@ import Testing
             let suite = "cmux-mobile-signout-\(UUID().uuidString)"
             defaults = UserDefaults(suiteName: suite)!
             snapshots = LiveSnapshotStore(directory: directory.appending(path: "snapshots"))
+            lists = LastKnownListStore(directory: directory.appending(path: "lists"))
         }
 
         func archive(_ user: String) -> FeedArchive { FeedArchive(url: directory.appending(path: "feed-\(user).json")) }
         func marks(_ user: String) -> FeedReadMarks { FeedReadMarks(url: directory.appending(path: "read-\(user).json")) }
         let snapshots: LiveSnapshotStore
+        let lists: LastKnownListStore
     }
 
     static func item(_ id: String) -> FeedItem {
@@ -242,7 +248,8 @@ import Testing
 
     func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {},
                  keptChats: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
-        AccountSignOut(snapshots: f.snapshots, feedStore: f.feed, feedArchive: f.archive, readMarks: f.marks,
+        AccountSignOut(lastKnownLists: f.lists, snapshots: f.snapshots, feedStore: f.feed,
+                       removeFeedArchives: { f.archive($0).remove() }, readMarks: f.marks,
                        preferences: AccountPreferences(defaults: f.defaults), discardChiefTranscripts: chief,
                        discardKeptChats: keptChats)
     }
@@ -277,6 +284,8 @@ import Testing
     @Test func signOutDropsTheAccountsFeedSnapshotsAndUnsentChief() throws {
         let f = Fixture()
         let item = Self.item("e1")
+        let directory = f.lists.list(accountID: "user-a", teamID: "t", screen: "members")
+        directory.save(["member"])
         f.feed.replaceAll([item])
         f.archive("user-a").save([item])
         f.snapshots.save(LiveSnapshot(teamID: "t", teamName: "T", macs: [], linkedMacID: nil, workspaces: [:]), accountID: "user-a")
@@ -284,6 +293,8 @@ import Testing
         let discards = Tally()
         signOut(f) { discards.count += 1 }.signedOut(userID: "user-a", session: Session())
         f.snapshots.flush()
+        directory.save(["late reply"])
+        #expect(f.lists.list(accountID: "user-a", teamID: "t", screen: "members").read([String].self) == nil)
         #expect(f.feed.items.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: f.archive("user-a").url.path))
         #expect(f.snapshots.load(accountID: "user-a") == nil)

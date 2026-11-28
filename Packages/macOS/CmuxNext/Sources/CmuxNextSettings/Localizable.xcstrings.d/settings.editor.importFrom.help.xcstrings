@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.editor.importFrom.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux reads that editor's settings and keybindings, never changing them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux はそのエディタの設定とキー割り当てを読み込みますが、変更はしません。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يقرأ cmux إعدادات ذلك المحرر واختصارات مفاتيحه دون أن يغيّرها أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux čita postavke i prečice tog uređivača i nikad ih ne mijenja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux læser editorens indstillinger og tastaturgenveje og ændrer dem aldrig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux liest die Einstellungen und Tastenkürzel dieses Editors und ändert sie nie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lee los ajustes y atajos de ese editor sin cambiarlos nunca."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lit les réglages et raccourcis de cet éditeur, sans jamais les modifier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux legge impostazioni e scorciatoie di quell'editor senza mai modificarle."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux អានការកំណត់ និងផ្លូវកាត់របស់កម្មវិធីកែនោះ ហើយមិនដែលប្ដូរវាឡើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux는 해당 편집기의 설정과 키 바인딩을 읽기만 하고 바꾸지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux leser innstillingene og hurtigtastene til redigeringsprogrammet og endrer dem aldri."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux czyta ustawienia i skróty tego edytora, nigdy ich nie zmieniając."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux lê os ajustes e atalhos desse editor, sem nunca alterá-los."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux читает настройки и сочетания клавиш этого редактора и никогда их не меняет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux อ่านการตั้งค่าและปุ่มลัดของตัวแก้ไขนั้นโดยไม่เปลี่ยนแปลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux o düzenleyicinin ayarlarını ve kısayollarını okur, asla değiştirmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux читає налаштування й сполучення клавіш цього редактора й ніколи їх не змінює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux đọc cài đặt và phím tắt của trình soạn thảo đó mà không bao giờ thay đổi chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 读取该编辑器的设置和键绑定，从不修改它们。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 讀取該編輯器的設定與按鍵綁定，從不修改它們。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

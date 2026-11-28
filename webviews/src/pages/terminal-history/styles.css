@@ -1,0 +1,249 @@
+.terminal-history-page {
+  user-select: text;
+  height: 100dvh;
+  min-height: 0;
+  color: var(--page-text);
+  background: transparent;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.terminal-history-page > div:first-child {
+  min-width: 0;
+}
+
+.terminal-history-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-4);
+  justify-content: space-between;
+  min-width: 0;
+  padding: var(--ds-space-4) var(--page-edge);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.terminal-history-header h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--page-text);
+  font-size: var(--text-title); line-height: var(--text-title--line-height); letter-spacing: var(--text-title--letter-spacing); font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-history-search {
+  position: relative;
+  flex: 0 1 340px;
+  min-width: 180px;
+  display: grid;
+  color: var(--page-text-2);
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.terminal-history-search input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-sm);
+  padding: var(--ds-space-2) calc(var(--ds-space-4) + var(--ds-space-3)) var(--ds-space-2) var(--ds-space-2);
+  color: var(--page-text);
+  background: transparent;
+  font: inherit;
+  user-select: text;
+}
+
+.terminal-history-search input:focus-visible {
+  border-color: var(--page-text-3);
+  outline: none;
+}
+
+.terminal-history-search .terminal-history-search-key {
+  position: absolute;
+  right: var(--ds-space-2);
+  top: var(--ds-space-2);
+}
+
+.terminal-history-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--ds-space-4) var(--page-edge) var(--ds-space-6);
+  overscroll-behavior: contain;
+}
+
+.terminal-history-turn {
+  width: min(100%, 760px);
+  min-width: 0;
+  margin: 0 auto var(--ds-space-6);
+  scroll-margin-top: var(--ds-space-4);
+  /* A long transcript draws only the turns near the viewport: an offscreen turn skips its style,
+     layout and paint and holds its last drawn height (240px until it has one), so the scroll height
+     and the older-turns anchor stay put (https://web.dev/articles/content-visibility). Measured by
+     bench/terminal-history-offscreen.bench.ts. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
+/* The highlight's outline and a focus ring draw outside the turn's box, which paint containment
+   would clip; the turn they are on is drawn whole, as before. */
+.terminal-history-turn.is-highlighted,
+.terminal-history-turn:focus-within {
+  content-visibility: visible;
+}
+
+.terminal-history-message {
+  padding: var(--ds-space-2) 0;
+  color: var(--page-text);
+}
+
+.terminal-history-message h2 {
+  margin: 0 0 var(--ds-space-1);
+  color: var(--page-text-2);
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); font-weight: 600;
+}
+
+.terminal-history-message p {
+  margin: 0;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-body); line-height: var(--text-body--line-height); letter-spacing: var(--text-body--letter-spacing);
+  user-select: text;
+}
+
+.terminal-history-message-assistant {
+  margin-top: var(--ds-space-2);
+  border-top: 1px solid var(--page-separator);
+}
+
+.terminal-history-tools {
+  margin: var(--ds-space-2) 0;
+  color: var(--page-text-2);
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.terminal-history-tools summary {
+  padding: var(--ds-space-1) 0;
+}
+
+.terminal-history-tools ul {
+  margin: 0;
+  padding: 0 0 var(--ds-space-1) var(--ds-space-5);
+  color: var(--page-text-3);
+}
+
+.terminal-history-tools li {
+  padding: var(--grid-half-step) 0;
+}
+
+.terminal-history-tools pre {
+  max-width: 100%;
+  max-height: 420px;
+  overflow: auto;
+  margin: var(--ds-space-2) 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--page-separator);
+  color: var(--page-text);
+  background: var(--page-elevated);
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.terminal-history-turn.is-highlighted .terminal-history-message {
+  outline: 2px solid var(--cmux-accent, var(--page-text));
+  outline-offset: 3px;
+}
+
+.terminal-history-status,
+.terminal-history-error {
+  width: min(100%, 760px);
+  margin: var(--ds-space-5) auto;
+  color: var(--page-text-2);
+  font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.terminal-history-error {
+  color: var(--cmux-critical, var(--page-text));
+}
+
+.terminal-history-older {
+  display: block;
+  margin: var(--ds-space-2) auto;
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-control);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  color: var(--page-text);
+  background: transparent;
+}
+
+.terminal-history-older:disabled {
+  color: var(--page-text-3);
+  cursor: default;
+}
+
+.terminal-history-results {
+  width: min(100%, 760px);
+  max-height: min(30vh, 220px);
+  overflow: auto;
+  margin: var(--ds-space-2) auto;
+  display: grid;
+  gap: var(--ds-space-1);
+  padding: 0 var(--page-edge);
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.terminal-history-results span {
+  color: var(--page-text-2);
+}
+
+.terminal-history-results button {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  color: var(--page-text);
+  background: transparent;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-history-results button:hover,
+.terminal-history-results button:focus-visible {
+  background: var(--page-hover);
+  outline: none;
+}
+
+.terminal-history-more {
+  margin-top: var(--ds-space-2);
+  border: 0;
+  padding: 0;
+  color: var(--cmux-accent, var(--page-text));
+  background: none;
+  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing);
+}
+
+@media (max-width: 650px) {
+  .terminal-history-header {
+    display: grid;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-3) var(--page-edge);
+  }
+
+  .terminal-history-search {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .terminal-history-results {
+    width: 100%;
+    padding-inline: var(--page-edge);
+  }
+
+  .terminal-history-scroll {
+    padding-inline: var(--page-edge);
+  }
+}

@@ -75,6 +75,9 @@ pub struct TicketCache {
     inner: Arc<dyn Tickets>,
     slots: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Slot>>>>,
     stats: Mutex<TicketCacheStats>,
+    /// `(key, join name, hostname)` of each machine the last pre-mint named
+    /// ([`CarrierAnswer::peer_name`]): how [`Self::named`] reaches a machine by name.
+    names: Mutex<Vec<(String, String, String)>>,
 }
 
 /// The owner of the cache's background work: renewals and the pre-mint loop.
@@ -89,7 +92,12 @@ fn now_unix() -> u64 {
 
 impl TicketCache {
     pub fn new(inner: Arc<dyn Tickets>) -> Arc<Self> {
-        Arc::new(Self { inner, slots: Mutex::default(), stats: Mutex::default() })
+        Arc::new(Self {
+            inner,
+            slots: Mutex::default(),
+            stats: Mutex::default(),
+            names: Mutex::default(),
+        })
     }
 
     pub fn stats(&self) -> TicketCacheStats {
@@ -183,6 +191,31 @@ impl TicketCache {
         self.slots.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
+    /// Replace the names the platform gave its pre-minted Connect tickets (`answers`, a whole
+    /// pre-mint): a machine no longer lent loses its name here at the next one.
+    pub fn name_peers(&self, answers: &[CarrierAnswer]) {
+        let names = answers
+            .iter()
+            .filter_map(|a| {
+                let key = a.peer_key.clone()?;
+                let name = a.peer_name.clone().unwrap_or_default();
+                let host = a.peer_host.clone().unwrap_or_default();
+                (!name.is_empty() || !host.is_empty()).then_some((key, name, host))
+            })
+            .take(MAX_KEPT)
+            .collect();
+        *self.names.lock().unwrap_or_else(|e| e.into_inner()) = names;
+    }
+
+    /// The key of the one machine the platform named `name`: its join name, else its hostname,
+    /// else its hostname's first label (`gcp-lane-2` for `gcp-lane-2.zone.internal`), each
+    /// matched exactly first and then without case. None when no machine or two different
+    /// ones have it: the caller then names the key.
+    pub fn named(&self, name: &str) -> Option<String> {
+        let names = self.names.lock().unwrap_or_else(|e| e.into_inner());
+        one_named(&names, name)
+    }
+
     /// Ask the platform for every peer's Connect ticket now and again at 2/3 of their life,
     /// until `alive` is gone. A platform that pre-mints none (an older one) is asked again only
     /// after [`PREMINT_UNSUPPORTED_WAIT`].
@@ -199,6 +232,7 @@ impl TicketCache {
                         .min()
                         .map(Duration::from_secs)
                         .unwrap_or(PREMINT_RETRY);
+                    self.name_peers(&answers);
                     self.seed(answers).await;
                     (life * 2 / 3).max(PREMINT_MIN_WAIT)
                 }
@@ -208,6 +242,33 @@ impl TicketCache {
             tokio::time::sleep(wait).await;
         }
     }
+}
+
+/// [`TicketCache::named`] over `names` (`(key, join name, hostname)`).
+pub(crate) fn one_named(names: &[(String, String, String)], name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let label = |host: &str| host.split('.').next().unwrap_or_default().to_owned();
+    let fields: [&dyn Fn(&(String, String, String)) -> String; 3] =
+        [&|row| row.1.clone(), &|row| row.2.clone(), &|row| label(&row.2)];
+    for field in fields {
+        for exact in [true, false] {
+            let mut keys = names
+                .iter()
+                .filter(|row| {
+                    let value = field(row);
+                    !value.is_empty()
+                        && if exact { value == name } else { value.eq_ignore_ascii_case(name) }
+                })
+                .map(|row| &row.0);
+            if let Some(first) = keys.next() {
+                return keys.all(|key| key == first).then(|| first.clone());
+            }
+        }
+    }
+    None
 }
 
 /// The shortest wait between two pre-mint asks, whatever the tickets' life.

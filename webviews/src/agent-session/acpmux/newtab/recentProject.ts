@@ -7,7 +7,7 @@
 // reads them before it paints. A blocked store, or a run that has heard no list yet, leaves the
 // page to wait for its own list (NewTabScreen holds the chip's place, never a wrong label).
 import type { AcpmuxSnapshot } from "../model";
-import { firstProject, recentLocalFolders } from "../sessionList";
+import { FolderRecency, firstProject, localFolder, recentLocalFolders } from "../sessionList";
 
 const KEY = "cmux.acpmux.newTab.recentFolders.v1";
 /// Enough newest folders that the home folder or a removed project never leaves none.
@@ -24,13 +24,16 @@ function storage(): Storage | undefined {
 let lastWritten: string | undefined;
 /// The last list read: a streaming turn emits a snapshot per row with the same `sessions` array.
 let lastSessions: AcpmuxSnapshot["sessions"] | undefined;
+/// This Mac's folders kept as the list changes: a chat's change moves its folder, not a sort of every chat's
+/// (RFD 0199 section 7; `recentLocalFolders` read the whole list on each change of a chat here).
+let recency = new FolderRecency(localFolder);
 
 /// Keeps the newest chat folders of `snapshot`, a list this Mac's daemon sent (`origin` local).
 /// An empty list keeps the last one: a connection lists nothing before its first answer.
 export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">): void {
   if (snapshot.origin !== "local" || snapshot.sessions === lastSessions) return;
   lastSessions = snapshot.sessions;
-  const folders = recentLocalFolders(snapshot.sessions, KEPT);
+  const folders = recency.of(snapshot.sessions).slice(0, KEPT);
   if (folders.length === 0) return;
   const text = JSON.stringify(folders);
   if (text === lastWritten) return;
@@ -71,4 +74,5 @@ export function initialRecentProject(
 export function resetRecentProjectForTests(): void {
   lastWritten = undefined;
   lastSessions = undefined;
+  recency = new FolderRecency(localFolder);
 }

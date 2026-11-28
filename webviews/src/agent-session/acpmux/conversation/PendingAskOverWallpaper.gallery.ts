@@ -47,7 +47,7 @@ const OVER_PICTURE = { dark: "busy", light: "light" } as const;
 const scrolled =
   (scrolledUp: number): Play =>
   async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask__head"));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask .acpmux-next-step__bar"));
     const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
     if (scroller && scrolledUp > 0)
       await ctx.scroll(
@@ -60,8 +60,8 @@ const scrolled =
 /// them stay in sight, none blanked where the line sat.
 const dismissed: Play = async (ctx) => {
   await scrolled(120)(ctx);
-  await ctx.click({ selector: ".acpmux-pending-ask__dismiss" });
-  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-pending-ask__head"));
+  await ctx.click({ selector: ".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss" });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-pending-ask .acpmux-next-step__bar"));
 };
 
 export default agentPaneEntry({

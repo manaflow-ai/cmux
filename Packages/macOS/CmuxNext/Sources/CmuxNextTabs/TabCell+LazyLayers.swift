@@ -56,17 +56,21 @@ extension TabCell {
 
     func applyCloseColors() {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
+        if metrics.closeColors.isSet { return TabCloseThemeColors(cell: self).apply() } // the theme's close colors (`appearance.tabClose.*`)
         themeScope.perform {
-            // Helium (Chromium's tab_close_button.cc): the x is the title's color, hovered or not; the hover fill is the
-            // tab's most-contrasting ink at 16 % (pressed 14 %), shown at once.
+            // Helium (Chromium's tab_close_button.cc): the x is the title's color, hovered or not; the hover fill is the tab's most-contrasting ink, black or white, at 16 % (pressed 14 %), shown at once.
             closeGlyphLayer.strokeColor = (isSelected ? Palette.textPrimary : Palette.textSecondary).cgColor
             // The `disc` treatment draws the fill while the x stands in for the status, so it reads as a button there.
             let disc = metrics.hoverCloseSwap == .disc && visibility.closeReplacesStatus
             let percent = BrowserChromeTuning.value(.closeHoverOpacity) - (isClosePressed ? 2 : 0)
             closeBackgroundLayer.backgroundColor = isCloseHovered || disc || isClosePressed
-                ? Palette.textPrimary.withAlphaComponent(max(0, percent) / 100).cgColor : nil
+                ? Self.closeHoverInk(dark: themeScope.tokens.isDark).withAlphaComponent(max(0, percent) / 100).cgColor : nil
         }
     }
+
+    /// The x's hover and pressed ink: the color with the most contrast on the tab, white on a dark theme and black on a
+    /// light one (Chromium's `color_utils::GetColorWithMaxContrast`, which tab_close_button.cc's highlight takes).
+    static func closeHoverInk(dark: Bool) -> NSColor { dark ? .white : .black }
 
     func removeCloseLayers() {
         closeBackgroundLayer?.removeFromSuperlayer()

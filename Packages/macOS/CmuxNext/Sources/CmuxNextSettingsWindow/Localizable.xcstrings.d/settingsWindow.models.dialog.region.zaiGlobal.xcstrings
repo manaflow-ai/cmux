@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.region.zaiGlobal" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "دولي (z.ai)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Međunarodno (z.ai)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Internationalt (z.ai)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "International (z.ai)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "International (z.ai)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Internacional (z.ai)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "International (z.ai)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Internazionale (z.ai)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "国際 (z.ai)"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អន្តរជាតិ (z.ai)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "국제 (z.ai)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Internasjonalt (z.ai)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Międzynarodowy (z.ai)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Internacional (z.ai)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Международный (z.ai)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ระหว่างประเทศ (z.ai)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uluslararası (z.ai)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Міжнародний (z.ai)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quốc tế (z.ai)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "国际 (z.ai)"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "國際 (z.ai)"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

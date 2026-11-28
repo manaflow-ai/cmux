@@ -19,6 +19,7 @@
 //! [`MAX_SHOT_BYTES`]: at most 12 pictures (48 MiB) per chat. A deleted chat's go with it.
 
 use super::Session;
+use super::turn_frames::shape;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -84,7 +85,7 @@ fn root() -> PathBuf {
 }
 
 /// A session or turn id as one path segment: ids are letters, digits, `-` and `_`.
-fn segment(id: &str) -> Option<&str> {
+pub(super) fn segment(id: &str) -> Option<&str> {
     let safe = !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
@@ -190,30 +191,82 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures", false)
+        .map(|page| page.id)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct CapturedPage {
+    pub id: String,
+    pub url: Option<String>,
+}
+
+/// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
+/// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
+/// after. The captured tab's id and URL, or none with no file left. The same cell reads the page's
+/// outline (`turn_frames_shape.rs`), handed over by `turn_frames_shape::take(out)`.
+pub(super) fn capture_page(
+    base: &Path,
+    workspace: &str,
+    out: &Path,
+    repl: &str,
+    label: &str,
+) -> Option<CapturedPage> {
+    capture_in(&host_socket(), base, workspace, None, out, repl, label, true)
+}
+
+/// With `shaped`, the cell reads the page's outline too ([`shape::cell`]) and stashes it for `out`.
+#[allow(clippy::too_many_arguments)]
+fn capture_in(
+    socket: &Path,
+    base: &Path,
+    workspace: &str,
+    tab: Option<&str>,
+    out: &Path,
+    repl: &str,
+    label: &str,
+    shaped: bool,
+) -> Option<CapturedPage> {
+    if shaped {
+        shape::stash(out, None);
+    }
     if !socket.exists() {
         return None;
     }
+    let mut code = capture_code(workspace, out, tab);
+    if shaped {
+        code.push_str(&shape::cell());
+    }
     let params = json!({
-        "session": REPL_SESSION,
+        "session": repl,
         "engine": "cef",
-        "label": "Turn pictures",
+        "label": label,
         "cwd": base.display().to_string(),
-        "code": capture_code(workspace, out, tab),
+        "code": code,
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
     });
+    let mut outline = None;
     let taken = host_call(socket, "browser.repl.eval", params)
         .filter(|result| result.get("error").is_none_or(Value::is_null))
         .and_then(|result| {
             let text = result.get("output")?.as_str()?;
             let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
             let shown: Value = serde_json::from_str(marker).ok()?;
-            Some(shown.get("id")?.as_str()?.to_owned())
+            if shaped {
+                outline = shape::parse(text);
+            }
+            Some(CapturedPage {
+                id: shown.get("id")?.as_str()?.to_owned(),
+                url: shown.get("url").and_then(Value::as_str).map(str::to_owned),
+            })
         });
     let kept = taken.filter(|_| {
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
     });
     if kept.is_none() {
         let _ = crate::home_fs::remove_file(out);
+    } else if shaped {
+        shape::stash(out, outline);
     }
     kept
 }
@@ -242,7 +295,7 @@ pub(crate) fn settle(base: &Path, session_dir: &Path, turn_dir: &Path) {
 }
 
 /// Removes all but the `keep` newest folders of `dir` (by modification time).
-fn prune(dir: &Path, keep: usize) {
+pub(super) fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut folders: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()

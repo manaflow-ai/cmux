@@ -36,7 +36,7 @@ fn served(pooled: PoolKey, asked: &PoolKey) -> bool {
     assert!(pool.complete(&pooled, generation, "warm", now).is_none());
     match pool.take(asked) {
         Take::Ready(_) => true,
-        Take::Discard(Some("warm")) => false,
+        Take::Discard(Some("warm"), _) => false,
         _ => panic!("the warm agent was neither served nor discarded"),
     }
 }
@@ -59,7 +59,7 @@ fn an_agent_pooled_under_the_old_switch_is_discarded_not_served() {
     let generation = pool.want(Role::Spare, on.clone(), now).start.expect("a start");
     assert!(pool.complete(&on, generation, "warm-on", now).is_none());
     match pool.take(&key(Some(false))) {
-        Take::Discard(Some("warm-on")) => {}
+        Take::Discard(Some("warm-on"), _) => {}
         Take::Ready(p) => panic!("served {p} under the old switch"),
         _ => panic!("the warm agent was neither served nor discarded"),
     }
@@ -86,8 +86,10 @@ fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
             secrets: false,
             offers: false,
             subsessions: false,
+            forum: false,
             displays: None,
             hosted: false,
+            hosted_cloud: false,
             github: false,
             desktop_lease: None,
         })
@@ -138,8 +140,10 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
             secrets: false,
             offers: false,
             subsessions: false,
+            forum: false,
             displays: None,
             hosted: false,
+            hosted_cloud: false,
             github: false,
             desktop_lease: None,
         })

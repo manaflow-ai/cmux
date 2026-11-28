@@ -1,0 +1,34 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/lamina-mist-look",
+  "name": "Lamina Mist",
+  "tagline": "Lamina, cooler and more see-through.",
+  "description": "Lamina in cooler, more see-through glass, with roomier rows. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": ["screenshots/lamina-mist-dark.png", "screenshots/lamina-mist-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Lamina Mist (dark) is the default; lamina-mist-light is the light twin.
+    "appearance.themeFile": "lamina-mist",
+
+    // Panes: cards, 6 point padding, the dark layer's one-point line as their stroke.
+    "layout.paneSeparation": "cards",
+    "layout.panePadding": 6,
+    "layout.paneBorderColor": "#33414f",
+
+    // The sidebar: threads grouped by folder, each with its age; no tip cards.
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.cards.tips": false,
+
+    // The chat: a 900 px column, no minimap, the changed files folded under each turn.
+    "agentPane.display.width": 900,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+
+    // The toast: flat, an opaque surface with a thin edge and no shadow, not a glass pill.
+    "notifications.toast.style": "flat"
+  }
+}
