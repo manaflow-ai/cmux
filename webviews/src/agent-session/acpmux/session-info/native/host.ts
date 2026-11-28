@@ -2,7 +2,7 @@
 // the clicks it hands back (`sessionInfoAction`): each runs the action the page's last model named.
 import { useSyncExternalStore } from "react";
 import { NATIVE_ACTION_ID_MAX, type NativeInfoActions, type NativeInfoRect } from "./model";
-import { loadNativeSessionInfo } from "./LazyNativeSessionInfo";
+import { loadNativeSessionInfo } from "./nativeSessionInfoLoader";
 
 let drawn = false;
 const listeners = new Set<() => void>();
