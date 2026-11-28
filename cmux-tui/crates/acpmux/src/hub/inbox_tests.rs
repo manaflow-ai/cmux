@@ -1,6 +1,7 @@
 //! The inbox's pure parts (`inbox.rs`): threads, what it takes, what wakes a chat, the notice.
 
 use super::*;
+use crate::hub::inbox::admit::notice_waited;
 
 #[test]
 fn fyi_flush_is_a_fifteen_minute_austerity_window() {
