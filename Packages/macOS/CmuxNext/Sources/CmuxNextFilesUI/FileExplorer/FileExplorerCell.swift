@@ -49,6 +49,14 @@ package final class FileExplorerCell: NSTableCellView {
     @available(*, unavailable)
     package required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Runs after each layout pass of this cell (the list's work meter counts it).
+    package var onLayout: (@MainActor () -> Void)?
+
+    package override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
     package func show(_ row: FileExplorerRow) {
         indent?.constant = Metrics.space2 + CGFloat(row.depth) * 14
         arrow.image = row.isFolder ? NSImage(systemSymbolName: row.isExpanded ? "chevron.down" : "chevron.right",

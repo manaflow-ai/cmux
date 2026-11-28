@@ -23,5 +23,9 @@ public enum VisibleRowsBaseline {
         "sidebar priority": Known("draws only the rows in view, but each change hands the whole ranked list, which the panel "
             + "compares and reindexes (two cheap passes over every chat; macOS SidebarPriorityPanelView.show; fix: a row patch "
             + "from SidebarPriorityFeed, visible-only-macos-lists)", only: "items walked"),
+        "files tree": Known("configures only changed rows, but each update compares every row: the model rebuilds the whole "
+            + "list (macOS FileExplorerModel.rebuild, TableRows.show; fix: visible-only-macos-file-explorer)", only: "items walked"),
+        "find results": Known("configures only changed rows, but each answer compares every result; capped at 500 "
+            + "(macOS FindSectionView.render, TableRows.show; fix: visible-only-macos-file-explorer)", only: "items walked"),
     ]
 }
