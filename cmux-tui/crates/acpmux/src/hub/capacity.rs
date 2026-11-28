@@ -24,10 +24,22 @@ pub(super) struct Route {
     api_key: Option<String>,
 }
 
+// The pooled-gateway wrapper `Route::from_env` recognizes; read only when `capacity.gate` is on.
+// fleet-only-ok: behind capacity.gate, off by default
+const WRAPPER_PROGRAMS: [&str; 2] = ["sr2", "sr"];
+// fleet-only-ok: behind capacity.gate, off by default
+const WRAPPER_BASE_URL: &str = "SUBROUTER2_BASE_URL";
+// fleet-only-ok: behind capacity.gate, off by default
+const WRAPPER_TOKEN: &str = "SUBROUTER2_PROXY_TOKEN";
+// fleet-only-ok: behind capacity.gate, off by default
+const WRAPPER_DEFAULT_TOKEN: &str = "subrouter2";
+// fleet-only-ok: behind capacity.gate, off by default
+const AGENT_HEADER: &str = "x-subrouter-agent";
+
 impl Route {
     /// The gateway this chat's turns go through, when the capacity gate is on. `capacity.gate`
     /// (config, off by default) holds a gateway's turns while it answers 503 "no non-exhausted
-    /// claude accounts" (a pooled-account gateway such as subrouter), probes it, and releases
+    /// claude accounts" (a pooled-account gateway), probes it, and releases
     /// them paced when it reopens. Off: no route, no gate; those errors take the ordinary retry
     /// path, as before. The fleet turns it on in its own config.
     pub(super) fn of(config: &Config, meta: &SessionMeta) -> Option<Self> {
@@ -62,16 +74,18 @@ impl Route {
     }
 
     fn from_env(argv: &[String], env: &BTreeMap<String, String>) -> Option<Self> {
-        // Fleet profiles can put the coordinator wrapper and its options before sr2.
-        let sr2 = argv.windows(2).any(|pair| {
+        // Fleet profiles can put the coordinator wrapper and its options before the gateway CLI.
+        let wrapper = argv.windows(2).any(|pair| {
             let [program, subcommand] = pair else { return false };
             subcommand == "claude2"
-                && Path::new(program).file_name().is_some_and(|name| name == "sr2" || name == "sr")
+                && Path::new(program).file_name().is_some_and(|name| {
+                    WRAPPER_PROGRAMS.contains(&name.to_str().unwrap_or_default())
+                })
         });
-        let base = if sr2 {
-            env.get("SUBROUTER2_BASE_URL")
+        let base = if wrapper {
+            env.get(WRAPPER_BASE_URL)
                 .cloned()
-                .or_else(|| crate::login_env::var("SUBROUTER2_BASE_URL"))
+                .or_else(|| crate::login_env::var(WRAPPER_BASE_URL))
                 .unwrap_or_else(|| "http://127.0.0.1:31416".to_owned())
         } else {
             env.get("ANTHROPIC_BASE_URL")
@@ -91,23 +105,23 @@ impl Route {
         let path = url.path().trim_end_matches('/');
         let path = path.strip_suffix("/v1").unwrap_or(path);
         url.set_path(&format!("{path}/v1/messages"));
-        let bearer = if sr2 {
+        let bearer = if wrapper {
             Some(
-                env.get("SUBROUTER2_PROXY_TOKEN")
+                env.get(WRAPPER_TOKEN)
                     .cloned()
-                    .or_else(|| crate::login_env::var("SUBROUTER2_PROXY_TOKEN"))
-                    .unwrap_or_else(|| "subrouter2".to_owned()),
+                    .or_else(|| crate::login_env::var(WRAPPER_TOKEN))
+                    .unwrap_or_else(|| WRAPPER_DEFAULT_TOKEN.to_owned()),
             )
         } else {
             env.get("ANTHROPIC_AUTH_TOKEN").cloned()
         };
-        let api_key = if sr2 { None } else { env.get("ANTHROPIC_API_KEY").cloned() };
+        let api_key = if wrapper { None } else { env.get("ANTHROPIC_API_KEY").cloned() };
         Some(Self { url, bearer, api_key })
     }
 
     async fn probe(&self) -> Result<(), u64> {
         let fallback = || now_ms().saturating_add(DEFAULT_RETRY_MS);
-        // The person set this gateway (ANTHROPIC_BASE_URL or SUBROUTER2_BASE_URL): the gate lets it through
+        // The person set this gateway (ANTHROPIC_BASE_URL or the wrapper's base URL): the gate lets it through
         // (docs/privacy.md "hosts you name").
         cmux_egress::allow_named(self.url.as_str());
         let client = cmux_egress::client_builder("acpmux::capacity_probe")
@@ -118,7 +132,7 @@ impl Route {
         let mut request = client
             .post(self.url.clone())
             .header("anthropic-version", "2023-06-01")
-            .header("x-subrouter-agent", "claude")
+            .header(AGENT_HEADER, "claude")
             .json(&json!({
                 "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 1,
@@ -758,15 +772,16 @@ mod capacity_gate_tests {
     #[test]
     fn capacity_route_uses_the_same_gateway_for_direct_and_wrapped_sr2() {
         let env = BTreeMap::from([
-            ("SUBROUTER2_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
-            ("SUBROUTER2_PROXY_TOKEN".to_owned(), "proxy-token".to_owned()),
+            (WRAPPER_BASE_URL.to_owned(), "https://gateway.test".to_owned()),
+            (WRAPPER_TOKEN.to_owned(), "proxy-token".to_owned()),
             ("ANTHROPIC_BASE_URL".to_owned(), "https://other.test".to_owned()),
         ]);
-        let direct = ["sr2", "claude2"].map(str::to_owned);
+        let direct = [WRAPPER_PROGRAMS[0], "claude2"].map(str::to_owned);
         let wrapped = [
             "/home/test/.local/bin/claude-coord-cap",
             "600000",
             "",
+            // fleet-only-ok: behind capacity.gate, off by default
             "/home/test/bin/sr2",
             "claude2",
             "--autocompact",
