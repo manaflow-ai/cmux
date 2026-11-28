@@ -3020,7 +3020,8 @@ except probe.OutOfTime as cut:
         raw: async () => ({ status: 200, body: { ok: true, value: { token: "id-tok", vm_id: "vm-1", linux_user: "cmux", api_base_url: base, expires_at: Date.now() + 900_000 } } }),
       } as any;
       const r = await directExec(api, "m1", { secrets: [] } as any, 1)("sleep 200; echo done", 290_000);
-      expect(r).toEqual({ code: 0, stdout: "done\n", stderr: "" });
+      expect(r).toMatchObject({ code: 0, stdout: "done\n", stderr: "" });
+      expect(typeof r.route?.call_ms).toBe("number");
       expect(seen.map((x) => `${x.method} ${x.path}`)).toEqual(["POST /v5/vms/vm-1/exec-await", "GET /v5/background-requests/bg-1", "GET /v5/background-requests/bg-1"]);
       for (const x of seen) {
         expect(x.identity).toBe("id-tok");
@@ -3721,6 +3722,43 @@ open(out, 'w').write(json.dumps(seen))
     expect(Object.keys(marks)).toEqual(["start_connected", "start_initialized", "start_session_new", "start_prompt_accepted"]);
     const v = Object.values(marks);
     for (let i = 1; i < v.length; i++) expect(v[i]).toBeGreaterThanOrEqual(v[i - 1]);
+  });
+  test("route parts land in route_ms beside guest_ms, first value kept, missing ones skipped", () => {
+    let now = 0;
+    const t = new journey.FirstTextTiming(() => now);
+    t.mark("create");
+    t.route("start_client_session", 812.4);
+    t.route("start_call", 3001);
+    t.route("start_call", 9);
+    t.route("start_none", undefined);
+    t.guest("start_total", 8987);
+    now = 100;
+    t.mark("first_text");
+    expect(t.fields().route_ms).toEqual({ start_client_session: 812, start_call: 3001 });
+    expect(t.fields().guest_ms).toEqual({ start_total: 8987 });
+    t.reset();
+    expect(t.fields()).toEqual({});
+  });
+  test("directExec times the client-session mint on the first call only, and each call", async () => {
+    const calls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as any;
+    try {
+      const api = { raw: async () => ({ status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }) } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      const first = await exec("true");
+      const second = await exec("true");
+      expect(first.stdout).toBe("ok");
+      expect(typeof first.route?.client_session_ms).toBe("number");
+      expect(typeof first.route?.call_ms).toBe("number");
+      expect(second.route?.client_session_ms).toBeUndefined();
+      expect(typeof second.route?.call_ms).toBe("number");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
   test("startMarks keeps the first of a retried mark and ignores other lines", () => {
     expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });

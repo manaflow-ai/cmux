@@ -257,7 +257,7 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; route_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
@@ -265,16 +265,22 @@ export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
   private onGuest: Record<string, number> = {};
+  private onRoute: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
   /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
   guest(part: string, ms: number | null): void {
     if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
+  /** A part of the exec route as the runner timed it (the client-session mint, the provider's exec call): `route_ms`. */
+  route(part: string, ms: number | null | undefined): void {
+    if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0 && !(part in this.onRoute)) this.onRoute[part] = Math.round(ms);
   }
   /** Forget every mark: a create the team's machine cap refused (createWithRoom) is asked again, and the clock starts at that ask. */
   reset(): void {
     this.start = undefined;
     this.marks = {};
     this.onGuest = {};
+    this.onRoute = {};
   }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
@@ -291,6 +297,7 @@ export class FirstTextTiming {
       create_marks_ms: { ...this.marks },
       ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
       ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+      ...(Object.keys(this.onRoute).length ? { route_ms: { ...this.onRoute } } : {}),
     };
   }
 }
@@ -2359,7 +2366,8 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
   return Buffer.from(sig).toString("base64url");
 }
 
-export type ExecResult = { code: number; stdout: string; stderr: string };
+/** `route`: the runner's own times for this call's trip (directExec): the client-session mint it paid, if any, and the provider call. */
+export type ExecResult = { code: number; stdout: string; stderr: string; route?: { client_session_ms?: number; call_ms: number } };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
@@ -2576,12 +2584,20 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
-    if (guestRoute) return guestExec(command, timeoutMs);
+    const timedGuest = async () => {
+      const t0 = performance.now();
+      const out = await guestExec(command, timeoutMs);
+      return { ...out, route: { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - t0) } };
+    };
+    let mintMs: number | undefined;
+    if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
+      const m0 = performance.now();
       const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+      mintMs = Math.round(performance.now() - m0);
       if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
         guestRoute = true;
-        return guestExec(command, timeoutMs);
+        return timedGuest();
       }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
       session = r.body.value;
@@ -2590,12 +2606,14 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const s = session!;
     const identity = { "x-freestyle-identity-access-token": s.token };
     const deadlineAt = Date.now() + timeoutMs + 15_000;
+    const c0 = performance.now();
     const sent = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { ...identity, ...BACKGROUND_AFTER }, timeoutMs + 15_000);
     const r = await settleBackground(sent, s.api_base_url, identity, deadlineAt, backgroundPollMs);
     if (r.status < 200 || r.status >= 300) throw new Error(`exec-await: HTTP ${r.status}`);
     const rawCode = r.body.statusCode ?? r.body.exitCode ?? r.body.code;
     // Freestyle leaves statusCode null or missing when the command timed out; the cmux CLI maps that to 124.
-    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? "") };
+    const route = { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - c0) };
+    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? ""), route };
   };
 }
 
@@ -4417,12 +4435,15 @@ export function startMarks(stdout: string): Record<string, number> {
 }
 
 /** Each start mark as a guest part, and a detail line naming them. */
-function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+function recordStartMarks(timing: FirstTextTiming, stdout: string, route?: ExecResult["route"]): string {
+  timing.route("start_client_session", route?.client_session_ms);
+  timing.route("start_call", route?.call_ms);
   const marks = startMarks(stdout);
   for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
   timing.guest("start_total", guestMs(stdout));
   const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
-  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
+  const trip = route ? `; route ms${route.client_session_ms === undefined ? "" : ` client-session ${route.client_session_ms},`} call ${route.call_ms}` : "";
+  return `${parts.length ? `; start marks ms ${parts.join(", ")}` : ""}${trip}`;
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -7109,7 +7130,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7126,7 +7147,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
