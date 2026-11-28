@@ -1011,6 +1011,9 @@ pub mod sidebar_sections;
 pub mod sidebar_session_tree;
 pub mod tab_drag_rules;
 pub mod window_registry;
+pub mod window_registry_store;
+#[cfg(test)]
+mod window_registry_store_tests;
 #[cfg(test)]
 mod window_registry_tests;
 pub mod workspace_port_links;
