@@ -479,7 +479,11 @@ bool g_page_created = false;
 void ApplyActivationPolicy() {
   const auto policy = static_cast<NSApplicationActivationPolicy>(
       cmux_host::ActivationPolicy(g_finished_launching, g_page_created));
-  if (NSApp.activationPolicy != policy) [NSApp setActivationPolicy:policy];
+  if (NSApp.activationPolicy == policy) return;
+  [NSApp setActivationPolicy:policy];
+  // PlaceWindow ordered the page's window in while the host was prohibited, which may not have put it on screen;
+  // the page's window must be on screen (its occlusion state hides the page). Ordering in does not activate.
+  if (policy == NSApplicationActivationPolicyAccessory && g_window) [g_window orderFrontRegardless];
 }
 
 class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler, public CefLoadHandler,
