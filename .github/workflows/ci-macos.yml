@@ -1139,7 +1139,7 @@ jobs:
           framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
           # The cli profile builds one scheme (cmux-cli), which links no package
           # framework; only the app-host product has frameworks to stage.
-          if [ -z "$framework_source" ] && [ "$CMUX_PRODUCT_PROFILE" = cli ]; then
+          if [ -z "$framework_source" ] && [ "${CMUX_PRODUCT_PROFILE:-}" = cli ]; then
             echo "cli product: no package frameworks to stage"
             exit 0
           fi
