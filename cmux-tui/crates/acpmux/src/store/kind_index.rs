@@ -524,12 +524,14 @@ impl LocalStore {
     /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
     /// back from its end, as `scan_back` does. A segment with no copy, or [`COPY_AFTER`] bytes
     /// past its copy, gets one first ([`Self::copy_for_read_back`]).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn scan_back_in(
         &self,
         id: &str,
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
         indexed: bool,
     ) -> Result<()> {
@@ -545,11 +547,11 @@ impl LocalStore {
                 _ => {}
             }
             if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
-                && skip(dir, kind)
+                && (skip(dir, kind) || may_match.is_some_and(|may| !may(line, dir, kind)))
             {
                 return true;
             }
-            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            let Ok(rec) = parse_record(line) else { return true };
             if rec.seq >= before {
                 return true;
             }
