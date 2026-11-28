@@ -9,6 +9,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | --- | --- | --- |
 | [Widgets](widgets) | Clock, weather, calendar and to-do cards in small, medium and large sizes, each added on its own | `examples/extensions/widgets/install.sh` |
 | [Weather](weather) | The current conditions for a place you choose | `cmux ext dev examples/extensions/weather` |
+| [Leo weather](leo-weather) | The live sky where you are, animated: rain, snow, stars, sun, clouds, hourly bars | `cmux ext dev examples/extensions/leo-weather` |
 | [World clock](world-clock) | The time in the places you work with | `cmux ext dev examples/extensions/world-clock` |
 | [Media player](media-player) | Album artwork, live progress and playback controls in a compact sidebar, album card or pane | `cmux ext dev examples/extensions/media-player` |
 | [New Tab launcher](newtab-launcher) | A live clock, recent chats, workspaces and quick actions on a whole New Tab page | `cmux ext dev examples/extensions/newtab-launcher` |
