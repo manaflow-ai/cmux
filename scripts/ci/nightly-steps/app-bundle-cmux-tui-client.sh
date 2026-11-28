@@ -52,7 +52,7 @@ search_fallback_now() {
   local out commit key source
   [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off ]] && (( fallback_search_seconds > 0 )) || return 1
   echo "searching the newest published cmux-tui tree within 24 h now ($1)" >&2
-  out="$(CMUX_TUI_TREE_PROBE_CACHE="" CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
+  out="$(CMUX_TUI_TREE_PROBE_CACHE="" CMUX_TUI_TREE_CHANNEL_LOOK=1 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
     CMUX_TUI_TREE_SEARCH_COMMITS="${CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS:-300}" \
     bash scripts/ci/timeout.sh "$fallback_search_seconds" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null)" || return 1
   commit="$(sed -n 's/^commit=//p' <<<"$out" | head -1)"
