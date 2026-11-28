@@ -2032,11 +2032,19 @@ export function wokenGapLook(): "block" | "turn" | "tail" {
 /// footer already closes the turn above, and the turn gap over a muted tool row, with no prompt in
 /// it, left an empty band the hidden task line seemed to leave behind (Leo, 2026-11-15: "idk it
 /// loads funny sometimes"). A reply there keeps the turn gap, as a prompt has.
+/// Right under another agent's one-line message it opens nothing either (`isLineRow`: that line,
+/// "Received N messages", a message run's line, the waiting group's head). Such a line never carries
+/// the turn it came in (direct.ts tags no user row), so it says nothing of where one starts: a turn the
+/// agent woke for opens under the turn before it, and a message steered into it sits among its work.
+/// Each tool row under such a line stood the turn gap inside one run, a 32 px band over "Write round 4
+/// script" and another over "Used a tool and ran 2 commands" once the run was open (Leo, 2026-11-17:
+/// "why is there this big gap when i have s**t expanded").
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   !(wokenUnderFooter(row, prev) && wokenGapLook() !== "turn") &&
   (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
+  !(isLineRow(prev) && prev.inBackground === undefined) &&
   prev.kind !== WORKED &&
   prev.kind !== SUBAGENT_STARTED &&
   !(prev.kind === "user" && !prev.received && isIncomingLine(prev.incoming?.kind)) &&
