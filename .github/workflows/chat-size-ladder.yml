@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   ladder:
-    name: chat-size ladder (base vs head, advisory)
+    name: chat-size ladder, base vs head (advisory)
     if: ${{ github.event_name != 'pull_request' || (github.event.label.name == 'full-ci' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 120
