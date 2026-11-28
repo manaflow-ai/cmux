@@ -44,7 +44,7 @@ pub(super) async fn gated(
         if turn.is_none() {
             turn = Some(take_turn(hub, &peer.name, &id).await);
         }
-        match wait_for_prompt_link(hub, conn, &peer, params, &mut hold).await {
+        match wait_for_prompt_link(hub, conn, &peer, &id, params, &mut hold).await {
             Ok(Some(queued)) => return Some(Ok(queued)),
             Ok(None) => {}
             Err(e) => return Some(Err(e)),
