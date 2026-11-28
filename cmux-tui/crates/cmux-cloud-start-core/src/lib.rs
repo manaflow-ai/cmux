@@ -32,4 +32,5 @@ pub mod sequence;
 pub mod spare_shapes;
 pub mod start;
 pub mod start_session;
+pub mod surface;
 pub mod vm_kind;

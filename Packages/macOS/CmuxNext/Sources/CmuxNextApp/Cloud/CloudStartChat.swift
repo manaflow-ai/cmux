@@ -92,7 +92,10 @@ struct CloudStartChat {
             // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
             let plan = CloudMachineCreation.proRefusal(error) != nil
             if !plan, let move = error as? CloudMove.Failure { failed = .init(code: move.code, message: message, retryable: move.retry != nil || move.sendAgain) }
-            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
+            let code = plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed"
+            // What failed and its next step, named on the card (ask-17e4ae3662: "surfacing right errors").
+            let surface: [String: Any]? = plan ? nil : CloudStartCore().paneSurface(code: code, message: message).map { ["surface": $0] }
+            return AgentPaneReply.failure(code: code, message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : surface, retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
         }
     }
 

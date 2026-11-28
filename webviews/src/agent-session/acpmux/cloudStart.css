@@ -301,3 +301,12 @@
 .acpmux-cloud-steps__step[data-step="current"] { color: var(--agent-text); font-weight: 600; }
 .acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); }
 .acpmux-cloud-plan-team[data-setup-step] .acpmux-cloud-plan-team__title { color: var(--agent-text); }
+.acpmux-cloud-start__failure-what {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+.acpmux-cloud-start__failure-next {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--agent-muted, currentColor);
+}

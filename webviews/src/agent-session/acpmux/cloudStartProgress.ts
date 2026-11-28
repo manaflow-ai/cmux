@@ -9,7 +9,7 @@ import {
   type CloudPlanId,
   type CloudSizeLocked,
 } from "./cloudPlans";
-import { translate } from "./i18n";
+import { translate, type StringKey } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
 
@@ -117,7 +117,51 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// What failed and the step the card offers (the host's `details.surface`, cmux-cloud-start-core
+  /// `surface::surface`; ask-17e4ae3662): the card's headline and next line above the failure's words.
+  surface?: CloudStartSurface;
 };
+
+/// The failed card's headline and next step (cmux-cloud-start-core `surface::What` and `surface::Next`), each
+/// with its catalog key.
+export const SURFACE_WHAT = {
+  machineDidNotStart: "cloudStart.failed.machineDidNotStart",
+  repoDidNotClone: "cloudStart.failed.repoDidNotClone",
+  folderMissing: "cloudStart.failed.folderMissing",
+  agentOutOfUsage: "cloudStart.failed.agentOutOfUsage",
+  agentRateLimited: "cloudStart.failed.agentRateLimited",
+  agentNotSignedIn: "cloudStart.failed.agentNotSignedIn",
+  agentDidNotStart: "cloudStart.failed.agentDidNotStart",
+  cloudSignedOut: "cloudStart.failed.cloudSignedOut",
+  accountChanged: "cloudStart.failed.accountChanged",
+  appNotConnected: "cloudStart.failed.appNotConnected",
+  machineCap: "cloudStart.failed.machineCap",
+  spendCap: "cloudStart.failed.spendCap",
+} as const satisfies Record<string, StringKey>;
+export const SURFACE_NEXT = {
+  retry: "cloudStart.next.retry",
+  agentSignIn: "cloudStart.next.agentSignIn",
+  cloudSignIn: "cloudStart.next.cloudSignIn",
+  waitForUsage: "cloudStart.next.waitForUsage",
+  waitThenRetry: "cloudStart.next.waitThenRetry",
+  repoAccess: "cloudStart.next.repoAccess",
+  pickFolder: "cloudStart.next.pickFolder",
+  openApp: "cloudStart.next.openApp",
+  freeMachine: "cloudStart.next.freeMachine",
+  billing: "cloudStart.next.billing",
+} as const satisfies Record<string, StringKey>;
+export type CloudStartSurface = { what: keyof typeof SURFACE_WHAT; next: keyof typeof SURFACE_NEXT };
+
+/// The host's `details.surface`, when it names a headline and a step this card has words for.
+export function cloudStartSurface(details: unknown): CloudStartSurface | undefined {
+  if (!details || typeof details !== "object") return undefined;
+  const surface = (details as { surface?: unknown }).surface;
+  if (!surface || typeof surface !== "object") return undefined;
+  const { what, next } = surface as { what?: unknown; next?: unknown };
+  if (typeof what !== "string" || typeof next !== "string") return undefined;
+  if (!Object.hasOwn(SURFACE_WHAT, what) || !Object.hasOwn(SURFACE_NEXT, next)) return undefined;
+  return { what: what as CloudStartSurface["what"], next: next as CloudStartSurface["next"] };
+}
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
 export type CloudFolderTooBig = {
@@ -653,8 +697,10 @@ export function cloudStartEnded(
     stalled: _stalled,
     cloudSetup: _cloudSetup,
     sizeLocked: _sizeLocked,
+    surface: _surface,
     ...ended
   } = current;
+  const surface = refusedHere ? undefined : cloudStartSurface(answer.details);
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
   const plans = answer.code === "cloud_plan_required" ? cloudPlansNamed(answer.details) : undefined;
   const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
@@ -668,6 +714,7 @@ export function cloudStartEnded(
     ...(planTeam ? { planTeam } : {}),
     ...(plans ? { plans } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(surface ? { surface } : {}),
   };
 }
 

@@ -152,6 +152,17 @@ public nonisolated struct CloudStartCore: Sendable {
         return .rerun(ms: ms, cls: reply.class)
     }
 
+    /// What a failed start's card says (`surface::surface`, ask-17e4ae3662): what failed (`what`, for example
+    /// `repoDidNotClone`) and the step it offers (`next`, for example `agentSignIn`), as the card's
+    /// `details.surface`. `nil` for a failure it cannot name, or an FFI that does not answer: the card shows the
+    /// failure's words alone, as before.
+    public func paneSurface(code: String?, message: String) -> [String: String]? {
+        struct Request: Encodable { var code: String, message: String }
+        struct Reply: Decodable { var what: String, next: String }
+        guard let reply = call("cloud_start_pane_surface", Request(code: code ?? "", message: message), as: Reply?.self) ?? nil else { return nil }
+        return ["what": reply.what, "next": reply.next]
+    }
+
     /// A failed start the table reads: its code, words and whether the card would offer Retry.
     public struct PaneFailure: Sendable, Equatable {
         public let code: String?, message: String, retryable: Bool

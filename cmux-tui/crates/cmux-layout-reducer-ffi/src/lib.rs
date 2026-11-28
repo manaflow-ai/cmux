@@ -466,6 +466,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_cloud_start_core::recover::pane_step(&failure))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"cloud_start_pane_surface" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    #[serde(default)]
+                    code: String,
+                    #[serde(default)]
+                    message: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_cloud_start_core::surface::surface(
+                    &request.code,
+                    &request.message,
+                ))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_start_list_wait" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]
