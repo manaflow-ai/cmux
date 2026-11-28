@@ -1097,17 +1097,3 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
     [sender.name, sender.sessionId, sender.relation, sender.displayName, entry, viewerSessionId],
   );
 }
-
-/** A batch follows the same live session metadata and resolver as each message it contains. */
-export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
-  const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const entries = useSyncExternalStore(store.subscribeNames, store.senderEntries, store.senderEntries);
-  return useMemo(
-    () =>
-      senders.map((sender) => {
-        const id = sender.sessionId ?? store.find(sender.name);
-        return resolveSenderIdentity(sender, id ? entries.get(id) : undefined, viewerSessionId);
-      }),
-    [senders, viewerSessionId, store, entries],
-  );
-}
