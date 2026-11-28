@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
+import type { ChatAccountList } from "./chatAccounts";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -100,8 +101,21 @@ type HarnessOptions = {
   noMore?: boolean;
   searchField?: QuickSearchField;
   auth?: { verdict: SessionAuth; onLogin(): void };
+  cloudConnect?: () => void;
+  /// The chat's routes (acpmux's list) and the sign-in acpmux reports for it.
+  routes?: ChatAccountList;
+  signIn?: string;
 };
-function Harness({ newTab, onAddHarness, noMore, searchField, auth }: { newTab: boolean } & HarnessOptions) {
+function Harness({
+  newTab,
+  onAddHarness,
+  noMore,
+  searchField,
+  auth,
+  cloudConnect,
+  routes,
+  signIn,
+}: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -114,16 +128,38 @@ function Harness({ newTab, onAddHarness, noMore, searchField, auth }: { newTab: 
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
           auth,
+          ...(routes
+            ? {
+                account: {
+                  sessionId: "chat-1",
+                  accounts: { list: async () => routes, set: async () => undefined },
+                },
+              }
+            : {}),
+          ...(signIn ? { signIn } : {}),
           ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
           onModel() {},
           fast: { checked: fast, onChange: setFast },
           families: {
-            list: [family("claude", "Claude"), family("codex", "Codex")].map((entry) =>
-              noMore ? { ...entry, more: [] } : entry,
-            ),
-            current: "claude",
+            list: cloudConnect
+              ? [
+                  {
+                    id: "gemini",
+                    name: "Gemini",
+                    models: [],
+                    more: [],
+                    note: "Not connected",
+                    cloudSoon: true,
+                    logInLabel: "Connect Gemini",
+                    logIn: cloudConnect,
+                  },
+                ]
+              : [family("claude", "Claude"), family("codex", "Codex")].map((entry) =>
+                  noMore ? { ...entry, more: [] } : entry,
+                ),
+            current: cloudConnect ? "gemini" : "claude",
             onPick() {},
             onAddHarness,
           },
@@ -150,6 +186,20 @@ async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
+
+test("a compact Cloud Connect row invokes its Settings action and closes the menu", async () => {
+  let connections = 0;
+  await openMenu(true, { cloudConnect: () => connections++ });
+  const menu = list();
+  const connect = [...menu.querySelectorAll<HTMLElement>("[role=menuitem]")].find(
+    (item) => item.textContent === "Connect Gemini",
+  )!;
+  expect(connect.nextElementSibling?.textContent).toBe("Runs on Cloud soon");
+  await act(async () => connect.click());
+  expect(connections).toBe(1);
+  expect(document.querySelector('[data-menu="model"]')?.getAttribute("aria-expanded")).toBe("false");
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
 
 for (const newTab of [false, true]) {
   for (const state of ["expired", "signedOut"] as const) {
@@ -1195,3 +1245,24 @@ test("ordinary placement changes the open picker and resetting it restores the l
     });
   }
 });
+
+// cmux#63167: with no route bound, the Account row named "CLI login" whatever the harness signs in
+// with (a chat on SR2). It names the sign-in acpmux reports; a bound route still names its account.
+for (const [why, routes, signIn, shown] of [
+  ["a reported sign-in", { accounts: [] }, "SR2 token (sr2 claude)", "SR2 token"],
+  ["no reported sign-in", { accounts: [] }, undefined, "CLI login"],
+  [
+    "a bound route",
+    { accounts: [{ id: "max", name: "Max", kind: "direct-subscription" }], active: "max", scope: "chat" },
+    "API key (ANTHROPIC_API_KEY, from route Max)",
+    "Max",
+  ],
+] satisfies [string, ChatAccountList, string | undefined, string][]) {
+  test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
+    await openMenu(false, { routes, ...(signIn ? { signIn } : {}) });
+    await settle();
+    const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
+    expect(account.textContent).toContain(shown);
+    if (shown !== "CLI login") expect(account.textContent).not.toContain("CLI login");
+  });
+}

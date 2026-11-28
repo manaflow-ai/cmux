@@ -271,6 +271,13 @@ jobs:
             fi
           done <<< "$runs"
           full "no earlier passed check on the same code"
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -492,6 +499,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -556,6 +570,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -731,6 +752,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -810,6 +838,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -973,6 +1008,13 @@ jobs:
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1047,7 +1089,9 @@ jobs:
     if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') || ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: deploy-production
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 15
+    # 25: the product smoke may wait up to 10 minutes on the smoke team's 2-VM quota (scripts/smoke-product.ts
+    # QUOTA_WAIT_MS), then boots for up to 5.
+    timeout-minutes: 25
     environment: cmux-vm-production
     # id-token: the product smoke authenticates with this job's GitHub OIDC token (workers/cmux-vm/src/auth/ci-trust.ts).
     permissions:
@@ -1086,6 +1130,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -1193,6 +1244,13 @@ jobs:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
           fetch-depth: 50
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.deploy-mode.outputs.enabled == 'true'
         shell: bash
@@ -1472,6 +1530,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1524,6 +1589,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1563,6 +1635,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1619,6 +1698,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1692,6 +1778,13 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1767,6 +1860,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1822,6 +1922,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1874,6 +1981,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
