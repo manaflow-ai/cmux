@@ -60,6 +60,19 @@ public struct UiShellScene {
         self.module = module
         self.open = open
     }
+
+    /// A scene whose `open` returns what must outlive it for the shot (windows, models a view holds weakly): the
+    /// scene keeps them as long as the shooter holds the scene, so a module's scene needs no static of its own.
+    public init(name: String, module: String, keeping open: @escaping @MainActor () -> [AnyObject]) {
+        let kept = UiShellKept()
+        self.init(name: name, module: module) { kept.objects += open() }
+    }
+}
+
+/// What a ``UiShellScene`` opened and keeps alive until the shot is done.
+@MainActor
+final class UiShellKept {
+    var objects: [AnyObject] = []
 }
 
 /// One shot scene in the receipt.
