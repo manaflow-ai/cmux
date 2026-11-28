@@ -125,7 +125,13 @@ import UIKit
         #expect(draws == 0, "hidden: \(draws) frames asked of the renderer")
 
         // The last hidden batch lands; then one more write, and the page is shown.
-        try await Task.sleep(for: .milliseconds(Int(TerminalViewController.hiddenFeedInterval * 1000) + 300)) // test: the hidden feed's next turn passes
+        // The hidden turns take the rest of the log; a loaded simulator can
+        // still be parsing its last batch well after one interval, and a page
+        // shown mid-batch rightly waits for it, so wait for the drain itself.
+        try await Self.waitUntil(TerminalViewController.hiddenFeedInterval + 19) {
+            rig.screen.outputPendingBytes == 0 && !rig.screen.outputBatchInFlight
+        }
+        try #require(rig.screen.outputPendingBytes == 0 && !rig.screen.outputBatchInFlight, "the hidden log never drained")
         rig.session.write(Self.lines("last", from: 0, count: 1))
         #expect(rig.screen.outputPendingBytes > 0, "the write before the reveal waits while hidden")
         rig.show()

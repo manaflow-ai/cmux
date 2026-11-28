@@ -297,7 +297,7 @@
         "CmuxMobileTerminalTests/TerminalComposerFieldTests",
         "CmuxMobileTerminalTests/TerminalKeyRowTests"
       ],
-      "ui": ["TerminalKeyboardNoResizeUITests", "TerminalComposerBarUITests"],
+      "ui": ["TerminalKeyboardNoResizeUITests", "TerminalComposerBarUITests", "TerminalTUIDragScrollsTheAppUITests"],
       "paths": [
         "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
         "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesignCore/TerminalScrollDefault.swift",
