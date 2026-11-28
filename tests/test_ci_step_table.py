@@ -2131,9 +2131,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-tests-affected", "vm-image-pins", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
+                     "web-tests-4", "web-tests-affected", "vm-image-pins", "web-production-build", "cmux-vm-cloud", "webviews-checks", "ios-push-headless"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
-                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
+                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks", "ios-push-headless"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -2746,6 +2746,27 @@ class IosJobTest(unittest.TestCase):
     feat-cmux-next pull request, folded into the table (CI v2 step 11). Leo, 2026-11-24: "how about finishing up
     our borg/ci v2? did we finish all 27+ things?"
     """
+
+    def test_push_gate_routes_dependencies_in_pr_scope(self) -> None:
+        table = ci_steps.load()
+        for path in (
+            "cmux-next-ios/backend/src/push.ts",
+            "cmux-next-ios/backend/test/apns-delivery-gate.test.ts",
+            "cmux-next-ios/backend/vitest.push.config.ts",
+            "cmux-next-ios/backend/package.json",
+            "cmux-next-ios/backend/bun.lock",
+            "cmux-next-ios/backend/scripts/push-gate-payload.ts",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/NotificationPayload.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/Notifications.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/SimulatedServiceExtension.swift",
+            "scripts/ci/ios_push_sim_gate.py",
+            "scripts/ci/cmux-next-ios-sim.sh",
+            "tests/test_ios_push_sim_gate.py",
+            "ci/steps.toml",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("ios-push-headless", ci_steps.route(table, [path], pr_scope=True).get("linux", []))
+        self.assertNotIn("ios-push-headless", ci_steps.route(table, ["docs/unrelated.md"], pr_scope=True).get("linux", []))
 
     def wf(self) -> dict:
         return yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
