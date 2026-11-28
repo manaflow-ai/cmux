@@ -827,9 +827,10 @@ class SamePatchTests(unittest.TestCase):
 
     def test_decide_compares_both_heads_and_reads_the_previous_runs(self) -> None:
         calls = []
-        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key, head_tier.pushed_on_top
         green = [{"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
         try:
+            head_tier.pushed_on_top = lambda *a: False  # a rebase or amend: git cannot tell, the compares do
             head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
             head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or green
             head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(("key", sha)) or "k"
@@ -859,7 +860,40 @@ class SamePatchTests(unittest.TestCase):
                     head_tier.decide("pull_request", self.event(("ready-to-land",)))
                 self.assertEqual(calls, [])
         finally:
-            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key = real
+            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key, head_tier.pushed_on_top = real
+
+
+class PushedOnTopTests(BranchRepo):
+    """same_patch_facts answers an ordinary push (new commits on the previous head) from git, with no compare read."""
+
+    def commit_file(self, name: str, text: str) -> str:
+        Path(self.dir, name).write_text(text)
+        self.git("add", name)
+        self.git("commit", "-q", "-m", f"edit {name}")
+        return self.git("rev-parse", "HEAD")
+
+    def test_new_commits_on_the_previous_head_are_a_new_change_without_a_compare(self) -> None:
+        before = self.head
+        one = self.commit_file("a.txt", "1\n")
+        two = self.commit_file("b.txt", "2\n")
+        self.assertTrue(head_tier.pushed_on_top(before, one))
+        self.assertTrue(head_tier.pushed_on_top(before, two))
+        ev = {"action": "synchronize", "before": before,
+              "pull_request": {"draft": False, "head": {"sha": two}, "base": {"ref": "feat-cmux-next"}, "labels": []}}
+        with unittest.mock.patch.object(head_tier, "own_patch_key", side_effect=AssertionError("compare read")), \
+                unittest.mock.patch.object(head_tier, "runs_at", side_effect=AssertionError("runs read")):
+            self.assertEqual(head_tier.same_patch_facts(ev), {"before": before, "same_patch_green": False})
+
+    def test_anything_else_still_reads_the_compares(self) -> None:
+        before = self.head
+        self.git("commit", "-q", "--allow-empty", "-m", "empty")  # the same tree: could be the same change
+        self.assertFalse(head_tier.pushed_on_top(before, self.git("rev-parse", "HEAD")))
+        self.assertFalse(head_tier.pushed_on_top(before, before))
+        self.assertFalse(head_tier.pushed_on_top(self.own, self.head))  # base merges on the way
+        self.git("checkout", "-q", "-b", "lane/rebased", self.own)
+        rebased = self.commit_file("a.txt", "1\n")
+        self.assertFalse(head_tier.pushed_on_top(before, rebased))  # BEFORE is not an ancestor
+        self.assertFalse(head_tier.pushed_on_top("f" * 40, rebased, depth=3))  # unread
 
 
 class LandCarryTests(BranchRepo):
@@ -898,6 +932,29 @@ class LandCarryTests(BranchRepo):
         decided = self.tier("pull_request", self.landing(self.git("rev-parse", "HEAD")),
                             facts={**facts, "previous_landed": True}, now=self.now)
         self.assertTrue(head_tier.carried(decided), decided)
+
+    def test_a_landed_green_previous_head_carries_rather_than_none(self) -> None:
+        """Both the green-head rule and the carry rule fit a ready-to-land update-branch onto a landed head whose
+        every run passed: the carry wins, so cmux/land-tier stays success and land-judge pulses nothing (the green
+        rule's `none` left it pending, and the pulse's `labeled` event ran the affected tier anyway: #63966 03df0990)."""
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves again", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        facts = head_tier.head_facts(self.event(self.git("rev-parse", "HEAD")))
+        landing = self.landing(self.git("rev-parse", "HEAD"))
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": True, "previous_green": True}, now=self.now)
+        self.assertTrue(head_tier.carried(decided), decided)
+        # Not landed there: the green rule's none, as before.
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": False, "previous_green": True}, now=self.now)
+        self.assertEqual(decided[0], "none", decided)
 
     def test_an_unproved_previous_head_an_own_commit_full_ci_or_the_switch_keep_the_full_tier(self) -> None:
         for landed in (False, None):
@@ -2000,6 +2057,23 @@ class PostMergeTierTests(unittest.TestCase):
                 (ROOT / ".github" / "post-merge-batch.json").read_text())
             self.assertEqual(head_tier.batch_post_merge_workflows(tmp), set())
 
+    def test_config_missing_on_disk_is_read_from_head(self) -> None:
+        # A reused pool workspace whose sparse reapply refused has both files in HEAD but not on disk
+        # (cmux-tui-spec run 46148570367 planned `full`): the rule reads HEAD's copies.
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            (Path(tmp) / ".github").mkdir()
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).write_text((ROOT / ".github" / name).read_text())
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-q", "-m", "c"], check=True)
+            want = head_tier.batch_post_merge_workflows(tmp)
+            self.assertIn("cmux-tui-spec.yml", want)
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).unlink()
+            self.assertEqual(head_tier.batch_post_merge_workflows(tmp), want)
+
     def test_decide_reads_the_run_s_workflow_and_the_switch(self) -> None:
         ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
         ref = "manaflow-ai/cmux/.github/workflows/rust-workspaces.yml@refs/pull/1/merge"
@@ -2054,3 +2128,70 @@ class PostMergeTierTests(unittest.TestCase):
                     for want in needed:
                         self.assertIn(want, patterns, f"{path.name}: a sparse checkout in a head_tier.py tier job")
         self.assertGreater(checked, 0)
+
+
+class ReadSparesTests(unittest.TestCase):
+    """head_tier.read_with_spares: a spent job-token hour asks the spare read tokens instead of failing open."""
+
+    LIMITED = (403, b'{"message": "API rate limit exceeded for installation ID 1."}', {})
+
+    def _req(self) -> "head_tier.urllib.request.Request":
+        return head_tier.urllib.request.Request("https://api.github.com/repos/o/r/actions/runs",
+                                                headers={"Authorization": "Bearer job"})
+
+    def test_spent_hour_moves_to_the_next_spare(self) -> None:
+        seen: list[str] = []
+
+        def call(req):
+            seen.append(req.get_header("Authorization"))
+            return self.LIMITED if len(seen) < 3 else (200, b'{"ok": 1}', {})
+
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "job app pool1 pool2"}):
+            status, body, _ = head_tier.read_with_spares(self._req(), call)
+        self.assertEqual(status, 200)
+        # The request's own token is not asked twice; pool2 is never needed.
+        self.assertEqual(seen, ["Bearer job", "Bearer app", "Bearer pool1"])
+
+    def test_a_permission_refusal_or_success_asks_no_spare(self) -> None:
+        for answer in ((200, b"{}", {}), (403, b'{"message": "Resource not accessible by integration"}', {}),
+                       (404, b"{}", {})):
+            calls: list[int] = []
+
+            def call(req, answer=answer):
+                calls.append(1)
+                return answer
+
+            with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "app pool1"}):
+                self.assertEqual(head_tier.read_with_spares(self._req(), call), answer)
+            self.assertEqual(len(calls), 1)
+
+    def test_no_spares_keeps_the_rate_limited_answer(self) -> None:
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "  "}):
+            self.assertEqual(head_tier.read_with_spares(self._req(), lambda r: self.LIMITED), self.LIMITED)
+
+    def test_runs_at_reads_through_a_spent_job_token(self) -> None:
+        """The green and carry rules' previous-head runs read (run 46159124593's case): the job token is rate
+        limited, the App spare answers, so runs_at returns the runs rather than None (which kept the affected tier)."""
+        runs = {"total_count": 1, "workflow_runs": [{"id": 1, "path": "a.yml", "status": "completed",
+                                                      "conclusion": "success"}]}
+
+        def fake(req, seconds=None, **_):
+            if req.get_header("Authorization") == "Bearer job":
+                return self.LIMITED
+            return 200, json.dumps(runs).encode(), {}
+
+        import deadline_http
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "app"}), \
+                mock.patch.object(deadline_http, "request", side_effect=fake):
+            got = head_tier.runs_at("o/r", "a" * 40, "job")
+        self.assertEqual(got, runs["workflow_runs"])
+        self.assertTrue(head_tier.green_previous(got))
+
+    def test_router_route_step_passes_the_spares(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        route = text.split("      - name: Route\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("CI_ROUTER_READ_TOKENS: ${{ steps.route-read-token.outputs.token }}", route)
+        mint = text.split("      - name: Mint the route read token\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("continue-on-error: true", mint)
+        self.assertIn("permission-actions: read", mint)
+        self.assertNotIn("write", mint)

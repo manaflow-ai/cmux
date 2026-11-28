@@ -2286,6 +2286,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_app_review_gate.py
 
+      - name: Validate reusable workflow callers pass the routing App key
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ci_reusable_route_key_passed.py
+
       - name: Validate the iOS workflows' package path filters match the app's manifests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_app_package_paths.py
@@ -2441,6 +2445,10 @@ jobs:
       - name: Validate the cmux-tui tree hand-off cap
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
+
+      - name: Validate the cmux-tui tree request waits out the API limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_request_waits_out_limit.py
 
       - name: Validate the hand-off of a tree owner that ended in startup_failure
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -3127,6 +3135,14 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
+
+      # Leo, 2026-11-27: "Hidden-error changes keep Retry tested." The terminal page's hidden-words states
+      # keep a test that a long outage shows Retry (skills/cmux-ios/SKILL.md, "Quiet-state rules keep the way out").
+      - name: Validate hidden connection words keep a Retry test
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-hidden-words-keep-retry.py --self-test
+          python3 scripts/lint-hidden-words-keep-retry.py
 
       - name: Validate no short fixed gates on Cloud and daemon slow paths
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
