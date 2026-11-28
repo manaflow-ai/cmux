@@ -198,6 +198,38 @@ export async function firstExec(vm: Vm, t0: number, budgetMs = 60_000): Promise<
 
 export type ExecResult = { code: number; stdout: string; stderr: string; ms: number };
 
+/**
+ * What the guest's disk and CPU look like right now, in one line: IO/CPU/memory pressure, vmstat's blocked and
+ * iowait columns, and a timed O_DIRECT read of a large file (a read the page cache cannot answer). Rolls 46107492079
+ * (clean past the 300 s cap; identity-final 193 s against about 1 s) and 46100096471 stalled on builders and clones
+ * booted from a snapshot, while builders built from scratch ran fast; this line tells a disk the provider is still
+ * filling in (high io pressure, slow dd) from a busy CPU or a noisy host. Bounded, and it never fails a step.
+ */
+export const IO_PROBE_COMMAND = [
+  `echo "psi_io $(tr '\\n' ' ' </proc/pressure/io 2>/dev/null)"`,
+  `echo "psi_cpu $(head -n1 /proc/pressure/cpu 2>/dev/null)"`,
+  `echo "psi_mem $(head -n1 /proc/pressure/memory 2>/dev/null)"`,
+  `timeout 5 vmstat 1 2 2>/dev/null | tail -n1 | awk '{print "vmstat r=" $1 " b=" $2 " wa=" $16 " st=" $17}'`,
+  `f=$(timeout 5 find /opt/cmux /usr/lib -xdev -type f -size +40M 2>/dev/null | head -n1)`,
+  `if [ -n "$f" ]; then s=$(date +%s%N); timeout 10 dd if="$f" of=/dev/null bs=1M count=32 iflag=direct 2>/dev/null || true; e=$(date +%s%N); echo "dd_direct_32M_ms $(( (e - s) / 1000000 )) $f"; else echo "dd_direct none"; fi`,
+].join("; ");
+
+/** A step this slow logs an IO_PROBE line after it (the green roll's slowest plain step is under 60 s). */
+export const SLOW_STEP_PROBE_SECS = 60;
+/** At most this many probes per log, so a VM that stalls everywhere adds seconds, not minutes. */
+export const IO_PROBE_LIMIT = 8;
+
+/** The IO_PROBE_COMMAND line; an error or timeout comes back as text, never thrown. */
+export async function ioProbe(vm: Vm, timeoutMs = 30_000): Promise<string> {
+  try {
+    const r = await run(vm, IO_PROBE_COMMAND, timeoutMs);
+    const out = r.stdout.trim().split("\n").filter(Boolean).join(" | ");
+    return `${out || "no output"} (status=${r.code} ${(r.ms / 1000).toFixed(1)}s)`;
+  } catch (error) {
+    return `probe failed: ${String(error).slice(0, 200)}`;
+  }
+}
+
 export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, user = "root"): Promise<ExecResult> {
   const t0 = Date.now();
   const r = await vm.exec({ command: `${HOME_PREFIX} && ${command}`, env: BUILD_ENV, timeoutMs, linuxUser: user });
@@ -207,6 +239,7 @@ export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, 
 /** Logged steps; a failed step throws with its output tail. */
 export class StepLog {
   readonly steps: Array<{ label: string; secs: number }> = [];
+  private ioProbes = 0;
   constructor(readonly logFile: string) {
     mkdirSync(path.dirname(logFile), { recursive: true });
   }
@@ -214,6 +247,13 @@ export class StepLog {
     console.log(line);
     appendFileSync(this.logFile, `${line}\n`);
   }
+  /** Logs `IO_PROBE [label] why :: ...` (IO_PROBE_COMMAND), up to IO_PROBE_LIMIT per log. */
+  async logIoProbe(vm: Vm, label: string, why: string): Promise<void> {
+    if (this.ioProbes >= IO_PROBE_LIMIT) return;
+    this.ioProbes++;
+    this.log(`IO_PROBE [${label}] ${why} :: ${await ioProbe(vm)}`);
+  }
+
   async step(vm: Vm, label: string, command: string, timeoutMs = STEP_TIMEOUT_MS): Promise<string> {
     // The guest runs it with /bin/sh (dash): refuse here, in a second, what would fail there after the layers before it.
     const shellCheck = guestShellProblems(command);
@@ -226,6 +266,7 @@ export class StepLog {
     const secs = r.ms / 1000;
     this.steps.push({ label, secs });
     appendFileSync(this.logFile, `--- [${label}] status=${r.code} ${secs.toFixed(1)}s\n${r.stdout}\n--- stderr\n${r.stderr.slice(-3000)}\n`);
+    if (r.code !== 0 || secs >= SLOW_STEP_PROBE_SECS) await this.logIoProbe(vm, label, `after status=${r.code} ${secs.toFixed(1)}s`);
     if (r.code !== 0) {
       this.log(`STEP FAILED [${label}] status=${r.code} (${secs.toFixed(1)}s)\nstdout: ${r.stdout.slice(-3000)}\nstderr: ${r.stderr.slice(-3000)}`);
       throw new Error(`step ${label} failed`);
