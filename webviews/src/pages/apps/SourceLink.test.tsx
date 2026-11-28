@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Strings } from "../shared/i18n";
-import { SourceLink, sourceLink } from "./SourceLink";
+import { SourceLink } from "./SourceLink";
+import { sourceLink } from "./sourceLinkTarget";
 import { fromInstalled, fromListing, type WireInstalledApp, type WireListing } from "./wire";
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key) => key };

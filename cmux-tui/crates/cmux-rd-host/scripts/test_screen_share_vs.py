@@ -50,7 +50,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", " Frame lead", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", " Draw", " Composite", "Capture", " Frame lead", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -1677,6 +1677,19 @@ class PeerServeFirstContact(unittest.TestCase):
         code, out = self.serve(1, poke)
         self.assertEqual(code, 0)
         self.assertIn("peer-serve: done from 127.0.0.1", out)
+
+
+
+class HostEnv(unittest.TestCase):
+    def test_power_hint_is_allowed_as_0_or_1(self):
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=0"]), {"CMUX_RD_VT_POWER_EFFICIENT": "0"})
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=1"]), {"CMUX_RD_VT_POWER_EFFICIENT": "1"})
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=2"])
+
+    def test_other_names_are_refused(self):
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_TIMING_LOG=/tmp/x"])
 
 
 if __name__ == "__main__":

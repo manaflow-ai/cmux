@@ -15,7 +15,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::distribution::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use anyhow::{Context, anyhow};
 use base64::Engine;
-use cmux_build_identity::BUILD_IDENTITY;
 use cmux_json::JsonSet as _;
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;

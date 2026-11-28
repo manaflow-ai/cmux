@@ -1423,6 +1423,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             Hub::auto_settle_loop(weak.clone())
         });
     }
+    // The Live opt-in as the settings file says it (`presence.live`, off by default;
+    // `hub/presence_setting.rs`): a teammate sees this machine's presence only while it is on.
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("presence live", &hub.fatal, move || {
+            Hub::presence_live_loop(weak.clone())
+        });
+    }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {

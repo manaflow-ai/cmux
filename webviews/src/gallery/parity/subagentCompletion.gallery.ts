@@ -30,7 +30,16 @@ const snapshot = chat(
   },
 );
 
+// A finished subagent folds into the closed "Worked for" as tool-call work
+// (#53268), so its line shows once the fold opens.
+async function openWork(ctx: PlayContext) {
+  await ctx.waitFor(() => ctx.document.querySelector("button.cv-worked"));
+  if (ctx.document.querySelector("button.cv-worked")!.getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: "button.cv-worked" });
+}
+
 async function ready(ctx: PlayContext) {
+  await openWork(ctx);
   await ctx.waitFor(
     () =>
       ctx.document.querySelector('[data-report-look="compact"] .cv-agent-activity__sentence')?.textContent ===
@@ -77,7 +86,7 @@ export default agentPaneEntry({
       },
     },
     lifecycle: {
-      note: "Two recorded agents share a start line and keep their finished lines beside the closed work fold.",
+      note: "Two recorded agents share a start line and keep their finished lines in the work fold.",
       experiments: { "subagent-done-report": "compact" },
       snapshot: (() => {
         const second = {
@@ -102,6 +111,7 @@ export default agentPaneEntry({
         );
       })(),
       play: async (ctx) => {
+        await openWork(ctx);
         await ctx.waitFor(() => {
           const started = ctx.document.querySelector(".cv-subagent-started");
           return (
