@@ -25,12 +25,11 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -41,9 +40,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -53,7 +53,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -65,33 +69,28 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type KeysState,
-  type ModelsAccessResult,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type ComputerUseApproval,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type HubRun,
-  type HubState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
   type AccountsRunReply,
+  type AgentSkillRow,
+  type HubRun,
+  type HubState,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
-  type LooksGallery,
-  type LooksRun,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
@@ -103,6 +102,7 @@ import {
   type HistoryMutationResult,
   type DeveloperTokensRun,
   type DeveloperTokensState,
+  type ModelsAccessResult,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -870,8 +870,13 @@ export class MockSettingsProvider {
       "cmux.settings.extensions.list": () => {
         if (this.extensionsUnsupported)
           throw new ProtocolError("cmux.protocol.unknown_op", "cmux.settings.extensions.list");
-        return { apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })) };
+        return {
+          apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })),
+          servers: this.extensionServers,
+        };
       },
+      "cmux.settings.extensions.credential": (params) =>
+        this.approveServerCredential(String((params as { app?: unknown }).app ?? "")),
       "cmux.settings.extensions.set": (params) =>
         this.setExtensionSettings(params as { app: string; values: Record<string, unknown> }),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
@@ -1634,6 +1639,23 @@ export class MockSettingsProvider {
       stored: {},
     },
   ];
+  /** Settings > Extensions: the installed extensions that run their own server, as
+   * `apps.settings.list`'s `servers` answers them. */
+  extensionServers: { app: string; name: string; enabled: boolean; kind: "external"; approved: boolean }[] = [
+    { app: "acme/hello-python", name: "Hello Python", enabled: true, kind: "external", approved: true },
+  ];
+  /** Credentials approved, newest last (the daemon keeps only digests; the mock keeps the count). */
+  serverCredentials: string[] = [];
+
+  /** Like the daemon: only an approved external server gets one, answered once. */
+  private approveServerCredential(app: string) {
+    const server = this.extensionServers.find((row) => row.app === app);
+    if (!server?.approved) throw new ProtocolError("apps.server_unapproved", `${app} may not run a server`);
+    const credential = `cmuxsrv1_mock${this.serverCredentials.length + 1}`;
+    this.serverCredentials.push(credential);
+    return { app, credential };
+  }
+
   /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
   extensionsUnsupported = false;
   private readonly extensionsWatch = new Set<EventSourceContext>();

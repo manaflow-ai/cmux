@@ -18,9 +18,9 @@ import {
   captureThemes,
   changeLabel,
   tracksAppearance,
+  UNTRACKED_KEYS,
   withLinked,
   type AppearanceArea,
-  UNTRACKED_KEYS,
   durableLabel,
 } from "./appearanceUndo";
 import {
@@ -57,7 +57,12 @@ import { t, text as localized } from "./strings";
 import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
-import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
+import {
+  readExtensionServers,
+  readExtensionSettings,
+  type ExtensionServer,
+  type ExtensionSettings,
+} from "./extensionSettings";
 import {
   errorCode,
   newIdempotencyKey,
@@ -74,6 +79,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type LooksRun,
+  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -101,8 +108,6 @@ import {
   type JoinConsentSurface,
   type KeysState,
   type ModelsRun,
-  type ModelsAccessRun,
-  type ModelsAccessResult,
   type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
@@ -122,8 +127,6 @@ import {
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type LooksRun,
-  type Standup,
   type ArchivedRun,
   type ArchivedState,
   type ConnectionsRun,
@@ -138,6 +141,8 @@ import {
   type CreatedToken,
   type DeveloperTokensRun,
   type DeveloperTokensState,
+  type ModelsAccessRun,
+  type ModelsAccessResult,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1147,11 +1152,35 @@ export class SettingsStore {
 
   /** Settings > Extensions: every installed extension whose manifest declares settings, or the
    * host's refusal (`unavailable` when this build's host cannot reach them). */
-  async extensionSettings(): Promise<{ apps: ExtensionSettings[]; error: string | null; unavailable: boolean }> {
+  async extensionSettings(): Promise<{
+    apps: ExtensionSettings[];
+    servers: ExtensionServer[];
+    error: string | null;
+    unavailable: boolean;
+  }> {
     const reply = await this.request("cmux.settings.extensions.list", {});
     if (!reply.ok)
-      return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
-    return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+      return {
+        apps: [],
+        servers: [],
+        error: userMessage(reply.error, SETTINGS_SENTENCES),
+        unavailable: isUnsupported(reply.error),
+      };
+    return {
+      apps: readExtensionSettings(reply.value),
+      servers: readExtensionServers(reply.value),
+      error: null,
+      unavailable: false,
+    };
+  }
+
+  /** Approves a new credential for an extension's own server (the daemon's `apps-server-credential`,
+   * origin user): the credential, which the daemon answers only this once, or the refusal text. */
+  async approveServerCredential(app: string): Promise<{ credential: string | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.credential", { app });
+    if (!reply.ok) return { credential: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const credential = (reply.value as { credential?: unknown } | null)?.credential;
+    return typeof credential === "string" ? { credential, error: null } : { credential: null, error: null };
   }
 
   /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
