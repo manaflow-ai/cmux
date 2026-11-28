@@ -1,4 +1,7 @@
 name: ios fast verdict dispatch
+# One title per PR and head: the parallel-run detector keys a dispatch run by its title, so a recovery sweep over many
+# PRs reads as distinct targets, while the same PR dispatched again still groups.
+run-name: ios fast verdict dispatch PR ${{ inputs.pr }} at ${{ inputs.sha }}
 
 # The supported recovery for a `cmux/ios-fast` pending whose answering run died (the class: a status left pending
 # forever when its publisher crashed). pr-router.yml's route posts the pending and its ios-fast-status job answers
@@ -42,6 +45,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       pull-requests: read
@@ -64,6 +69,8 @@ jobs:
           PR: ${{ inputs.pr }}
           SHA: ${{ inputs.sha }}
           GH_TOKEN: ${{ github.token }}
+          # Tried after the run token when it is refused (spent budget), as the status job's proof gate does.
+          TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: python3 -I scripts/ci/ios_fast_dispatch.py resolve
 
   pipeline:
@@ -81,6 +88,8 @@ jobs:
       contents: read
       actions: read
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   ios-fast-status:
     name: ios fast verdict status
@@ -88,6 +97,8 @@ jobs:
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       statuses: write
@@ -124,7 +135,8 @@ jobs:
           if [ "$PIPELINE" = skipped ]; then
             state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
           elif [ "$RUN" = false ]; then
-            state=success; desc="The plan builds nothing on this head"
+            # A head that already passed on the same iOS inputs (scripts/ci/ios_fast_verdict.py reuse) says so.
+            state=success; case "$SUMMARY" in Reused*) desc="$SUMMARY" ;; *) desc="The plan builds nothing on this head" ;; esac
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then
