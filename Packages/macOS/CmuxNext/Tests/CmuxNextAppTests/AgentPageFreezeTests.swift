@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextTabs
 import AppKit
 import Foundation
 import Testing
@@ -76,6 +77,39 @@ struct AgentPageFreezeTests {
         rig.hibernation.sync { rig.rendering.contains($0) }
         #expect(page(rig, "tab_quiet")?.frozen == false, "a shown chat stayed frozen")
         #expect(rig.hibernation.frozen.isEmpty)
+    }
+
+    /// cmux#57188: a Cloud chat started from a Mac tab shows in that tab, in place (``CloudFrontedChats``): the page is
+    /// the Cloud tab's, whose workspace is in no window, so that tab never draws. Judged by it, the page froze once it
+    /// left the screen and stayed frozen when the Mac tab showed it again: a pane that drew the chat and answered nothing,
+    /// while the chat ran on its machine. The page follows the Mac tab that draws it.
+    @Test func aCloudChatShownInPlaceThawsWhenItsMacTabShows() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.tabs.frontedChats.front(AgentTabKey(machine: "", key: "tab_mac"), with: .init(machine: "", key: "tab_cloud", workspace: "ws-cloud"))
+        rig.records["tab_cloud"] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "Cloud", session: "s-cloud", harness: "claude")
+        let view = try #require(rig.tabs.view(for: "tab_cloud"))
+        #expect(rig.hibernation.drawnTab("tab_cloud") == "tab_mac")
+
+        // The Mac tab shows the chat, then the person looks elsewhere past freezeHiddenTabs: it freezes, as any hidden chat.
+        rig.window.contentView?.addSubview(view)
+        rig.rendering.insert("tab_mac")
+        rig.hibernation.sync(["tab_mac"]) { rig.rendering.contains($0) }
+        #expect(rig.hibernation.pageDraws("tab_cloud"), "the Mac tab draws the chat, yet its page counted as hidden")
+        rig.rendering.remove("tab_mac")
+        rig.hibernation.sync(["tab_mac"]) { rig.rendering.contains($0) }
+        view.removeFromSuperview()
+        advance(rig, seconds: 31)
+        #expect(page(rig, "tab_cloud")?.frozen == true)
+
+        // The person comes back to the Mac tab: the presentation change names that tab, and the chat's page thaws.
+        rig.window.contentView?.addSubview(view)
+        rig.rendering.insert("tab_mac")
+        rig.hibernation.sync(["tab_mac"]) { rig.rendering.contains($0) }
+        #expect(page(rig, "tab_cloud")?.frozen == false, "the Mac tab showed its Cloud chat frozen: a dead pane")
+        #expect(rig.hibernation.frozen.isEmpty)
+        advance(rig, seconds: 60)
+        #expect(page(rig, "tab_cloud")?.frozen == false, "the shown Cloud chat froze again")
     }
 
     @Test func aBusyChatStaysAwakeAndAFrozenChatThawsWhenItsTurnStarts() async throws {
