@@ -243,6 +243,8 @@ _NON_RUNNING_FILES = frozenset({
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
     ".github/workflow-job-bounds.json",
+    # The always-run job list job_inputs.py reads: job names, not commands.
+    "scripts/ci/job-inputs-always.json",
 })
 
 
@@ -1028,7 +1030,7 @@ def ci_helper_areas(
                         # people run by hand, which no pull request job reaches.
                         continue
                     if runners and all(
-                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        (referrer_role(runner) == "workflow" and runner not in routed)
                         or runner.startswith("scripts/")
                         for runner in runners
                     ):
