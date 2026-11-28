@@ -160,14 +160,16 @@ pub trait AutoCloud: Send + Sync {
         ack: &InboxAck,
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
-    /// `POST /:id/keep` (owner): keep the chat in the Cloud (no handback), or stop keeping it.
+    /// `POST /:id/keep` (owner, or the machine that holds it): keep the chat in the Cloud (no
+    /// handback), or stop keeping it.
     fn keep(
         &self,
         id: &str,
         keep_in_cloud: bool,
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
 
-    /// `POST /:id/move` (owner): the person moves the chat now, to the Cloud machine or to a
+    /// `POST /:id/move` (owner, or the machine that holds it): the person, or the agent of a
+    /// chat that runs on that machine, moves the chat now, to the Cloud machine or to a
     /// laptop that stands by. The answer's `session.move` is the wish its holder reads at its
     /// next renewal ([`LeaseAnswer::move_to`]) and answers with [`give`](Self::give); the chat
     /// is kept in the Cloud (`to: cloud`) or not (`to: local`) from the same write. A parked
