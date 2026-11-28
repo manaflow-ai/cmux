@@ -23,6 +23,9 @@ use std::collections::HashMap;
 /// How often the watch looks: a pass reads two in-memory lists.
 pub(crate) const TICK: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// How long the direct probe of a silent machine may take.
+const PROBE_BOUND: std::time::Duration = std::time::Duration::from_secs(25);
+
 /// Notices one pass sends at most; the rest go next pass.
 const MAX_PER_PASS: usize = 20;
 
@@ -100,8 +103,24 @@ impl Hub {
                 "restart-intensity: a lane died {} times within {} min", n.deaths,
                 WINDOW_MS / 60_000);
         }
+        // Direct-probe guard: a row reads "its machine does not answer" when this daemon's
+        // link to the peer dropped, which a peer-token reset (the remote daemon restarted) or
+        // this machine's own load also does. One direct ssh per host per pass settles it: a
+        // machine that answers is not a death, and is asked again next pass.
+        let mut answered: HashMap<String, bool> = HashMap::new();
         for n in notices.into_iter().take(MAX_PER_PASS) {
             let Some(parent) = local.get(&n.parent).cloned() else { continue };
+            if n.dead.host_down {
+                if !answered.contains_key(&n.host) {
+                    let up = self.host_answers_directly(&n.host).await;
+                    answered.insert(n.host.clone(), up);
+                }
+                if answered[&n.host] {
+                    tracing::info!(lane = %n.key, host = %n.host,
+                        "lane death held: the machine answers a direct ssh, so its link is down, not it");
+                    continue;
+                }
+            }
             match self.lane_death_to_parent(parent, &n, now_ms).await {
                 Ok(()) => {
                     tracing::info!(lane = %n.key, host = %n.host, parent = %n.parent,
@@ -111,6 +130,27 @@ impl Hub {
                 Err(e) => tracing::warn!(lane = %n.key, parent = %n.parent,
                     "lane death notice not sent; next pass tries again: {}", e.message),
             }
+        }
+    }
+
+    /// Whether `host` (an ssh peer's name) answers `ssh HOST true` now, over a login of its own
+    /// that shares nothing with the peer's link. False for a peer that is not ssh, or on any
+    /// failure or after [`PROBE_BOUND`].
+    async fn host_answers_directly(&self, host: &str) -> bool {
+        let Some((dest, port)) = self.peer_by_name(host).and_then(|p| p.ssh_parts()) else {
+            return false;
+        };
+        let mut cmd = tokio::process::Command::new("ssh");
+        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-p", &port.to_string()])
+            .arg(&dest)
+            .arg("true")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        match tokio::time::timeout(PROBE_BOUND, cmd.status()).await {
+            Ok(Ok(status)) => status.success(),
+            _ => false,
         }
     }
 
