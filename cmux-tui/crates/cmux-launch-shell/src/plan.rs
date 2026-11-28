@@ -79,7 +79,8 @@ pub enum Reason {
     /// No record and no state of an earlier run (`launch-times.jsonl`): a first launch ever.
     FreshInstall = 1,
     NoWindows = 2,
-    /// The image's key names another build, or the record is v1 (no key).
+    /// The record is v1 (no scale, display or image key): its picture cannot be trusted. Another
+    /// build's picture is drawn (`image_for`).
     BuildDiffers = 3,
     LayoutDiffers = 4,
     ScaleDiffers = 5,
@@ -98,11 +99,13 @@ pub enum Reason {
 }
 
 impl Reason {
-    /// Stage 0 makes a window at all. Not when the real window's place cannot be known without
-    /// the services (its display changed, it was full screen, or an earlier run's session the
-    /// record never saw restores it): a window there would jump at the swap, so the launch is today's.
+    /// Stage 0 makes a window at all: only to draw the saved picture or the bare launch's Home.
+    /// Never the plain shell (an opaque fill in the saved colours over where the window will be):
+    /// it is a cover, not the window as it was (Leo, 2026-11-27: "stop putting the opaque thing
+    /// from the start"), so without a picture the real window, drawn from saved state, is the
+    /// first frame.
     pub fn shows_window(self) -> bool {
-        !matches!(self, Self::Upgrade | Self::LayoutDiffers | Self::FullScreen)
+        matches!(self, Self::Image) || self.shows_bare()
     }
 
     /// Nothing of the record is restored (a first launch ever, no window open at the last quit,
@@ -170,10 +173,11 @@ fn image_for(w: &SavedWindow, image_dir: &Path, now: &Now<'_>) -> Result<PathBuf
     if display.scale != w.backing_scale {
         return Err(Reason::ScaleDiffers);
     }
+    // Another build's picture still draws: it is how the window looked at the quit, and an
+    // update's relaunch is always another build. The real window swaps in at its own commit, drawn
+    // from saved state, so a build that draws differently corrects itself there (Leo, 2026-11-27:
+    // "it should just load fast look like as it was asap").
     let key = ImageKey::parse(&w.image_key).ok_or(Reason::ImageUnreadable)?;
-    if key.build != now.build {
-        return Err(Reason::BuildDiffers);
-    }
     if key.window_id != w.id {
         return Err(Reason::ImageUnreadable);
     }
