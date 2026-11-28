@@ -1,0 +1,95 @@
+/* The New Tab history chip (ImportHistoryChip.tsx): the composer's own tokens (screen.css), a pill as
+   tall as a composer control, centered under the composer, quiet until hovered. */
+.ih-chip-row {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--ds-space-3, 12px);
+  min-width: 0;
+}
+
+.ih-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--acpmux-composer-bg, Canvas) 70%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, color-mix(in srgb, CanvasText 14%, transparent));
+  color: var(--agent-soft, CanvasText);
+}
+
+.ih-chip-body,
+.ih-chip-close {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.ih-chip-body {
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  min-height: var(--acpmux-composer-control, 28px);
+  padding: 0 var(--ds-space-2, 8px) 0 var(--ds-space-3, 12px);
+  border-radius: 999px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+
+.ih-chip[data-state="running"] .ih-chip-body {
+  padding-right: var(--ds-space-3, 12px);
+}
+
+.ih-chip-glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--acpmux-composer-dim, currentColor);
+}
+
+.ih-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ih-chip-counts {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--acpmux-composer-dim, currentColor);
+}
+
+.ih-chip-close {
+  flex: none;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  border-radius: 999px;
+  color: var(--acpmux-composer-dim, currentColor);
+}
+
+.ih-chip-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ih-chip-body:not(:disabled):hover,
+.ih-chip-close:hover {
+  background: var(--ds-color-hover);
+  color: var(--agent-text, CanvasText);
+}
+
+.ih-chip-body:not(:disabled):hover .ih-chip-glyph {
+  color: var(--agent-text, CanvasText);
+}
+
+@container (max-width: 520px) {
+  .ih-chip-counts {
+    display: none;
+  }
+}
