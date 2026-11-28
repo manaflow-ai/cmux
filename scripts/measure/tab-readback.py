@@ -178,8 +178,18 @@ def hover(element: dict, scale: float) -> list:
     return [lkr.cua("move_cursor", {"x": round(x * s), "y": round(y * s), "scope": "desktop"}) for s in (scale,)]
 
 
+def is_unpin_control(element: dict) -> bool:
+    """A row's Unpin control, not the Edit menu's "Undo Unpin Workspace" (or Redo) item, which
+    appears right after a successful unpin and only names the action that can be undone."""
+    if str(element.get("role") or "") in ("AXMenuItem", "AXMenuBarItem"):
+        return False
+    if label_of(element).lower().startswith(("undo ", "redo ")):
+        return False
+    return "unpin" in labels(element)
+
+
 def unpin_controls(pid: int) -> list:
-    return [e for e in ax_elements(pid) if "unpin" in labels(e)]
+    return [e for e in ax_elements(pid) if is_unpin_control(e)]
 
 
 # ---------------------------------------------------------------- parts

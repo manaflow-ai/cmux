@@ -24,8 +24,11 @@ if [[ -z "$remote" ]]; then
   remote="${CMUX_CI_STEP_GIT_BASE:-https://github.com}"
   [[ "$remote" == */cmux || "$remote" == */cmux.git ]] || remote="${remote%/}/manaflow-ai/cmux.git"
 fi
+depth=()
+# Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 for sha in "$base" "$old"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --depth=1 "$remote" "$sha" || { echo "cannot fetch $sha" >&2; exit 2; }
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$remote" "$sha" || { echo "cannot fetch $sha" >&2; exit 2; }
 done
 git cat-file -e "$base^{commit}" && git cat-file -e "$old^{commit}" || exit 2
 (git submodule status ghostty-next >/dev/null 2>&1 && [[ ! -f ghostty-next/build.zig ]]) && bash scripts/ci/init-submodule.sh ghostty-next
@@ -58,5 +61,5 @@ if [[ "${LOAD:-1}" != 0 ]]; then
   busy=()
   for _ in $(seq "$(nproc)"); do (while :; do :; done) & busy+=($!); done
   for which in old new; do run "load-warm-$which" "$which"; run "load-$which" "$which"; done
-  kill "${busy[@]}" 2>/dev/null
+  kill ${busy[@]+"${busy[@]}"} 2>/dev/null
 fi

@@ -100,10 +100,22 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # pr-router.yml passes source_ref: github.sha, the merge commit the checkout above already holds, so the
+      # answer the touched step below reads from web-source is this tree's. Asking it here skips a second checkout of
+      # the same commit on a head that reaches no web bundle: 11-18 s of a 32-61 s no-op run (jobs 140780388922,
+      # 140779890347, 140779782571, 2026-11-27 22Z), the bulk of this job's 1030.7 runner-min in 19-22Z.
+      - name: Does this change reach a web bundle (checkout is the source)
+        id: touched-early
+        if: github.event_name == 'pull_request' && inputs.source_ref != '' && inputs.source_ref == github.sha && !inputs.force_web
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then
+            python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          fi
+
       # Keep the current transport/manifest code at the workspace root when building an older base.
       # The source tree owns the bundler and source-key inputs; it need not contain this newer CI helper.
       - name: Checkout the requested bundle source
-        if: inputs.source_ref != ''
+        if: inputs.source_ref != '' && steps.touched-early.outputs.web != 'false'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
@@ -135,8 +147,11 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FORCE_WEB: ${{ inputs.force_web }}
+          EARLY: ${{ steps.touched-early.outputs.web }}
         run: |
-          if [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git -C "$WEB_SOURCE_ROOT" rev-parse -q --verify HEAD^2 >/dev/null; then
+          if [ -n "$EARLY" ]; then
+            echo "web=$EARLY" >> "$GITHUB_OUTPUT"
+          elif [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git -C "$WEB_SOURCE_ROOT" rev-parse -q --verify HEAD^2 >/dev/null; then
             python3 -I scripts/ci/compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD >> "$GITHUB_OUTPUT"
           else
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
