@@ -4,8 +4,9 @@
 //! `ladder[min(n - 1, len - 1)]`, and after it the model waits
 //! `backoff[min(n - 1, len - 1)]` for the part's signal before the next step.
 //! At most [`MAX_REPAIRS`] attempts per part in [`REPAIR_WINDOW_MS`]; the
-//! next one due past the cap makes the part `failed` instead, until the
-//! window lets its oldest attempt go and the part tries again by itself.
+//! next one due past the cap makes the part `failed` once the episode has
+//! lasted at least [`FAILURE_MIN_MS`], until the window lets its oldest attempt go and the
+//! part tries again by itself.
 
 use crate::RepairAction;
 
@@ -107,6 +108,9 @@ pub const PAGE_BOOT_MS: u64 = 30_000;
 pub const PAGE_LOAD_MS: u64 = PAGE_SHARED_STALL_MS;
 pub const MAX_REPAIRS: u32 = 3;
 pub const REPAIR_WINDOW_MS: u64 = 600_000;
+/// Minimum stuck episode before exhausted automatic repairs ask for user action.
+/// Fast failed attempts still run immediately; brief recovery remains quiet.
+pub const FAILURE_MIN_MS: u64 = 10_000;
 
 /// Receipts the snapshot keeps (newest first).
 pub const RECEIPTS: usize = 64;
