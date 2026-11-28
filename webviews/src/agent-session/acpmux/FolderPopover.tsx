@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { BranchGlyph } from "./BranchGlyph";
 import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { useLocationShortcut } from "./composerControls";
 import { MenuFolderIcon, PlusIcon } from "./ComposerPickers";
@@ -904,27 +905,9 @@ function CheckIcon() {
   );
 }
 
+/// The folder picker's branch glyph: the same ChatGPT/Claude one the composer draws (BranchGlyph.tsx).
 function BranchIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="4.5" cy="3.5" r="1.5" />
-      <circle cx="4.5" cy="12.5" r="1.5" />
-      <circle cx="11.5" cy="5.5" r="1.5" />
-      <path d="M4.5 5v6M11.5 7c0 2.5-2 3-7 4" />
-    </svg>
-  );
+  return <BranchGlyph className="acpmux-icon" size={12} />;
 }
 
 function ChevronRightIcon() {
