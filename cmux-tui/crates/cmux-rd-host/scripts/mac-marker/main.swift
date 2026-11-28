@@ -204,7 +204,10 @@ if let motion {
 }
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
-log("refresh-hz \(screen.maximumFramesPerSecond)")
+// The screen's top rate and the current mode's rate: the composite waits one refresh, so a
+// 30 Hz mode doubles the Screen stage. screen-share-vs.py records both on every row.
+let modeHz = CGDisplayCopyDisplayMode(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID())?.refreshRate ?? 0
+log("refresh-hz \(screen.maximumFramesPerSecond) mode-hz \(Int(modeHz.rounded()))")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above every app window, so test clicks land only on the marker.
