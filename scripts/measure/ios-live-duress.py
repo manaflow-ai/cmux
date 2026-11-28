@@ -21,6 +21,12 @@ harness (scripts/measure/ios-live-code.py, the same edits and the same pixel che
 
 The harness and the probe are read from the slot's own checkout at --ref, so --ref must carry them
 (the live Swift engine, cmux#45397); this script and host.sh run from the reviewed commit. Load is one `yes` per core. Prints JSON lines; the last is the summary.
+
+Before you spend a Mac on it, compile --ref on Linux the way this run builds it:
+  cmux-ci compile-check --ref SHA --ios-linux --package CmuxLiveCode
+--ios-linux is the iOS app's DEBUG simulator build, the only one that compiles the live engine for iOS (its
+sources are #if DEBUG on iOS). `--app` builds the macOS app and missed an engine compile error that then failed a
+Mac run at its live build (step 77d99f13, cmux#63182).
 """
 import argparse
 import json
