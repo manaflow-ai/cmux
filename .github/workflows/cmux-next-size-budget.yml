@@ -262,8 +262,6 @@ jobs:
       # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
       - name: The base's published web bundles
         id: published
-        env:
-          CMUX_WEB_NODE_VERSION: "24.22.1"
         run: |
           set -euo pipefail
           key="$(python3 -I scripts/cmux-next/web-bundle-key.py . --source)"
@@ -351,8 +349,6 @@ jobs:
       # head has already been built by the base push or another workflow.
       - name: Source key of the web bundles
         id: web-bundle-key
-        env:
-          CMUX_WEB_NODE_VERSION: "24.22.1"
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Validate the producer source key

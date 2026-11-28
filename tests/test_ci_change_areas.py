@@ -3555,6 +3555,12 @@ def _assert_setup_node_reads_a_pin_file(workflows: Path, minimum: int = 100) -> 
         text = workflow_path.read_text(encoding="utf-8")
         jobs = yaml.safe_load(text).get("jobs") or {}
         for number, line in enumerate(text.splitlines(), 1):
+            # web-bundle-key.py's toolchain_identity takes CMUX_WEB_NODE_VERSION ahead of .node-version: a
+            # workflow that types it keys bundles on a second copy of the pin, stale after the next bump.
+            assert not re.match(r"^\s+CMUX_WEB_NODE_VERSION:", line), (
+                f"{rel}:{number} sets CMUX_WEB_NODE_VERSION; web-bundle-key.py reads the tree's .node-version, "
+                "so drop the override"
+            )
             literal = re.match(r"^\s+node-version:\s*(.*)$", line)
             if not literal:
                 continue
@@ -3720,6 +3726,19 @@ def test_setup_node_fails_on_a_pin_its_checkouts_cannot_have() -> None:
                 assert "cannot contain it" in str(error) or "may predate it" in str(error), (name, str(error))
             assert passed == ok, f"{name}: the pin check {'failed' if ok else 'passed'}"
 
+
+
+def test_pin_check_rejects_a_typed_web_node_version() -> None:
+    workflow = {"on": "push", "env": {"CMUX_WEB_NODE_VERSION": "24.22.1"},
+                "jobs": {"j": {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]}}}
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "typed.yml").write_text(yaml.safe_dump(workflow), encoding="utf-8")
+        try:
+            _assert_setup_node_reads_a_pin_file(Path(tmp), minimum=0)
+        except AssertionError as error:
+            assert "sets CMUX_WEB_NODE_VERSION" in str(error), str(error)
+        else:
+            raise AssertionError("a hand-typed CMUX_WEB_NODE_VERSION passed the pin check")
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)

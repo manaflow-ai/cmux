@@ -440,8 +440,6 @@ jobs:
       - name: Source key of the web bundles
         id: web-bundle-key
         if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
-        env:
-          CMUX_WEB_NODE_VERSION: "24.22.1"
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
       - name: Validate the producer source key
         if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
