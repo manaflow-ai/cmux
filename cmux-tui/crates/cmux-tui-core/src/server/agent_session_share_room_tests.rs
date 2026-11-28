@@ -2400,7 +2400,13 @@ fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     assert_eq!(told.len(), 1, "one notification for a new request");
     assert_eq!(told[0].title, "Sam Park asks to join this chat");
     assert_eq!(told[0].body, "sam@example.com · Open Share to approve or decline.");
-    assert_eq!(told[0].surface, Some(surface), "it opens the shared chat");
+    assert_eq!(
+        told[0].surface,
+        Some(surface),
+        "it opens the shared chat: {told:?} tab_session={:?} terminal={:?}",
+        crate::server::agent_session_attach::tab_session(&mux, surface),
+        mux.surface(surface).and_then(|s| s.terminal_public_id().cloned())
+    );
     room.send(request("r1b", Some("sam@example.com")));
     assert_eq!(room.frame(conn)["state"], "requested");
     assert_eq!(asks(&mux).len(), 1, "a repeat ask is not told again");
