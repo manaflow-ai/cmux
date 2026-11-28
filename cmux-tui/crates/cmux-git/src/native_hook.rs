@@ -69,6 +69,29 @@ pub fn wait(source: &str, event: &str, native: &Value, timeout: Duration) -> io:
     Ok(())
 }
 
+/// What a readiness check within its budget decided ([`check`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Readiness {
+    /// No marker, or every marker says ready: the tool may run.
+    Ready,
+    /// A marker says its sync still runs or failed (or the check failed otherwise): deny.
+    NotReady(String),
+    /// The budget ran out on a lock wait before any marker said anything: nothing is known
+    /// to be syncing, so the caller lets the tool run rather than drop it.
+    Undecided(String),
+}
+
+/// [`wait`], read as a [`Readiness`].
+pub fn check(source: &str, event: &str, native: &Value, timeout: Duration) -> Readiness {
+    match wait(source, event, native, timeout) {
+        Ok(()) => Readiness::Ready,
+        Err(error) if crate::sync_barrier::lock_wait_elapsed(&error) => {
+            Readiness::Undecided(error.to_string())
+        }
+        Err(error) => Readiness::NotReady(error.to_string()),
+    }
+}
+
 /// The leading components of a glob pattern that hold no glob character: `docs/cloud/*.md`
 /// gives `docs/cloud`, `**/x` nothing. A pattern with none is a path itself.
 fn literal_folders(pattern: &str) -> PathBuf {

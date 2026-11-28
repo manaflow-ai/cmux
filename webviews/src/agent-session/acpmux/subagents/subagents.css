@@ -2940,18 +2940,18 @@ button.cv-subagent > :last-child {
   height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
 }
 
-/* The `line` header (trayFoldHead.experiment.ts, the default): one muted sentence flush on the
-   composer, "10 subagents working, 2 background commands running", in the transcript's metadata
-   style, as Claude Code's (Leo, 2026-11-25: "there's tons of unnecessary space to the point where it's
-   just... not great"). Folded it is only that line: no glass, no rim, no marks, time or chevron, and
-   one line of height. Hovered or pressed, the words take the accent on a small rounded chip. Open, the
-   tray keeps its card and its list, the line heading it. */
-.acpmux-running-tray[data-line] {
-  --acpmux-tray-head-height: calc(var(--ui-row-height, 28px) - var(--ds-space-2, 8px));
-}
+/* The `line` header (trayFoldHead.experiment.ts, the default): one plain sentence, "10 subagents
+   working, 2 background commands running" (Leo, 2026-11-25: "there's tons of unnecessary space to the
+   point where it's just... not great"), on the hat's own card, joined to the composer as the other
+   headers are (Leo, 2026-11-27: "add the opaque backing to it again with proper size"). The header is
+   the composer's row height, as every other hat header, and the words are the chat's text size, the
+   prompt's and the replies' (--text-content), never a smaller metadata step. No marks, time or chevron;
+   hovered or open, the words go from muted to the text's ink and nothing else: no accent, no chip
+   (Leo, 2026-11-27, ask-b6fc7a81c2: "dont put this garish blue in man we dont need it to be blue or
+   highlighted"). Keyboard focus keeps the focus ring, the one place the accent belongs (D3). A tray
+   with no card (a surface arm of `none`, settled) keeps the bare line. */
 .acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
   min-height: 0;
-  padding-block: var(--grid-half-step);
   background: transparent;
   box-shadow: none;
 }
@@ -2968,15 +2968,53 @@ button.cv-subagent > :last-child {
   padding: calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
   border-radius: var(--ds-radius-control, 6px);
   color: var(--agent-muted);
-  font-size: var(--cv-font-size);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
     background-color var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
   > .acpmux-running-tray__title {
-  color: var(--agent-link, var(--agent-accent));
-  background: var(--agent-control-hover);
+  color: var(--agent-text);
+  background: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible {
+  outline: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible > .acpmux-running-tray__title {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* The line header has no chevron column, so its panel button lies over its own slot at the row's end,
+   not one chevron in from it on top of the deck's "+12 more" (Leo, 2026-11-27, ask-b6fc7a81c2:
+   "overlapping text here what do we doooo"). The slot's right edge is the inset plus the slot's
+   margin (`.acpmux-running-tray__open-slot` above: the tray gap less the header's 8px). */
+.acpmux-running-tray[data-line] > .acpmux-running-tray__open {
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-gap) - var(--ds-space-2));
 }
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;
+}
+
+/* The one line's bar holds still (coordinator's design pass, 2026-11-27, after Leo asked whether it
+   should grow and shrink): the composer's full width and one row tall, whatever it says. Its width
+   never follows its words, its digits are tabular so "10 subagents working, 16 background commands
+   running" keeps its width as a count ticks, and its words never wrap (they truncate). The only size
+   change is coming and going: it slides in as the first subagent or background command starts and
+   out as the last one ends, in 150 ms (5/6 of the standard 180 ms). */
+.acpmux-running-tray[data-line] {
+  --acpmux-tray-enter: acpmux-tray-settle-in calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  --acpmux-tray-leave: acpmux-tray-leave calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  inline-size: auto;
+  align-self: stretch;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head {
+  inline-size: 100%;
+  overflow: hidden;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

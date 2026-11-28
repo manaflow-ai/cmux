@@ -27,6 +27,7 @@
 set -uo pipefail
 role="$1" addr="$2" token_file="$3" out="$4" legs="${5:-}"
 root="$EVAL_ROOT"
+source "$root/scripts/measure/build-progress.sh"
 vs="$root/cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py"
 port=4181
 mkdir -p "$out"
@@ -35,7 +36,8 @@ mkdir -p "$out"
 build_app() {
   local tag="stagetable" app
   git -C "$root" submodule update --init --depth 1 ghostty ghostty-next >"$out/app-build-$1.log" 2>&1 || return 1
-  (cd "$root" && CMUX_NEXT_REQUIRE_CEF=0 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag") >>"$out/app-build-$1.log" 2>&1 || return 1
+  measure_quiet "stage-table app build $1" "$out/app-build-$1.log" \
+    bash -c 'cd "$1" && CMUX_NEXT_REQUIRE_CEF=0 CMUX_DEV_BACKEND_MODE=local exec ./scripts/reload.sh --tag "$2"' _ "$root" "$tag" || return 1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/app-build-$1.log" | tail -n 1)"
   [[ -n "$app" && -d "$app" ]] || return 1
   printf '%s\n' "$app"

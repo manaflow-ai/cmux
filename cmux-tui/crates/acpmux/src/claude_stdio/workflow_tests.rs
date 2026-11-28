@@ -442,6 +442,7 @@ async fn a_workflows_args_go_out_only_as_a_digest() {
 #[test]
 fn workflow_agents_reach_clients_in_the_subagent_model() {
     let mut tree = SubagentTree::default();
+    tree.set_clock(5_000);
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_w", "name": "Workflow", "task": "Workflow"}});
     tree.annotate(&mut spawn);
@@ -452,6 +453,7 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "Workflow", "task": "Workflow", "runId": "wf_4fe",
+            "startedAt": 5_000,
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
@@ -531,6 +533,7 @@ async fn a_background_agent_reports_its_progress() {
 #[test]
 fn progress_reaches_clients_in_the_subagent_model() {
     let mut tree = SubagentTree::default();
+    tree.set_clock(5_000);
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_w", "name": "Workflow", "task": "Workflow",
         "_meta": {"claude": {"subagentType": "workflow", "toolUseId": "toolu_w"}}}});
@@ -542,19 +545,22 @@ fn progress_reaches_clients_in_the_subagent_model() {
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
         json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "task": "Workflow", "tokens": 19738,
-            "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2", "agents": {"done": 1, "started": 3}}])
+            "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2", "agents": {"done": 1, "started": 3},
+            "startedAt": 5_000}])
     );
 }
 
 #[test]
 fn a_background_subagent_reaches_clients_marked_background() {
     let mut tree = SubagentTree::default();
+    tree.set_clock(5_000);
     let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
         "subagentSessionId": "acp-1/toolu_b", "name": "Watch", "task": "Watch", "background": true}});
     tree.annotate(&mut spawn);
     assert_eq!(
         spawn["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_b", "parent": null, "name": "Watch", "task": "Watch", "state": "running", "background": true}])
+        json!([{"id": "acp-1/toolu_b", "parent": null, "name": "Watch", "task": "Watch", "state": "running", "background": true,
+            "startedAt": 5_000}])
     );
     let mut moved = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
         "subagentSessionId": "acp-1/toolu_f", "background": true}});

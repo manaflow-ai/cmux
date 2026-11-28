@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -114,6 +114,7 @@ import type { PathRef } from "../diff";
 import type { BtwNotes } from "../aside/btwNotes";
 import type { PaneSurface } from "../paneSurface";
 import type { StartingSends } from "../startingSends";
+import { untilLinked, type OfflineSends } from "../offlineSends";
 import type { HeaderMoveTarget } from "../header/headerState";
 import type { Project } from "../ProjectChooser";
 import type { ExtraFolderDraft } from "../extraFolders";
@@ -354,6 +355,7 @@ export type PaneComposerDeps = {
   pickedProject: React.RefObject<string | undefined>;
   remoteChat: boolean;
   startingSends: StartingSends;
+  offlineSends: OfflineSends;
   individualPermission: AcpmuxPermission | undefined;
   promptLanded: React.RefObject<() => void>;
   cancelOpenInWindow: () => void;
@@ -597,6 +599,7 @@ export function drawPaneComposer({
   pickedProject,
   remoteChat,
   startingSends,
+  offlineSends,
   individualPermission,
   promptLanded,
   cancelOpenInWindow,
@@ -1160,7 +1163,21 @@ export function drawPaneComposer({
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682), before it can go to the pane's queue.
               if (waitsInPane && holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
-              if (waitsInPane && !window.cmuxAcpmuxActions?.["chat.send"]) return sendInTurn();
+              // While the link is down, one with nothing going ahead of it (no new chat's prompts, no
+              // direct send acpmux has not taken) is kept on disk and goes in order when the link is
+              // back (offlineSends.ts); one behind those waits in the pane's queue (`sendInTurn`).
+              if (waitsInPane && !window.cmuxAcpmuxActions?.["chat.send"]) {
+                if (snapshot.sessionId && !startingSends.busy && paneSends.direct === 0) {
+                  offlineSends.add(
+                    snapshot.sessionId,
+                    text,
+                    shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                    gesture?.promptId,
+                  );
+                  return true;
+                }
+                return sendInTurn();
+              }
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
               if (autoSendGate.holds()) return false;
@@ -1208,6 +1225,7 @@ export function drawPaneComposer({
                       composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
+                      machinePick !== undefined,
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
@@ -1252,23 +1270,38 @@ export function drawPaneComposer({
                 cloudRecovery.resume();
                 return true;
               }
-              // Until acpmux connects nothing takes a prompt. One to this pane's own open chat, which
-              // nothing else takes first (a held fork, the folder's trust), shows as sent now and goes
-              // in its turn once the page connects (sendWhenReady.ts `untilAcpmuxTakesSends`; Leo,
-              // 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS"); any other stays in
-              // the composer.
+              // No link to acpmux (the page still loads, a reconnect, a daemon restart): Send still
+              // takes the prompt (Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS";
+              // 2026-11-22: "JUST LET ME SEND"). One to this pane's own open chat, which nothing else
+              // takes first (a held fork, the folder's trust), shows at once as its pending row, is kept
+              // on disk and goes once, in order, when the link is back (offlineSends.ts); one sent while
+              // earlier ones still wait goes after them. One sent while a new chat's prompts still go
+              // waits behind them (`waitsToConnect`, sendWhenReady.ts `untilAcpmuxTakesSends`). Any
+              // other (a held fork, a trust hold, a new chat's start) waits for the link where it goes
+              // (`untilLinked`), its prompt already drawn.
               const connecting = !window.cmuxAcpmuxActions?.["chat.send"];
-              const waitsToConnect =
-                connecting &&
+              const ownOpenChat =
+                snapshot.sessionId &&
                 !paneSends.noAcpmux &&
-                Boolean(snapshot.sessionId) &&
                 surfaceRef.current !== "quick" &&
                 !projectDraft &&
                 !snapshot.summary?.watching &&
                 !heldFork(snapshot.sessionId) &&
                 !trustHolds &&
-                !trustHeld.pending();
-              if (connecting && !waitsToConnect) return false;
+                !trustHeld.pending()
+                  ? snapshot.sessionId
+                  : undefined;
+              const offlineChat = ownOpenChat && !startingSends.busy ? ownOpenChat : undefined;
+              if (offlineChat && (connecting || offlineSends.pending(offlineChat))) {
+                offlineSends.add(
+                  offlineChat,
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  gesture?.promptId,
+                );
+                return true;
+              }
+              const waitsToConnect = connecting && Boolean(ownOpenChat);
               // An installed harness mention is a read-only guest request. Keep the normal send
               // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
               // known mention outside code gets one inline guest note at the transcript tail.
@@ -1318,13 +1351,16 @@ export function drawPaneComposer({
                 // message goes to the chat as it is rather than failing each send.
                 if (!switchForks(snapshot)) clearHeldFork(snapshot.sessionId);
                 const forked = sendHeldFork(snapshot.sessionId, {
+                  // While the pane reconnects the fork waits for the link, never refused for it.
                   fork: (params) =>
-                    callNative<string>("chat.switchModel", {
-                      ...params,
-                      text,
-                      attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
-                      ...(gesture ? { gesture } : {}),
-                    }),
+                    untilLinked().then(() =>
+                      callNative<string>("chat.switchModel", {
+                        ...params,
+                        text,
+                        attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                    ),
                   // The composer leaves with the chat: its prompt is not the source chat's draft now.
                   sent: (source) => writePersistedDraft(source, ""),
                 });
@@ -1347,9 +1383,11 @@ export function drawPaneComposer({
               const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
               const startedHere =
                 pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              // A newer folder pick made while this chat starts stays the next New Tab's default.
+              const sentAt = Date.now();
               const rememberStart = () => {
                 if (!startedHere) return;
-                rememberStartedProject(startedHere, callNative);
+                rememberStartedProject(startedHere, callNative, sentAt);
                 if (pickedProject.current === startedHere) pickedProject.current = undefined;
               };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
@@ -1437,6 +1475,9 @@ export function drawPaneComposer({
               // gesture is bound to, if any (`sendThrough` sends it under that).
               const promptId = gesture?.promptId ?? crypto.randomUUID();
               const send = async () => {
+                // While the pane reconnects the start and its prompt wait for the link: the prompt is
+                // drawn already (startingSends.ts), and nothing is refused for the link (offlineSends.ts).
+                await untilLinked();
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
                 // A Claude or Codex desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).

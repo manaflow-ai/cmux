@@ -18,6 +18,7 @@ fn params_name_the_range_and_the_steer_window() {
         limit: 5,
         home: None,
         assert_no_churn: false,
+        cmd: None,
     };
     let p = params(&args, 10 * 86_400_000).unwrap();
     assert_eq!(p["since"], 8 * 86_400_000u64);
@@ -47,4 +48,24 @@ fn text_shows_the_prefetch_hit_rate() {
     let t = text(&args, &a);
     assert!(t.contains("prefetch on"), "{t}");
     assert!(t.contains("prefetch.hitRate=0.75"), "{t}");
+}
+
+#[test]
+fn scorecard_replay_text_names_each_violation() {
+    let a = json!({"sessions": [{"session": "abc", "harness": "claude", "calls": 3, "inits": 1,
+        "violations": [{"invariant": 5, "name": "cacheAgrees", "seq": 9, "detail": "collapsed"}]}],
+        "missing": ["nope"], "violations": 1, "notYet": [{"invariant": 1}, {"invariant": 3}]});
+    let t = replay_text(&a);
+    assert!(t.contains("invariant 5 cacheAgrees at seq 9: collapsed"), "{t}");
+    assert!(t.contains("nope: no such session"), "{t}");
+    assert!(t.contains("1, 3 not yet"), "{t}");
+}
+
+#[test]
+fn scorecard_replay_text_preserves_unicode_session_prefix() {
+    let answer = json!({"sessions": [{"session": "abcdefghijké-more", "harness": "claude",
+        "calls": 0, "inits": 0, "violations": []}], "missing": [], "violations": 0,
+        "notYet": []});
+    let text = replay_text(&answer);
+    assert!(text.starts_with("abcdefghijké claude"), "{text}");
 }

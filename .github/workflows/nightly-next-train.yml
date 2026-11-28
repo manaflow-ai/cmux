@@ -266,7 +266,7 @@ jobs:
       contents: read
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -284,10 +284,11 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # With the Nightly's flags (-DCMUX_BLOCKING_CHECKS, -Osize), so a change only they reject stops here.
       - name: Release compile
         env:
           # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
           CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
-          scripts/cmux-next/check-release-compile.sh "$derived_data"
+          scripts/cmux-next/check-release-compile.sh --nightly "$derived_data"

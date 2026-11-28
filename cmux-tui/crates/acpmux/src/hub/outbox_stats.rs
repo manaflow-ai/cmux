@@ -31,6 +31,7 @@ pub(crate) const SAVE_EVERY_MS: u64 = 10_000;
 
 /// The failure classes a failed delivery is counted under: a bounded set, so the file and the
 /// status stay small whatever the errors say.
+#[cfg(test)]
 pub(crate) const CLASSES: &[&str] = &[
     "unknown_recipient",
     "no_session",

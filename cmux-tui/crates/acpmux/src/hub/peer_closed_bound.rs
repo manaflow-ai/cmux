@@ -113,27 +113,32 @@ impl Hub {
         }
     }
 
-    /// How many of peer `peer`'s rows held here are closed.
+    /// How many of peer `peer`'s rows held here are closed: counted as rows are written
+    /// (`RemoteRows::closed_of_peer`), not a walk of every row of the peer.
     fn held_closed_peer_rows(&self, peer: &str) -> usize {
-        self.remote_sessions.read().of_peer(peer).filter(|(_, row)| row.summary.closed()).count()
+        self.remote_sessions.read().closed_of_peer(peer)
     }
 
     /// Drops peer `peer`'s closed rows past the bound, while `generation` is the instance
     /// registered under that name, and tells watchers they went. Called when one of its rows
     /// closes: that is the only change that can add a closed row, so the bound holds between
     /// whole lists too.
+    ///
+    /// The peer's closed rows are counted and read from their own index
+    /// (`RemoteRows::closed_of_peer`): a peer under the bound costs no lock, and one past it the
+    /// rows past it. Before, each row that closed walked every row of its peer (2,000 of a goal's
+    /// attached chats) under the rows writer lock (cosmic-gray, 2026-11-27).
     pub(super) fn trim_closed_peer_rows(&self, peer: &str, generation: u64) {
+        if self.held_closed_peer_rows(peer) <= CLOSED_KEPT {
+            return;
+        }
         let gone = {
             // The rows writer lock, then the registry with no lock (`peer_table.rs`).
             let mut map = self.remote_sessions.write();
             let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
                 return;
             };
-            let past = past_bound(map.of_peer(peer).map(|(key, row)| Closed {
-                key: key.clone(),
-                closed: row.summary.closed(),
-                updated: row.summary.updated_ms(),
-            }));
+            let past = map.closed_of_peer_past(peer, CLOSED_KEPT);
             if past.is_empty() {
                 return;
             }

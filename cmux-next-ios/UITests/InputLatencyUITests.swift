@@ -74,9 +74,9 @@ final class InputLatencyUITests: XCTestCase {
         app.launch()
         open(Self.chatWorkspace, in: app)
         let field = app.textViews["chat.composer.field"]
-        // A chat that opens on a question card folds the composer into "Reply to Claude"
+        // A chat that opens on a question card folds the composer into "Reply to <chat>"
         // (ComposerGrowUpUITests): that button's tap opens the field.
-        let reply = app.buttons["Reply to Claude"].firstMatch
+        let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
         let deadline = Date().addingTimeInterval(30)
         while !field.exists, !reply.exists, Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
@@ -90,7 +90,7 @@ final class InputLatencyUITests: XCTestCase {
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the chat's Send button\n\(app.debugDescription)")
             send.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(1))
-            // The running turn folds the composer back into "Reply to Claude"; a tap
+            // The running turn folds the composer back into "Reply to <chat>"; a tap
             // during that fold can land on the closing button, so tap until it opens.
             let reopen = Date().addingTimeInterval(10)
             while !field.exists, Date() < reopen {

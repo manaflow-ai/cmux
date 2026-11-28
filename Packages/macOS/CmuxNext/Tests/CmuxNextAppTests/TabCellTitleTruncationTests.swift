@@ -1,4 +1,6 @@
 import Testing
+import Foundation
+import CoreGraphics
 import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextTabs

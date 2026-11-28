@@ -14,6 +14,9 @@
 use super::remote_rows::RemoteRows;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+/// Takings of any table's writer lock that found it held ([`RemoteTable::contended`]).
+static CONTENDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Default)]
 pub(crate) struct RemoteTable {
     /// One writer at a time; also the ordering fence.
@@ -67,8 +70,30 @@ impl RemoteTable {
     /// The writer lock with no change: waits for writers in flight (each has published when it
     /// returns) and keeps others out while held. For a step ordered against row writes that
     /// changes no row (a peer registered, a purge tombstone retired, a capture kept).
+    ///
+    /// A taken lock is waited for off the runtime's worker ([`crate::qos::off_worker`]): the
+    /// worker hands its other tasks on first. Waited for in place, each of ~200 peers' notice
+    /// loops parked a worker on this mutex while a holder sat preempted (cosmic-gray,
+    /// 2026-11-27: load 187 on 15 CPUs, "std mutex held long" on this lock 1646 times), and with
+    /// every worker parked nothing else ran: `acpmux session inbox` hung 60 s and prompt
+    /// admission leases lapsed. A free lock is taken in place, as before.
     pub(crate) fn fence(&self) -> MutexGuard<'_, ()> {
-        self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+        match self.writer.try_lock() {
+            Ok(lock) => lock,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                CONTENDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::qos::off_worker(|| {
+                    self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+                })
+            }
+        }
+    }
+
+    /// How many takings of the writer lock found it held and waited off the worker, since
+    /// start (a gauge for `daemon status`-style reads and the tests).
+    pub(crate) fn contended() -> u64 {
+        CONTENDED.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -89,7 +114,76 @@ pub(crate) struct WriteGuard<'a> {
 impl<'a> WriteGuard<'a> {
     fn new(table: &'a RemoteTable, writer: MutexGuard<'a, ()>) -> Self {
         let rows = RemoteRows::clone(&table.current.load());
+        under_writer::enter();
         Self { table, rows, _writer: writer, replaced: None, held: None }
+    }
+}
+
+/// The work a thread does while it holds the rows writer lock, counted in tests: each row of a
+/// peer it walks (`RemoteRows::of_peer`) and each row it builds from JSON (`PeerRow::new`). A
+/// peer's refresh (an idle close, a drop, a row that closes, a restart's saved rows) must build
+/// its rows before the lock and walk none of them under it: every other peer's notices wait on
+/// this lock (cosmic-gray, 2026-11-27: held 53 to 181 ms at each of those four writers, the
+/// daemon at 94% CPU). A no-op outside tests.
+pub(crate) mod under_writer {
+    #[cfg(test)]
+    thread_local! {
+        static HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static HOLDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        static WALKED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        static BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+
+    #[inline]
+    pub(crate) fn enter() {
+        #[cfg(test)]
+        {
+            HELD.with(|h| h.set(h.get() + 1));
+            HOLDS.with(|h| h.set(h.get() + 1));
+        }
+    }
+
+    #[inline]
+    pub(crate) fn leave() {
+        #[cfg(test)]
+        HELD.with(|h| h.set(h.get().saturating_sub(1)));
+    }
+
+    /// One of a peer's rows walked.
+    #[inline]
+    pub(crate) fn walked() {
+        #[cfg(test)]
+        if HELD.with(std::cell::Cell::get) > 0 {
+            WALKED.with(|w| w.set(w.get() + 1));
+        }
+    }
+
+    /// One row built from JSON.
+    #[inline]
+    pub(crate) fn built() {
+        #[cfg(test)]
+        if HELD.with(std::cell::Cell::get) > 0 {
+            BUILT.with(|b| b.set(b.get() + 1));
+        }
+    }
+
+    /// What this thread did under the writer lock since the last call: how many times it took
+    /// it, and the rows it walked and built while holding it.
+    #[cfg(test)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct Cost {
+        pub(crate) holds: u64,
+        pub(crate) walked: u64,
+        pub(crate) built: u64,
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take() -> Cost {
+        Cost {
+            holds: HOLDS.with(|h| h.replace(0)),
+            walked: WALKED.with(|w| w.replace(0)),
+            built: BUILT.with(|b| b.replace(0)),
+        }
     }
 }
 
@@ -110,6 +204,7 @@ impl Drop for WriteGuard<'_> {
     /// Publishes while the writer lock is still held (fields drop after this body), so the next
     /// writer starts from this table and no write is lost.
     fn drop(&mut self) {
+        under_writer::leave();
         self.replaced = Some(self.table.current.swap(Arc::new(std::mem::take(&mut self.rows))));
     }
 }

@@ -62,7 +62,7 @@ import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantDeletedVm, tenantOwnsMesh, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
+import { CREATE_QUEUE_FULL, UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
 import { audited, auditableVmId, dependencyDown, withCaller, withOwnedVm } from "./common.ts";
 import { meshEnabledFor } from "./mesh.ts";
 
@@ -82,10 +82,14 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   const refused = finalCreateRefusal(error.operation);
   if (refused !== undefined)
     return new Conflict({ message: `This VM creation's record refuses this attempt (${refused}); retrying this Idempotency-Key never creates it`, code: "creation.intent_refused" });
+  // The provider create queue had no slot within the create's budget (limits/create-admission.ts): nothing was sent,
+  // and the same key's retry is welcome. Named, so the platform's line says why instead of "(no response)".
+  if (error.operation === CREATE_QUEUE_FULL) return unavailable(`vm-provider.${CREATE_QUEUE_FULL}`);
   // The source snapshot expired upstream after it was recorded.
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
+  if (error.kind === "capacity_overloaded") return unavailable(error);
   if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" });
   return unavailable(error);
 };
@@ -124,6 +128,8 @@ interface NewVm {
   readonly maxRunSeconds: number | undefined;
   readonly autoDeleteSeconds: number | undefined;
   readonly size: SizeRequest | undefined;
+  /** `x-cmux-create-priority: background`: a create no one is waiting on (a spare), queued behind everyone else's. */
+  readonly background?: boolean;
 }
 
 /**
@@ -197,7 +203,7 @@ const createRecorded = <C, S, M = never>(
     // Where this create's time goes, logged once as vm_create when it reached the provider (success or failure).
     const phases: TimedPhases = {};
     return yield* createRecordedTimed(caller, spec, proofs, attempt, phases).pipe(
-      Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "createMs" in phases
+      Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "admitWaitMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
             totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
@@ -212,7 +218,9 @@ const createRecorded = <C, S, M = never>(
  * createMs when the VM was recovered, resizeMs without a grow: the VM booted at the size asked). `imageVariant` says
  * which snapshot of an approved image booted: "large" (the one baked at the size asked), "base", or "unlisted" (a retry
  * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
- * bigger than was asked and was refused.
+ * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
+ * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
+ * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -224,6 +232,11 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   verifyImageMs: phases["verifyImageMs"] ?? null,
   imageVariant: phases["imageVariant"] ?? null,
   oversized: phases["oversized"] ?? false,
+  ...("admitWaitMs" in phases ? {
+    admitWaitMs: phases["admitWaitMs"], admitQueueMs: phases["admitQueueMs"] ?? null,
+    admitInFlight: phases["admitInFlight"] ?? null, admitQueued: phases["admitQueued"] ?? null,
+    ...(phases["admission"] === undefined ? {} : { admission: phases["admission"], admitRetryAfterMs: phases["admitRetryAfterMs"] ?? null }),
+  } : {}),
   createMs: phases["createMs"] ?? null,
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
@@ -321,6 +334,7 @@ const createRecordedTimed = <C, S, M>(
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
           ...(caller.value.actor.kind === "service" && policy.createsWithoutReads(caller.value.actor.serviceId) ? { withoutReads: true } : {}),
+          ...(spec.background === true ? { background: true } : {}),
           journal,
           phases,
         },
@@ -405,7 +419,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 /**
  * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
- * create whose send began (its intent is `creating`, not rejected) may exist upstream unrecorded, so the slot stays, naming the
+ * create whose send began (its intent is `creating`, dispatch `sent`) may exist upstream unrecorded, so the slot stays, naming the
  * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
  * gives the slot back. Best effort: a slot left unsettled
  * lapses on its own, after the longest create.
@@ -416,16 +430,18 @@ const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agen
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
+    // Only a send that began (dispatch `sent`, or a legacy intent with no receipt) may have made a VM. A send the
+    // provider definitely rejected (400/429), or one that never left `ready` (the create queue refused it, 503
+    // vm-provider.createQueueFull, or the fence or image read failed first), made nothing: its slot goes back.
     const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
-      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
+      : progress?.phase === "creating" && (progress.dispatch === undefined || progress.dispatch.state === "sent") ? { held: key, vmId: progress.vmId }
       : "released" as const;
     return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
   }).pipe(Effect.ignore);
 
 /**
  * A resumed agent create: one that recorded its VM binds the slot its first attempt held to that VM; one whose send
- * the provider definitely rejected made nothing, so that held slot goes back.
+ * the provider definitely rejected, or that never sent, made nothing, so that held slot goes back.
  */
 const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
   Effect.gen(function* () {
@@ -433,7 +449,7 @@ const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: E
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.bindAgentCreation(tenantId, agentSlotOwner(caller.value), key, exit.value.id);
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    if (progress?.phase === "creating" && progress.dispatch?.state === "rejected") yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
+    if (progress?.phase === "creating" && (progress.dispatch?.state === "rejected" || progress.dispatch?.state === "ready")) yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
   }).pipe(Effect.ignore);
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
@@ -511,7 +527,7 @@ const withMeshToJoin = <C, A, E, R>(
     );
   });
 
-const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
+const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined, background = false) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.flatMap(Clock.currentTimeMillis, (entered) =>
     Effect.gen(function* () {
@@ -556,6 +572,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
         maxRunSeconds: payload.maxRunSeconds,
         autoDeleteSeconds: payload.autoDeleteSeconds,
         size: payload.resources,
+        ...(background ? { background: true } : {}),
       };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "create", payload) : undefined;
@@ -577,8 +594,9 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
-            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
-            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
+            // A retry of a send the provider rejected, or of one that never sent (its slot went back), allocates afresh,
+            // so an agent key is admitted again, atomically.
+            const rejectedRetry = prior?.phase === "creating" && (prior.dispatch?.state === "rejected" || prior.dispatch?.state === "ready");
             if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
@@ -912,7 +930,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       ),
     )
     .handle("createVm", ({ payload, headers }) =>
-      audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
+      audited("vm.create", null, createVm(payload, headers["idempotency-key"], headers["x-cmux-create-priority"] === "background"), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
     .handle("resizeVm", ({ path, payload, headers }) =>

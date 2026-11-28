@@ -16,7 +16,7 @@ export const trayFoldHeadLook = defineExperiment({
     line: {
       label: "One line: what runs, in plain words",
       description:
-        "One muted line, as Claude Code's: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
+        "One muted line on the hat's card, at the composer's row height and the chat's text size: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
     },
     groups: {
       label: "Groups: subagents and background, in words that shrink",

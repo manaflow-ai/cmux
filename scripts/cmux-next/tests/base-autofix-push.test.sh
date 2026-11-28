@@ -73,6 +73,26 @@ lane_push source.txt "moved before parity"
 STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
 [[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
 
+# A candidate failing only tests the tip already fails is no worse than the tip: it lands
+# (the CI target graph was refused for hours behind the tip's own stale action exports, job 137598172367).
+setup
+lane_push source.txt "tip already fails parity"
+tip_red="$(remote_tip)"
+printf '%s action_list_export_matches\n* english_catalog_equals_the_swift_dump\n' "$tip_red" > "$tmp/parity-fails"
+STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1 || fail "a repair failing only the tip's own parity tests was refused: $(cat "$tmp/out")"
+[[ "$(remote_show "$gen")" == repaired ]] || fail "the repair did not land on a tip that already fails parity"
+grep -q 'adds no failure' "$tmp/out" || fail "the landing does not say the tip fails parity too"
+[[ -z "$(git -C "$tmp/bot" worktree list --porcelain | grep -c '^worktree ' | grep -vx 1)" ]] || fail "the tip's parity checkout was left behind"
+# A test that passes at the tip and fails on the candidate still refuses.
+setup
+lane_push source.txt "tip passes one parity test"
+tip_red="$(remote_tip)"
+printf '!%s english_catalog_equals_the_swift_dump\n* action_list_export_matches\n' "$tip_red" > "$tmp/parity-fails"
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1; then fail "a repair breaking a parity test the tip passes was pushed"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "a repair breaking a parity test the tip passes moved the remote"
+grep -q 'passing at the tip.*english_catalog_equals_the_swift_dump' "$tmp/out" || fail "the refusal does not name the newly failing test: $(cat "$tmp/out")"
+
 setup
 lane_push source.txt "moved before failed parity"
 before="$(remote_tip)"
