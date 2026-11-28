@@ -297,6 +297,7 @@ dependencies = [
  "plist",
  "serde",
  "serde_json",
+ "sha2",
  "unicode-segmentation",
 ]
 
@@ -356,6 +357,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "unicode-segmentation",
 ]
 
 [[package]]

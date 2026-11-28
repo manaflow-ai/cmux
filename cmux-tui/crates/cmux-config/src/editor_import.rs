@@ -710,6 +710,10 @@ pub fn section(imported: &Value, own: &Value) -> Value {
 /// (but `editor.importFrom`) whose key `imported` has, that its row accepts,
 /// and that `file` (the cmux-next.json root) does not set yet. Each is a
 /// `(row path, value)` in schema order.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn copy_writes(imported: &Value, file: &Value) -> Vec<(Vec<String>, Value)> {
     let imported = canonical(imported.clone());
     let domains = Domains::default();
