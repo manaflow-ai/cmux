@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46107492079",
+  "recorded_at": "2026-11-28T04:56:34Z",
+  "reason": "image inputs changed in c83b22935724eabb9f887190a8294a322e04c70c..c9e0a32649005ae23834c9203d4ad2005910fb18; cmux-tui 88bd3f9c41d3, the newest build published on HEAD (pinned d92f892154f3; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "88bd3f9c41d323fa1b801f5da61138aedd4d269d",
+  "fixes": [
+    {
+      "sha": "c9e0a32649005ae23834c9203d4ad2005910fb18",
+      "mergedAt": "2026-11-28T04:25:36Z",
+      "subject": "cloud image bake: the npm prefill runs again on a slow builder, keeping its cache (roll 46099659860) (#63909)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T04:56:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
