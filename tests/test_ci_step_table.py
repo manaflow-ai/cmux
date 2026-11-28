@@ -955,7 +955,8 @@ class SetupTest(unittest.TestCase):
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         for step in ci_steps.load().steps.values():
-            if step.job == "linux" and step.needs:
+            # web-tests-affected (#63314) runs on a pull request by design: the web tests that change reaches.
+            if step.job == "linux" and step.needs and step.name != "web-tests-affected":
                 self.assertEqual(step.tier, "push", step.name)
         text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
         self.assertIn('ci/run run --job linux --tier "$TIER"', text)
@@ -1620,8 +1621,9 @@ class PipelineTest(unittest.TestCase):
         # test-ios.yml's package-conventions-lint job keeps its push, dispatch and other-base runs; a pull request
         # into feat-cmux-next runs its tests and its gate as two steps, routed by detect-ios-changes' should_lint list.
         ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text())["jobs"]
-        self.assertTrue(ios["package-conventions-lint"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        # #61489 wraps the job's condition in one more pair of parentheses; the feat-cmux-next clause still ends it.
+        self.assertRegex(ios["package-conventions-lint"]["if"],
+                         r"&& \(github\.event_name != 'pull_request' \|\| github\.base_ref != 'feat-cmux-next'\)\)* }}$")
         lint_run = next(s["run"] for s in ios["package-conventions-lint"]["steps"] if "run" in s)
         tests_step, gate = steps["package-conventions-tests"], steps["package-conventions-gate"]
         for line in tests_step.run.strip().splitlines():
