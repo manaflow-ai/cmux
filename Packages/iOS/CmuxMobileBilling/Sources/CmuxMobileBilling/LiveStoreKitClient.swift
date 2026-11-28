@@ -5,10 +5,10 @@ import CmuxMobileSystemUIBridge
 /// ``StoreKitClient`` over StoreKit 2, reached through
 /// CmuxMobileSystemUI.framework (``SystemUI/provider``'s store): linked,
 /// StoreKit costs the app about 1.55 s before `main` on a cold launch, so this
-/// module does not import it. The framework's store keeps the transactions it
-/// hands out for ``finish(transactionID:)``: the model finishes a transaction
-/// only after the server accepted it, which can be long after StoreKit
-/// delivered it.
+/// module does not import it. ``finish(transactionID:)`` finds the
+/// transaction among StoreKit's unfinished ones: the model finishes a
+/// transaction only after the server accepted it, which can be long after
+/// StoreKit delivered it (a relaunch since is fine).
 ///
 /// Without the framework (it failed to load), product loads, purchases and
 /// sync throw ``StoreKitClientError/system``, the transaction lists are empty

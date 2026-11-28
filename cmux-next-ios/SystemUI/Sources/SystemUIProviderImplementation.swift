@@ -15,9 +15,6 @@ import UIKit
 /// comes on the main thread, as the contract says.
 @objc(CMXSystemUIProviderImplementation)
 final class SystemUIProviderImplementation: NSObject, SystemUIProvider {
-    /// Created with the provider; touches no UIKit.
-    private let storeEngine = StoreEngine()
-
     override init() {
         super.init()
     }
@@ -113,7 +110,8 @@ final class SystemUIProviderImplementation: NSObject, SystemUIProvider {
 
     // MARK: StoreKit
 
-    var store: any SystemUIStore { storeEngine }
+    /// A new engine each time: it keeps no state and touches no UIKit.
+    var store: any SystemUIStore { StoreEngine() }
 
     func showManageSubscriptions(in scene: UIWindowScene, completion: @escaping ((any Error)?) -> Void) {
         MainActor.assumeIsolated {

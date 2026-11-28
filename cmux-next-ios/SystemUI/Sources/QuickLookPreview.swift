@@ -49,6 +49,7 @@ final class PreviewController: QLPreviewController {
     /// Points the preview at new files and reloads it.
     func reload(urls: [URL], titles: [String]) {
         coordinator.items = PreviewItem.items(urls: urls, titles: titles)
+        // visible-only: QLPreviewController shows one file's page at a time; reloadData re-reads the item count, it draws no rows.
         reloadData()
     }
 }

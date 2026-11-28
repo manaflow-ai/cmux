@@ -38,7 +38,7 @@ final class StoreEngine: NSObject, SystemUIStore, @unchecked Sendable {
         let core = self.core
         let task = Task {
             for await verification in Transaction.updates {
-                handler(await core.hold(verification))
+                handler(await core.transactionObject(verification))
             }
         }
         return TaskCancellable(task)
@@ -76,21 +76,21 @@ final class StoreEngine: NSObject, SystemUIStore, @unchecked Sendable {
     }
 }
 
-/// The store's state: the transactions it handed out, kept for
-/// ``finish(transactionID:)`` (the app finishes one only after its server
-/// accepted it, which can be long after StoreKit delivered it).
+/// The store's StoreKit calls. It keeps no state: ``finish(transactionID:)``
+/// looks the transaction up among StoreKit's unfinished ones, which hold it
+/// until it is finished, across relaunches too (the app finishes one only
+/// after its server accepted it, which can be long after delivery).
 actor StoreCore {
-    /// Delivered but not yet finished transactions, by id.
-    private var heldTransactions: [UInt64: Transaction] = [:]
-
     func products(for ids: [String]) async -> ([StoreProductObject], SystemUIStoreFailure) {
         guard !ids.isEmpty else { return ([], .none) }
+        let result: ([StoreProductObject], SystemUIStoreFailure)
         do {
             let products = try await Product.products(for: ids)
-            return (products.map(StoreProductObject.init(product:)), .none)
+            result = (products.map(StoreProductObject.init(product:)), .none)
         } catch {
-            return ([], Self.failure(error))
+            result = ([], Self.failure(error))
         }
+        return result
     }
 
     /// The outcome is meaningful only when the failure is ``SystemUIStoreFailure/none``.
@@ -98,24 +98,30 @@ actor StoreCore {
         productID: String,
         appAccountToken: UUID
     ) async -> (SystemUIPurchaseOutcome, StoreTransactionObject?, SystemUIStoreFailure) {
-        let product: Product
+        let found: Product?
+        let lookupFailure: SystemUIStoreFailure
         do {
-            guard let found = try await Product.products(for: [productID]).first else {
-                return (.completed, nil, .productUnavailable)
-            }
-            product = found
+            found = try await Product.products(for: [productID]).first
+            lookupFailure = .none
         } catch {
-            return (.completed, nil, Self.failure(error))
+            found = nil
+            lookupFailure = Self.failure(error)
         }
+        guard lookupFailure == .none else { return (.completed, nil, lookupFailure) }
+        guard let product = found else { return (.completed, nil, .productUnavailable) }
         let result: Product.PurchaseResult
+        let purchaseFailure: SystemUIStoreFailure?
         do {
             result = try await product.purchase(options: [.appAccountToken(appAccountToken)])
+            purchaseFailure = nil
         } catch {
-            return (.completed, nil, Self.failure(error))
+            result = .userCancelled
+            purchaseFailure = Self.failure(error)
         }
+        if let purchaseFailure { return (.completed, nil, purchaseFailure) }
         switch result {
         case .success(let verification):
-            return (.completed, hold(verification), .none)
+            return (.completed, transactionObject(verification), .none)
         case .pending:
             return (.pending, nil, .none)
         case .userCancelled:
@@ -128,7 +134,7 @@ actor StoreCore {
     func unfinishedTransactions() async -> [StoreTransactionObject] {
         var results: [StoreTransactionObject] = []
         for await verification in Transaction.unfinished {
-            results.append(hold(verification))
+            results.append(transactionObject(verification))
         }
         return results
     }
@@ -136,7 +142,7 @@ actor StoreCore {
     func currentEntitlements() async -> [StoreTransactionObject] {
         var results: [StoreTransactionObject] = []
         for await verification in Transaction.currentEntitlements {
-            results.append(hold(verification))
+            results.append(transactionObject(verification))
         }
         return results
     }
@@ -151,12 +157,6 @@ actor StoreCore {
     }
 
     func finish(transactionID: UInt64) async {
-        if let transaction = heldTransactions.removeValue(forKey: transactionID) {
-            await transaction.finish()
-            return
-        }
-        // Not handed out by this process (a relaunch since delivery): look it
-        // up among StoreKit's unfinished transactions.
         for await verification in Transaction.unfinished {
             guard case .verified(let transaction) = verification, transaction.id == transactionID else { continue }
             await transaction.finish()
@@ -177,11 +177,10 @@ actor StoreCore {
         }
     }
 
-    /// Records a verified transaction for a later finish and converts it.
-    func hold(_ verification: VerificationResult<Transaction>) -> StoreTransactionObject {
+    /// Converts a transaction for the app.
+    func transactionObject(_ verification: VerificationResult<Transaction>) -> StoreTransactionObject {
         switch verification {
         case .verified(let transaction):
-            heldTransactions[transaction.id] = transaction
             return StoreTransactionObject(
                 isVerified: true,
                 transactionID: transaction.id,

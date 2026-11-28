@@ -13,53 +13,31 @@ import os
 /// before `main` on a cold launch (2.1 s together), so they live in
 /// `Frameworks/CmuxMobileSystemUI.framework`, embedded but not linked.
 public enum SystemUI {
-    /// The framework's provider, loaded on the first call from any thread and
-    /// kept. Nil when the framework is missing or would not load (logged once);
-    /// callers then degrade (no picker, Safari opens the link, no purchase).
-    public static var provider: (any SystemUIProvider)? { SystemUILoader.provider }
+    /// The framework's provider, from any thread. The first call loads the
+    /// framework; later ones find it loaded (Foundation keeps the bundle) and
+    /// only create the provider, which holds no state. Nil when the framework
+    /// is missing or would not load (logged); callers then degrade (no
+    /// picker, Safari opens the link, no purchase).
+    public static var provider: (any SystemUIProvider)? { SystemUILoader.provider() }
 
     static let log = Logger(subsystem: "dev.cmux.mobile", category: "SystemUI")
 }
 
-/// Loads the framework once. A lock, not an actor: the store reaches the
-/// provider off the main actor, and the views reach it synchronously on it.
+/// Loads the framework and creates its provider. Keeps nothing: the loaded
+/// bundle is Foundation's, and `load` on a loaded bundle returns at once.
 private enum SystemUILoader {
     /// The framework's principal class (its Info.plist's `NSPrincipalClass`).
     static let principalClassName = "CMXSystemUIProviderImplementation"
     static let frameworkName = "CmuxMobileSystemUI.framework"
 
-    private enum State {
-        case unloaded
-        case loaded(any SystemUIProvider)
-        case failed
-    }
-
-    /// The provider is an Objective-C object the framework hands out once and
-    /// never mutates; the lock guards which state the loader is in.
-    private static let state = OSAllocatedUnfairLock<State>(uncheckedState: .unloaded)
-
-    static var provider: (any SystemUIProvider)? {
-        state.withLockUnchecked { state in
-            switch state {
-            case .loaded(let provider):
-                return provider
-            case .failed:
-                return nil
-            case .unloaded:
-                let provider = load()
-                state = provider.map(State.loaded) ?? .failed
-                return provider
-            }
-        }
-    }
-
-    private static func load() -> (any SystemUIProvider)? {
+    static func provider() -> (any SystemUIProvider)? {
         let started = ContinuousClock.now
         guard let url = Bundle.main.privateFrameworksURL?.appendingPathComponent(frameworkName, isDirectory: true),
               let bundle = Bundle(url: url) else {
             SystemUI.log.error("load failed: no \(frameworkName, privacy: .public) in the app's Frameworks")
             return nil
         }
+        let wasLoaded = bundle.isLoaded
         do {
             try bundle.loadAndReturnError()
         } catch {
@@ -74,6 +52,7 @@ private enum SystemUILoader {
             SystemUI.log.error("load failed: \(NSStringFromClass(type), privacy: .public) is not a CMXSystemUIProvider")
             return nil
         }
+        guard !wasLoaded else { return provider }
         let elapsed = ContinuousClock.now - started
         let ms = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
         SystemUI.log.info("loaded ms=\(ms, privacy: .public)")
@@ -221,8 +200,7 @@ extension SystemUI {
             photoLibrary: false,
             preselectedAssetIdentifiers: [],
             onPick: { picks in
-                // main-proof: the contract runs onPick on main (PHPickerViewControllerDelegate's didFinishPicking).
-                MainActor.assumeIsolated {
+                PhotoPickMainHop.run {
                     if let controller = picker?.viewController, controller.presentingViewController != nil {
                         controller.dismiss(animated: true)
                     }
@@ -234,6 +212,15 @@ extension SystemUI {
         guard let controller = picker?.viewController else { return false }
         host.present(controller, animated: true)
         return true
+    }
+}
+
+/// The seam where the framework's photo pick callback, which the contract
+/// types without an actor, becomes main-actor code.
+private enum PhotoPickMainHop {
+    static func run(_ body: @MainActor () -> Void) {
+        // main-proof: the contract runs onPick on main (PHPickerViewControllerDelegate's didFinishPicking).
+        MainActor.assumeIsolated(body)
     }
 }
 
@@ -315,8 +302,7 @@ private struct SystemPhotoPickerAnchor: UIViewControllerRepresentable {
             photoLibrary: false,
             preselectedAssetIdentifiers: [],
             onPick: { [weak coordinator] picks in
-                // main-proof: the contract runs onPick on main (PHPickerViewControllerDelegate's didFinishPicking).
-                MainActor.assumeIsolated {
+                PhotoPickMainHop.run {
                     if let presented = coordinator?.presented {
                         coordinator?.presented = nil
                         if presented.presentingViewController != nil { presented.dismiss(animated: true) }

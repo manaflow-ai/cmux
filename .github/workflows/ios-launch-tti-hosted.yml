@@ -210,7 +210,8 @@ jobs:
           for fw in "$app"/Frameworks/*.framework; do
             [ -d "$fw" ] || continue
             [ "$(basename "$fw")" = CmuxMobileSystemUI.framework ] && continue
-            exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || basename "$fw" .framework)"
+            exe="$(basename "$fw" .framework)"
+            [[ -f "$fw/Info.plist" ]] && exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || echo "$exe")"
             bins+=("$fw/$exe")
           done
           fail=0
