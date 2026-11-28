@@ -172,8 +172,10 @@ impl Hub {
         answer: &crate::agent_tools::CodexAnswer,
         init: &Value,
     ) -> Value {
-        let all =
-            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        // Read from the session's manifest when one holds for its folder (`session_manifest.rs`).
+        let all = crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd)
+        });
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // Codex's answer for the person's own `cmux` entry, asked once for this start (its tool
@@ -286,6 +288,28 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
         self.spawn_profile_read(meta, false, profile, defaults_env, None).await.map(|(p, ..)| p)
+    }
+
+    /// The env `meta`'s agent runs with, as its spawn builds it ([`Self::spawn_profile_for`]:
+    /// the family defaults, the cmux Settings home, the preset, the chat store, the machine
+    /// sign-in's `HOME`/`CLAUDE_CONFIG_DIR`, the route), and whether it runs Claude Code. A reader
+    /// of the agent's own files (its transcript's usage, its subagents' transcripts) looks where
+    /// the agent writes only with this env: one rebuilt apart from the spawn drifted from it (the
+    /// usage pass left out the Settings home, the machine sign-in and the defaults, so such a chat
+    /// read as unmeasured, NOW `no_counters`, 2026-11-28). `None` when its spawn would refuse now.
+    pub(super) async fn launch_env(
+        &self,
+        meta: &SessionMeta,
+    ) -> Option<(bool, std::collections::BTreeMap<String, String>)> {
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile =
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()?;
+            (profile, cfg.defaults_for(&meta.harness))
+        };
+        let p = self.spawn_profile_for(meta, &profile, &defaults.env).await.ok()?;
+        Some((p.kind == crate::config::HarnessKind::ClaudeStdio, p.env))
     }
 
     /// `spawn_profile_for` on the owner's Cloud credential a chat launches with (the session
@@ -480,14 +504,22 @@ impl Hub {
         let claude_wrapper = crate::config::derive_family(&meta.harness, &p) == "claude"
             && !crate::claude_cloud_auth::launches_claude_itself(&p.argv);
         let requires_claude_team = requested_claude_team && !claude_wrapper;
-        let requires_claude_login = launch_requires_claude_machine_login(meta);
+        // Claude applies managed provider settings (a Cloud image's gateway login) over every
+        // launch env, so neither the machine's Claude login nor a delivered Anthropic key can
+        // take effect. Such a chat starts on that managed route instead of being refused.
+        let managed_route = crate::config::derive_family(&meta.harness, &p) == "claude"
+            && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root());
+        let asked_claude_login = launch_requires_claude_machine_login(meta);
+        let requires_claude_login = asked_claude_login && !managed_route;
+        if asked_claude_login && managed_route {
+            tracing::warn!(session = %meta.id, code = "credentials.managed_route", "managed provider settings outrank the machine's Claude login: the agent keeps this machine's route");
+        }
         p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
         if requires_claude_team {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
         } else if requires_claude_login {
             if crate::config::derive_family(&meta.harness, &p) != "claude"
                 || !crate::claude_cloud_auth::launches_claude_itself(&p.argv)
-                || crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
             {
                 return Err(claude_route_unavailable());
             }
@@ -510,18 +542,13 @@ impl Hub {
         {
             c.check_launch_destination()?;
             let family = crate::config::derive_family(&meta.harness, &p);
-            if c.uses_direct_anthropic_credential()
-                && family == "claude"
-                && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
-            {
-                return Err(RpcError::invalid_params(
-                    "managed provider settings prevent this endpoint launch",
-                )
-                .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
-            }
-            let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
             let names: Vec<&str> = c.names().collect();
-            if applied {
+            let outranked = c.uses_direct_anthropic_credential() && managed_route;
+            let applied =
+                !outranked && crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
+            if outranked {
+                tracing::warn!(session = %meta.id, ?names, code = "credentials.managed_route", "managed provider settings outrank the delivered credential: the agent keeps this machine's route");
+            } else if applied {
                 tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
             } else if meta.credential_connection.is_some() {
                 return Err(RpcError::invalid_params(
@@ -1017,6 +1044,9 @@ impl Hub {
                 p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
             }
         }
+        // The session's recorded tool listing, read by Claude Code's command build instead of
+        // the settings files (`session_manifest.rs`); no marker while off or for another folder.
+        crate::session_manifest::mark(&mut p.env, meta.manifest.as_ref(), Path::new(&meta.cwd));
         // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
         p.env.remove(crate::opencode_ask::MARKER);
         let default_policy = self.config.read().await.permission_policy;

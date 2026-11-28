@@ -59,6 +59,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon transcript-offload",
+        &[
+            ("What a pass would copy and remove", "acpmux daemon transcript-offload --dry-run"),
+            (
+                "Offload transcripts unchanged for 30 days",
+                "acpmux daemon transcript-offload --older-than-days 30",
+            ),
+            ("Bring every transcript back", "acpmux daemon transcript-offload --restore-all"),
+        ],
+    ),
+    (
         "daemon restart",
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
     ),

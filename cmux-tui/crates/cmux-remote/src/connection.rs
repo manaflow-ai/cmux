@@ -457,15 +457,64 @@ impl ClientConnection {
         config: ClientConnectionConfig,
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
+        Self::connect_with_ik_hint(group, config, reconnect_groups, false).await
+    }
+
+    /// [`Self::connect_with_reconnect_groups`], told whether the pinned daemon offered IK on an
+    /// earlier connection (its welcome's `peer_takes_ik`, kept by the caller). Then the first
+    /// connect runs IK, one round trip shorter than XX, as a redial already does. A daemon that
+    /// stopped taking it fails past the carrier, and the connect runs XX once more, as
+    /// `establish_redial` falls back. With no hint, or `CMUX_REMOTE_COLD_IK=0`, it is XX as before.
+    pub async fn connect_with_ik_hint(
+        group: Arc<dyn LinkGroup>,
+        config: ClientConnectionConfig,
+        reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
+        daemon_took_ik: bool,
+    ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
+        let first = if cold_ik_enabled(daemon_took_ik) && cold_ik_applies(&config) {
+            match establish_physical_links(
+                group.clone(),
+                &config,
+                0,
+                BTreeMap::new(),
+                true,
+                Vec::new(),
+            )
+            .await
+            {
+                Ok(established) => Some(established),
+                // A carrier that would not open says nothing about IK: no second try.
+                Err(error @ ConnectionError::Provider(_)) => return Err(error),
+                Err(error) => {
+                    crate::phase_timing::mark_with("cold-ik-fell-back", || error.to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let established = match first {
+            Some(established) => established,
+            None => {
+                establish_physical_links(
+                    group.clone(),
+                    &config,
+                    0,
+                    BTreeMap::new(),
+                    false,
+                    Vec::new(),
+                )
+                .await?
+            }
+        };
         let Established {
             link,
             daemon_key: daemon_public_key,
             daemon_takes_ik,
             daemon_takes_early_data,
             ..
-        } = establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
-            .await?;
+        } = established;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -599,6 +648,12 @@ impl ClientConnection {
 
     pub fn daemon_public_key(&self) -> [u8; 32] {
         self.daemon_public_key
+    }
+
+    /// Whether every welcome of the current generation offered IK: a caller keeps it for the next
+    /// cold connect ([`Self::connect_with_ik_hint`]).
+    pub fn daemon_takes_ik(&self) -> bool {
+        self.daemon_takes_ik.load(Ordering::Acquire)
     }
 
     pub fn subscribe_generation(&self) -> watch::Receiver<u64> {
@@ -2076,4 +2131,18 @@ async fn sleep_until_or_never(at: Option<tokio::time::Instant>) {
         Some(at) => tokio::time::sleep_until(at).await,
         None => std::future::pending().await,
     }
+}
+
+/// `CMUX_REMOTE_COLD_IK=0` keeps a first connect on XX whatever the hint says.
+pub const COLD_IK_ENV: &str = "CMUX_REMOTE_COLD_IK";
+
+fn cold_ik_enabled(daemon_took_ik: bool) -> bool {
+    daemon_took_ik && std::env::var(COLD_IK_ENV).map_or(true, |value| value != "0")
+}
+
+/// A first connect may run IK only when it pins the daemon's key, presents no invitation, and
+/// carries no bearer secret (the pattern `cmux_braid_session::choose` picks for those facts).
+fn cold_ik_applies(config: &ClientConnectionConfig) -> bool {
+    config.expected_daemon.is_some()
+        && !matches!(config.auth, ClientAuthMode::Invitation { .. } | ClientAuthMode::Grant { .. })
 }

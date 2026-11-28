@@ -1783,6 +1783,7 @@ mod tests {
                 // The self-update timer (host_auto_update.rs), once the unit runs.
                 "systemctl --user daemon-reload",
                 "systemctl --user enable --now acpmux-update.timer",
+                "systemctl --user is-enabled --quiet acpmux-update.timer",
             ]
         );
         assert!(run.started_by_systemd());
