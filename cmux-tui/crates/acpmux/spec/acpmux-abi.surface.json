@@ -9301,6 +9301,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/chat_export": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/chat_fork": {
       "/*untyped*": {
         "ty": "json",
@@ -35580,6 +35586,12 @@
       }
     },
     "response:_acpmux/chat/route.set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_export": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

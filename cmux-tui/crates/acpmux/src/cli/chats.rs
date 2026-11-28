@@ -76,6 +76,18 @@ pub enum ChatsCmd {
         #[arg(long = "cwd-map", value_name = "FROM=TO")]
         cwd_map: Vec<String>,
     },
+    /// Export one or more chats, or every chat on this device, as one portable JSON bundle.
+    Export {
+        /// `<harness>:<session id>` keys from `chats list`; repeat for a selection.
+        #[arg(value_name = "KEY")]
+        keys: Vec<String>,
+        /// Export every chat on this device, including live acpmux sessions.
+        #[arg(long)]
+        all: bool,
+        /// Write the result to this file instead of stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
     /// Bring back every part of a chat that Compress Long Chats compressed, as plain files.
@@ -310,6 +322,27 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
                     Ok(())
                 }
             }
+        }
+        ChatsCmd::Export { keys, all, output } => {
+            if !all && keys.is_empty() {
+                return Err(AppError::usage("provide at least one KEY or --all").into());
+            }
+            let params = json!({"keys": keys, "all": all});
+            let result = client.request("_acpmux/chat_export", params).await?;
+            let text = result.get("content").and_then(Value::as_str).unwrap_or("{}").to_owned();
+            if let Some(path) = output {
+                std::fs::write(&path, text)?;
+                if json_out {
+                    print_json(&json!({"path": path, "chatCount": result.get("chatCount")}));
+                } else {
+                    println!("{}", path.display());
+                }
+            } else if json_out {
+                print_json(&result);
+            } else {
+                print!("{text}");
+            }
+            Ok(())
         }
     }
 }
