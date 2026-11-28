@@ -54,6 +54,11 @@ export function paneFailureLine(error: unknown, componentStack?: string): string
 type Props = {
   children?: ReactNode;
   onRetry?: () => void;
+  /// Told at once when the boundary catches, before its retry's wait: the host keeps the chat's last frame over
+  /// the page until the reloaded document paints (`pane.renderFailed`, AgentPaneView.pageRenderFailed), so the
+  /// empty page this boundary leaves never shows (Leo, 2026-11-22: "the agent pane just blanked out entirely yet
+  /// again").
+  onFailed?: () => void;
   /// The backoff's options; tests pass a short one. The first wait comes from the reloads so far.
   autoRetry?: AutoRetryOptions;
 };
@@ -126,6 +131,11 @@ export class PaneBoundary extends Component<Props, State> {
     // fail the same way: the reloaded pane starts empty and draws from its live client. Saves stop for
     // the rest of this page (`saveSnapshot`), so neither a pending one nor `pagehide` puts it back.
     clearSnapshot();
+    try {
+      this.props.onFailed?.();
+    } catch {
+      // A host that cannot be told leaves the page as it was: the retry below still reloads it.
+    }
   }
 
   render() {

@@ -149,7 +149,10 @@ impl Hub {
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
-                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                let before = tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                if before == tap_session.prompt_heard.load(Ordering::SeqCst) {
+                    tap_hub.model_answered(&tap_session);
+                }
                 if !tap_session.loading.load(Ordering::Relaxed) {
                     crate::send_trace::first_update(&tap_session.id);
                 }
@@ -160,6 +163,22 @@ impl Hub {
                 if !tap_session.loading.load(Ordering::SeqCst) && shows_work(msg) {
                     tap_hub.unstick_on_work(&tap_session);
                 }
+            } else if !muted
+                && matches!(dir, Direction::In)
+                && !tap_session.loading.load(Ordering::Relaxed)
+            {
+                // What the agent says before its model does, for a traced prompt's first_token
+                // span (`send_trace.rs` `Heard`): one atomic load when none is traced.
+                let said = match msg {
+                    Message::Notification { method, .. } if method == crate::agent::HOST_STDERR => {
+                        crate::send_trace::Said::Stderr
+                    }
+                    Message::Notification { method, .. } => {
+                        crate::send_trace::Said::Other(Some(method.as_str()))
+                    }
+                    _ => crate::send_trace::Said::Other(None),
+                };
+                crate::send_trace::agent_said(&tap_session.id, said);
             }
             if !muted
                 && matches!(dir, Direction::In)
@@ -169,6 +188,8 @@ impl Hub {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
                 if !tap_session.loading.load(Ordering::SeqCst) {
                     tap_hub.note_verify(&tap_session, &p["update"]);
+                    tap_hub.note_speculative(&tap_session, &p["update"]);
+                    tap_hub.note_sidecars(&tap_session, &p["update"]);
                 }
                 // Counted before it is logged, so no check waits for the inbound loop to apply
                 // it (review 69 of #23322).

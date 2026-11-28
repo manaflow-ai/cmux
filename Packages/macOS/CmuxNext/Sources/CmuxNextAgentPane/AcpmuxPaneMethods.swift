@@ -14,7 +14,7 @@ public import Foundation
 /// Review: the protocol/origin lead (ad349). Changing the list needs that review.
 ///
 /// The tables (`requests`, `notifications`, the scope tables, `gestureRules`, `settingMethods`,
-/// `knownParams`, `replyShapes`) are generated from cmux-tui/crates/cmux-agent-pane-policy/policy.json
+/// `knownParams`, `replyShapedMethods`) are generated from cmux-tui/crates/cmux-agent-pane-policy/policy.json
 /// at every build (AgentPanePolicyPlugin, scripts/cmux-next/gen-agent-pane-policy-swift.py): edit them there.
 nonisolated enum AcpmuxPaneMethods {
     /// The first frame of every connection, and only the first.

@@ -12,11 +12,12 @@
 // (`redraw`), and once that commits the entries made before it go (`settle`).
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { isThought } from "./conversation/thoughts";
+import { isQuietThought, isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
-import { WORKED } from "./conversation/turns";
+import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
+import { lineCalledNow } from "./liveCallLine";
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
 /// last item is still `from` draws `to`. `ahead`: the chunks since `from`, which the row's version
@@ -75,42 +76,19 @@ export const liveThought = {
 
 /// The thought item each live-turn row of the transcript drew last, by row id (`drewThoughts`).
 let drawn = new Map<string, AcpmuxActivity>();
-/// The ids of the running turn's rows the transcript drew while that turn's work sat under its
-/// closed "Working for" (turns.ts `shapeLiveTurn`, liveTurnWork `folded` with the fold shut), else
-/// undefined. Under that fold the transcript draws none of the turn's activity rows but the few
-/// that keep their own row (a call waiting on its permission), which this holds: a row of the turn
-/// missing here draws nothing, and only the live line hears its thought (`liveThoughtHeard`).
-let shownUnderFold: Set<string> | undefined;
 /// What the transcript drew of the running turn: each row's last item when it is a thought. Read
 /// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
 export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
   const next = new Map<string, AcpmuxActivity>();
-  const shown = new Set<string>();
-  let folded = false;
+  drewRunningTurn(rows);
   if (rows)
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
       if (row.kind === "user") break;
-      shown.add(row.id);
-      if (row.kind === WORKED && row.turnPhase === "running" && row.foldOpen === false) folded = true;
       const last = row.kind === "activity" ? row.items?.at(-1) : undefined;
       if (last && isThought(last)) next.set(row.id, last);
     }
   drawn = next;
-  shownUnderFold = folded ? shown : undefined;
-}
-
-/// Whether `rows[index]` is one of the running turn's rows that its closed "Working for" hides
-/// (`shownUnderFold`): no prompt after it, so it is that turn's, and the transcript drew no row of
-/// its id. In a long chat nearly every thought chunk streams there (the default arm, fold shut),
-/// and each one drew the whole pane for a row nobody sees (bench/transcript-replay.bench.ts
-/// `thought`, `notdrawn` on 97% of them). Opening the fold draws the row from the pane's rows and
-/// its entry here (`useLiveThoughtRow`); a row that then still misses its thought (one quiet in
-/// the pane's rows) is drawn, so the next chunk finds it stale and draws the pane.
-function hiddenUnderFold(rows: readonly AcpmuxRow[], index: number): boolean {
-  if (!shownUnderFold || shownUnderFold.has(rows[index]!.id)) return false;
-  for (let at = rows.length - 1; at > index; at -= 1) if (rows[at]!.kind === "user") return false;
-  return true;
 }
 
 const ROW_KEYS = new Set(["version", "items"]);
@@ -166,7 +144,12 @@ export function thoughtOnly(
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) return { id: now.id, before, after };
+  // Under a closed "Working for" that had nothing to open, a thought that is no longer quiet gives it
+  // work to open (turns.ts `liveFoldHidesWork`): the pane draws, so the header shows its chevron.
+  if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) {
+    if (drewEmptyFold() && !isQuietThought(after)) return undefined;
+    return { id: now.id, before, after };
+  }
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
 }
@@ -254,8 +237,11 @@ export const liveThoughtHeard = {
 };
 
 /// The live line as it is now: a thought chunk drawn without the pane moves its `heardKey` on
-/// (Thinking.tsx reads a new key as an event heard). The same row while none was.
-export function lineHeardNow(row: AcpmuxRow): AcpmuxRow {
+/// (Thinking.tsx reads a new key as an event heard), after the calls drawn without it moved the
+/// line (liveCallLine.ts). The same row while none was.
+export function lineHeardNow(drawnLine: AcpmuxRow): AcpmuxRow {
+  // A hidden call's start or end drawn without the pane moved the line itself (liveCallLine.ts).
+  const row = lineCalledNow(drawnLine);
   if (heard === 0 || row.kind !== "thinking" || typeof row.heardKey !== "string") return row;
   return { ...row, heardKey: `${row.heardKey}~${heard}`, version: row.version + heard };
 }

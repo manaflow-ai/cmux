@@ -15,9 +15,9 @@ struct Harness {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(testSuiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        if automaticDownloads {
-            defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
-        }
+        // The pipeline tests exercise an explicit host choice. Seed the shared preference so
+        // each fixture owns its download policy instead of relying on registered defaults.
+        defaults.set(automaticDownloads, forKey: UpdateSettings.automaticallyUpdateKey)
         let updater = FakeUpdater()
         let clock = TestDeadlineClock()
         self.updater = updater

@@ -432,7 +432,9 @@ impl Hub {
         }
         if !self.session_asks_now(session, meta) {
             // The owner's own phone is refused here only for its Full access switch: name it.
-            let switch = if device.is_some_and(|d| self.pairing.own_phone(d)) {
+            let switch = if device == Some(crate::pairing::CLOUD_MOBILE_OWNER) {
+                "; a chat from your phone runs only in a mode that asks (default or plan)"
+            } else if device.is_some_and(|d| self.pairing.own_phone(d)) {
                 "; Full access is off for this phone: turn it on on the Mac in Settings > Mobile > Phones"
             } else {
                 "; your own phone runs it with Full access on (Mac: Settings > Mobile > Phones)"

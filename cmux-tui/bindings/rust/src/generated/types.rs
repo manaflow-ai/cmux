@@ -382,6 +382,9 @@ pub struct ChiefWorkTask {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientInfo {
     pub attached: Vec<Id>,
+    /// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
     pub client: u64,
     pub connected_seconds: u64,
     pub kind: Nullable<String>,
@@ -815,6 +818,21 @@ pub struct ExportLayoutResult {
 pub struct ExportedPane {
     pub pane: Id,
     pub surfaces: Vec<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FloatingPane {
+    /// The height, 0 to 1.
+    pub h: f64,
+    /// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+    pub pane: Id,
+    /// The width, 0 to 1.
+    pub w: f64,
+    /// The left edge, 0 to 1.
+    pub x: f64,
+    /// The top edge, 0 to 1.
+    pub y: f64,
 }
 
 #[rustfmt::skip]
@@ -1913,7 +1931,7 @@ pub struct Screen {
     pub columns: Option<Vec<LayoutColumnNode>>,
     /// floating-panes-v1: panes above the tiled layout, back to front.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub floating: Option<JsonValue>,
+    pub floating: Option<Vec<FloatingPane>>,
     /// The screen group the screen is in.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub group: Optional<String>,

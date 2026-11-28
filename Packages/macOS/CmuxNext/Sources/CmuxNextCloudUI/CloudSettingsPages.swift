@@ -5,15 +5,26 @@ public import Foundation
 /// What the Settings page's Cloud cards ask the app (`cmux.settings.environments.*`,
 /// `cmux.settings.cloud.allotment.get`), answered here so the app target only routes the op.
 extension CloudEnvironmentsSettings {
-    /// `cmux.settings.environments.state`.
-    public var pageState: JSONValue { (try? JSONValue.parse(JSONEncoder().encode(state))) ?? .null }
+    /// `cmux.settings.environments.state`: the state is read here, encoded off the main actor.
+    public func pageState() async -> JSONValue {
+        await Self.pageValue(state) ?? .null
+    }
 
-    /// `cmux.settings.environments.run`.
+    /// `cmux.settings.environments.run`: the params decode and the answer encodes off the main actor.
     public func runPage(_ params: JSONValue) async throws -> JSONValue {
-        guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
+        guard let run = await Self.runRequest(params) else {
             throw PageError.invalidParams("unknown environments action")
         }
-        return (try? JSONValue.parse(JSONEncoder().encode(await self.run(run)))) ?? .object([:])
+        let result = await self.run(run)
+        return await Self.pageValue(result) ?? .object([:])
+    }
+
+    @concurrent nonisolated private static func pageValue(_ value: some Encodable & Sendable) async -> JSONValue? {
+        try? JSONValue.parse(JSONEncoder().encode(value))
+    }
+
+    @concurrent nonisolated private static func runRequest(_ params: JSONValue) async -> CloudEnvironmentsRun? {
+        try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject))
     }
 }
 

@@ -140,10 +140,22 @@ pub(super) async fn relay(
             message
         }
     };
+    // No post of it at the hub so far (a first post, or every earlier one failed before it left):
+    // saved as maybe posted before this one goes, so a crash mid-post never leaves a record that
+    // lets a direct copy go too (`Delivery::relay_unreached`). Marked unreached again only when
+    // this post provably never left either.
+    let saved_unreached = hub.outbox.get(&delivery.id).is_some_and(|d| d.relay_unreached);
+    let unreached_so_far = delivery.relay_post.is_none() || saved_unreached;
+    if saved_unreached && !hub.outbox.update_saved(&delivery.id, |d| d.relay_unreached = false) {
+        return Some(Err(HubError::local("the outbox could not be saved; not posted")));
+    }
     let posted = tokio::time::timeout(RELAY_WAIT, mesh.send(&message)).await.unwrap_or_else(|_| {
         Err(HubError::unavailable(format!("no answer within {}s", RELAY_WAIT.as_secs())))
     });
     note(hub, &posted);
+    if unreached_so_far && matches!(&posted, Err(e) if e.never_reached()) {
+        hub.outbox.update(&delivery.id, |d| d.relay_unreached = true);
+    }
     Some(posted.map(|receipt| relay_row(hub, delivery, &message, &receipt)))
 }
 
@@ -159,6 +171,8 @@ fn backing_off(unposted: bool) -> HubError {
         HubError::unavailable("the hub is backing off after failing; retrying")
     };
     e.code = Some(BACKING_OFF.to_owned());
+    // Not asked: this attempt sent nothing (an earlier one may have: `Delivery::relay_unreached`).
+    e.unsent = true;
     e
 }
 
@@ -194,8 +208,10 @@ pub(super) enum Posted {
     Answered(Result<Value, RpcError>),
     /// The hub did not take it in a way that passes (a 5xx, a 429, no answer within
     /// [`INLINE_WAIT`], no connection), or its gate is shut: kept in the outbox with this post,
-    /// which its retry sends again under the same key, and why it waits.
-    Queue { post: OutMessage, why: String },
+    /// which its retry sends again under the same key, and why it waits. `unreached`: the hub
+    /// provably holds no copy (its gate kept it from asking, or no connection was made), so a
+    /// direct copy may go to its machine (`Delivery::relay_unreached`, `mesh_direct.rs`).
+    Queue { post: OutMessage, why: String, unreached: bool },
 }
 
 /// `_acpmux/send_queue` to `target`, which nothing here resolves and the hub may (RFD 0049 R1): a
@@ -213,7 +229,7 @@ pub(super) async fn post_or_queue(
     };
     if !hub.mesh.gate().may_try() {
         let why = "hub failing, retrying (backing off before it is asked again)".to_owned();
-        return Posted::Queue { post: message, why };
+        return Posted::Queue { post: message, why, unreached: true };
     }
     let posted =
         tokio::time::timeout(INLINE_WAIT, mesh.send(&message)).await.unwrap_or_else(|_| {
@@ -228,7 +244,7 @@ pub(super) async fn post_or_queue(
             Posted::Answered(Ok(row))
         }
         Err(e) if crate::mesh_retry::transient(&e, true) => {
-            Posted::Queue { why: waiting_reason(&e), post: message }
+            Posted::Queue { why: waiting_reason(&e), post: message, unreached: e.never_reached() }
         }
         Err(e) => Posted::Answered(Err(refusal(target, e))),
     }

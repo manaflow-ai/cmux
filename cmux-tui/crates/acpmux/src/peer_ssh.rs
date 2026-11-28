@@ -17,6 +17,13 @@ pub(super) const BANNER_TIMEOUT: &str = "SSH connection timed out during the ban
 pub(super) const NO_ROUTE: &str =
     "SSH found no route to the machine (its proxy answered on none: paused, off or gone)";
 
+/// ssh logged in, but nothing listens at the port `ssh -W` forwards to on the machine: its
+/// daemon is down, or it serves on another port (it found its port taken at start and moved to a
+/// free one, which its `listener.json` records). The peer reads that record and dials it
+/// (`Peer::reread_listener`).
+pub(super) const FORWARD_REFUSED: &str =
+    "SSH logged in, but no acpmux daemon listens at the forwarded port";
+
 pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
     let text = String::from_utf8_lossy(bytes.get(..LIMIT).unwrap_or(bytes)).to_ascii_lowercase();
     [
@@ -28,6 +35,10 @@ pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
         ),
         ("permission denied", "Permission denied (SSH authentication failed)"),
         ("no supported authentication methods", "SSH authentication failed (no supported methods)"),
+        // `ssh -W`: "channel 0: open failed: connect failed: Connection refused". Before the
+        // plain "connection refused", which is ssh's own TCP connect to the machine.
+        ("open failed: connect failed", FORWARD_REFUSED),
+        ("stdio forwarding failed", FORWARD_REFUSED),
         ("timed out during banner exchange", BANNER_TIMEOUT),
         ("connection timed out", "SSH connection timed out"),
         ("operation timed out", "SSH connection timed out"),
@@ -53,7 +64,7 @@ pub(super) fn dial_fail(reason: Option<&str>) -> Option<crate::protocol::peer_st
     }
     match reason {
         BANNER_TIMEOUT | "SSH connection timed out" => Some(DialFail::Timeout),
-        "SSH connection refused" => Some(DialFail::Refused),
+        "SSH connection refused" | FORWARD_REFUSED => Some(DialFail::Refused),
         NO_ROUTE
         | "Could not resolve hostname (DNS lookup failed)"
         | "SSH connection failed (no route to host)"
@@ -74,6 +85,17 @@ pub(super) fn login_refused(reason: Option<&str>) -> bool {
                 | "Host key verification failed"
                 | "Host key verification failed (host key changed)"
         )
+    )
+}
+
+/// Whether `reason` is ssh refusing the machine's host key. ssh stops before it authenticates,
+/// so no attempt counts against a ban tool's limit, and the cause is often brief (a relay that
+/// reached another machine, a `known_hosts` being rewritten): its attempts wait a short bounded
+/// backoff (`Backoff::host_key_refused`), not a refused login's hour.
+pub(super) fn host_key_refused(reason: Option<&str>) -> bool {
+    matches!(
+        reason,
+        Some("Host key verification failed" | "Host key verification failed (host key changed)")
     )
 }
 

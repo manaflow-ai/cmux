@@ -1173,6 +1173,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
           fi
+          # The runner image grants bwrap userns via its scoped AppArmor profile.
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
@@ -1470,6 +1472,9 @@ jobs:
           # acpmux builds for Windows (the port lands in steps): every
           # target, tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
+          # cmux-cas (acpmux's content store) on its own, tests included:
+          # its Unix inode/block reads stay behind cfg(unix).
+          cargo check --locked --target x86_64-pc-windows-gnu -p cmux-cas --all-targets
           # acpmux on Windows through its CLI and socket: daemon run, status,
           # the start lock, the saved token, shutdown.
           cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
@@ -1489,6 +1494,11 @@ jobs:
           # breakaway marks its terminal (behavior tests through the daemon).
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
+          # A child that leads its group runs in a job with what it starts:
+          # a drop or kill ends the tree, a detached one's tree outlives it;
+          # an owned child's tree (spawn_owned) ends with the process owning it.
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-process \
+            --test windows_tree
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

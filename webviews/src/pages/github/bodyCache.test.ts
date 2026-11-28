@@ -46,8 +46,8 @@ test("a drawing is kept per opener", () => {
     draws += 1;
     return [];
   };
-  cachedDrawing("<p>x</p>", openA, draw);
-  cachedDrawing("<p>x</p>", openA, draw);
-  cachedDrawing("<p>x</p>", openB, draw);
+  void cachedDrawing("<p>x</p>", openA, draw);
+  void cachedDrawing("<p>x</p>", openA, draw);
+  void cachedDrawing("<p>x</p>", openB, draw);
   expect(draws).toBe(2);
 });

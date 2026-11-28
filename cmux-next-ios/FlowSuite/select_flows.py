@@ -182,7 +182,9 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
     def union(key: str) -> list:
         out: list = []
         for f in selected:
-            for x in f.get(key, []):
+            got = f.get(key, [])
+            # `"pair_e2e": true` asks for the paired run with no extra words; a list names its words.
+            for x in (got if isinstance(got, list) else []):
                 if x not in out:
                     out.append(x)
         return out
@@ -200,6 +202,7 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
         "swift": union("swift"),
         "scripts": scripts,
         "pair_e2e": union("pair_e2e"),
+        "pair": any(f.get("pair_e2e") for f in selected),
         "reason": reason,
     }
 
@@ -219,7 +222,7 @@ def sim_args(result: dict, shards: int) -> list[str]:
             parts.append("ui=" + ",".join(u))
         if k or u:
             lines.append(" ".join(parts))
-    if result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
+    if result.get("pair") or result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
         lines.append(" ".join(["pair-e2e", *result["pair_e2e"]]))
     return lines or ["build"]
 

@@ -16,8 +16,8 @@ pub(crate) struct TerminalInputMessages {
 
 pub(super) const ENGLISH: TerminalInputMessages = TerminalInputMessages {
     too_large: "Terminal input is too large. Send less input at once.",
-    unavailable: "Terminal input is temporarily unavailable. Try again shortly.",
-    confirmation_unsupported: "Input delivery confirmation is unavailable for this terminal: its terminal host is an older build. Start a new terminal session and retry.",
+    unavailable: "The terminal did not take input for 5 seconds: the program in it is not reading its input.",
+    confirmation_unsupported: "Input delivery confirmation is unavailable for this terminal: its terminal host is an older build. Start a new terminal session to send it input.",
     delivery_failed: "Terminal input could not be delivered. Check that the terminal is available.",
     agent_message_hint: "{terminal} runs an agent, so this input was typed into its composer. To send it a message instead, run: {command}",
     send_not_submitted: "The message was typed into {terminal}, but the agent did not start a turn: it reported nothing after Enter. If the message is still in its input box, submit it with cmux terminal {terminal} keys enter; then wait with cmux terminal {terminal} wait --until idle. Read the screen first with cmux terminal {terminal} screen read.",
@@ -26,8 +26,8 @@ pub(super) const ENGLISH: TerminalInputMessages = TerminalInputMessages {
 
 pub(super) const JAPANESE: TerminalInputMessages = TerminalInputMessages {
     too_large: "端末への入力が大きすぎます。一度に送る入力を減らしてください。",
-    unavailable: "現在、端末への入力を受け付けられません。しばらくしてから再試行してください。",
-    confirmation_unsupported: "この端末では入力の送信完了を確認できません。端末ホストが古いビルドです。新しい端末セッションを開始してから、もう一度お試しください。",
+    unavailable: "端末が 5 秒間入力を受け付けませんでした。端末内のプログラムが入力を読み取っていません。",
+    confirmation_unsupported: "この端末では入力の送信完了を確認できません。端末ホストが古いビルドです。入力を送るには新しい端末セッションを開始してください。",
     delivery_failed: "端末に入力を送信できませんでした。端末が利用可能か確認してください。",
     agent_message_hint: "{terminal} ではエージェントが動作しているため、この入力はエージェントの入力欄に打ち込まれました。メッセージとして送るには次を実行してください: {command}",
     send_not_submitted: "メッセージは {terminal} に入力されましたが、エージェントはターンを開始しませんでした。Enter の後に何も報告していません。メッセージが入力欄に残っている場合は cmux terminal {terminal} keys enter で送信し、cmux terminal {terminal} wait --until idle で待ってください。先に cmux terminal {terminal} screen read で画面を確認してください。",

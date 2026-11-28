@@ -5,6 +5,9 @@ names ends, and nothing rewrote the row, so every push into the acpmux crate pri
 cmux-4f ...)" for a month after cmux-4f was gone and reached no one (cmux#50549, 2026-11-22). The owner of a row is
 whoever holds it now, read from the live sessions at push time, in this order:
 
+0. the pushing lane itself, when the row names it: its own `owns=` tag, or its session name or its branch's lane name
+   (`lane/layout-x`) filling the role's globs (pusher_holds); it is told nothing. A stale `owns=` tag on another
+   session no longer outranks the lane doing the work (2026-11-27: five Layout motion pushes went to a theme lane);
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
    several), or with the area's name or its start (`owns=package-layering`, `owns=Chromium hosting`; owns_area): a
    holder takes a workstream by tagging itself, and gives it up by ending;
@@ -176,10 +179,62 @@ def registry_coordinator(path: Path | None = None) -> str | None:
     return current if isinstance(current, str) and current else None
 
 
+# The pushing lane holds the area itself when the row names it: its own `owns=` tag, or its session name or its
+# branch (`lane/layout-scroll-to-rust` -> `layout-scroll-to-rust`) filling the role's globs. On 2026-11-27 five
+# pushes into Layout motion (`PL-motion-core, else lanes motion-*,layout-*`), some from a lane/layout-* branch, told
+# ask-cbefa8bcf5-3, a web-pages/theme ask lane that had never touched the area, "you hold it now": a stale
+# owns=PL-motion-core tag on it won over the lane doing the work. The pusher is asked first, and holding it
+# itself it is told nothing (owner_route prints the line).
+SELF = "the pushing lane"
+
+
+def branch_lane(branch: str | None) -> str:
+    """The lane name a pushed BRANCH carries: `lane/layout-x` -> `layout-x`, a plain branch as is, else ''."""
+    name = str(branch or "").strip()
+    if name in ("", "HEAD"):
+        return ""
+    return name.split("/", 1)[1] if name.startswith("lane/") else name
+
+
+def _is_row_of(row: dict, pusher: str) -> bool:
+    name = _name(row)
+    return pusher in (name, row.get("sessionId")) or ("/" not in name and name == _short(pusher))
+
+
+def pusher_holds(cell: str, rows: list[dict], pusher: str | None, area: str | None = None,
+                 branch: str | None = None) -> str | None:
+    """How PUSHER (HOST/NAME) holds the owner CELL of AREA itself, or None: its own owns= tag, or its session name
+    or the lane name of BRANCH filling the cell's role globs (fills_role)."""
+    if not pusher:
+        return None
+    workstreams, _ = cell_names(cell)
+    for r in (r for r in rows if _is_row_of(r, pusher)):
+        for w in workstreams:
+            if owns(r, w):
+                return f"{SELF}, holds owns={w}"
+        if area and owns_area(r, area):
+            return f"{SELF}, holds owns={owns_area(r, area)}"
+    globs = cell_lanes(cell)
+    for name in dict.fromkeys(n for n in (_short(pusher), branch_lane(branch)) if n):
+        if globs and fills_role(name, globs):
+            return f"{SELF}, a lane of {','.join(globs)}"
+    return None
+
+
+def is_self(how: str) -> bool:
+    """A holder() answer that is the pushing lane itself: no notice to send."""
+    return how.startswith(SELF)
+
+
 def holder(cell: str, rows: list[dict], coordinator: str | None = None,
-           area: str | None = None) -> tuple[str | None, str]:
-    """(live session, how) for the owner CELL of AREA, or (None, why none)."""
+           area: str | None = None, pusher: str | None = None,
+           branch: str | None = None) -> tuple[str | None, str]:
+    """(live session, how) for the owner CELL of AREA, or (None, why none). PUSHER (HOST/NAME) and its BRANCH, when
+    given, are asked first (pusher_holds)."""
     workstreams, sessions = cell_names(cell)
+    mine = pusher_holds(cell, rows, pusher, area, branch)
+    if mine:
+        return pusher, mine
     live = [r for r in rows if is_live(r)]
     for w in workstreams:
         tagged = sorted((r for r in live if owns(r, w)), key=lambda r: -(r.get("updatedAt") or 0))
@@ -412,4 +467,6 @@ def notice(area: str, cell: str, files: list[str], head: str, branch: str | None
     shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
     return (f"A push to {branch or 'a branch'} at {head[:12]} changes {area}, which OWNERS.md gives to {cell}; you hold "
             f"it now. Files: {shown}. Read {doc}; `git show {head[:12]}` for the change. If it is not yours, tag the "
-            f"holder (`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or fix the OWNERS.md row.")
+            f"holder (`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or fix the OWNERS.md row; if an "
+            f"`owns=` tag of yours made you holder and you do not work in it, drop it "
+            f"(`acpmux session tag YOUR-SESSION --remove owns`).")

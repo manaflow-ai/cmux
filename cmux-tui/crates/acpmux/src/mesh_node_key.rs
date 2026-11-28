@@ -22,7 +22,7 @@ pub struct NodeKeypair {
 }
 
 impl NodeKeypair {
-    fn of(private: &[u8; 32]) -> Self {
+    pub(crate) fn of(private: &[u8; 32]) -> Self {
         Self { public_key: PublicKey::from(&StaticSecret::from(*private)).to_bytes() }
     }
 
@@ -305,7 +305,12 @@ pub(crate) fn recorded_link_dirs(home: &Path) -> Vec<std::path::PathBuf> {
 }
 
 /// The link state directory recorded in `home` that serves (or will serve) its node key: one
-/// that adopted it first, else the one recorded last.
+/// that adopted it first, else the last one whose own record still names `home`, else the one
+/// recorded last.
+///
+/// The record only grows, so a link dir recorded later and since deleted (a test's temporary
+/// link) must not hide the app's own: while it did, a hub carrier started during a sign-out
+/// read "no link serves", kept the key lease, and the link's tunnel never started.
 pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
     let dirs = recorded_link_dirs(home);
     let adopted = dirs.iter().find(|dir| {
@@ -315,7 +320,12 @@ pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
             .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from))
             .is_some_and(|key_dir| same_path(&key_dir, home))
     });
-    adopted.or(dirs.last()).cloned()
+    let live = || {
+        dirs.iter()
+            .rev()
+            .find(|dir| recorded_home(dir).is_some_and(|recorded| same_path(&recorded, home)))
+    };
+    adopted.or_else(live).or(dirs.last()).cloned()
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {

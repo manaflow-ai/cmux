@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextCompat
 public import Foundation
 
 // The Cloud side of a start the App runs (CloudStartChat): what it may copy, and the steps and
@@ -95,16 +96,72 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneCloudStart {
-    /// The page's reply when this start's machine gave its agent no model and the start carried no connection
-    /// (`CloudMachineRoute.NeedsConnection`, cmux#45773): nothing signs the agent in, so the person is asked to set it up.
-    /// Claude and Codex show Set up Cloud for their family (its Set up Claude, Connect ChatGPT or key), which starts the
-    /// chat again once a connection serves; a team shared key that reached the unrouted machine is no longer chosen
-    /// (``CloudSetup/unrouted(harness:model:account:)``). Only an agent Cloud cannot set up ends with `message`, no Retry.
-    @MainActor public func needsConnectionReply(_ message: String, setup: CloudSetup) async -> [String: Any] {
-        let card = await setup.unrouted(harness: harness, model: model, account: account)
-        guard let family = card?.family ?? CloudSetup.family(of: harness) else {
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: false, origin: "native")
+    package static var localOnlyMessage: String {
+        String(localized: "cloud.start.localOnlyModel", defaultValue: "This model runs locally. Choose a Cloud model or run the chat on this computer.", bundle: .module.inAppLanguage)
+    }
+
+    /// Refuse local-only profiles or offer setup for a Cloud connection that can be added.
+    @MainActor public func connectionRefusalReply(for choice: CloudSetup.Choice) -> [String: Any]? {
+        if choice == .localOnly {
+            return AgentPaneReply.failure(code: "cloud_model_local_only", message: Self.localOnlyMessage,
+                                          details: nil, retryable: false, origin: "native")
         }
-        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": card?.model ?? model ?? ""], retryable: false, origin: "native")
+        guard case .setup(let family, let model) = choice else { return nil }
+        // A project needs the planner's sized destination before Settings can sign in on it.
+        if family == "claude", !home { return nil }
+        return Self.cloudSetupReply(family: family, model: model)
+    }
+
+    private static func cloudSetupReply(family: String, model: String?, machine: String? = nil) -> [String: Any] {
+        var details = ["family": family, "model": model ?? ""]
+        details["machine"] = machine
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required",
+                                     details: details, retryable: false, origin: "native")
+    }
+
+    /// Offer setup only after the machine reports no usable sign-in and the local connection
+    /// list confirms an addable connection is missing.
+    @MainActor public func needsConnectionReply(_ message: String, machine: String? = nil, setup: CloudSetup) async -> [String: Any] {
+        if usesMachineLogin {
+            return Self.cloudSetupReply(family: "claude", model: model, machine: self.machine)
+        }
+        let unrouted = await setup.unrouted(harness: harness, model: model, account: account)
+        let choice = if let unrouted {
+            CloudSetup.Choice.setup(family: unrouted.family, model: unrouted.model)
+        } else {
+            await setup.choose(harness: harness, model: model, account: account)
+        }
+        guard case .setup(let family, let model) = choice else {
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
+        }
+        if !CloudSetup.setupFamilies.contains(family) {
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
+        }
+        return Self.cloudSetupReply(family: family, model: model, machine: machine)
+    }
+}
+
+extension CloudSetup {
+    /// The credential for this send on the resolved machine.
+    public func launchReadiness(for start: AgentPaneCloudStart, checkMachineLogin: Bool = true) async -> (choice: Choice, refusal: Refusal?) {
+        let ready = checkMachineLogin ? await readyClaudeMachines(for: start) : []
+        if start.usesMachineLogin {
+            return (ready.isEmpty ? .setup(family: "claude", model: start.model) : .claudeMachineLogin, nil)
+        }
+        return await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty)
+    }
+
+    public func readyClaudeMachines(for start: AgentPaneCloudStart) async -> [String] {
+        guard Self.family(of: start.harness) == "claude", !start.usesMachineLogin || start.machine != nil else { return [] }
+        return await readyClaudeMachines(machine: start.machine, environment: start.environment)
+    }
+
+    /// The readiness choice and candidate machines used by the first-send planner.
+    package func plannerReadiness(for start: AgentPaneCloudStart) async -> (choice: Choice, machines: Set<String>) {
+        let ready = await readyClaudeMachines(for: start)
+        // Keep the approved launch choice while the planner reconnects the pinned machine.
+        if start.usesMachineLogin { return (.claudeMachineLogin, Set(ready)) }
+        let choice = await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty).choice
+        return (choice, Set(ready))
     }
 }

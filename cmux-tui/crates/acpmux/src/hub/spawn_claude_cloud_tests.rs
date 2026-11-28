@@ -5,11 +5,47 @@ use super::*;
 use crate::store::{META_SCHEMA, SessionMeta};
 use serde_json::json;
 
-fn hub() -> Arc<Hub> {
-    let config: crate::config::Config =
-        serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+fn hub(home: &std::path::Path) -> Arc<Hub> {
+    let config: crate::config::Config = serde_json::from_value(json!({
+        "store": {"mode": "memory"},
+        "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"HOME": home}}}
+    }))
+    .unwrap();
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(config, store)
+}
+
+#[tokio::test]
+async fn automatic_gateway_fallback_keeps_signed_out_machine_login_choices() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = hub(home.path());
+    hub.set_vm_marker_root(home.path().to_owned());
+    let profile = hub.config.read().await.profile("claude").unwrap().clone();
+    for recovered in [false, true] {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": META_SCHEMA,
+            "id": if recovered { "recovered" } else { "explicit" },
+            "name": "signed-out",
+            "harness": "claude",
+            "cwd": home.path(),
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        if recovered {
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::MachineLogin);
+            meta.claude_login_restart_pending = Some(false);
+        } else {
+            meta.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+        }
+        let session = hub.make_session(meta);
+
+        assert!(!hub.use_gateway_now(&session).await, "recovered: {recovered}");
+        let launch =
+            hub.spawn_profile_for(&session.meta(), &profile, &Default::default()).await.unwrap();
+        assert_eq!(launch.env["CMUX_CLAUDE_AUTH"], "own");
+    }
 }
 
 #[tokio::test]
@@ -29,7 +65,7 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     .unwrap();
     let home = root.join("home");
     std::fs::create_dir_all(home.join(".claude")).unwrap();
-    let hub = hub();
+    let hub = hub(&home);
     hub.set_vm_marker_root(root.clone());
     let meta: SessionMeta = serde_json::from_value(json!({
         "schema": META_SCHEMA,
@@ -82,6 +118,18 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         assert_eq!(got.env.get("ANTHROPIC_API_KEY"), None, "{argv:?} got the team key");
         assert!(!got.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER), "{argv:?}");
         assert_eq!(got.argv, launcher.argv, "{argv:?} got a team --settings");
+
+        let mut linked = meta.clone();
+        linked.session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+        linked.session_env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
+        launcher.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+        launcher.env.insert("ANTHROPIC_BASE_URL".into(), "https://wrapper.test".into());
+        let got = hub.spawn_profile_for(&linked, &launcher, &none).await.unwrap();
+        assert_eq!(got.argv, launcher.argv);
+        assert_eq!(got.env["CMUX_CLAUDE_AUTH"], "own");
+        assert_eq!(got.env["ANTHROPIC_BASE_URL"], "https://wrapper.test");
+        assert!(!got.env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM));
+        assert!(!got.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
     }
     // Claude itself by its full path still takes team mode.
     let mut by_path = profile(&[]);
@@ -195,5 +243,111 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         assert_eq!(claude.get(*key).map(String::as_str).unwrap_or(""), "", "{key} reaches Claude");
     }
     assert_eq!(claude[headers], "x-cmux-workspace-id: ws-1");
+    // A chat that selects a signed-in machine account pins its launch to it,
+    // even while the machine's recorded preference still selects team.
+    let choice = home.join(".config/cmux/agent-auth");
+    std::fs::create_dir_all(&choice).unwrap();
+    std::fs::write(choice.join("claude"), "team\n").unwrap();
+    let mut account = meta.clone();
+    let p = profile(&[]);
+    let team = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
+    assert_eq!(team.env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("https://localhost"));
+    account.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+    account.stop_condition = Some("The task is done.".into());
+    let own = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
+    assert_eq!(own.env.get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+    assert!(!own.env.contains_key("ANTHROPIC_BASE_URL"));
+    let settings = crate::claude_cloud_auth::flag_settings(&own.argv[1..], &home).unwrap().unwrap();
+    assert_eq!(settings["hooks"]["Stop"][0]["hooks"][0]["prompt"], "The task is done.");
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "");
+    assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "team\n");
+    let refused = hub.spawn_profile_for(&account, &flagged, &none).await.err().unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+
+    // A gateway selection supersedes a machine login even when the machine preference is own.
+    std::fs::write(choice.join("claude"), "own\n").unwrap();
+    hub.config.write().await.harnesses.insert(meta.harness.clone(), p.clone());
+    for recovered in [false, true] {
+        let mut pinned = account.clone();
+        if recovered {
+            pinned.session_env.remove("CMUX_CLAUDE_AUTH");
+            pinned.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::MachineLogin);
+            pinned.claude_login_restart_pending = Some(false);
+        }
+        let session = hub.make_session(pinned);
+        assert!(hub.select_claude_gateway(&session, false).await.unwrap());
+        let gateway = hub.spawn_profile_for(&session.meta(), &p, &none).await.unwrap();
+        assert_eq!(
+            gateway.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("https://localhost")
+        );
+        assert!(gateway.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
+        assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "own\n");
+    }
+
+    // The explicit Cloud start replaces even a profile's personal launch key and endpoint.
+    std::fs::write(choice.join("claude"), "own\n").unwrap();
+    let mut requested = meta.clone();
+    requested.session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+    requested.session_env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
+    let mut personal = profile(&[
+        ("ANTHROPIC_BASE_URL", "https://personal.test"),
+        ("ANTHROPIC_API_KEY", "personal-key"),
+        ("ANTHROPIC_AUTH_TOKEN", "personal-token"),
+    ]);
+    personal.argv.extend(["--".into(), "positional".into()]);
+    let team = hub.spawn_profile_for(&requested, &personal, &none).await.unwrap();
+    let child =
+        crate::agent::harness_command(&requested.harness, &team, &home, None, None).unwrap();
+    let env: std::collections::BTreeMap<String, String> =
+        crate::agent::command_env(&child).into_iter().collect();
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://localhost");
+    assert_eq!(env["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
+    assert!(!env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    assert!(!env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM));
+    let args: Vec<_> =
+        child.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    let settings = crate::claude_cloud_auth::flag_settings(&args, &home).unwrap().unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://localhost");
+    assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
+    assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+
+    // Native team starts preserve file-based permissions. A credential cleared by
+    // the overlay never enters argv or durable spawn metadata.
+    let mut file_profile = profile(&[]);
+    file_profile.argv.push("--settings=permissions.json".into());
+    for contents in [
+        r#"{"permissions":{"allow":["Read"]}}"#,
+        r#"{"permissions":{"allow":["Read"]},"env":{"ANTHROPIC_AUTH_TOKEN":"fixture-cleared-token"}}"#,
+    ] {
+        std::fs::write(home.join("permissions.json"), contents).unwrap();
+        let team = hub.spawn_profile_for(&requested, &file_profile, &none).await.unwrap();
+        let settings =
+            crate::claude_cloud_auth::flag_settings(&team.argv[1..], &home).unwrap().unwrap();
+        assert_eq!(settings["permissions"]["allow"], json!(["Read"]));
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://localhost");
+        assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+        assert!(team.argv.iter().all(|arg| !arg.contains("fixture-cleared-token")));
+    }
+
+    // A credential that would survive the overlay must never enter those launch settings.
+    std::fs::write(
+        home.join("personal.json"),
+        r#"{"env":{"ANTHROPIC_BASE_URL":"https://personal.test","AWS_BEARER_TOKEN_BEDROCK":"fixture-file-secret"}}"#,
+    ).unwrap();
+    let mut file_profile = profile(&[]);
+    file_profile.argv.extend(["--settings".into(), "personal.json".into()]);
+    let own = hub.spawn_profile_for(&meta, &file_profile, &none).await.unwrap();
+    assert_eq!(own.argv, file_profile.argv);
+    let refused = hub.spawn_profile_for(&requested, &file_profile, &none).await.err().unwrap();
+    let data = refused.data.unwrap();
+    assert_eq!(data["reason"], "route.settings_secret");
+    assert!(!data.to_string().contains("fixture-file-secret"));
+    assert!(!refused.message.contains("fixture-file-secret"));
+
+    std::fs::remove_file(root.join("etc/cmux/model-plane.env")).unwrap();
+    let refused = hub.spawn_profile_for(&requested, &personal, &none).await.err().unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+    assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "own\n");
     let _ = std::fs::remove_dir_all(&root);
 }

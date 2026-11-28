@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4" as const;
+export const SDK_IR_SHA256 = "aa7779b3359ce4c7b932c9de646ff247ae742afc7c712a93c9e618c22b5d7f09" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4225,6 +4225,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "client-disconnected-by": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "client-list-invalidated": {
     "since": 9,
     "capability": null,
@@ -5943,6 +5951,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "capabilities": {
+        "description": "The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
       "client": {
         "nullable": false,
         "presence": "required",
@@ -7367,6 +7387,57 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Id"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FloatingPane": {
+    "additional_properties": false,
+    "fields": {
+      "h": {
+        "description": "The height, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "pane": {
+        "description": "floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "w": {
+        "description": "The width, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "x": {
+        "description": "The left edge, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "y": {
+        "description": "The top edge, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
         }
       }
     },
@@ -11512,8 +11583,11 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "presence": "optional",
         "since": 12,
         "type": {
-          "kind": "ref",
-          "name": "JsonValue"
+          "items": {
+            "kind": "ref",
+            "name": "FloatingPane"
+          },
+          "kind": "array"
         }
       },
       "group": {
@@ -34124,6 +34198,32 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "client-detached"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "client-disconnected-by": {
+    "additional_properties": false,
+    "fields": {
+      "by": {
+        "constraints": [
+          "The participant that disconnected this client. Absent when the request named nobody."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "SizeDetachActor"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "client-disconnected-by"
         }
       }
     },

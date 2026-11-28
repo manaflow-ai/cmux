@@ -17,8 +17,22 @@ const key = (peer: string | undefined, id: string) => `${peer ?? ""}\u0000${id}`
 
 const live = (entry: AcpmuxSessionEntry) => entry.status !== "closed" && !entry.archived && !entry.side;
 
+type Sessions = readonly (Record<string, any> & { sessionId: string })[];
+
+/// The New Tab page asks on every render (NewTabScreen.tsx), and a render that is not a new chat list (a keystroke,
+/// the clock) hands in the same array: 1 ms a render at 11k chats. A chat list is never changed in place (a change is
+/// a new array, sessionIndex.ts `noteReplaced`), so the leaders of one array are kept for it.
+const leadersOf = new WeakMap<Sessions, Lead[]>();
+
 /** The leaders among `sessions`, the one with the most reports first, then by title. */
-export function leaders(sessions: readonly (Record<string, any> & { sessionId: string })[]): Lead[] {
+export function leaders(sessions: Sessions): Lead[] {
+  let out = leadersOf.get(sessions);
+  if (!out) leadersOf.set(sessions, (out = leadersUncached(sessions)));
+  return out;
+}
+
+/** `leaders` worked out again, kept as its test's oracle. */
+export function leadersUncached(sessions: Sessions): Lead[] {
   const entries = sessions.map((raw) => normalizedSessionEntry(raw)).filter(live);
   const reports = new Map<string, AcpmuxSessionEntry[]>();
   for (const entry of entries) {
