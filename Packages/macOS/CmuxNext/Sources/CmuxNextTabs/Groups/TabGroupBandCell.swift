@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The group underline plus a faint wash behind member tabs, from the chip's
-/// pill to the last member's trailing edge. Drawn behind the tab layers.
+/// pill to the last member's trailing edge. Drawn behind the tab layers (never over them).
 final class TabGroupBandCell {
     let washLayer = CALayer()
     let lineLayer = CALayer()
