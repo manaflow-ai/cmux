@@ -132,6 +132,28 @@ struct HomeLaunchRevealTests {
         #expect(reveal.isReady(.home), "the replacing Home stayed unready past its own deadline")
     }
 
+    /// NIGHTLY launch-tti: stage 0 waited out its 400 ms bound and swapped as a mismatch every round,
+    /// because the panes counted as shown only at the first live terminal frame (~350 ms after each had
+    /// drawn its saved frame). Panes that drew their saved frames let the shell swap; they stay unready,
+    /// so the work that waits for a live pane (LaunchSettle's warm-ups) does not move earlier.
+    @Test func panesShowingSavedFramesLetTheShellSwap() {
+        let reveal = LaunchReveal(clock: ManualClock(), deadline: .milliseconds(1500))
+        let left = NSView(), right = NSView()
+        reveal.hold(left, until: .pane)
+        reveal.hold(right, until: .pane)
+        var swapped = 0
+        reveal.whenContentReady { swapped += 1 }
+        reveal.markReady(.sidebar)
+        reveal.markReady(.tabs)
+        reveal.release(left)
+        #expect(swapped == 0, "the shell swapped before every pane drew its saved frame")
+        reveal.release(right)
+        #expect(swapped == 1, "panes showing their saved frames kept the shell up")
+        #expect(!reveal.isReady(.pane), "a saved frame marked the pane live")
+        reveal.markReady(.pane)
+        #expect(swapped == 1)
+    }
+
     /// Leo's NIGHTLY wrote no `launch-times.jsonl` line across six quit/relaunch rounds: his windows
     /// restore other workspaces, so Home is never held, its reveal never comes, and the record waited
     /// for it alone. A launch that never shows Home still records its times, once, after the wait.
