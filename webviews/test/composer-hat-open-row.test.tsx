@@ -37,7 +37,7 @@ const replacements: Record<string, unknown> = {
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
   // The arm, as the gallery's stage frame pins it (experiments/experiment.ts, source 1).
-  cmuxExperiments: { "composer-hat-open": "row" },
+  cmuxExperiments: { "composer-hat-open": "row", "subagent-tray-fold-head": "groups" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))

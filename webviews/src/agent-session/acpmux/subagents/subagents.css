@@ -488,10 +488,10 @@ button.cv-subagent > :last-child {
 }
 
 /* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
-.acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
+.acpmux-running-tray:not([data-crown])[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-.acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
+.acpmux-running-tray:not([data-crown])[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
   color: var(--agent-muted);
 }
 .acpmux-running-tray__status svg {
@@ -974,20 +974,20 @@ button.cv-subagent > :last-child {
    (`fit-content`), so the title runs up to the time and cuts only when it truly overflows (Leo,
    2026-11-07, on "glaeda-gh wait file ~..." cut well short of its time). Every time still ends on one
    x, against Stop's track; the status track is 0 wide, so its gap is all it adds. */
-.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+.acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) fit-content(calc(var(--acpmux-tray-time-width) + var(--acpmux-tray-status-width))) 0px var(--acpmux-tray-stop-width) var(--acpmux-tray-chevron-width);
   column-gap: var(--acpmux-tray-gap);
   align-items: center;
   padding-inline: var(--acpmux-tray-inset-start) var(--acpmux-tray-inset-end, var(--acpmux-tray-inset));
 }
-.acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
+.acpmux-running-tray:not([data-crown]) .acpmux-agent-line__button > .acpmux-lineage__icon {
   grid-area: 1 / 1;
   margin-left: var(--acpmux-tray-indent, 0px);
   justify-self: start;
   width: 14px;
 }
-.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
+.acpmux-running-tray:not([data-crown]) .acpmux-agent-line__button > .acpmux-summary-text {
   grid-area: 1 / 1;
   min-width: 0;
   margin-left: calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px));
@@ -1079,7 +1079,7 @@ button.cv-subagent > :last-child {
 }
 /* A tray of 260px or less cannot hold a title beside the columns: every line takes two rows. */
 @container running-tray (max-width: 260px) {
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - var(--acpmux-tray-inset) - var(--acpmux-tray-inset-start)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
@@ -1087,29 +1087,29 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
     top: var(--acpmux-tray-two-row-icon-top);
     left: var(--acpmux-tray-inset-start);
   }
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   /* The controls line has the title's track free: a long state word takes that room first. Stop's
      track stays its own, empty or not. */
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-agent-line__trail {
     grid-column: 1 / 4;
   }
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot {
+  .acpmux-running-tray:not([data-crown]) .acpmux-agent-line > .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
@@ -1156,12 +1156,12 @@ button.cv-subagent > :last-child {
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 /* Resume and Stop (their own controls in Stop's column) light themselves, not the line around them. */
-.acpmux-running-tray
+.acpmux-running-tray:not([data-crown])
   .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(
     :has(:is(.cv-subagent-resume-control, .cv-subagent__stop, .acpmux-session-info-stop):hover)
   ):hover,
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
-.acpmux-running-tray .acpmux-running-tray__head:hover {
+.acpmux-running-tray:not([data-crown]) .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
+.acpmux-running-tray:not([data-crown]) .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-session-info-stop):enabled {

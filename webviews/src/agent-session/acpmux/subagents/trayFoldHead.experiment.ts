@@ -13,6 +13,11 @@ export const trayFoldHeadLook = defineExperiment({
   description:
     "What the running tray's header says: one plain line (10 subagents working, 2 background commands running), two groups (subagents, background) in words that shrink, a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
   arms: {
+    crown: {
+      label: "Leading pair crown",
+      description:
+        "Opaque recessed crown with monochrome 9+ corner sub-badges for subagents and commands side by side on the left (no divider), lead title, time, spinner or check, steady hide and panel icons, and flat direct-click rows.",
+    },
     line: {
       label: "One line: what runs, in plain words",
       description:
@@ -82,7 +87,7 @@ export const trayFoldHeadLook = defineExperiment({
   // unnecessary space to the point where it's just... not great" / "like claude code just has this and
   // they tuck it at the very bottom of the transcript after the latest message"). trayHeadKinds.ts
   // `trayHeadLine` writes it.
-  defaultArm: "line",
+  defaultArm: "crown",
 });
 
 /// One of the folded header's arms.

@@ -1,0 +1,630 @@
+/* Leading Pair composer crown (trayFoldHead.experiment.ts `crown`, SubagentTray.tsx).
+   Opaque recessed surface joined above the borderless composer with a 0.5px horizontal seam,
+   zero blue highlight, punched monochrome 9+ icon sub-badges for subagents and commands side by side
+   on the left (no divider, command badge non-clickable), steady hide/panel utility icons, flat open
+   list (no divider, no row expansion, no working details), zero-shift Stop swap, and continuous row
+   hover across Stop to eliminate flicker. */
+
+.acpmux-running-tray[data-crown][data-crown] {
+  /* Opaque surface one step recessed from the opaque composer box, derived from theme tokens. */
+  --acpmux-crown-bg: light-dark(
+    color-mix(in srgb, var(--acpmux-composer-solid) 60%, var(--cmux-surface-solid, var(--acpmux-base))),
+    color-mix(in srgb, var(--acpmux-composer-solid) 52%, var(--cmux-surface-solid, var(--acpmux-base)))
+  );
+  --acpmux-crown-elev: color-mix(in srgb, var(--agent-text) 9%, var(--acpmux-crown-bg));
+  --acpmux-crown-seam: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-crown-bg));
+  --acpmux-crown-vdiv: color-mix(in srgb, var(--agent-text) 14%, var(--acpmux-crown-bg));
+  --acpmux-crown-hover-soft: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-crown-hover: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --acpmux-crown-pressed: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --acpmux-crown-faint: color-mix(in srgb, var(--agent-text) 56%, transparent);
+  --acpmux-crown-head-min: calc(9 * var(--grid-base));
+  --acpmux-crown-row-min: calc(7.5 * var(--grid-base));
+
+  /* glass-opaque-allow: Leading Pair crown is intentionally an opaque recessed surface joined to the borderless composer, not glass */
+  background: var(--acpmux-crown-bg);
+  color: var(--agent-text);
+}
+
+/* Keep the resize rim slim inside the crown so Hide and Panel buttons stay unobstructed. */
+.acpmux-running-tray[data-crown] > .acpmux-running-tray__rim {
+  height: var(--ds-space-1);
+}
+
+/* Joined above the borderless composer: clean 0.5px internal seam, no glass specular rim. */
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-crown][data-card]:has(+ .acpmux-composer) {
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--acpmux-crown-seam);
+}
+
+@media not (prefers-contrast: more) {
+  :root:not([data-bottom-stack="cards"])
+    .acpmux-dock
+    > .acpmux-running-tray[data-crown][data-card]:has(+ .acpmux-composer) {
+    box-shadow: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .acpmux-running-tray[data-crown][data-crown] {
+    --acpmux-crown-faint: var(--agent-text);
+    --acpmux-crown-seam: var(--acpmux-composer-edge);
+    --acpmux-crown-vdiv: var(--acpmux-composer-edge);
+  }
+}
+
+/* ---------- Primary crown bar (36px at 1x) ---------- */
+.acpmux-crown__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  box-sizing: border-box;
+  min-height: var(--acpmux-crown-head-min);
+  padding: 0 var(--acpmux-tray-inset);
+  user-select: none;
+  transition: background-color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-crown__bar:hover,
+.acpmux-crown__bar:has([data-popup-open]) {
+  background: var(--acpmux-crown-hover-soft);
+}
+
+/* Stretched primary button covering the bar; sibling tools & Stop sit above it cleanly. */
+.acpmux-running-tray[data-crown] .acpmux-crown__head-btn.acpmux-running-tray__head {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  height: auto;
+  min-height: var(--acpmux-crown-head-min);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__head-btn.acpmux-running-tray__head:hover {
+  background: transparent;
+}
+
+.acpmux-crown__head-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-base, 0);
+  border-radius: var(--acpmux-tray-radius, var(--ds-radius-md, 8px)) var(--acpmux-tray-radius, var(--ds-radius-md, 8px)) 0 0; /* radius-allow: matches outer crown tray top corners */
+}
+
+.acpmux-crown__head-btn:disabled::after,
+.acpmux-crown__row-btn:disabled::after {
+  pointer-events: none;
+}
+
+.acpmux-crown__head-btn:focus-visible {
+  outline: none;
+}
+
+.acpmux-crown__head-btn:focus-visible::after {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: -2px;
+}
+
+/* ---------- Leading Pair icon sub-badges (no divider, non-clickable in header) ---------- */
+.acpmux-crown__lead-group {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.acpmux-crown__icon-badge {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--acpmux-tray-lead-box);
+  height: var(--acpmux-tray-lead-box);
+  color: var(--agent-muted);
+}
+
+.acpmux-crown__icon-badge > .acpmux-crown__icon-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.acpmux-crown__icon-badge[data-has-badge] > .acpmux-crown__icon-glyph {
+  transform: translate(-2px, -2px);
+}
+
+.acpmux-crown__sub-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  min-width: calc(3.5 * var(--grid-base));
+  height: calc(3.5 * var(--grid-base));
+  padding: 0 var(--grid-half-step);
+  border-radius: 999px;
+  background: var(--acpmux-crown-elev);
+  box-shadow: 0 0 0 1.5px var(--acpmux-crown-bg);
+  color: var(--agent-text);
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: calc(3.5 * var(--grid-base));
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.acpmux-crown__sub-badge[data-done] {
+  color: var(--agent-muted);
+}
+
+.acpmux-crown__bar:hover .acpmux-crown__sub-badge {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-crown-bg));
+}
+
+/* ---------- Title, state word, and tabular elapsed time ---------- */
+.acpmux-crown__body {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding-inline-start: var(--ds-space-1);
+}
+
+.acpmux-crown__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--agent-text);
+}
+
+.acpmux-crown__bar[data-done] .acpmux-crown__name {
+  color: color-mix(in srgb, var(--agent-text) 82%, transparent);
+}
+
+.acpmux-crown__state-word {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--agent-muted);
+}
+
+.acpmux-crown__state-word[data-status="failed"] {
+  color: var(--agent-status-failure);
+}
+
+.acpmux-crown__state-word[data-status="waiting"] {
+  color: var(--acpmux-needs-you-mark);
+}
+
+.acpmux-crown__time {
+  flex: none;
+  padding-inline-end: var(--grid-half-step);
+  white-space: nowrap;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
+
+/* ---------- Fixed 24px state/Stop slot (zero layout shift on hover) ---------- */
+.acpmux-crown__state-slot {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--agent-muted);
+  /* Let clicks pass through to the stretched bar/row button when no Stop button is active. */
+  pointer-events: none;
+}
+
+.acpmux-crown__run-ind {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: opacity var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-crown__fail-ind {
+  display: grid;
+  place-items: center;
+  color: var(--agent-status-failure);
+}
+
+.acpmux-crown__wait-ind {
+  display: grid;
+  place-items: center;
+  color: var(--acpmux-needs-you-mark);
+}
+
+.acpmux-crown__stop-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-raised, 1);
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__stop-wrap
+  :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]) {
+  color: var(--agent-muted);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__stop-wrap :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  opacity: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+  transition:
+    background-color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out)),
+    color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__stop-wrap
+  :is(.cv-subagent__stop, .acpmux-session-info-stop):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-status-failure) 14%, transparent);
+  color: var(--agent-status-failure);
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__stop-wrap
+  :is(.cv-subagent__stop, .acpmux-session-info-stop):active:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-status-failure) 22%, transparent);
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__stop-wrap
+  :is(.cv-subagent__stop, .acpmux-session-info-stop):focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: -2px;
+}
+
+/* Swap spinner -> Stop in place inside the 24px slot with zero shift on hover or focus. */
+:is(.acpmux-crown__row, .acpmux-crown__bar)[data-stoppable]:is(:hover, :focus-within)
+  > .acpmux-crown__state-slot
+  > .acpmux-crown__run-ind {
+  opacity: 0;
+}
+
+:is(.acpmux-crown__row, .acpmux-crown__bar)[data-stoppable]:is(:hover, :focus-within)
+  > .acpmux-crown__state-slot
+  > .acpmux-crown__stop-wrap {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---------- Steady header utility icons (no shell/composer group-hover fade) ---------- */
+.acpmux-crown__tools {
+  position: relative;
+  /* Above the top resize rim so the top pixels of Hide and Panel always receive clicks. */
+  z-index: calc(var(--cmux-resize-handle-layer, 2) + 1);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-half-step);
+}
+
+.acpmux-crown__vdiv {
+  flex: none;
+  width: var(--cmux-hairline, 0.5px);
+  height: calc(3.25 * var(--grid-base));
+  margin-inline: var(--ds-space-1);
+  background: var(--acpmux-crown-vdiv);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__tool {
+  position: static;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--acpmux-crown-faint);
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  cursor: default;
+  transition:
+    background-color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out)),
+    color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__tool:hover {
+  background: var(--acpmux-crown-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__tool:active {
+  background: var(--acpmux-crown-pressed);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__tool:focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: -2px;
+}
+
+/* Override legacy absolute top-edge tuck / open button styles inside the crown bar. */
+.acpmux-running-tray[data-crown] .acpmux-running-tray__tuck::before {
+  content: none;
+}
+
+.acpmux-running-tray[data-crown] .acpmux-running-tray__tuck,
+.acpmux-running-tray[data-crown] .acpmux-running-tray__open {
+  position: static;
+  top: auto;
+  right: auto;
+  left: auto;
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  align-items: center;
+  color: var(--acpmux-crown-faint);
+}
+
+.acpmux-running-tray[data-crown] :is(.acpmux-running-tray__tuck, .acpmux-running-tray__open):hover {
+  background: var(--acpmux-crown-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-running-tray[data-crown] :is(.acpmux-running-tray__tuck, .acpmux-running-tray__open):focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: -2px;
+}
+
+.acpmux-running-tray[data-crown] :is(.acpmux-running-tray__tuck, .acpmux-running-tray__open) > svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Trailing disclosure chevron on multi-item header: right when closed, down when open. */
+.acpmux-crown__chev {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--ds-radius-control, 6px);
+  color: var(--acpmux-crown-faint);
+  pointer-events: none;
+  transition: color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-crown__bar:hover .acpmux-crown__chev {
+  color: var(--agent-text);
+}
+
+.acpmux-crown__chev > svg {
+  transform: rotate(-90deg);
+  transition: transform var(--agent-motion-move, var(--cmux-motion-standard)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-crown__chev[data-open] > svg {
+  transform: rotate(0deg);
+}
+
+/* ---------- Open inset matte well & flat direct-click rows ---------- */
+.acpmux-running-tray[data-crown] > .acpmux-running-tray__fold::before {
+  content: none;
+}
+
+.acpmux-running-tray[data-crown] .acpmux-running-tray__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  padding: var(--ds-space-1);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-crown-seam);
+  /* 5 rows + inset padding before scrolling. */
+  max-height: calc(var(--acpmux-tray-lines, 5) * var(--acpmux-crown-row-min) + var(--ds-space-2) + var(--ds-space-1));
+}
+
+.acpmux-crown__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  box-sizing: border-box;
+  min-height: var(--acpmux-crown-row-min);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control, 6px);
+  user-select: none;
+  transition: background-color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+/* Continuous group hover across the entire row AND over its Stop button to eliminate flicker. */
+.acpmux-running-tray[data-crown] .acpmux-crown__row.acpmux-agent-line:hover,
+.acpmux-running-tray[data-crown] .acpmux-crown__row.acpmux-agent-line:has([data-popup-open]) {
+  background: var(--acpmux-crown-hover);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__row.acpmux-agent-line > .acpmux-crown__row-btn.acpmux-agent-line__button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  height: auto;
+  min-height: var(--acpmux-crown-row-min);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.acpmux-crown__row-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-base, 0);
+  border-radius: var(--ds-radius-control, 6px);
+}
+
+.acpmux-crown__row-btn:focus-visible {
+  outline: none;
+}
+
+.acpmux-crown__row-btn:focus-visible::after {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: -2px;
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__row-btn > .acpmux-crown__row-lead.acpmux-lineage__icon {
+  grid-area: auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--acpmux-tray-lead-box);
+  height: var(--acpmux-tray-lead-box);
+  margin: 0;
+  color: var(--agent-muted);
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__row-btn > .acpmux-crown__row-name.acpmux-summary-text {
+  grid-area: auto;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding-inline-start: var(--ds-space-1);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--agent-text);
+}
+
+.acpmux-crown__row-name > .acpmux-summary-agent__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-running-tray[data-crown] .acpmux-crown__row-btn > .acpmux-crown__time.acpmux-agent-line__time {
+  flex: none;
+  max-width: none;
+  margin: 0;
+  padding-inline-end: var(--grid-half-step);
+  text-align: right;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__row[data-done]
+  .acpmux-crown__row-btn
+  > .acpmux-crown__row-name.acpmux-summary-text {
+  color: var(--agent-muted);
+}
+
+.acpmux-running-tray[data-crown]
+  .acpmux-crown__row[data-done]:hover
+  .acpmux-crown__row-btn
+  > .acpmux-crown__row-name.acpmux-summary-text {
+  color: var(--agent-text);
+}
+
+/* Fixed 24px trailing navigation arrow: zero translateX, zero shift when Stop reveals. */
+.acpmux-crown__nav-arrow {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--acpmux-crown-faint);
+  pointer-events: none;
+  transition: color var(--agent-motion-hover, var(--cmux-motion-quick)) var(--agent-ease-out, var(--cmux-ease-out));
+}
+
+.acpmux-crown__row:hover .acpmux-crown__nav-arrow {
+  color: color-mix(in srgb, var(--agent-text) 82%, transparent);
+}
+
+/* Reduced motion: instant state swaps and chevron flips. */
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"])
+  :is(
+    .acpmux-crown__bar,
+    .acpmux-crown__row,
+    .acpmux-crown__run-ind,
+    .acpmux-crown__stop-wrap,
+    .acpmux-crown__stop-wrap :is(.cv-subagent__stop, .acpmux-session-info-stop),
+    .acpmux-crown__chev,
+    .acpmux-crown__chev > svg,
+    .acpmux-crown__tool,
+    .acpmux-crown__nav-arrow
+  ) {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .acpmux-crown__bar,
+    .acpmux-crown__row,
+    .acpmux-crown__run-ind,
+    .acpmux-crown__stop-wrap,
+    .acpmux-crown__stop-wrap :is(.cv-subagent__stop, .acpmux-session-info-stop),
+    .acpmux-crown__chev,
+    .acpmux-crown__chev > svg,
+    .acpmux-crown__tool,
+    .acpmux-crown__nav-arrow
+  ) {
+    transition: none;
+  }
+}

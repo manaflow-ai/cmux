@@ -54,6 +54,7 @@ export default agentPaneEntry({
     rows: {
       note: "Open: a running line (its time, its Stop square), a finished one (its time, its check) and a stopped one (its state and time). The check stands in the Stop square's column at the square's ink size and the hat's stroke, a track gap after the time.",
       play: openHat,
+      experiments: { "subagent-tray-fold-head": "kinds" },
       snapshot: hat([
         agent("Make autoland land again", 6.2, "running"),
         agent("Check the docs", 3, "completed", 0.78),
@@ -65,6 +66,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => head(ctx)?.querySelector("[data-hat-done]"));
       },
+      experiments: { "subagent-tray-fold-head": "kinds" },
       snapshot: hat([agent("Check the docs", 3, "completed", 0.78)]),
     },
   },
