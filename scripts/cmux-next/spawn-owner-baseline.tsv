@@ -42,7 +42,6 @@ cmux-tui/crates/acpmux/src/config/profile_env.rs	1
 cmux-tui/crates/acpmux/src/daemon.rs	7
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	1
 cmux-tui/crates/acpmux/src/daemon/cloud_handoff.rs	1
-cmux-tui/crates/acpmux/src/daemon/detached_spawn.rs	2
 cmux-tui/crates/acpmux/src/daemon/listener_keeper.rs	2
 cmux-tui/crates/acpmux/src/daemon/login_session.rs	2
 cmux-tui/crates/acpmux/src/daemon/managed_unit.rs	1
@@ -129,7 +128,6 @@ cmux-tui/crates/acpmux/src/hub/turn_cap.rs	2
 cmux-tui/crates/acpmux/src/hub/turn_retry.rs	1
 cmux-tui/crates/acpmux/src/hub/turns.rs	1
 cmux-tui/crates/acpmux/src/hub/usage_view.rs	1
-cmux-tui/crates/acpmux/src/hub/vm_host.rs	0
 cmux-tui/crates/acpmux/src/hub/watch.rs	1
 cmux-tui/crates/acpmux/src/hub/watch_tick.rs	1
 cmux-tui/crates/acpmux/src/hub/watches.rs	1

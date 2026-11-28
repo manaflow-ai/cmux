@@ -3668,12 +3668,6 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-core", "ca
 dependents = ["cmux-tui-core"]
 
 [[unit]]
-name = "rust:cmux-feed-push-core"
-paths = ["cmux-tui/crates/cmux-feed-push-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-push-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
-dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-ffi"]
-
-[[unit]]
 name = "rust:cmux-felt"
 paths = ["cmux-tui/crates/cmux-felt/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-felt", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-terminal-prediction"]
