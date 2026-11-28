@@ -1,8 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextAgentActivity
-import CmuxNextBridge
-import CmuxNextDaemon
-import Foundation
+public import CmuxNextAgentActivity
+public import CmuxNextBridge
+public import CmuxNextDaemon
+public import Foundation
 
 /// `debug.scale_fixture` (DEBUG and bench builds): the Chief half of the scale fixture
 /// (scripts/cmux-next/scale-fixture-bench.py: 1,100 workspaces, 5 Chiefs, a 160 KB cmux.json). The bench
