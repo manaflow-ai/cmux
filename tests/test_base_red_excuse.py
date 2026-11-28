@@ -1945,10 +1945,12 @@ class Excusing(unittest.TestCase):
         self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
 
     def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
-        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        # A network checkout death is infra since #57288 (test_reds.checkout_infra, read by lost_runner before
+        # checkout_death): a re-run like a cancelled job, never this PR's own red, and never excused.
         self.checkout_death_setup()
-        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
-                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+        with self.assertRaisesRegex(excuse.Infra, r"^'.+' is infra, not a verdict \(job 1: its checkout step "
+                                                  r"\(actions/checkout@\w+\) failed on the network .*from promisor "
+                                                  r"remote\); it is never this PR's own red and needs a re-run"):
             self.judge()
 
     def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
