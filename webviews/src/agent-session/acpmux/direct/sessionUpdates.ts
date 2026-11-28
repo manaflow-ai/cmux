@@ -119,4 +119,3 @@ export function backgroundNoticeLabel(task: BackgroundUpdate): string | undefine
   const state = notice[2] === "was stopped" ? "stopped" : notice[2];
   return state === task.state ? notice[1]?.trim() || undefined : undefined;
 }
-
