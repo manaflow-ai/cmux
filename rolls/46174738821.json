@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46174738821",
+  "recorded_at": "2026-11-28T18:48:50Z",
+  "reason": "image inputs changed in 17f77cb71cb4a5bb53337067f6387c92447df580..1431568e33e773f89e65900a96092beaf5601eaa; cmux-tui d788eb8c134b, the commit the Cloud machine channel serves (pinned c6cd14b59ba5)",
+  "dry_run": false,
+  "cmux_tui": "d788eb8c134b9305d3086b3e0348a677255742d7",
+  "fixes": [
+    {
+      "sha": "1431568e33e773f89e65900a96092beaf5601eaa",
+      "mergedAt": "2026-11-28T18:14:03Z",
+      "subject": "cmux-vm image roll: a push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4) (#65254)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T18:48:50Z",
+    "snapshot_id": "sh-c3a4ba0ececd4b8cb71260ffd6bf5d39",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46174738821): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f47b1cc1dbabf6bd7230b7148736c6c0ecea62dc",
+    "image": "cloud-native-auto-d788eb8c-46174738821-1",
+    "revision": "ci-46174738821-1",
+    "at": "2026-11-28T18:48:50Z"
+  },
+  "rolled_back": false
+}
