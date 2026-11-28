@@ -4,4 +4,5 @@
 codex-app-start
 # 2026-11-28 agent-memory codeword row (cmux#63604), after cmux#63614 and cmux#63631 land
 # 2026-11-28 05:0xZ again: run 46105933883 never reached the memory step (staging cloud.machine.create_overdue, host null)
+# 2026-11-28 06:0xZ run 46114103877: reply hit the shared Claude login's weekly limit; again with the login pool (this PR)
 claude-memory-codeword
