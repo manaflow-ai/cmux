@@ -52,7 +52,7 @@ jobs:
       matrix:
         include:
           - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'fad45d4114115146975bc5ab31d0674a896b8a38' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || '9262d60ac68e8b84d58e95fcd00f3654d874d6d4' }}
           - leg: after
             ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '85b89e6e1c19948f5e25dd2d99995ad43d299ace' }}
     steps:
