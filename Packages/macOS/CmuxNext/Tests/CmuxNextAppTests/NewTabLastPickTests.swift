@@ -75,6 +75,36 @@ struct NewTabLastPickTests {
         #expect(decoded.cloud == nil)
     }
 
+    /// Cloud's pick carries its level (model-picker-local-cloud-state): a level comes back with its model,
+    /// a model pick on the same agent keeps it, another agent drops it, and `newTab.cloudPick` answers the
+    /// whole pick for a chat page with no New Tab context. This Mac's pick carries none.
+    @Test func cloudsPickKeepsItsLevelAndAnswersAChatPage() async throws {
+        let suite = "NewTabLastPickTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        model.onRememberNewTab = { memory.remember($0) }
+        model.cloudAgentPick = { memory.cloudAgent }
+        model.cloudPick = { nil }
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "effort": "low"])
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6.1-sol", "effort": "high", "place": "cloud"])
+        #expect(memory.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
+        #expect(memory.cloudAgent == .init(harness: "codex", model: "gpt-6.1-sol", effort: "high"))
+        // A model pick on the same agent keeps the level.
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6.2-sol", "place": "cloud"])
+        #expect(memory.cloudAgent == .init(harness: "codex", model: "gpt-6.2-sol", effort: "high"))
+
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick", "params": [String: Any]()]))
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["cloudAgent"] as? [String: String] == ["harness": "codex", "model": "gpt-6.2-sol", "effort": "high"])
+
+        // Another agent names its own level or none.
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-sonnet-5-5", "place": "cloud"])
+        #expect(memory.cloudAgent == .init(harness: "claude", model: "claude-sonnet-5-5"))
+        #expect(memory.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
+    }
+
     /// Every harness pick is the next New Tab's: one on the agent's own default model and one that
     /// names no model replace an older harness and model picked before them (a subrouter Claude
     /// profile came back as plain Claude Code on Cmd-N).
