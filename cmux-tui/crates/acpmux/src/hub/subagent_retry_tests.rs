@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::config::{Config, StoreMode};
+use crate::protocol::session::RetryReason;
 use crate::rpc::{Message, method};
 use std::path::Path;
 use tokio::sync::mpsc;
@@ -116,6 +117,138 @@ async fn a_429_storm_holds_twelve_helpers_and_resumes_the_same_agents() {
         assert_eq!(resumed["state"], "running");
         assert_eq!(resumed["capacityWait"], Value::Null);
     }
+    assert!(!hub.any_open(&session));
+}
+
+/// A parent continuation already held by provider capacity must gate helper retries. Otherwise
+/// every helper's unbounded wait could start another paid parent turn while the parent is still
+/// unable to answer. The retry task wakes only after the parent mark is released.
+#[tokio::test]
+async fn helper_retries_do_not_start_paid_parent_turns_while_parent_is_held() {
+    for reason in [RetryReason::Capacity, RetryReason::RateLimit] {
+        let (hub, session, _conn) = chat(vec![1]).await;
+        hub.wait_to_continue_for_test(
+            &session,
+            "parent-capacity",
+            crate::store::now_ms() + 10_000,
+            reason,
+        );
+        let mut end = failed("s/held-parent");
+        end["error"] =
+            json!("API Error: 429 no non-exhausted claude accounts available; retry after 1s");
+        let mut events = hub.events.subscribe();
+        hub.observe_subagents(&session, &[end]);
+        // Capacity waits have a one-second minimum plus jitter. Read the scheduled deadline and
+        // wait past it, so this cannot pass merely because the retry task has not woken yet.
+        let due = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(due) = last_entry(&hub, &session, "s/held-parent")
+                    .and_then(|e| e["capacityWait"]["resumesAt"].as_u64())
+                {
+                    break due;
+                }
+                events.recv().await.expect("retry schedule event");
+            }
+        })
+        .await
+        .expect("capacity wait was scheduled");
+        let now = crate::store::now_ms();
+        tokio::time::sleep(Duration::from_millis(due.saturating_sub(now) + 100)).await;
+        assert!(crate::store::now_ms() >= due);
+        assert_eq!(outcomes(&hub, &session), ["scheduled"], "{reason:?}");
+        let parent_turns = hub
+            .events(&session.id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "user_message")
+            .count();
+        assert_eq!(parent_turns, 0, "a held parent must not receive a paid retry prompt");
+        // Positive control: once the parent's hold is released, the already-due helper fires.
+        hub.set_ending_for_test(&session, None);
+        if reason == RetryReason::RateLimit {
+            hub.lift_rate_hold(&session, "test");
+        }
+        hub.append(&session, "mux", "test_tick", json!({}));
+        for _ in 0..40 {
+            if outcomes(&hub, &session).iter().any(|o| o == "fired") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(outcomes(&hub, &session).iter().any(|o| o == "fired"), "{reason:?}");
+        hub.stop_subagent_retries(&session, true);
+    }
+}
+
+/// Duplicate failure notifications cannot postpone a provider deadline or enqueue more retries.
+#[tokio::test]
+async fn duplicate_capacity_notifications_keep_the_original_retry_deadline() {
+    let (hub, session, _conn) = chat(vec![10]).await;
+    let mut end = failed("s/duplicate");
+    end["error"] = json!("API Error: 429 rate_limit_error; Retry-After: 60");
+    hub.observe_subagents(&session, &[end.clone()]);
+    settle().await;
+    let first = last_entry(&hub, &session, "s/duplicate").unwrap();
+    for _ in 0..12 {
+        hub.observe_subagents(&session, &[end.clone()]);
+    }
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), ["scheduled"]);
+    let latest = last_entry(&hub, &session, "s/duplicate").unwrap();
+    assert_eq!(latest["capacityWait"], first["capacityWait"]);
+    assert_eq!(latest["retry"], first["retry"]);
+    hub.stop_subagent_retries(&session, true);
+}
+
+/// A real failure neither starts a hold nor inherits an earlier recoverable failure's cause.
+#[tokio::test]
+async fn genuine_errors_never_inherit_a_previous_capacity_hold() {
+    for error in [
+        "API Error: 401 authentication failed",
+        "API Error: 400 invalid_request_error: malformed request",
+        "Permission denied by the user",
+        "Agent terminated",
+    ] {
+        let (hub, session, _conn) = chat(vec![60_000]).await;
+        let mut end = failed("s/real");
+        end["error"] = json!(error);
+        hub.observe_subagents(&session, &[end.clone()]);
+        settle().await;
+        assert!(outcomes(&hub, &session).is_empty(), "{error}");
+        hub.observe_subagents(&session, &[failed("s/real")]);
+        settle().await;
+        assert!(last_entry(&hub, &session, "s/real").unwrap()["capacityWait"].is_object());
+        hub.observe_subagents(&session, &[end]);
+        settle().await;
+        let entry = last_entry(&hub, &session, "s/real").unwrap();
+        assert_eq!(entry["error"], error, "the new error must survive: {entry}");
+        assert_eq!(entry["capacityWait"], Value::Null, "{entry}");
+        assert_eq!(entry["retryable"], false, "{entry}");
+        assert!(!hub.any_open(&session));
+        assert_eq!(outcomes(&hub, &session), ["scheduled", "skipped:superseded"]);
+    }
+}
+
+/// The raw task path must retain the actual diagnostic even when no retry follows it.
+#[tokio::test]
+async fn a_forgotten_helpers_real_error_survives_its_raw_notification() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/raw")]);
+    settle().await;
+    hub.observe_task_line(
+        &session,
+        &json!({"type":"system", "subtype":"task_started",
+        "task_id":"agent-s/raw"}),
+    );
+    hub.observe_task_line(
+        &session,
+        &json!({"type":"system", "subtype":"task_notification",
+        "task_id":"agent-s/raw", "status":"failed", "summary":"Permission denied by the user"}),
+    );
+    let entry = last_entry(&hub, &session, "s/raw").unwrap();
+    assert_eq!(entry["error"], "Permission denied by the user");
+    assert_eq!(entry["capacityWait"], Value::Null);
+    assert_eq!(entry["retryable"], false);
     assert!(!hub.any_open(&session));
 }
 

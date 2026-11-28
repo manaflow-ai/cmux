@@ -113,7 +113,10 @@ export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; sta
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
 /// Retry then tries the method). One that names them and not this row's: no Retry.
 export function subagentRetry(
-  agent: Pick<Subagent, "state" | "parent" | "retry" | "retriedOut" | "retryable" | "child" | "harness">,
+  agent: Pick<
+    Subagent,
+    "state" | "parent" | "retry" | "retriedOut" | "retryable" | "child" | "harness" | "capacityWait"
+  >,
   capabilities?: ReadonlySet<string>,
   child?: SessionRetryFields,
 ): RetryPhase {
@@ -122,6 +125,8 @@ export function subagentRetry(
   if (child?.state !== undefined && child.state !== "failed") return NONE;
   const retry = agent.retry ?? child?.retry;
   if (retry) return { kind: "retrying", retry };
+  // The daemon keeps a capacity hold while the resume is in flight, after `retry` clears.
+  if (agent.capacityWait) return SETTLING;
   if (child?.retryDeciding) return SETTLING;
   const served = (capability: string) => !capabilities || capabilities.has(capability);
   const action: RetryAction | undefined = agent.child
@@ -157,7 +162,14 @@ export function retryKey(
 ): string {
   const part = (r?: RetryState) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "");
   const wait = agent.capacityWait;
-  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? "", wait?.reason ?? "", wait?.resumesAt ?? ""].join("\u0001");
+  return [
+    part(agent.retry),
+    part(agent.retriedOut),
+    agent.retryable ?? "",
+    agent.error ?? "",
+    wait?.reason ?? "",
+    wait?.resumesAt ?? "",
+  ].join("\u0001");
 }
 
 const REASON: Record<string, StringKey> = {

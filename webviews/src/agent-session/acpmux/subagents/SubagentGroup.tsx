@@ -52,7 +52,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
     <span
       className={className ? `cv-subagent-avatar ${className}` : "cv-subagent-avatar"}
       style={style}
-      data-state={agent.state}
+      data-state={agent.capacityWait ? "paused" : agent.state}
     >
       <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} fallback={SUBAGENT_FALLBACK} />
     </span>
@@ -64,7 +64,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
 /// state and the mark already says it, so it is never worded (Leo, 2026-11-23: "it's running or it's
 /// failed or it's done").
 /// Each count takes the pane language's plural form.
-function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[], now: number): string {
+export function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[], now: number): string {
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
@@ -77,10 +77,13 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
       .filter((value): value is NonNullable<typeof value> => value !== undefined)
       .sort((a, b) => (a.resumesAt ?? Number.POSITIVE_INFINITY) - (b.resumesAt ?? Number.POSITIVE_INFINITY))[0];
     const eta = wait ? capacityEta(t, wait, now) : t("capacity.wait.soon");
-    const pausedLabel = t("subagents.capacityPaused" as Parameters<Translate>[0], { n: paused.length, wait: eta });
+    const pausedLabel = t("subagents.capacityPaused", { n: paused.length, wait: eta });
     const rest = agents.length - paused.length;
     if (rest === 0) return pausedLabel;
-    const states = orderedCountWords({ failed: Math.max(0, failed - paused.length), stopped, done: runningCount === 0 ? done : 0 }, t);
+    const states = orderedCountWords(
+      { failed: Math.max(0, failed - paused.length), stopped, done: runningCount === 0 ? done : 0 },
+      t,
+    );
     return states.length === 0
       ? pausedLabel
       : t("subagents.countAndStates", {
@@ -146,7 +149,11 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const agent = row.subagents?.[0];
   const now = useNow(agent ? ticking(agent) : false);
   if (!agent) return null;
-  const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
+  // The group's header owns the capacity countdown; its expanded helpers stay reachable and
+  // say Waiting without repeating the outage or presenting a diagnostic failure as an outcome.
+  const label = agent.capacityWait
+    ? "subagents.state.waiting"
+    : (STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed);
   const state = [
     // Running is the avatar's spinner, never a word (Leo, 2026-11-23): a bare shell step says nothing.
     running(agent) ? namedAction(t, agent.action, agent.actionShell) : t(label),

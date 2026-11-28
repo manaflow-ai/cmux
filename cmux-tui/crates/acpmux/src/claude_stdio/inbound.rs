@@ -94,6 +94,18 @@ impl Translator {
             *self.api_error.lock().await = super::api_error::text(line);
         }
         if kind == "assistant"
+            && let Some(tool) = parent
+            && self.subagents.lock().await.contains_key(tool)
+        {
+            let mut errors = self.subagent_api_errors.lock().await;
+            if let Some(error) = super::api_error::assistant_text(line) {
+                errors.insert(tool.to_owned(), error.chars().take(MAX_FAILURE_CHARS).collect());
+            } else {
+                // A later reply means the helper recovered before its terminal event.
+                errors.remove(tool);
+            }
+        }
+        if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
             || compaction_failed
         {
@@ -558,6 +570,7 @@ impl Translator {
                             } else if let Some(agent) = agent {
                                 update.set("agentId", json!(agent));
                             }
+                            self.subagent_api_errors.lock().await.remove(tool);
                             out.push(upd(update));
                         }
                     }
@@ -955,6 +968,10 @@ impl Translator {
                         .map(|(_, child)| child.clone())
                         .collect();
                     subagents.retain(|tool, _| background.contains(tool));
+                    self.subagent_api_errors
+                        .lock()
+                        .await
+                        .retain(|tool, _| background.contains(tool));
                     drop((subagents, background));
                     ended.sort();
                     for child in ended {
@@ -1140,6 +1157,7 @@ impl Translator {
             at.filter(|_| sub == "task_started").and_then(|at| failed.remove(at))
         };
         if let Some((_, tool, child)) = resumed {
+            self.subagent_api_errors.lock().await.remove(&tool);
             self.subagents.lock().await.insert(tool.clone(), child.clone());
             self.background_subagents.lock().await.insert(tool.clone());
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool);
@@ -1216,6 +1234,7 @@ impl Translator {
             // (cmux#33292); only a failed one is kept to resume.
             update.set("agentId", json!(agent));
         }
+        self.subagent_api_errors.lock().await.remove(&tool);
         Some((update, Some(tool)))
     }
 
@@ -1241,6 +1260,8 @@ impl Translator {
         agent: Option<String>,
         error: &str,
     ) {
+        let last = self.subagent_api_errors.lock().await.remove(tool);
+        let error = super::api_error::subagent_failure(error, last.as_deref());
         if !error.is_empty() {
             let error: String = error.chars().take(MAX_FAILURE_CHARS).collect();
             update.set("error", json!(error));
@@ -1262,6 +1283,7 @@ impl Translator {
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
         let child = self.line_session(Some(tool_use_id));
+        self.subagent_api_errors.lock().await.remove(tool_use_id);
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));

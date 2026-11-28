@@ -30,9 +30,9 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). An outage (capacity, a rate hold, a refused connection) is waited out instead, as a cut
-//!   turn's is: capped, jittered waits until `outage::OUTAGE_HORIZON_MS` after the failure
-//!   (`subagent_retry_outage.rs`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
+//!   (`exhausted`). Capacity and rate holds wait for recovery with capped, jittered waits;
+//!   refused connections keep `outage::OUTAGE_HORIZON_MS` (`subagent_retry_outage.rs`).
+//!   A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
 //!   attempt now, or sends one more (`subagent_retry/manual.rs`).
 //! - While a retry waits, the subagent's entry in `_meta.acpmux.subagents` carries
 //!   `retry: {attempt, of, reason, nextAt}` (`nextAt` in Unix ms). `retryable` says whether a
@@ -87,7 +87,7 @@ const MAX_ERROR_CHARS: usize = 300;
 /// Most failed subagents a chat keeps with no retry waiting; the oldest failure goes first.
 const MAX_FAILED: usize = 32;
 
-/// An outage's waits: until [`outage::OUTAGE_HORIZON_MS`] after the failure.
+/// Capacity holds wait for recovery; connection outages have a bounded horizon.
 #[path = "subagent_retry_outage.rs"]
 mod outage;
 use outage::{attempt_delay, waits_out};
@@ -353,11 +353,23 @@ impl Hub {
                         let mut sub = subs.remove(id).unwrap_or_default();
                         // Its failure may name it where no `running` update did (cmux#52916).
                         sub.name = name.map(str::to_owned).or(sub.name.take());
-                        // Failed again: its new failure's update follows.
-                        if let Some(f) = sub.failed.take().filter(|f| f.wait.is_some()) {
+                        let error = text("error").unwrap_or_default();
+                        // A repeated notification of the same failure is not a new upstream
+                        // response. Keep its original Retry-After deadline and queued attempt.
+                        if sub.failed.as_ref().is_some_and(|f| {
+                            f.error == error
+                                && Some(f.agent_id.as_str()) == text("agentId")
+                                && f.wait.as_ref().is_some_and(|w| !w.fired)
+                        }) {
+                            subs.insert(id.to_owned(), sub);
+                            continue;
+                        }
+                        // Failed again: settling the previous hold must preserve this new
+                        // diagnostic, especially when it is a real error with no next retry.
+                        if let Some(mut f) = sub.failed.take().filter(|f| f.wait.is_some()) {
+                            f.error = error.to_owned();
                             skipped.push((id.to_owned(), f, "superseded", "failed", false));
                         }
-                        let error = text("error").unwrap_or_default();
                         let reason = retry_cause(error);
                         if let (Some(agent_id), Some(reason)) = (text("agentId"), reason) {
                             sub.failed = Some(Failure {
@@ -449,7 +461,7 @@ impl Hub {
                 let transient = state == "failed" && retry_cause(error).is_some();
                 let none = Failure {
                     agent_id: task.to_owned(),
-                    error: String::new(),
+                    error: error.to_owned(),
                     reason: "",
                     at: 0,
                     idle: true,
@@ -1000,17 +1012,17 @@ impl Hub {
         if open {
             self.set_retry_open(session, true);
         }
-        let mut entry = json!({"id": id, "parent": null, "state": state,
-            "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
-            "retryable": retryable});
         // One daemon-owned reading for every surface. Preserve the diagnostic error, but a
         // helper the daemon will resume is held, not an unrecoverable red failure.
-        entry["capacityWait"] = if open && matches!(failure.reason, "capacity" | "rate_limit") {
-            json!({"reason": failure.reason, "resumesAt": entry["retry"]["nextAt"],
+        let capacity_wait = if open && matches!(failure.reason, "capacity" | "rate_limit") {
+            json!({"reason": failure.reason, "resumesAt": retry.get("nextAt"),
                 "since": failure.at, "error": clip_error(&failure.error)})
         } else {
             Value::Null
         };
+        let mut entry = json!({"id": id, "parent": null, "state": state,
+            "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
+            "retryable": retryable, "capacityWait": capacity_wait});
         // What names it and why it failed, on every entry: a pane whose history starts after its
         // spawn names its line from this one (cmux#52916).
         let name = {

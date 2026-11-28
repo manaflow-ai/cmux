@@ -277,10 +277,21 @@ AGENT_ERRORS = {
 }
 
 
+def agent_failure_summary(tool, kind):
+    if kind in ("agent-429", "agent-rate-limit"):
+        # Claude can emit the helper's explicit error, then only a generic task end.
+        send({"type": "assistant", "parent_tool_use_id": tool, "is_api_error_message": True,
+              "api_error_status": 429, "message": {"model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": AGENT_ERRORS[kind]}]}})
+        return "Agent terminated"
+    return "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]
+
+
 def agent_failure(tool, kind="agent-503"):
+    summary = agent_failure_summary(tool, kind)
     send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503, "tool_use_id": tool,
           "status": "failed", "output_file": "",
-          "summary": "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]})
+          "summary": summary})
 
 
 def extra_agents():
@@ -305,8 +316,9 @@ def agent_failed(said):
     kind = next(k for k in AGENT_ERRORS if said.startswith(k))
     agent_failure("toolu_a503", kind)
     for tool, task in extra_agents():
+        summary = agent_failure_summary(tool, kind)
         send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
-              "status": "failed", "output_file": "", "summary": AGENT_ERRORS[kind]})
+              "status": "failed", "output_file": "", "summary": summary})
     send(init())
     if said.startswith("agent-503-held: "):
         import time
