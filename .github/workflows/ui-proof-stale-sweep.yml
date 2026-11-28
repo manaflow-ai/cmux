@@ -34,6 +34,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     permissions:
+      # actions: write re-runs the gate job of a PR whose look posted a record the gate never read.
+      actions: write
       contents: read
       pull-requests: read
       statuses: write
