@@ -6,7 +6,8 @@ name: Cloud devbox image rebake
 #      every file the bake reads or ships) differ from the ones the last published
 #      rebake recorded in rebake-state.json, or a Freestyle default in the manifest
 #      was not baked from this commit's sources (devboxSourceDriftProblems). Skip when
-#      an open devbox-rebake/<inputs key 12> PR already publishes these inputs.
+#      an open devbox-rebake/<inputs key 12> PR already publishes these inputs, or
+#      another one opened in the last 3 h is still landing (its merge re-runs the plan).
 #      The version is <UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>.
 #   2. promote-devbox-image.ts: bake, verify (boots a machine and checks the whole
 #      devbox contract), derive every ladder size, write the manifest rows. Every
@@ -62,6 +63,9 @@ on:
       - web/scripts/devbox-agent-launch.ts
       - web/scripts/devbox-agent-launch.py
       - web/scripts/check-devbox-image-reachable.ts
+      # A promote PR merging records its inputs here: the run it triggers bakes the inputs
+      # that landed while that PR was in flight (the plan skipped them, see "Plan").
+      - web/services/vms/images/rebake-state.json
   workflow_dispatch:
     inputs:
       force:
@@ -151,6 +155,7 @@ jobs:
         env:
           FORCE: ${{ inputs.force == true }}
           GH_TOKEN: ${{ steps.lookup-token.outputs.token }}
+          IN_FLIGHT_MINUTES: "180"
         run: |
           set -euo pipefail
           args=()
@@ -161,8 +166,19 @@ jobs:
           branch="devbox-rebake/${key:0:12}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${GITHUB_REF_NAME}&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          # An open rebake PR younger than IN_FLIGHT_MINUTES is still in its CI (about 40 min):
+          # let it promote first. Superseding it closed every promote PR before it could merge
+          # while feat-cmux-next kept changing inputs (cmux#65442, #65520 closed by the next bake
+          # within 20 min). Its merge changes rebake-state.json, which re-runs this plan on the
+          # inputs that landed meanwhile. An older one is stuck: bake and supersede it.
+          cutoff="$(date -u -d "-${IN_FLIGHT_MINUTES} minutes" +%Y-%m-%dT%H:%M:%SZ)"
+          inflight="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${GITHUB_REF_NAME}&per_page=100" \
+            --jq ".[] | select(.head.repo.full_name == \"$GITHUB_REPOSITORY\" and (.head.ref | startswith(\"devbox-rebake/\")) and .head.ref != \"$branch\" and .created_at > \"$cutoff\") | .html_url" | head -n1)"
           if [ "$FORCE" != "true" ] && [ -n "$open" ]; then
             echo "$open already publishes these inputs; nothing to do"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          elif [ "$FORCE" != "true" ] && [ -n "$inflight" ]; then
+            echo "$inflight is in flight (opened in the last ${IN_FLIGHT_MINUTES} min); it promotes first and its merge re-runs this plan"
             echo "go=false" >> "$GITHUB_OUTPUT"
           elif grep -qx 'needed=true' "$RUNNER_TEMP/plan.env"; then
             echo "go=true" >> "$GITHUB_OUTPUT"
