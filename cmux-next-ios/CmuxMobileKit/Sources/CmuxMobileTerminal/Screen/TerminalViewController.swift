@@ -2035,6 +2035,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private(set) var outputCounts = TerminalOutputPumpCounts()
     /// Session bytes queued and not yet handed to Ghostty.
     var outputPendingBytes: Int { output.pendingBytes }
+    /// A batch is with Ghostty and not yet parsed. For tests.
+    var outputBatchInFlight: Bool { feedInFlight }
     /// How often a page nobody can see hands its queued output to Ghostty.
     static let hiddenFeedInterval: TimeInterval = 1
 

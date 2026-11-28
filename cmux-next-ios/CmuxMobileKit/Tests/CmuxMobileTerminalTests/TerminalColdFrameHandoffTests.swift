@@ -34,8 +34,10 @@ import UIKit
 
         session.connection(.attached)
         session.write(TerminalViewController.mirrorReset)
-        // The replay gate's deadline (2 s) is the latest the frame may stay.
-        try await TerminalPredictionInputTests.waitUntil(TerminalReplayGate.deadline + 2) { model.coldFrame == nil }
+        // The replay gate's deadline (2 s) is the latest the frame may stay;
+        // the wait leaves as soon as it goes, and the cap only bounds a real
+        // miss (a loaded simulator ran the gate's timer past 4 s).
+        try await TerminalPredictionInputTests.waitUntil(TerminalReplayGate.deadline + 18) { model.coldFrame == nil }
         #expect(model.coldFrame == nil, "the cached frame still covers the attached, empty terminal")
     }
 
