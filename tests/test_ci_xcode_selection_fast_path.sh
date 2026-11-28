@@ -133,6 +133,29 @@ expect_env "$current_developer" "$log"
 [[ "$(cat "$xcode_select_log")" == "-s $current_developer" ]] \
   || fail "xcode-select was not pointed at the pinned developer dir" "$xcode_select_log"
 
+# 1a. The required SDK major is a minimum for a Swift build: a pinned Xcode 27
+#     with SDK 27 passes a workflow that still requires 26 (nightly run
+#     45956456120 failed here on Xcode 27.2), and the ceiling still applies.
+log="$tmp_dir/pinned-newer-sdk.log"
+run_select "$log" CMUX_CI_XCODE_APP="$apps_dir/Xcode_27.0.app" CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+  || fail "a pinned Xcode with a newer SDK major should select" "$log"
+expect_env "$future_developer" "$log"
+: > "$env_file"
+log="$tmp_dir/pinned-newer-sdk-ceiling.log"
+if run_select "$log" CMUX_CI_XCODE_APP="$apps_dir/Xcode_27.0.app" CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 CMUX_CI_MAX_MACOS_SDK_MAJOR=26; then
+  fail "the SDK ceiling should still refuse SDK 27" "$log"
+fi
+grep -Fq "maximum major is 26" "$log" || fail "the ceiling refusal was not reported" "$log"
+: > "$env_file"
+#     A below-floor opt-out keeps the exact match.
+log="$tmp_dir/pinned-helper-exact.log"
+if run_select "$log" CMUX_CI_XCODE_APP="$apps_dir/Xcode_26.2.app" CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1; then
+  fail "the helper's SDK 15 requirement should refuse SDK 26" "$log"
+fi
+grep -Fq "required major is 15" "$log" || fail "the helper exact-match refusal was not reported" "$log"
+: > "$env_file"
+: > "$xcode_select_log"
+
 # 2. Shared-machine workloads keep the host-global selector untouched.
 log="$tmp_dir/skip.log"
 run_select "$log" CMUX_CI_DEVELOPER_DIR="$current_developer" CMUX_CI_SKIP_XCODE_SELECT=1 \

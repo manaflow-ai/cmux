@@ -11,7 +11,6 @@ pub(crate) struct BrowserMessages {
     pub(super) resize_recovery: &'static str,
     pub(super) new_page_verification_prefix: &'static str,
     pub(super) updated_page_verification_prefix: &'static str,
-    pub(super) verification_suffix: &'static str,
     pub starting: &'static str,
     pub attach_unsupported: &'static str,
     pub graphics_unsupported: &'static str,
@@ -42,12 +41,11 @@ impl BrowserMessages {
             BrowserFailure::NotResponding => self.not_responding.to_string(),
             BrowserFailure::ResizeRecovery => self.resize_recovery.to_string(),
             BrowserFailure::NewPageVerification(detail) => {
-                format!("{}{detail}{}", self.new_page_verification_prefix, self.verification_suffix)
+                format!("{}{detail}", self.new_page_verification_prefix)
             }
-            BrowserFailure::UpdatedPageVerification(detail) => format!(
-                "{}{detail}{}",
-                self.updated_page_verification_prefix, self.verification_suffix
-            ),
+            BrowserFailure::UpdatedPageVerification(detail) => {
+                format!("{}{detail}", self.updated_page_verification_prefix)
+            }
             BrowserFailure::Other(detail) => format!("{}{detail}", self.failed_prefix),
         }
     }
@@ -56,12 +54,11 @@ impl BrowserMessages {
 pub(super) const ENGLISH: BrowserMessages = BrowserMessages {
     failed_prefix: "browser failed: ",
     control_failed: "browser command failed: {error}",
-    control_unavailable: "browser connection unavailable; retry the command",
+    control_unavailable: "the browser connection is backed up, so this command was not sent",
     not_responding: "browser failed: browser is not responding",
-    resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
+    resize_recovery: "browser failed: the page could not be redrawn at its new size",
     new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
     updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
-    verification_suffix: "; reload to retry",
     starting: "starting browser...",
     attach_unsupported: "browser panes are not supported over attach yet",
     graphics_unsupported: "terminal has no kitty graphics support",
@@ -76,12 +73,11 @@ pub(super) const ENGLISH: BrowserMessages = BrowserMessages {
 pub(super) const JAPANESE: BrowserMessages = BrowserMessages {
     failed_prefix: "ブラウザでエラーが発生しました: ",
     control_failed: "ブラウザ操作に失敗しました: {error}",
-    control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
+    control_unavailable: "ブラウザ接続が混み合っているため、このコマンドは送信されませんでした",
     not_responding: "ブラウザが応答していません",
-    resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+    resize_recovery: "ブラウザのページを新しいサイズで再描画できませんでした",
     new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
     updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
-    verification_suffix: "。再読み込みして再試行してください",
     starting: "ブラウザを起動しています…",
     attach_unsupported: "アタッチ経由ではブラウザペインにまだ対応していません",
     graphics_unsupported: "ターミナルが Kitty グラフィックスに対応していません",

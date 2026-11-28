@@ -14,9 +14,13 @@ fn a_machine_is_asked_at_most_once_a_minute_and_never_twice_at_once() {
     assert!(h.due(&hosts(&["a"]), 2_000).is_empty(), "asked within the minute");
     assert_eq!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS), hosts(&["a"]));
     assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
-    // No answer keeps the last reading.
+    // No answer keeps the last reading, and records the failed read.
     h.answered("a", None, 3_000);
     assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
+    assert_eq!(h.failed_at("a"), Some(3_000));
+    // An answer clears the failure.
+    h.answered("a", Some(json!({"cpus": 4})), 4_000);
+    assert_eq!(h.failed_at("a"), None);
 }
 
 #[test]

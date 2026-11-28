@@ -167,7 +167,9 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("for attempt");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("sleep 5");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
+    // The fallback is bounded by a stall (30 s with no bytes), not by a total a slow link overruns (roll 45961450781).
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 300s apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("timeout 60s");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
     expect(payload).toBeDefined();
@@ -510,7 +512,7 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
-    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
@@ -540,6 +542,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).toContain('[ ! -s "$health" ]');
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
+  });
+
+  test("acpmux-probes-quiet is bounded by wall time and its exec outlasts the bound (roll 46067232978)", () => {
+    const cmd = bake.acpmuxProbesQuietCommand();
+    expect(cmd).toContain("t0=$(date +%s)");
+    expect(cmd).toContain("timeout 10 find /proc");
+    expect(cmd).not.toMatch(/i=\$\(\(i \+ 1\)\)/);
+    expect(bake.acpmuxProbesQuietStepMs()).toBeGreaterThan(120_000 + 2 * 5 * 11_000 + 30_000);
+    expect(source()).toContain('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
   });
 
   test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {

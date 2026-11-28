@@ -66,5 +66,19 @@ status=$?
 kill "$watchdog" 2>/dev/null
 wait "$watchdog" 2>/dev/null
 [[ -s "$json" ]] || fail "measure.mjs exited $status without a json"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(d.get("p50_ms")), d.get("error"))' "$json"
+# The loop's own row from bound.py (bound, simulated bound, ratio, per-stage gap) under the key bound, so a run of this
+# loop alone reads its ratio without a full dev-loop-ceiling.sh report; bound.py ignores the key.
+python3 -I - "$json" "$here" <<'PY'
+import json, sys
+path, here = sys.argv[1:]
+sys.path.insert(0, here)
+import bound
+d = json.load(open(path))
+d["bound"] = bound.judge(d)
+json.dump(d, open(path, "w"), indent=2)
+b = d["bound"]
+print(json.dumps(d.get("p50_ms")), d.get("error"))
+if b.get("measured"):
+    print(f"web_swap: p50 {b['end_to_end_p50_ms']} ms, simulated bound {b['simulated_bound_p50_ms']} ms, ratio {b['ratio']}x, biggest gap {b['biggest_gap']}")
+PY
 exit "$status"

@@ -573,6 +573,42 @@ async fn rows_past_their_bound_end_the_connection_once() {
     assert_eq!(reason["error"]["data"]["limit"], ROWS);
 }
 
+/// Perf cron `god` shape, 2026-11-27: a host whose peers list hundreds of chats at once queued
+/// 4.5 MB of rows to the app's watcher during its first status read, and the rows' bound cut it
+/// before it saw one. A list reader is spared them instead: one `_acpmux/lagged` that says to read
+/// the list again, and the connection stays.
+#[tokio::test]
+async fn a_list_reader_past_the_rows_bound_is_spared_them_instead_of_disconnected() {
+    const ROWS: usize = 64 << 10;
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(1);
+    let out = start_rows_bounded(&scope, transport, OUTBOUND_BYTE_BOUND, ROWS);
+    out.describe("local test-watcher".into(), true);
+    for chat in 0..200 {
+        assert!(out.lock().push_row(row(chat, chat), Lane::Bulk, key(chat)), "kept at {chat}");
+        assert!(out.held() <= ROWS + BULK_WINDOW, "held {}", out.held());
+    }
+    assert!(!out.is_closed());
+    assert!(out.push(Message::ok(json!("end"), json!({})).to_line()));
+    let (mut rows, mut dropped) = (0, 0);
+    loop {
+        let line = next(&mut rx).await.expect("a line");
+        if line["id"] == "end" {
+            break;
+        }
+        match line["method"].as_str() {
+            Some("_acpmux/session_changed") => rows += 1,
+            Some("_acpmux/lagged") => {
+                assert_eq!(line["params"]["watch"], true, "{line}");
+                dropped += line["params"]["dropped"].as_u64().unwrap();
+            }
+            _ => panic!("unexpected {line}"),
+        }
+    }
+    assert!(dropped > 0, "rows were left out");
+    assert_eq!(rows + dropped, 200, "every row came or was counted as left out");
+}
+
 mod flood_bulk;
 mod flood_interactive;
 

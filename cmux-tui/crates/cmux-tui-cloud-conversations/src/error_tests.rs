@@ -14,14 +14,14 @@ fn display_names_the_next_step_and_retries_only_retryable_failures() {
         let message = error.to_string();
         assert!(message.contains("scope is missing"));
         assert!(message.contains("cmux cloud diagnostics"));
-        assert_eq!(message.contains("retry"), retryable, "{message}");
+        assert_eq!(message.contains("for now"), retryable, "{message}");
     }
     let rate_limited = CloudError::Rejected {
         code: "rate_limited".into(),
         message: "HTTP 429".into(),
         retryable: true,
     };
-    assert!(rate_limited.to_string().contains("retry the request"));
+    assert!(rate_limited.to_string().contains("a rate limit"));
     // The outcome of a mutation is unknown: never advise a blind resend.
     let unavailable = CloudError::Unavailable("timeout".into()).to_string();
     assert!(!unavailable.contains("retry"), "{unavailable}");

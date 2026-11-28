@@ -250,6 +250,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   let turn = 0;
   let turnEnded = true;
   let throughSeq = -Infinity;
+  const agentSent = new Set<number>();
   const settledForFolding = (own: number) =>
     own < turn || turnEnded || throughSeq >= (turnEnds.get(own)?.seq ?? Infinity);
   // Session replay never reports working (workingNow() is false while replayThrough is set), so the
@@ -302,6 +303,10 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turnEnded = false;
       }
       if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
+      // The agent sent the running turn something of its own (a thought, a call, a message): a turn
+      // that ends showing none of it lost its work (d-action-only). One it sent nothing draws its
+      // prompt and footer only, as map.ts's empty-turn case expects.
+      if (event?.dir === "in" && !turnEnded) agentSent.add(turn);
       const messageId = event?.kind === "agent_message_chunk" ? event.msg?.params?.update?.messageId : undefined;
       if (typeof messageId === "string") turnMessages.add(messageId);
       const status = event?.kind === "status" ? event.msg?.status : undefined;
@@ -653,7 +658,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // A turn that ended draws more than its prompt and its action row.
     if (step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result") {
       const own = rows.filter((row) => ownTurn(row) === turn);
-      if (own.length > 0 && own.every((row) => row.kind === "user" || row.kind === "turnSummary"))
+      if (
+        agentSent.has(turn) &&
+        own.length > 0 &&
+        own.every((row) => row.kind === "user" || row.kind === "turnSummary")
+      )
         flag("d-action-only", own.at(-1)!.id, `turn ${turn} ended with only its prompt and action row`);
     }
 

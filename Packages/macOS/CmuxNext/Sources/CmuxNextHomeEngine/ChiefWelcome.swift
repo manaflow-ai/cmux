@@ -95,6 +95,8 @@ public nonisolated struct ChiefWelcome: Sendable {
         let beats = plan.beats.map(\.beat)
         for step in plan.steps {
             switch step {
+            // concurrency-allow: `wait` is the injected async pause (a one-shot deadline), not a semaphore or group wait
+            // caller-isolation-allow: awaits the host's async pause; nothing blocks the caller's thread
             case .wait(let ms): await wait(.milliseconds(ms))
             case .typing(let on): await owner.showChiefTyping(on)
             case .importBeats(let indexes):
@@ -167,6 +169,7 @@ private nonisolated struct PlayReply: Decodable {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: Keys.self)
             switch try container.decode(String.self, forKey: .kind) {
+            // concurrency-allow: decodes the "wait" step kind; no blocking wait
             case "wait": self = .wait(try container.decode(Int64.self, forKey: .ms))
             case "typing": self = .typing(try container.decode(Bool.self, forKey: .on))
             case "import": self = .importBeats(try container.decode([Int].self, forKey: .beats))

@@ -164,7 +164,7 @@ fn rounds(
         return Ok(());
     }
     bail!(
-        "{} kept changing while it was edited; its other writer's text is kept; run it again",
+        "{} kept changing while it was edited (another program keeps writing it): its other writer's text is kept and this edit was not made",
         path.display()
     )
 }
