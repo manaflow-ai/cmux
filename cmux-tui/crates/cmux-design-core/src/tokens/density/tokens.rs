@@ -303,6 +303,10 @@ impl DensityPreset {
     }
 
     /// `tokens`: the preset's density (computed once).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "DensityPreset::ALL and CACHE have the same fixed five entries"
+    )]
     pub fn tokens(self) -> &'static DensityTokens {
         static CACHE: [OnceLock<DensityTokens>; 5] =
             [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];

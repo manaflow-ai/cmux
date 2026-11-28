@@ -110,9 +110,10 @@ pub fn parse_name(name: &str) -> Option<ParsedName> {
     if parts.len() != 2 {
         return None;
     }
-    let glyph = Glyph::from_raw(parts[0])?;
-    let hidden = parts[1] == "hidden";
-    let progress = match parts[1].parse::<i64>() {
+    let glyph = Glyph::from_raw(parts.first().copied()?)?;
+    let state = parts.get(1).copied()?;
+    let hidden = state == "hidden";
+    let progress = match state.parse::<i64>() {
         Ok(step) => step as f64 / SLIDE_STEPS as f64,
         Err(_) => {
             if hidden {

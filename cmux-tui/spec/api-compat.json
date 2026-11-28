@@ -2,5 +2,139 @@
   "protocol": "cmux-mux",
   "base": 12,
   "base_date": "2026-11-24",
-  "revisions": []
+  "revisions": [
+    {
+      "rev": 13,
+      "note": "Add remote-terminal tab kind with pty fallback for revision 12 peers.",
+      "changes": [
+        {
+          "message": "event:pane-added",
+          "op": "rename_value",
+          "path": "/entity/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:pane-closed",
+          "op": "rename_value",
+          "path": "/entity/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:screen-added",
+          "op": "rename_value",
+          "path": "/entity/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:screen-changed",
+          "op": "rename_value",
+          "path": "/entity/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:screen-closed",
+          "op": "rename_value",
+          "path": "/entity/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:screen-renamed",
+          "op": "rename_value",
+          "path": "/entity/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:tab-added",
+          "op": "rename_value",
+          "path": "/entity/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:tab-changed",
+          "op": "rename_value",
+          "path": "/entity/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:tab-closed",
+          "op": "rename_value",
+          "path": "/entity/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:tab-renamed",
+          "op": "rename_value",
+          "path": "/entity/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-added",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-changed",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-closed",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-moved",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-presentation-changed",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "event:workspace-renamed",
+          "op": "rename_value",
+          "path": "/entity/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "response:list-workspaces",
+          "op": "rename_value",
+          "path": "/data/changed/*/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        },
+        {
+          "message": "response:list-workspaces",
+          "op": "rename_value",
+          "path": "/data/workspaces/*/screens/*/panes/*/tabs/*/kind",
+          "from": "pty",
+          "to": "remote-terminal"
+        }
+      ],
+      "date": "2026-11-27"
+    }
+  ]
 }
