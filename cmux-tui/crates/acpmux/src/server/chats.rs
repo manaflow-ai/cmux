@@ -137,6 +137,9 @@ pub(super) async fn route(
         );
     }
     hub.prepare_store_request(m, &params).await;
+    if m == crate::rpc::method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("gate", &params);
+    }
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
     if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
@@ -197,6 +200,9 @@ pub(super) async fn route(
     // So do the sub-session methods (`subsessions.rs`): this daemon's own sessions only.
     if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
         return reply;
+    }
+    if m == crate::rpc::method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("mid", &params);
     }
     if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
         return reply;

@@ -360,6 +360,9 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("fwd0", params);
+    }
     // Cloud mobile forwarding is refused by the existing gated/inner path. Skip the lazy-demand
     // path first so a refused request cannot wake or dial a peer before that guard runs. A listing
     // read of any other peer left undialed is answered from its last-known row, with no dial.

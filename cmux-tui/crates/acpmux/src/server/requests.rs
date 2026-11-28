@@ -1200,6 +1200,9 @@ async fn handle_request_unstamped(
     if super::agent_login::METHODS.contains(&m) {
         super::agent_login::authorize(conn, &params)?;
     }
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("hreq", &params);
+    }
     let received = tokio::time::Instant::now();
     let checks = heap(|| prepare_request(hub, conn, m, params, sender_token));
     let (m, params, resolved, verdict) =
@@ -1213,6 +1216,9 @@ async fn handle_request_unstamped(
         } else {
             checks.await?
         };
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("prep", &params);
+    }
     let key = super::session_key(&params).ok().map(str::to_owned);
     // Audited on arrival, once every gate above took it: a `session/prompt`'s reply comes only
     // when its turn ends, which may be minutes (2026-11-05: a message between two lane machines
@@ -1571,6 +1577,9 @@ async fn dispatch_request_with_identity(
             ));
         }
         return hub.search_history(&params, conn.origin != Origin::Peer).await;
+    }
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("disp", &params);
     }
     // Rows by key (`info.rs`) are answered here, a peer's from its mirror: never forwarded, and
     // refused when they name one session beside them.
