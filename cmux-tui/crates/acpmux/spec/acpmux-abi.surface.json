@@ -30141,6 +30141,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/wait/park": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wait/unpark": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/wake": {
       "/*untyped*": {
         "ty": "json",
@@ -41253,6 +41265,18 @@
       }
     },
     "response:_acpmux/wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wait/park": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wait/unpark": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

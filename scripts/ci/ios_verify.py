@@ -542,8 +542,10 @@ def rerun_gate(repo: str, sha: str) -> str:
             jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
             for j in jobs.get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    sh("gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo)
-                    return f"reran {GATE_JOB} (job {j['id']})"
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
     except SystemExit as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the proof when it does"

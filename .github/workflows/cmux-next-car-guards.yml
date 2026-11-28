@@ -82,7 +82,7 @@ permissions:
 # A pull request's newer push replaces its run; a train's car (called or dispatched) never
 # cancels another run's car of the same name.
 concurrency:
-  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

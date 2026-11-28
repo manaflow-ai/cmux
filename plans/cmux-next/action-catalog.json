@@ -79813,6 +79813,99 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "names",
+          "suggestions" : null,
+          "title" : "Secret Names"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "repo",
+          "suggestions" : null,
+          "title" : "Repository"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "agent deliver-secrets",
+      "computed" : {
+        "canonical_action_id" : "agentPane.deliverSecrets",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Gives one agent chat (--target agent-chat:<session id>, or the focused chat) the values of --names A,B from this Mac's Keychain (--repo OWNER/NAME for repo-scoped ones), for that chat only: acpmux holds them in memory, never on disk, for an hour, and puts them in that chat's agent environment and no other chat's; the agent restarts between turns to get them. Values are stored with cmux cloud secret set NAME. Returns session_id, delivered, missing and applied.",
+      "focuses" : false,
+      "group" : "AgentConfigurationActionCatalog",
+      "hint" : null,
+      "id" : "agentPane.deliverSecrets",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "chat",
+        "secret",
+        "secrets",
+        "env",
+        "keychain",
+        "token",
+        "scope",
+        "deliver"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "key",
+      "targets" : [
+        "pane",
+        "tab",
+        "agent-chat"
+      ],
+      "title" : "Give Secrets to This Chat…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "agents",
@@ -123337,6 +123430,77 @@
 
       ],
       "title" : "Automations",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
+      "cliName" : "action feed-show",
+      "computed" : {
+        "canonical_action_id" : "feed.show",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "FeedActionCatalog",
+      "hint" : null,
+      "id" : "feed.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "feed",
+        "updates",
+        "inbox",
+        "activity",
+        "notifications",
+        "agents",
+        "approvals",
+        "pull requests"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "list.bullet.rectangle",
+      "targets" : [
+
+      ],
+      "title" : "Feed",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

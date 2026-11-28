@@ -335,7 +335,12 @@ pub(super) fn run(args: &[String]) -> i32 {
     }
     let answer = match command {
         Command::Pull { socket, local, remote, base } => {
-            let (line, code) = pull::run(&socket, &local, &remote, base);
+            let (mut line, code) = pull::run(&socket, &local, &remote, base);
+            // Where the pull went (`pull.read_here`, each git and machine request), as push reports it:
+            // Bring Back's pre-freeze pull shows it under the move's `sync` step.
+            if code == 0 {
+                line.set("sync_phases", super::spans::take());
+            }
             println!("{line}");
             return code;
         }

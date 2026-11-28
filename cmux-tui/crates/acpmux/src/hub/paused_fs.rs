@@ -103,6 +103,36 @@ impl Hub {
             .map_err(std::io::Error::other)?
     }
 
+    /// The file at `path` on `machine` for the app's file open, the same way as
+    /// [`Self::paused_list_dir`].
+    pub async fn paused_open(
+        &self,
+        machine: &str,
+        path: &Path,
+    ) -> std::io::Result<Routed<ReadOutcome>> {
+        let Some(fs) = self.paused_fs.clone() else { return Ok(Routed::NotPaused) };
+        let (machine, path, resumes) =
+            (machine.to_owned(), path.to_path_buf(), self.resume_count());
+        tokio::task::spawn_blocking(move || fs.open(&machine, &path, resumes))
+            .await
+            .map_err(std::io::Error::other)?
+            .map_err(std::io::Error::other)
+    }
+
+    /// `machine`'s diff (its folder is `root`), the same way as [`Self::paused_list_dir`].
+    pub async fn paused_diff(
+        &self,
+        machine: &str,
+        root: &Path,
+    ) -> std::io::Result<Routed<crate::write_journal::diff::DiffOutcome>> {
+        let Some(fs) = self.paused_fs.clone() else { return Ok(Routed::NotPaused) };
+        let (machine, root, resumes) =
+            (machine.to_owned(), root.to_path_buf(), self.resume_count());
+        tokio::task::spawn_blocking(move || fs.diff(&machine, &root, resumes))
+            .await
+            .map_err(std::io::Error::other)?
+    }
+
     /// The exec barrier: resume a paused `machine` and apply its journal before anything runs
     /// there. Nothing when it is not paused here.
     pub async fn wake_paused_machine(&self, machine: &str) -> std::io::Result<()> {

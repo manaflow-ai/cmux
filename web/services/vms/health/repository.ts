@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, isNotNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../../db/client";
 import { cloudVmHealthSnapshots, cloudVms } from "../../../db/schema";
+import { VM_ADDRESS_RELEASE_KEY } from "../addressRelease";
 import { VmDatabaseError } from "../errors";
 import type { StoredVmHealthReport, VmHealthDbRow, VmHealthReport } from "./types";
 
@@ -42,7 +43,13 @@ export const vmHealthRepositoryMethods: VmHealthRepositoryMethods = {
       const live = await db
         .select(healthRowColumns)
         .from(cloudVms)
-        .where(and(eq(cloudVms.provider, provider), isNotNull(cloudVms.providerVmId), ne(cloudVms.status, "destroyed")));
+        .where(and(
+          eq(cloudVms.provider, provider),
+          isNotNull(cloudVms.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+          // A parked row's provider machine is gone by design (addressRelease.ts), not drift.
+          sql`coalesce(${cloudVms.providerMetadata} -> ${VM_ADDRESS_RELEASE_KEY}::text ->> 'state', '') <> 'parked'`,
+        ));
       const rows = [...live];
       const ids = [...new Set(input.providerVmIds)];
       for (let start = 0; start < ids.length; start += ID_CHUNK) {

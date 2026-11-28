@@ -136,7 +136,7 @@ permissions:
 
 concurrency:
   # One in-flight build per tag+platform; a newer dispatch supersedes an older one.
-  group: reload-build-${{ inputs.tag }}-${{ inputs.platform }}
+  group: reload-build-${{ inputs.tag }}-${{ inputs.platform }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
