@@ -10,6 +10,8 @@ final class RenderProbe {
     /// The inspector's UIKit list: snapshot applies, and the rows the last one changed.
     var inspectorApplies = 0
     var inspectorLastChanged = 0
+    /// The Subagents list's own body evaluations (the list, not its rows).
+    var subagentListBodies = 0
     /// The Subagents list's row evaluations, and its running clocks' draws.
     var subagentRowBodies = 0
     /// The rows evaluated, by name, since the test last cleared it.

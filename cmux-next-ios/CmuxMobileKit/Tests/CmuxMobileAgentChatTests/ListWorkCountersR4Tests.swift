@@ -295,10 +295,12 @@ import UIKit
         // The call stacks of the first rows evaluated whose subagent did not change (why, if any is).
         probe.subagentRowStacksExcept = store.subagent(running[0])?.name
         var perChange: [Int] = []
+        var listPerChange: [Int] = []
         var notes: [String] = []
         for tick in 0..<5 {
             let beforeAgents = store.subagents
             let beforeRows = probe.subagentRowBodies
+            let beforeList = probe.subagentListBodies
             let beforeTicks = probe.subagentClockTicks
             probe.subagentRowNames = []
             store.apply(.subagentUpdate(subagentID: running[0], .toolCall(ACPToolCall(id: "tick-\(tick)", title: "Run step \(tick)",
@@ -306,6 +308,7 @@ import UIKit
             let afterAgents = store.subagents
             for _ in 0..<3 { await Self.frame(window) }
             perChange.append(probe.subagentRowBodies - beforeRows)
+            listPerChange.append(probe.subagentListBodies - beforeList)
             let order = beforeAgents.map(\.id) == afterAgents.map(\.id) ? "same order" : "order changed"
             let changedIDs = zip(beforeAgents, afterAgents).filter { $0 != $1 }.map(\.1.id)
             let target = zip(beforeAgents, afterAgents).first { $0.0.id == running[0] }
@@ -320,7 +323,8 @@ import UIKit
             }
             notes.append("change \(tick): \(probe.subagentRowBodies - beforeRows) rows [\(probe.subagentRowNames.joined(separator: ", "))]; "
                 + "store: \(order), \(beforeAgents.count)->\(afterAgents.count) agents, changed \(changedIDs); "
-                + "\(running[0]) fields \(fields); clock draws \(probe.subagentClockTicks - beforeTicks)")
+                + "\(running[0]) fields \(fields); clock draws \(probe.subagentClockTicks - beforeTicks); "
+                + "list bodies \(probe.subagentListBodies - beforeList)")
         }
         window.isHidden = true
         let report = notes.joined(separator: "\n")
@@ -329,6 +333,52 @@ import UIKit
             Attachment.record(probe.subagentRowStacks.joined(separator: "\n\n"), named: "subagents-unchanged-row-stacks")
         }
         #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)\n\(report)")
+        // The mechanism, counted where it does not depend on SwiftUI's row diffing: a change to one
+        // subagent does not evaluate the list at all (only the set of subagents is its input). The
+        // list's body read every subagent, so each change updated the whole List, and in some runs
+        // SwiftUI then evaluated every row on screen (#47189: 9 per change in r8 and diag 2, 1 in r9,
+        // the same list code).
+        #expect(listPerChange.allSatisfy { $0 == 0 }, "the list's own body per change of one subagent: \(listPerChange)\n\(report)")
+    }
+
+    /// The Subagents list's model follows the store: a subagent added or nested changes the order
+    /// (and only then the list's input); a state, action or name change sets that row's fields only,
+    /// each row kept as the same object; the empty state follows the set.
+    @Test func theSubagentsListModelFollowsTheStore() async {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        let model = SubagentListModel()
+        func settle() async { for _ in 0..<4 { try? await Task.sleep(for: .milliseconds(10)) } }
+        #expect(model.entries(for: store).isEmpty)
+        #expect(model.isEmpty)
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        store.apply(.subagent(AgentSubagentChange(id: "a", name: "A", task: "Look around", state: .running, at: at)))
+        await settle()
+        #expect(model.entries.map(\.id) == ["a"])
+        #expect(!model.isEmpty)
+        guard let a = model.entries.first?.row else { Issue.record("no row for a"); return }
+        #expect(a.name == "A" && a.subtitle == "Working · Look around" && a.state == .running && a.startedAt == at && a.endedAt == nil)
+        store.apply(.subagent(AgentSubagentChange(id: "b", parent: "a", name: "B", state: .running, at: at)))
+        await settle()
+        #expect(model.entries.map(\.id) == ["a", "b"])
+        #expect(model.entries.map(\.depth) == [0, 1])
+        #expect(model.entries.first?.row === a, "a's row is kept as the same object")
+        // A field change: the order is not set again (nothing observing it is told), the row's field is.
+        let orderChanged = EventInspectorCoalesceTests.Flag()
+        _ = withObservationTracking { model.entries } onChange: { orderChanged.on = true }
+        let rowChanged = EventInspectorCoalesceTests.Flag()
+        _ = withObservationTracking { a.subtitle } onChange: { rowChanged.on = true }
+        store.apply(.subagentUpdate(subagentID: "a", .toolCall(ACPToolCall(id: "t1", title: "Read Notes.md", kind: .read))))
+        await settle()
+        #expect(a.subtitle == "Read Notes.md · Look around")
+        #expect(rowChanged.on, "the row's subtitle told its view")
+        #expect(!orderChanged.on, "a field change did not touch the list's order")
+        let end = at.addingTimeInterval(42)
+        store.apply(.subagent(AgentSubagentChange(id: "a", name: "A2", state: .completed, at: end)))
+        await settle()
+        #expect(a.name == "A2" && a.state == .completed && a.endedAt == end && a.subtitle == "Done · Look around")
+        #expect(model.entries.map(\.id) == ["a", "b"])
+        #expect(!orderChanged.on)
     }
 
     /// A running subagent's time advances with nothing changing in the store (its own clock).

@@ -165,8 +165,15 @@ struct SubagentsScreen: View {
     @State private var selected: String?
     /// The rows, each observed on its own (`SubagentListModel`): this body reads only their order.
     @State private var model = SubagentListModel()
+    #if DEBUG
+    /// Body evaluations (tests: none for a change to one subagent).
+    @Environment(\.renderProbe) private var probe
+    #endif
 
     var body: some View {
+        #if DEBUG
+        let _ = probe.map { $0.subagentListBodies += 1 }
+        #endif
         let entries = model.entries(for: store)
         List {
             ForEach(entries) { entry in

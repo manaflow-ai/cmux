@@ -1413,7 +1413,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // followed again (#47189 r9: 23 rows at a running open, its first chunk 14.5 ms).
         let holdsInPlace = loaded && source.window != nil
         let anchor = holdsInPlace || surface.following || !loaded ? nil : layout.firstRow(below: visibleTop)
-        let heldAnchor = holdsInPlace ? layout.firstRow(below: visibleTop) : nil
+        var heldAnchor = holdsInPlace ? layout.firstRow(below: visibleTop) : nil
+        // A chunk put in under the first row on screen (the pill, with the reader at the top of a
+        // running transcript): the rows after it, which the reader sees, keep their place instead.
+        if let chunkAdd, let first = heldAnchor, let row = layout.row(of: first.id), row < chunkAdd.offset,
+           chunkAdd.offset < layout.items.count {
+            let next = layout.items[chunkAdd.offset].id
+            if let top = layout.top(of: next), top < visibleTop + collectionView.bounds.height { heldAnchor = (id: next, top: top) }
+        }
         // Before the rows are laid out: the controller notes where the transcript is now.
         #if DEBUG
         if !sent.isEmpty { ChatSendTrace.log("list: \(sent.count) sent rows new, \(sentRowsArrived == nil ? "no" : "a") controller") }
