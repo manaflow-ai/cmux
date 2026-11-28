@@ -10,7 +10,12 @@ public import Observation
 @Observable @MainActor
 public final class HomeInboxSource {
     /// The owner's reply (rows in list order, the Cloud state); nil without an owner that serves `home-inbox`.
-    public private(set) var reply: HomeInboxRequest.Response?
+    public private(set) var reply: HomeInboxRequest.Response? {
+        didSet { revision &+= 1 }
+    }
+    /// Bumped by each change to `reply`: a cache keyed on it knows `rows` is unchanged
+    /// without comparing them (HomeChiefNameCache). Not observed; read `rows` to track.
+    @ObservationIgnored public private(set) var revision = 0
     public var rows: [HomeInboxRequest.Row]? { reply?.rows }
     /// The owner answered this launch (rows, or that it serves no `home-inbox`). Until then `reply`
     /// may be the last launch's rows (`seed`), so the list's first frame is the list as it was.

@@ -95,6 +95,8 @@ final class HomeService {
     private(set) var cloudChiefs = HomeCloudChiefs()
     /// Chief renames being saved, shown at once on every surface (``chiefName(of:)``).
     var chiefRenames = HomeChiefNames()
+    /// ``chiefNames`` and ``chiefName(of:)`` answered once per change of their inputs.
+    @ObservationIgnored let chiefNameCache = HomeChiefNameCache()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
     @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()

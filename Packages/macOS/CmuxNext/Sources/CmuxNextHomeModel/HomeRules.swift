@@ -1,4 +1,5 @@
 internal import CCmuxHomeFFI
+private import CmuxNextCompat
 internal import Foundation
 
 /// The Swift caller of the Rust home rules (cmux-tui/crates/cmux-home-rules): one JSON op,
@@ -42,7 +43,13 @@ public nonisolated struct HomeRules {
     /// `CMUX_HOME_ABI_VERSION` of the linked library.
     public static var abiVersion: UInt32 { cmux_home_abi_version() }
 
+    /// How many `cmux_home_call`s this process has made (every op, any thread): benches read
+    /// it to count bridge calls per pass (HomeChiefNamePassCostTests).
+    public static var callCount: Int { callCounter.withLock { $0 } }
+    private static let callCounter = Mutex<Int>(0)
+
     static func callData(_ op: String, _ request: Data) throws -> Data {
+        callCounter.withLock { $0 += 1 }
         var out = CmuxHomeBytes(ptr: nil, len: 0)
         let status: Int32 = op.withCString { opPointer in
             request.withUnsafeBytes { raw in
