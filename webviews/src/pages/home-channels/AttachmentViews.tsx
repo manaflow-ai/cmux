@@ -170,11 +170,27 @@ export function MessageAttachments({
 }
 
 /** The box an image or video takes before its pixels arrive (no layout jump). */
-function frame(part: HomeAttachment, maxWidth: number, maxHeight: number): { width: number; height: number } {
+function frame(
+  part: Pick<HomeAttachment, "width" | "height">,
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number } {
   const width = part.width ?? 4;
   const height = part.height ?? 3;
   const scale = Math.min(1, maxWidth / width, maxHeight / height);
   return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
+/** A message's only image: its own shape, at most 360 x 280 and never larger than the image, as a
+ * width and an aspect ratio, so a narrow chat scales it down whole instead of keeping its height
+ * and cropping or stretching it (https://github.com/manaflow-ai/cmux/issues/59858). */
+export function singleImageStyle(part: Pick<HomeAttachment, "width" | "height">): {
+  width: number;
+  height: "auto";
+  aspectRatio: string;
+} {
+  const { width, height } = frame(part, 360, 280);
+  return { width, height: "auto", aspectRatio: `${width} / ${height}` };
 }
 
 function ImageTile({
@@ -195,7 +211,7 @@ function ImageTile({
   onDragOut?: AttachmentDragOut | undefined;
 }) {
   const { src, failed, retry } = useImage(conversation, part, "preview");
-  const size = single ? frame(part, 360, 280) : undefined;
+  const size = single ? singleImageStyle(part) : undefined;
   // A failed tile reads its image again on a click, and says so; never a tile that does nothing.
   const retries = failed && retry !== undefined;
   return (

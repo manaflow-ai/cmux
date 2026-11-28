@@ -43,7 +43,9 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_rea
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_hidden_plan
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_mode_parse
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_on_quit
+cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_offers_quit_completely
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_login_item
+cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_preread_agent
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_starts_chromium_warmup
 cmux-tui/crates/cmux-app-ffi/include/cmux_files_lister.h	cmux_files_lister_abi_version
 cmux-tui/crates/cmux-app-ffi/include/cmux_interactivity.h	cmux_interactivity_abi_version
@@ -99,10 +101,8 @@ cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pace
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_while_missing
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_is_exhausted
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_refused_busy
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_reset
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_waits_for_event_only
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_wakes_on_socket
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_woke
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_policy_preset
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_abi_version
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_lines_free
@@ -162,13 +162,6 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_f
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_focus_set_topology
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_layout_reducer_ffi_abi_version
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_classic_highlight
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_dock
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_rects
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_free
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_new
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target_in_content
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone_edge
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_opposite
