@@ -1,0 +1,138 @@
+{
+ "id": 140884231693,
+ "run_id": 46113542594,
+ "name": "rust-workspaces / plan (changed Cargo workspaces)",
+ "head_sha": "cc2d574d7505eef304f1a2cb1e23fca978c80c8d",
+ "status": "completed",
+ "conclusion": "failure",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-28T05:54:44Z",
+   "completed_at": "2026-11-28T05:54:45Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-28T05:54:45Z",
+   "completed_at": "2026-11-28T05:54:46Z"
+  },
+  {
+   "name": "Remove a reused workspace left sparse or broken (self-hosted Linux)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-28T05:54:46Z",
+   "completed_at": "2026-11-28T05:54:46Z"
+  },
+  {
+   "name": "Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-28T05:54:46Z",
+   "completed_at": "2026-11-28T05:55:05Z"
+  },
+  {
+   "name": "Pool mirror: Checkout",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 5,
+   "started_at": "2026-11-28T05:55:05Z",
+   "completed_at": "2026-11-28T05:55:05Z"
+  },
+  {
+   "name": "CI tier of this head",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 6,
+   "started_at": "2026-11-28T05:55:05Z",
+   "completed_at": "2026-11-28T05:55:05Z"
+  },
+  {
+   "name": "Every Cargo workspace is listed",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 7,
+   "started_at": "2026-11-28T05:55:05Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Fetch the comparison base",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 8,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "What this pull request changes",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 9,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Test the workspace check",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 10,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Set up pinned Rust (lock check)",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 11,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Every Cargo.lock matches its manifests",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 12,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Plan the workspaces this change reaches",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 13,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:08Z"
+  },
+  {
+   "name": "Post Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 25,
+   "started_at": "2026-11-28T05:55:08Z",
+   "completed_at": "2026-11-28T05:55:09Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 26,
+   "started_at": "2026-11-28T05:55:09Z",
+   "completed_at": "2026-11-28T05:55:13Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 27,
+   "started_at": "2026-11-28T05:55:13Z",
+   "completed_at": "2026-11-28T05:55:13Z"
+  }
+ ]
+}

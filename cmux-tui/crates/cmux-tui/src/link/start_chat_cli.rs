@@ -1398,46 +1398,55 @@ fn push(
 /// machine fills the rest, never the whole copy first. A machine without `projection-v1`
 /// (every one whose image predates it) takes that path.
 fn projected_or(
-    project: impl FnOnce() -> Option<Result<Value, Value>>,
+    project: impl FnOnce() -> Result<Value, Option<super::sync_cli::project::Fallback>>,
     seed_or_copy: impl FnOnce() -> anyhow::Result<super::seed_cli::Pushed>,
 ) -> Result<Value, Value> {
-    if let Some(projected) = project() {
-        return projected;
-    }
+    let fell = match project() {
+        Ok(projected) => return Ok(projected),
+        Err(fell) => fell,
+    };
     seed_or_copy()
-        .map(|pushed| pushed_fields(&pushed.json()))
-        .map_err(|error| super::seed_cli::failure(&error))
+        .map(|pushed| {
+            let mut fields = pushed_fields(&pushed.json());
+            if let (Some(fell), Some(fields)) = (&fell, fields.as_object_mut()) {
+                fields.insert("projection_fallback".into(), fell.json());
+            }
+            fields
+        })
+        .map_err(|error| {
+            let mut line = super::seed_cli::failure(&error);
+            if let (Some(fell), Some(line)) = (&fell, line.as_object_mut()) {
+                line.insert("projection_fallback".into(), fell.json());
+            }
+            line
+        })
 }
 
 /// An attached folder is projected when that is on, whatever its size or whether it is a git
 /// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
-/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
-/// caller seeds or copies as before (head first). Both pushes try it first: the App's first copy asks
-/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
-/// refused, before a projection that needs no room was tried.
+/// opens on all of it at once, its files read from this Mac on first use. An error when it is not:
+/// with no fallback when projection was off or not asked for, and with one
+/// ([`super::sync_cli::project::Fallback`], said on stderr and carried on the answer line) for any
+/// failure to project, so the caller seeds or copies as before (head first), never silently. Both
+/// pushes try it first: the App's first copy asks (`--on-seed-refusal ask`), and a folder its
+/// machine's disk cannot hold would end there, refused, before a projection that needs no room was
+/// tried.
 fn project_first(
     socket: &Path,
     local: &Path,
     remote: &str,
     chat: &str,
-) -> Option<Result<Value, Value>> {
-    match super::sync_cli::project::start(socket, local, remote, chat) {
-        Ok(Ok(answer)) => {
-            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
-        }
-        Ok(Err(why)) => {
-            eprintln!(
-                "cmux link start-chat: {} is not projected ({why:?}); seeding or copying it",
-                local.display()
-            );
-            None
-        }
-        Err(error) => {
-            eprintln!(
-                "cmux link start-chat: projecting {} failed: {error:#}; seeding or copying it",
-                local.display()
-            );
-            None
+) -> Result<Value, Option<super::sync_cli::project::Fallback>> {
+    let outcome = super::sync_cli::project::outcome(super::sync_cli::project::start(
+        socket, local, remote, chat,
+    ));
+    match outcome {
+        Ok(answer) => Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})),
+        Err(fell) => {
+            if let Some(fell) = &fell {
+                fell.announce("cmux link start-chat", local);
+            }
+            Err(fell)
         }
     }
 }

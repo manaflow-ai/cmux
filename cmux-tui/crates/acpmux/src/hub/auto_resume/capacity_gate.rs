@@ -290,14 +290,17 @@ impl Hub {
         }
     }
 
-    /// A capacity continuation's wait of `session` ended: wait for the gate. None when `wake`
-    /// came first (Stop, close, a turn that took the chat: the caller's mark check skips it).
+    /// A capacity continuation of `session`, fired as generation `fired_gen`, waits for the gate.
+    /// None once it is no longer current (Stop, close, a turn that took the chat: the caller's
+    /// finish records the skip). It waits after the fire (#58307), so the waiting mark's wake is
+    /// gone: its drop left a stored permit that ended every hold at once as superseded. The
+    /// continuation's release watch, and the cut rechecked, say when it was let go.
     pub(in crate::hub) async fn capacity_gate_admit(
         self: &std::sync::Arc<Self>,
         session: &Session,
         turn: &str,
         reason: RetryReason,
-        wake: &Notify,
+        fired_gen: u64,
     ) -> Option<Permit> {
         let family = family_of(session);
         let permit = |probe| {
@@ -309,7 +312,16 @@ impl Hub {
         let t = self.gate_timing().await;
         *self.capacity_gate.timing.lock().unwrap_or_else(|e| e.into_inner()) = Some(t);
         let mut held_at: Option<Instant> = None;
+        let mut released = session.auto_resume.released();
+        let let_go = || {
+            !session.auto_resume.current(fired_gen)
+                || !super::still_cut(session, turn)
+                || session.status() == super::SessionStatus::Closed
+        };
         loop {
+            if let_go() {
+                return None;
+            }
             // Registered before the decision, so a change between the two is not lost.
             let changed = self.capacity_gate.changed.notified();
             tokio::pin!(changed);
@@ -356,10 +368,12 @@ impl Hub {
                     None => std::future::pending().await,
                 }
             };
+            // A turn that took the chat changes no mark: read the cut again now and then.
             tokio::select! {
-                () = wake.notified() => return None,
+                _ = released.changed() => {}
                 () = changed => {}
                 () = sleep => {}
+                () = tokio::time::sleep(Duration::from_secs(5)) => {}
             }
         }
     }

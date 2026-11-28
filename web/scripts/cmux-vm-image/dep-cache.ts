@@ -55,13 +55,22 @@ export function npmHostCacheProfileCheck(enabled: boolean): string {
 export const NPM_CACHE_CAP_MB = 300;
 
 /**
+ * Runs of the prefill before the bake fails. It takes 13-16 s on a usual bake (rolls 46090412457, 46091967248), but
+ * roll 46099659860's agents builder fetched so slowly that it hit status 124 at 293 s (its apt `graduated` step took
+ * 207 s against 28-50 s), and that one slow exec failed the whole roll.
+ */
+export const NPM_PREFILL_ATTEMPTS = 3;
+
+/**
  * Fill the work user's npm cache with one install of PREFILL_NODE_DEPS; print `npm-cache-mb N`; fail over the cap.
+ * The first run (`fresh`) empties the cache; a run again after a failed one keeps the tarballs that run verified, so it
+ * only downloads what is still missing. It is the same list, so the cache still holds only one install's packages.
  * POSIX sh: the guest runs a step with /bin/sh (dash), which has no pipefail (run 42104967506).
  */
-export function npmCachePrefillCommand(): string {
+export function npmCachePrefillCommand(fresh = true): string {
   const dir = "/tmp/cmux-npm-prefill";
   const install = [
-    `rm -rf ${dir} ${NPM_CACHE_DIR} && mkdir -p ${dir} && cd ${dir}`,
+    `rm -rf ${dir}${fresh ? ` ${NPM_CACHE_DIR}` : ""} && mkdir -p ${dir} && cd ${dir}`,
     `printf '%s' '{"name":"npm-prefill","private":true}' > package.json`,
     `npm install --ignore-scripts --no-audit --no-fund --loglevel=error ${PREFILL_NODE_DEPS.join(" ")} >/dev/null`,
     `cd / && rm -rf ${dir}`,

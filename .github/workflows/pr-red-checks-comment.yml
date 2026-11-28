@@ -42,6 +42,8 @@ jobs:
     # blacksmith-4vcpu-ubuntu-2404 within 0-4 s; on 104c57a1 it was the head's last check by 3.5 min.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     continue-on-error: true
     concurrency:
       group: pr-red-checks-${{ github.event.pull_request.number }}

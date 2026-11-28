@@ -5,6 +5,10 @@
 //! nobody runs; otherwise the chat's holder gives it (`give.rs`). When this laptop is that
 //! holder it starts the give from the store's answer, without waiting for its next renewal.
 //!
+//! A Cloud machine that runs the chat may ask too, for the chat's own agent: home to the laptop
+//! that stands by, or to the Cloud (a chat it holds is there: that keeps it there). It gives the
+//! chat home the same way, from the store's answer.
+//!
 //! A chat set to this machine only is moved home first. Auto goes off for it once it is here,
 //! this machine has stored a copy of its own and has taken the chat's Cloud inbox: the store
 //! refuses earlier, while the Cloud has something this machine has not, and closing the chat
@@ -81,9 +85,17 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// `_acpmux/auto_session/move`: asks the store to move the chat `to`. `leave`: the chat is
     /// set to this machine only, and the move home is its first step.
     pub(super) fn move_chat(&mut self, id: &str, to: MoveTo, leave: bool, reply: Reply) {
+        // A Cloud machine moves only a chat it runs: home, or to the Cloud, where it is already,
+        // which keeps it there. The store takes both from the chat's holder, for the agent of a
+        // chat that runs here.
         if self.side != Side::Laptop {
-            let refusal = "a chat is moved from the person's own devices";
-            return answer(Some(reply), Err(RpcError::invalid_params(refusal)));
+            if leave {
+                let refusal = "a chat is set to one machine only from the person's own devices";
+                return answer(Some(reply), Err(RpcError::invalid_params(refusal)));
+            }
+            if to == MoveTo::Cloud && self.chats.get(id).is_some_and(|t| auto(&t.chat)) {
+                return self.keep(id, Some(true), Some(reply));
+            }
         }
         if self.hub.auto_session(id).is_none() {
             return answer(Some(reply), Err(RpcError::not_found(format!("no session {id}"))));
@@ -93,6 +105,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
         }
         let request = match to {
             MoveTo::Cloud => MoveRequest::cloud(),
+            // From a Cloud machine: to the laptop that stands by.
+            MoveTo::Local if self.side != Side::Laptop => MoveRequest::local(),
             // To this laptop, not to whichever of the person's laptops renewed last.
             MoveTo::Local => MoveRequest::laptop(self.ctx.me.clone()),
         };
@@ -104,7 +118,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// switched off, answered by the store. A chat the Cloud has is moved home first; the
     /// request is answered once the store took the move, and Auto goes off when the chat is
     /// here ([`Self::leave_when_home`]).
+    ///
+    /// On a Cloud machine the chat is moved home to the laptop that stands by, where it runs as
+    /// an Auto chat: "this machine only" is the laptop's to note, once the chat is there.
     pub(super) async fn go_local(&mut self, id: &str, reply: Reply) {
+        if self.side != Side::Laptop {
+            return self.move_chat(id, MoveTo::Local, false, reply);
+        }
         let state = self.chats.get(id).map(|tracked| tracked.chat.state);
         match state {
             Some(State::Standby { .. }) => self.move_chat(id, MoveTo::Local, true, reply),
@@ -135,8 +155,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
         }
     }
 
-    /// The store answered a move. Its view is the chat's newest; a laptop that holds the chat
-    /// starts the give now, and one the store just gave a parked chat to asks for it now.
+    /// The store answered a move. Its view is the chat's newest; a laptop or a Cloud machine
+    /// that holds the chat starts the give now, and a laptop the store just gave a parked chat to asks for it now.
     pub(super) async fn moved(
         &mut self,
         id: &str,
@@ -166,7 +186,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
         if error.is_none() {
             let state = self.chats.get(id).map(|tracked| tracked.chat.state);
             match (state, wish) {
-                (Some(State::Holding { .. }), Some((to, at))) => {
+                (Some(State::Holding { .. } | State::Serving { .. }), Some((to, at))) => {
                     self.step(id, Event::Wished { to, at: Some(at) }).await;
                 }
                 (Some(State::Standby { .. }), _) if mine => self.step(id, Event::Wake).await,
