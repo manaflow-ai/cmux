@@ -60,6 +60,13 @@ on:
         description: Separate producers in one run use distinct artifact namespaces.
         type: string
         default: pr-web-bundles
+      strings_best_effort:
+        # ci-web's react-apps-head-bundles: the bundles feed the webview shards only, so a missing translation must
+        # not hide their verdict (cmux#58259). Such a build is never saved under the source key's cache entry, which a
+        # strict build reads as a pass.
+        description: Build with CMUX_STRINGS_BEST_EFFORT=1 (missing translations warn) and skip the cache save.
+        type: boolean
+        default: false
     outputs:
       web_bundle_key:
         value: ${{ jobs.web.outputs.key }}
@@ -333,6 +340,7 @@ jobs:
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         env:
           CMUX_WEB_SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+          CMUX_STRINGS_BEST_EFFORT: ${{ inputs.strings_best_effort && '1' || '' }}
         run: python3 -I scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT" "$RUNNER_TEMP/web-bundles-out"
 
       - name: Validate the different live-base web sources
@@ -355,7 +363,7 @@ jobs:
           mv "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/consumer-web-bundles-out"
           mv "$RUNNER_TEMP/live-web-bundles-out" "$RUNNER_TEMP/web-bundles-out"
       - name: Cache the web bundles under this source key
-        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
+        if: steps.touched.outputs.web == 'true' && !inputs.strings_best_effort && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
