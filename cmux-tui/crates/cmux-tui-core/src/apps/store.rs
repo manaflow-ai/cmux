@@ -600,7 +600,7 @@ impl Supervisor {
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let rows: Vec<&Package> = inner
             .catalog
             .packages
@@ -641,7 +641,7 @@ impl Supervisor {
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let package = inner
             .catalog
             .packages
@@ -678,10 +678,10 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
-        let switches = self.setting_switches();
         // A file read and the community lock: before the supervisor lock.
         let updates = self.community_updates_cached();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let switches = self.setting_switches();
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let apps = inner
             .mirror
             .apps
@@ -706,7 +706,7 @@ impl Supervisor {
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
@@ -765,9 +765,9 @@ impl Supervisor {
             sandboxed: p.sandboxed,
             ..SetOp::default()
         };
-        self.set(client, op)?;
-        if let Some((key, on)) = setting {
-            self.router.setting_set(&key, Value::Bool(on))?;
+        let setting_backed = setting.is_some();
+        self.set_with_setting(client, op, setting)?;
+        if setting_backed {
             // The record may not have changed (the setting was edited elsewhere): every page
             // reads the entry again.
             let revision =
