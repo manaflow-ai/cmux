@@ -1027,11 +1027,21 @@ nobody serves.
 | `linux_16` | Blacksmith 16, then 8, then 32 vCPU |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
 | `windows` | Blacksmith 4 vCPU Windows |
-| `macos_15` | Blacksmith macOS 15 |
+| `macos_15` | Blacksmith macOS 15, then 6 vCPU macOS 26 |
 | `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
 | `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
 | `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
 | `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
+
+A Blacksmith macOS label that starts jobs but slowly is marked slow
+(`RUNNER_POOLS._slow`) once its oldest queued job has waited 20 min
+(`runner_pools.SLOW_SPILL_MINUTES`) in a fresh, complete janitor snapshot. Its
+pools spill to their next member while that member's oldest wait is under 10
+min, stay there while it is under 20 (Blacksmith's macOS sizes share one vCPU
+pool, so a busy 6 vCPU macOS 26 starves 12 vCPU), and come back once the slow
+label's oldest wait is under 10 min. With no fresh snapshot (a 403 read) the
+marks and spills keep their state. `swift-package-tests` names macOS 15
+itself, so it never spills.
 
 A pool may declare `min_vcpu`, the smallest size its jobs fit in (Blacksmith
 gives 4 GB per vCPU); no member may be below it. When every member is dead the
