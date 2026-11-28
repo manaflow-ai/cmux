@@ -42,8 +42,8 @@ test("canonical wire values are ordered and never silently lose data", () => {
   for (const value of [undefined, 1.5, NaN, Infinity, { missing: undefined }]) expect(() => canonicalJSON(value)).toThrow("invalid_request");
 });
 
-test("Swift and Worker share exact Unicode signing bytes and nonce-bound HTTP proofs", async () => {
-  const path = new URL("../../../Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/V2/Fixtures/signing.json", import.meta.url);
+test("Worker keeps the pinned Unicode signing bytes and nonce-bound HTTP proofs", async () => {
+  const path = new URL("./fixtures/signing.json", import.meta.url);
   const fixture = z.object({
     device: DeviceDescriptorSchema, challenge: ChallengeSchema, setup: SocketSetupSchema,
     issuedAt: z.number(), proofNonce: z.string(), httpOperation: RequestSchema,
