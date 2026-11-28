@@ -22,7 +22,7 @@ extension ScreenHostMessage {
     public enum PasteImageOutcome: String, Sendable, Equatable {
         /// On the Mac's pasteboard, and ⌘V pressed.
         case pasted
-        /// Larger than ``ScreenInput/pasteImageMaximumBytes``, or an unknown type.
+        /// An unknown type, a view-only session, or a host that could not put it on its pasteboard.
         case refused
         /// A chunk went missing (out of order, or another image started).
         case incomplete
@@ -44,25 +44,28 @@ extension ScreenHostMessage {
 extension ScreenInput {
     /// Raw bytes per image chunk: 16 KB as base64, the data channel's message size (`VNCPeerLink.chunk`).
     public static let pasteImageChunkBytes = 12 * 1024
-    /// The largest image the host takes (bytes before base64).
-    public static let pasteImageMaximumBytes = 20 << 20
     /// The image types the host puts on its pasteboard (uniform type identifiers).
     public static let pasteImageTypes: Set<String> = ["public.png", "public.jpeg", "public.heic", "public.tiff"]
 
-    /// The messages for one image (empty when it is empty, too large or of another type).
+    /// The messages for one image of any size, in ``pasteImageChunkBytes`` chunks, all at once (empty
+    /// when it is empty or of another type). A sender uses ``pasteImageChunks(_:type:id:)``, which
+    /// makes each chunk's base64 only when it is read.
     public static func pasteImage(_ data: Data, type: String, id: String = UUID().uuidString) -> [ScreenInput] {
-        guard !data.isEmpty, data.count <= pasteImageMaximumBytes, pasteImageTypes.contains(type) else { return [] }
-        let count = (data.count + pasteImageChunkBytes - 1) / pasteImageChunkBytes
-        return (0 ..< count).map { index in
-            let start = data.startIndex + index * pasteImageChunkBytes
-            let chunk = data[start ..< min(start + pasteImageChunkBytes, data.endIndex)]
-            return ScreenInput(t: ScreenHostMessage.pasteImageType, s: chunk.base64EncodedString(), i: index, n: count, id: id, f: type)
-        }
+        pasteImageChunks(data, type: type, id: id).map(Array.init) ?? []
+    }
+
+    /// The messages for one image of any size, made one chunk at a time as they are read, so a
+    /// sender holds one chunk's base64 at a time, never the whole image's (nil when it is empty or
+    /// of another type).
+    public static func pasteImageChunks(_ data: Data, type: String, id: String = UUID().uuidString) -> PasteImageChunks? {
+        guard !data.isEmpty, pasteImageTypes.contains(type) else { return nil }
+        return PasteImageChunks(data: data, type: type, id: id)
     }
 }
 
 /// The host's side of an image paste (`paste-image` messages): collects one image's chunks in
-/// order. A chunk out of order, or from another image, drops what it had.
+/// order, of any size. A chunk out of order, or from another image, drops what it had, and
+/// ``cancel()`` (the viewer's session ended) frees it.
 struct ScreenImageAssembler {
     /// What one chunk did.
     enum Step: Equatable {
@@ -88,8 +91,7 @@ struct ScreenImageAssembler {
         if let failedID, input.id == failedID, input.i != 0 { return .ignored }
         guard let id = input.id, let index = input.i, let count = input.n, let type = input.f,
               let chunk = input.s.flatMap({ Data(base64Encoded: $0) }) else { return fail(.incomplete, id: input.id) }
-        let maximumChunks = (ScreenInput.pasteImageMaximumBytes + ScreenInput.pasteImageChunkBytes - 1) / ScreenInput.pasteImageChunkBytes
-        guard ScreenInput.pasteImageTypes.contains(type), (1 ... maximumChunks).contains(count),
+        guard ScreenInput.pasteImageTypes.contains(type), count >= 1,
               chunk.count <= ScreenInput.pasteImageChunkBytes else { return fail(.refused, id: id) }
         if index == 0 {
             failedID = nil
@@ -101,12 +103,21 @@ struct ScreenImageAssembler {
         }
         guard id == self.id, index == expected, count == self.count, type == self.type else { return fail(.incomplete, id: id) }
         data.append(chunk)
-        guard data.count <= ScreenInput.pasteImageMaximumBytes else { return fail(.refused, id: id) }
         expected += 1
         guard expected == count else { return .partial }
         let image = data
         reset()
         return .complete(image, type: type, id: id)
+    }
+
+    /// Drops the image being collected and frees its bytes: the viewer's session ended, so its
+    /// remaining chunks never come. A later chunk of that image is answered as incomplete.
+    /// Returns how many bytes it dropped (0 when no image was being collected).
+    @discardableResult
+    mutating func cancel() -> Int {
+        let dropped = id == nil ? 0 : data.count
+        reset()
+        return dropped
     }
 
     private mutating func fail(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String?) -> Step {

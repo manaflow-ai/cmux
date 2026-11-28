@@ -18,6 +18,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "CmuxScreenKit",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "CmuxScreenKit", targets: ["CmuxScreenKit"]),
@@ -38,7 +39,12 @@ let package = Package(
             ],
             swiftSettings: swiftSettings
         ),
-        .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
-        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
+        .target(
+            name: "CmuxScreenKitUI",
+            dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")],
+            resources: [.process("Resources/Localizable.xcstrings")],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit", "CmuxScreenKitUI"], swiftSettings: swiftSettings),
     ]
 )
