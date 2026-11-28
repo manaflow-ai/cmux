@@ -1497,7 +1497,11 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Its own goblin App token first (leo-workspace machines/gh-app-roles.json push.actions_secrets
+          # NIGHTLY_HELPER_LOOKUP_TOKEN), then github.token; a 403 waits to the limit's reset, at most 240 s a token.
+          GH_TOKEN: ${{ secrets.NIGHTLY_HELPER_LOOKUP_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ github.token }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: '240'
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: python3 scripts/ci/nightly_ghostty_helper_reuse.py --build-sha "$BUILD_SHA" --archs "$NIGHTLY_COMPILE_ARCHS" --out nightly-helper
