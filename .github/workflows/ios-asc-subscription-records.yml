@@ -20,6 +20,11 @@ on:
         type: choice
         options: [plan, apply]
         default: plan
+      record:
+        description: appstore (com.cmux.app, records.json) or internal (dev.cmux.app.internal, records-internal.json)
+        type: choice
+        options: [appstore, internal]
+        default: appstore
       ref:
         description: Branch or SHA whose records.json and images to use
         required: false
@@ -42,7 +47,10 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the App Store Connect key
     timeout-minutes: 15
     env:
-      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      # The internal record is the one the App Review gate's internal-submission
+      # lane validates (ios-review-gate.yml), with its own product ids.
+      ASC_APP_ID: ${{ inputs.record == 'internal' && vars.IOS_INTERNAL_APP_ID || vars.IOS_APPSTORE_APP_ID }}
+      RECORDS: cmux-next-ios/AppStoreReview/subscriptions/${{ inputs.record == 'internal' && 'records-internal.json' || 'records.json' }}
       MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -63,7 +71,7 @@ jobs:
           set -euo pipefail
           case "$MODE" in plan|apply) ;; *) echo "mode is plan or apply, not $MODE"; exit 2 ;; esac
           if ! [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
-            echo "no App Store Connect app id (repository variable IOS_APPSTORE_APP_ID)"; exit 1
+            echo "no App Store Connect app id (repository variable IOS_APPSTORE_APP_ID or IOS_INTERNAL_APP_ID)"; exit 1
           fi
           key="$RUNNER_TEMP/AuthKey.p8"
           trap 'rm -f "$key"' EXIT
@@ -73,12 +81,12 @@ jobs:
           export ASC_API_KEY_PATH="$key"
           mkdir -p out
           python3 -I cmux-next-ios/scripts/asc_subscription_records.py "$MODE" --app "$ASC_APP_ID" \
-            --json out/subscription-records.json | tee out/subscription-records.txt
+            --records "$RECORDS" --json out/subscription-records.json | tee out/subscription-records.txt
           { echo '```'; cat out/subscription-records.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: subscription-records-${{ inputs.mode }}
+          name: subscription-records-${{ inputs.record }}-${{ inputs.mode }}
           path: out/subscription-records.*
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
