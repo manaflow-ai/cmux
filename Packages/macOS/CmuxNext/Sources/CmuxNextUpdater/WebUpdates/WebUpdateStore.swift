@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -82,6 +83,27 @@ nonisolated public struct WebUpdateStore: Sendable {
             throw .transfer("no staging folder: \(error.localizedDescription)")
         }
         try await Self.unpack(archive, into: staging)
+        return try keep(staging, pointer: pointer)
+    }
+
+    /// A fresh staging folder (not created) and a chunk store beside it, for one `cas/1` fetch
+    /// (``WebUpdater/CasFetch``). Both are `staging-*`, so ``prune(keeping:)`` removes leftovers.
+    public func casStaging() -> (tree: URL, chunks: URL) {
+        let id = UUID().uuidString
+        return (base.appending(path: "staging-\(id)", directoryHint: .isDirectory),
+                base.appending(path: "staging-\(id)-chunks", directoryHint: .isDirectory))
+    }
+
+    /// Checks `staged` (a tree `cas/1` assembled for `pointer`) against the pointer's tree digest
+    /// and abi, the same checks an unpacked archive passes, and keeps it as `trees/<key>`.
+    @concurrent public func install(tree staged: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
+        let kept = Result { () throws(WebUpdateRefusal) -> URL in try keep(staged, pointer: pointer) }
+        if case .failure = kept { try? FileManager.checked.removeItem(at: staged) }
+        return try kept.get()
+    }
+
+    /// Moves the checked `staging` tree to `trees/<key>`.
+    func keep(_ staging: URL, pointer: WebUpdatePointer) throws(WebUpdateRefusal) -> URL {
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
@@ -96,15 +118,22 @@ nonisolated public struct WebUpdateStore: Sendable {
         return destination
     }
 
+    /// Removes every `staging-*` folder: an unpack's or a `cas/1` fetch's, with its chunk store.
+    /// Only when no install is in flight (``prune(keeping:)``, the launch check).
+    public func removeLeftoverStaging() {
+        let manager = FileManager.default
+        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
+            try? manager.removeItem(at: base.appending(path: name))
+        }
+    }
+
     /// Removes every kept tree and leftover staging folder but `keys`.
     public func prune(keeping keys: Set<String>) {
         let manager = FileManager.default
         for name in (try? manager.contentsOfDirectory(atPath: trees.path)) ?? [] where !keys.contains(name) {
             try? manager.removeItem(at: trees.appending(path: name))
         }
-        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
-            try? manager.removeItem(at: base.appending(path: name))
-        }
+        removeLeftoverStaging()
         // An older build's `trees/` that moveLegacyTrees could not move (trees.noindex/ was already
         // there): nothing serves from it, since tree(for:) reads only trees.noindex/.
         if manager.fileExists(atPath: trees.path), manager.fileExists(atPath: legacyTrees.path) {

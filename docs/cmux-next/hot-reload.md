@@ -493,6 +493,53 @@ profile, feature, wrapper or incremental setting is behind the gap. The 11.75 s 
 edit to this crate. What's left is compiling cmux-tui-core itself (splitting the crate) and the
 19 s copy back from a build host.
 
+Where those 29 s go (`scripts/measure/tui-core-edit-breakdown.py`: the same edit, rust-live's cargo
+args with `--timings`, then `-Z time-passes` once per crate; fleet Linux, 32 cores, 4 edits, jobs
+51a80d14fb203f274cdbe13e and ffb7948d72743f4ccaad4b7b at cmux#61653's heads):
+
+| Unit a cmux-tui-core edit rebuilds | p50 |
+|---|---|
+| cmux-tui-core (about 416k lines outside tests) | 15.5 s |
+| the cmux-tui lib (`src/main.rs`, about 359k lines), every time core changes | 12.7 s |
+| the cmux-tui bin: its own compile 0.4 s, the link 2.7 s | 3.1 s |
+| everything (the units overlap a little) | 29.0 s |
+
+Code generation is not the cost: LLVM takes 0.7 s of cmux-tui-core's 15.7 s. The rest is work rustc
+does over the whole crate whatever the edit: writing its metadata 3.6 s, macro expansion 3.1 s, saving
+the incremental cache (dep graph and results) 5.8 s, name resolution 1.9 s, partitioning and the
+monomorphization walk 2.3 s. The cmux-tui lib is the same kind of cost. So time follows the size of
+every crate between the edit and the binary. Splitting cmux-tui-core alone leaves at least the lib and
+the link, about 16 s. The edited code also has to leave a 359k-line crate on its way to the binary.
+The crate is one dependency cycle: every large module (`server`, `mux`, `workspace_registry`,
+`state`, `apps`, `surface`) reaches all the others through `crate::` paths. The only modules that
+reach none of them (`fs_ops`, `layout`, `feed_client`, `git_seed`, `blob_fetch`, `terminal_backend`,
+`event_bus`, `journal_plugin`) are about 15k lines, under 4% of the crate, and take few edits:
+`git_seed` had 104 file changes in the 30 days to 2026-11-27, against about 1,990 for `server` and
+1,460 for `mux`. Moving them out would save under a second. The split that pays is cutting the
+cycle at `server`, the most edited part, so that it builds after the rest of the crate, and doing the
+same in the cmux-tui lib.
+
+Build settings that need no code moved (`scripts/measure/tui-core-edit-levers.py`: the same harness
+once per arm, each an environment change; fleet Linux, 32 cores, rustc 1.95.0; 4 edits per arm in job
+b1d32e6b0416b528e18a77b0, then 12 per arm in two interleaved runs in job e8cd7525058d39c377835ce2):
+
+| Arm | Edit p50 | cmux-tui-core | cmux-tui lib | bin (link) |
+|---|---|---|---|---|
+| rust-live as it was | 28.65 s | 15.23 s | 12.60 s | 3.04 s |
+| `codegen-units = 1024` on the two edited crates (shipped, rust-live only) | 27.86 s | 14.96 s | 11.96 s | 3.10 s |
+| that and `debug = 0` | 27.08 s | 14.78 s | 11.68 s | 2.67 s |
+| `-Z threads=8` (parallel frontend; nightly flag) | 29.57 s against 29.90 s | 15.41 s | 12.54 s | 3.40 s |
+| our crates at opt-level 0 | 30.05 s against 29.90 s | 15.29 s | 12.79 s | 4.23 s |
+| `codegen-units = 16` | 92.70 s | 53.23 s | 61.84 s | 5.47 s |
+
+rust-live's build passes the 1024 units as `--config` for cmux-tui-core and cmux-tui
+(`CMUX_RUST_LIVE_CODEGEN_UNITS`; empty leaves the profile's 256). `debug = 0` saves another 0.8 s but
+drops the line tables that panics, backtraces and profiles read, so it stays off. The parallel
+frontend is within noise at this size, as is opt-level 0, which also makes the link slower. mold is
+not installed on the fleet pool and was not measured. Macs link with Xcode's ld-prime. None of these
+moves the fixed per-crate work (metadata, expansion, the incremental cache, resolution), which is still
+most of the time.
+
 ### Editing while it runs: what survives
 
 `bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it

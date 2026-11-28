@@ -89,10 +89,7 @@ fn stopped() -> RpcError {
 }
 
 fn nothing_failed() -> RpcError {
-    refused(
-        "retry.nothing_failed",
-        "the chat's last turn did not fail, so there is nothing to retry",
-    )
+    refused("retry.nothing_failed", "the chat's last turn did not fail, so nothing was sent again")
 }
 
 fn not_resendable() -> RpcError {

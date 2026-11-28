@@ -62,11 +62,16 @@ trap cleanup EXIT
 if ! command -v stress-ng >/dev/null 2>&1; then
   sudo -n apt-get install -y stress-ng >"$work/apt.log" 2>&1 || true
 fi
-command -v stress-ng >/dev/null 2>&1 || { echo "replay-under-load.sh: no stress-ng (apt-get install stress-ng)" >&2; exit 1; }
+# A runner with neither stress-ng nor root to install it (the fleet's CI runners) loads its CPUs with plain shell busy
+# loops instead: the same 4*nproc runnable threads, without matrixprod's cache pressure. The reading names which ran
+# (ported from cmux#56545, whose lane went idle).
+load_tool=stress-ng
+command -v stress-ng >/dev/null 2>&1 || load_tool=busy-loops
 n="$(nproc)"
 stressors=$((4 * n))
 cd "$root/webviews" || exit 1
-[ -d node_modules ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
+# A node_modules that exists but lacks the bench's deps (a partial projection link, an interrupted install) is not installed.
+[ -d node_modules/playwright ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
   || { tail -20 "$work/install.log" >&2; exit 1; }
 # The pages' generated/strings.json files are gitignored and written only by the install's best-effort postinstall,
 # so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
@@ -74,7 +79,15 @@ bun scripts/pages/gen-strings.mjs >"$work/strings.log" 2>&1 || { tail -20 "$work
 
 # The load first, by PID (this script started it; cleanup stops only it), and enough of it to be running before the
 # replay's warm-up ends.
-stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
+if [ "$load_tool" = stress-ng ]; then
+  stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
+else
+  # One parent for every loop: cleanup's kill of this PID makes it stop its own jobs and nothing else.
+  bash -c 'trap "kill \$(jobs -p) 2>/dev/null; exit 0" TERM INT
+    for _ in $(seq "$1"); do (while :; do :; done) & done
+    sleep 900 & wait $!; kill $(jobs -p) 2>/dev/null' _ "$stressors" \
+    >"$work/stress.log" 2>&1 &
+fi
 stress_pid=$!
 sleep 10
 # Runnable threads on our CPUs while the replay runs: every 5 s, the threads of this run's process tree in state R,
@@ -116,17 +129,20 @@ else
   # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
   # the bench's "FAILED:" line, goes first.
   [ "$status" -ne 0 ] && grep -m1 -F 'replay-under-load: FAILED:' "$work/bench.log" | cut -c1-600 >&2
-  tail -3 "$work/bench.log"
+  grep -v -F '[BABEL] Note:' "$work/bench.log" | tail -3
 fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
-  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" <<'PY'
+  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" "$load_tool" <<'PY'
 import datetime, json, os, sys
-work, out, n, stressors, load1, status, commit, host, pinned = sys.argv[1:10]
+work, out, n, stressors, load1, status, commit, host, pinned, load_tool = sys.argv[1:11]
 n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
 except (OSError, ValueError):
-    log = open(os.path.join(work, "bench.log"), errors="replace").read()
+    # Babel's "deoptimised the styling" notes print on every build of the 500 KB App.tsx, so a failed run's tail was
+    # those notes and the sensor's head_error never reached its cause (2026-11-27, head 4d193af): drop them first.
+    log = "\n".join(l for l in open(os.path.join(work, "bench.log"), errors="replace").read().splitlines()
+                    if not l.startswith("[BABEL] Note:"))
     # The cause first: the bench's FAILED line (or the first line naming an error), then the log's tail.
     lines = [line.strip() for line in log.splitlines() if line.strip()]
     cause = next((l for l in lines if l.startswith("replay-under-load: FAILED:")), "") or next(
@@ -140,7 +156,7 @@ except (OSError, ValueError):
 # On the whole machine the load average is the reading; on a --cores slice, the run's runnable threads over its CPUs.
 per_core = (sum(samples) / len(samples) / n) if (pinned and samples) else load1 / n
 doc = {**bench, "schema": "perf-vm-replay/v1", "bench_schema": bench.get("schema"), "host": host, "commit": commit,
-       "cores": n, "stressors": stressors, "load_1m": load1, "load_per_core": round(per_core, 2),
+       "cores": n, "stressors": stressors, "load_tool": load_tool, "load_1m": load1, "load_per_core": round(per_core, 2),
        "load_basis": "runnable threads on the run's CPUs" if pinned else "/proc/loadavg over nproc",
        "at": bench.get("at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 if status != "0" and "error" not in doc:
