@@ -241,7 +241,7 @@ impl Mux {
                         pane_id,
                     ));
                     state.workspaces[workspace_index].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::ScreenAdded,
@@ -333,7 +333,7 @@ impl Mux {
                 state.active_workspace = state.workspaces.len() - 1;
                 state.workspace_revision = commit.revision;
                 let workspace_revision = commit.revision;
-                let entity = crate::server::tree_entity_json(
+                let entity = crate::tree_wire::tree_entity_json(
                     &state,
                     &notifications,
                     TreeDeltaKind::WorkspaceAdded,
@@ -430,7 +430,7 @@ impl Mux {
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,
