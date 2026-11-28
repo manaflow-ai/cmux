@@ -78,7 +78,7 @@ public struct CmuxNextApp {
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
         let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
         DebugTimings.markLaunch("main.reads_started") // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
-        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers")
+        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers"); UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain) // CMUX-631: the app restores its own windows (restoreWhenLoaded); AppKit's saved-state read in finishLaunching ran before the Dock's bounce ended
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
