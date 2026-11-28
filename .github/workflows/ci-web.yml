@@ -1086,7 +1086,7 @@ jobs:
   # One immutable build per source tree and run attempt, shared by every React shard.
   react-apps-head-bundles:
     needs: web-subarea-scope
-    if: ${{ github.event_name == 'pull_request' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ github.event_name == 'pull_request' && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     permissions:
       contents: read
       id-token: write
@@ -1095,6 +1095,9 @@ jobs:
       force_web: true
       source_ref: ${{ inputs.sha || github.sha }}
       artifact_prefix: ci-web-head-bundles
+      # Test-only bundles: a missing translation does not stop the webview shards (the strict check is pr-router's
+      # own compile preflight on the same head).
+      strings_best_effort: true
 
   react-apps-check-shard:
     needs: [web-subarea-scope, react-apps-head-bundles]
@@ -1102,8 +1105,12 @@ jobs:
     # runs this check as the ci/steps.toml step `react-apps-check` (pr-pipeline.yml's web-browser job) instead.
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    # A `ready-to-land` head runs it even on the affected tier (CI_LAND_FULL_PER_PR=0): next_autoland's webview_verdict
+    # holds every landing head that routes react_apps until this suite posts a per-test verdict there, so skipping it
+    # left the land waiting on a check that never ran (cmux#58073 at 2f26f02b; Leo, relayed 2026-10-30: "Webview tests
+    # keep breaking base as fast as they get fixed. Leo wants them caught at PR time").
     # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
-    if: ${{ !cancelled() && needs.web-subarea-scope.result == 'success' && (github.event_name != 'pull_request' || needs.react-apps-head-bundles.result == 'success') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ !cancelled() && needs.web-subarea-scope.result == 'success' && (github.event_name != 'pull_request' || needs.react-apps-head-bundles.result == 'success') && ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -1415,6 +1422,11 @@ jobs:
         continue-on-error: true
         env:
           RESTORED: ${{ steps.non-pr-web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
+          # These bundles only feed this shard's webview tests and are never saved or shipped: a missing translation
+          # must not hide the webview verdict (cmux#58259 died on ~80 missing strings before any webview test ran).
+          # The strict strings verdict stays with `compile preflight / web bundle build` (pr-router, every head) and
+          # the nightly and release builds.
+          CMUX_STRINGS_BEST_EFFORT: "1"
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
