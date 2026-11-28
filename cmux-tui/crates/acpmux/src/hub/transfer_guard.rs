@@ -252,6 +252,14 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         [d, id] if *d == super::prompt_images::BUNDLE_DIR && super::prompt_images::valid_id(id) => {
             Some(false)
         }
+        // A chat's uploads, under their upload id; a restore writes each only in the chat's own
+        // uploads folder (`transfer_uploads.rs`).
+        [d, upload, name]
+            if *d == super::transfer_uploads::BUNDLE_DIR
+                && super::transfer_uploads::valid_parts(upload, name) =>
+        {
+            Some(false)
+        }
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
         ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
         ["native", "claude-project", ".claude", "projects", dir, f]

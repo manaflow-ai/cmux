@@ -484,6 +484,7 @@ mod transfer_in;
 mod transfer_out;
 pub mod transfer_park;
 pub mod transfer_pull;
+pub(crate) mod transfer_uploads;
 mod transfer_watch;
 #[cfg(test)]
 mod translator_queue_tests;
