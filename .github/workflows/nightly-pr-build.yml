@@ -80,7 +80,7 @@ jobs:
         run: |
           base='HEAD^1'
           if [[ "$BASE" =~ ^[0-9a-f]{40}$ && "$BASE" != 0000000000000000000000000000000000000000 ]] &&
-            git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$BASE"; then
+            git -c protocol.version=2 fetch --no-recurse-submodules --no-tags --depth=1 --filter=blob:none origin "$BASE"; then
             base="$BASE"
           fi
           python3 scripts/ci/nightly_pr_build.py route --base "$base" --rev HEAD | tee -a "$GITHUB_OUTPUT"
