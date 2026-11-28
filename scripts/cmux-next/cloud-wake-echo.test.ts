@@ -220,6 +220,8 @@ test("a pause held shows a gap of the hold since the arm; run 46176743563 cycle 
   // A held pause, a torn line, or no arm time (unread): no failure.
   expect(pauseHeld([short, "{torn", JSON.stringify({ resumed_wall: armedAt + 9_000, wall_gap: 6_000 })].join("\n"), armedAt, 4_500)).toBe("");
   expect(pauseHeld(short, null, 4_500)).toBe("");
+  // With the clock offset and wake_at: where the gap sat against the start (guest = runner + offset).
+  expect(pauseHeld(short, armedAt, 4_500, { offset: 500, wakeAt: armedAt + 3_000 })).toContain("stopped -1612 and resumed -500 ms from wake_at");
 });
 
 test("no-wake cycles do not count toward the failure streak; a long run of them still stops", () => {

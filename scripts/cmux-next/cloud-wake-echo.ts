@@ -137,7 +137,9 @@ export function streakStop(cycles: Pick<WakeCycle, "ok" | "error" | "guest">[], 
  * the guest ran through the hold, so there was no wake to time. Returns the failure, or "" when a held gap is there
  * or the log cannot say (unread).
  */
-export function pauseHeld(gapsLog: string, armedAt: number | null, minGapMs: number): string {
+const signed = (ms: number) => `${ms >= 0 ? "+" : ""}${Math.round(ms)}`;
+
+export function pauseHeld(gapsLog: string, armedAt: number | null, minGapMs: number, at?: { offset: number; wakeAt: number }): string {
   if (armedAt === null) return "";
   const gaps: { resumed_wall: number; wall_gap: number }[] = [];
   for (const line of gapsLog.split("\n")) {
@@ -148,9 +150,14 @@ export function pauseHeld(gapsLog: string, armedAt: number | null, minGapMs: num
     } catch { /* a torn line */ }
   }
   if (gaps.some((g) => g.wall_gap >= minGapMs)) return "";
-  const longest = gaps.length ? Math.round(Math.max(...gaps.map((g) => g.wall_gap))) : 0;
+  const top = gaps.reduce<(typeof gaps)[number] | null>((a, g) => (a && a.wall_gap >= g.wall_gap ? a : g), null);
+  const longest = top ? Math.round(top.wall_gap) : 0;
+  // Where the longest gap sat against the start, runner clock: late to stop (ends after wake_at) or woke early (before).
+  const where = top && at
+    ? `, stopped ${signed(top.resumed_wall - top.wall_gap - at.offset - at.wakeAt)} and resumed ${signed(top.resumed_wall - at.offset - at.wakeAt)} ms from wake_at`
+    : "";
   return gaps.length
-    ? `the pause did not hold: since the arm the guest's longest tick gap was ${longest} ms (${gaps.length} gaps), under the hold's ${minGapMs} ms`
+    ? `the pause did not hold: since the arm the guest's longest tick gap was ${longest} ms (${gaps.length} gaps)${where}, under the hold's ${minGapMs} ms`
     : `the pause did not hold: the guest ticked through the hold with no gap over 1 s since the arm`;
 }
 
@@ -495,7 +502,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
           const gl = await d.exec(`${d.guest}tail -n 50 ${WAKE_DIR}/gaps.log 2>/dev/null; echo "@@gaps"`, 20_000).catch(() => null);
           const again = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo`, 20_000).catch(() => null);
           if (again && again.stdout.includes("{")) { out = again.stdout; break; }
-          const held = gl && gl.stdout.includes("@@gaps") ? pauseHeld(gl.stdout, armedAt, minGap) : "";
+          const held = gl && gl.stdout.includes("@@gaps") ? pauseHeld(gl.stdout, armedAt, minGap, c.offset_pre_ms === null ? undefined : { offset: c.offset_pre_ms, wakeAt }) : "";
           if (held) throw new Error(`${held} (machine read paused in ${c.paused_ms ?? "?"} ms, start answered in ${c.answered_ms} ms)`);
         }
         if (Date.now() > end) break;
