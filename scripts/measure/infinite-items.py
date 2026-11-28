@@ -359,12 +359,13 @@ def thread_delta(before, after):
 
 def wakers_start(tids, seconds):
     """Who wakes `tids` over the next `seconds` (sudo bpftrace where the machine has it, else None): the waking
-    task's name and kernel stack at each sched_wakeup, and the signals made for them. A wake that never returns
+    task's name and kernel stack at each sched_waking, and the signals made for them. A wake that never returns
     to userspace (a futex sleep the kernel restarts) shows here and nowhere else. Read it with `wakers_read`."""
     if not tids or not shutil.which("bpftrace"):
         return None
     cond = " || ".join(f"args->pid == {int(t)}" for t in tids)
-    prog = ("tracepoint:sched:sched_wakeup /" + cond + "/ { @w[args->pid, comm, kstack(6)] = count(); } "
+    # sched_waking fires in the waker's own context (sched_wakeup can run later, from the target CPU's IPI).
+    prog = ("tracepoint:sched:sched_waking /" + cond + "/ { @w[args->pid, comm, kstack(8), ustack(4)] = count(); } "
             "tracepoint:signal:signal_generate /" + cond + "/ { @s[args->pid, args->sig, comm] = count(); } "
             f"interval:s:{int(seconds)} {{ exit(); }}")
     try:
@@ -408,14 +409,17 @@ def idle_window(top, seconds, disks):
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
     tracer = wakers_start(sorted(tui_threads), seconds)
-    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds, every=0.02,
-                                futexes=True)
+    # The window itself only sleeps: a sampler reading the threads' /proc files would wake them (it did: the
+    # output-store writer woke once per read). The futex states are read in a second window after this one.
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
     woken_by = wakers_read(tracer)
-    # The same threads' wakes over a second window with no sampler reading their /proc files.
+    # The second window: each thread's futex state, read every 20 ms, and the wakes those reads make (INFINITE-SAMPLED
+    # is the sampled one, to compare with the window above).
     quiet_at = thread_detail(top.get("tui"))
-    time.sleep(seconds)
+    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds, every=0.02,
+                                futexes=True)
     quiet = thread_delta(quiet_at, thread_detail(top.get("tui")))
     pids_made = last_pid() - pid_at
     commits, wakes, asked = {}, {}, set()
@@ -1222,7 +1226,7 @@ def report(results):
                       f"blk={row.get('SigBlk')} cgt={row.get('SigCgt')} pnd={row.get('SigPnd')}/{row.get('ShdPnd')}",
                       flush=True)
             for row in s.get("quiet", []):
-                print(f"INFINITE-QUIET {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])}",
+                print(f"INFINITE-SAMPLED {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])}",
                       flush=True)
             for key, count in sorted(s.get("wakers", {}).items(), key=lambda kv: -kv[1] if isinstance(kv[1], int) else 0)[:12]:
                 print(f"INFINITE-WAKER {n} day={s['day']} {count} {key}", flush=True)
