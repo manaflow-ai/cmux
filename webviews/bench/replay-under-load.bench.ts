@@ -374,8 +374,8 @@ async function run(): Promise<Reading> {
       const top = Object.entries(counts)
         .filter(([name]) => !name.startsWith("row:") && !name.startsWith("content:") && !name.startsWith("mount:"))
         .sort((x, y) => y[1] - x[1])
-        .slice(0, 40);
-      console.log(`renders in the window (${sent} records sent):`);
+        .filter(([name], i) => i < 40 || name.startsWith("miss:"));
+      console.log(`renders in the window (${sent} records sent; top 40, then every miss:):`);
       for (const [name, count] of top) console.log(`  ${String(count).padStart(6)}  ${name}`);
     }
     clearInterval(timer);
