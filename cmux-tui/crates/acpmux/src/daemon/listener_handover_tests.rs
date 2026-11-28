@@ -29,6 +29,26 @@ fn listeners_go_through_the_side_socket() {
     HANDED_TO.store(0, Ordering::SeqCst);
 }
 
+/// update_handoff: a listener bound at `server/unix_bind.rs`'s staged name and moved into place
+/// serves the socket it was moved to; a listener elsewhere does not.
+#[test]
+fn update_handoff_a_staged_listener_serves_its_socket() {
+    let dir = cmux_unix_socket::short_test_dir("lhs");
+    let home = dir.path().to_path_buf();
+    let sock = home.join("acpmux.sock");
+    let stage = home.join(".b1f0");
+    std::fs::create_dir(&stage).unwrap();
+    let staged = UnixListener::bind(stage.join("s")).unwrap();
+    std::fs::rename(stage.join("s"), &sock).unwrap();
+    assert!(serves_path(&staged, &sock));
+    let other = UnixListener::bind(home.join("other.sock")).unwrap();
+    assert!(!serves_path(&other, &sock));
+    let odd = home.join(".bzz");
+    std::fs::create_dir(&odd).unwrap();
+    let odd_listener = UnixListener::bind(odd.join("s")).unwrap();
+    assert!(!serves_path(&odd_listener, &sock));
+}
+
 /// The daemon binds its socket at a staging name and renames it into place
 /// (`server::bind_unix`), and the kernel keeps the staging name: a handed listener bound that way
 /// still serves the socket. Comparing only the bound name refused every one, and the start that

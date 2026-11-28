@@ -105,9 +105,9 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
 /// Info; the transcript look and its tokens, and how a reply streams
 /// (`agentPane.display.streaming`)
-/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
-/// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 49] = [
+/// (docs/cmux-next/transcript-customization.md); and Markdown's reading
+/// face. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 50] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -155,6 +155,7 @@ const LOOK_KEYS: [&str; 49] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
+    "markdown.font.preset",
     "terminal.cursorStyle",
     "terminal.cursorBlink",
 ];
@@ -217,10 +218,18 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 11] = [
+const SHIPPED: [(&str, &str); 17] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
+    (
+        "earthly-delights",
+        include_str!("../../../../../Resources/theme-files/earthly-delights.json"),
+    ),
+    (
+        "frutiger-aero-2027",
+        include_str!("../../../../../Resources/theme-files/frutiger-aero-2027.json"),
+    ),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
     (
         "minimal-sessions",
@@ -230,7 +239,11 @@ const SHIPPED: [(&str, &str); 11] = [
     ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
     ("miku", include_str!("../../../../../Resources/theme-files/miku.json")),
     ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
+    ("one-bit", include_str!("../../../../../Resources/theme-files/one-bit.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("sakura", include_str!("../../../../../Resources/theme-files/sakura.json")),
+    ("sakura-yoru", include_str!("../../../../../Resources/theme-files/sakura-yoru.json")),
+    ("sumi", include_str!("../../../../../Resources/theme-files/sumi.json")),
     ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
