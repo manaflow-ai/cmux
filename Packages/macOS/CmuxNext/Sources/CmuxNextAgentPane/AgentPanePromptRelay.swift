@@ -38,29 +38,32 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
     /// promptId, or nil when it is not kept.
     @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> String? {
-        guard let text = box.encoded(id: nil),
-              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
-        var meta = params["_meta"] as? [String: Any] ?? [:]
-        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-        let named = acpmux["promptId"] as? String ?? ""
-        let promptId = named.isEmpty ? UUID().uuidString.lowercased() : named
-        var rewrite = named.isEmpty
-        acpmux["promptId"] = promptId
-        if journal.sendsAgain(daemon: daemon, promptId: promptId) {
-            acpmux["resend"] = true
-            rewrite = true
+        // In place under the box's lock (RFD 0191 step 4): no encode and re-parse of the frame.
+        let journal = journal, daemon = daemon
+        let kept: (session: String, promptId: String, params: String)? = box.withFrame { object in
+            guard var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
+            var meta = params["_meta"] as? [String: Any] ?? [:]
+            var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+            let named = acpmux["promptId"] as? String ?? ""
+            let promptId = named.isEmpty ? UUID().uuidString.lowercased() : named
+            var rewrite = named.isEmpty
+            acpmux["promptId"] = promptId
+            if journal.sendsAgain(daemon: daemon, promptId: promptId) {
+                acpmux["resend"] = true
+                rewrite = true
+            }
+            if rewrite {
+                meta["acpmux"] = acpmux
+                params["_meta"] = meta
+                object["params"] = params
+            }
+            return AcpmuxRequestIds.encode(params).map { (session, promptId, $0) }
         }
-        if rewrite {
-            meta["acpmux"] = acpmux
-            params["_meta"] = meta
-            object["params"] = params
-            guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return nil }
-        }
-        guard let paramsText = AcpmuxRequestIds.encode(params),
-              journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
-                                                          params: paramsText, at: journal.now()),
+        guard let kept,
+              journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: kept.session, promptId: kept.promptId,
+                                                          params: kept.params, at: journal.now()),
                              owner: owner) else { return nil }
+        let promptId = kept.promptId
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }
         return promptId

@@ -189,13 +189,13 @@ impl Hub {
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
         let mut found = Vec::new();
-        let mut take = |host: &str,
-                        name: &str,
-                        alias: Option<&str>,
-                        id: &str,
-                        handle: Option<&str>,
-                        route: &str,
-                        closed: bool| {
+        let judge = |host: &str,
+                     name: &str,
+                     alias: Option<&str>,
+                     id: &str,
+                     handle: Option<&str>,
+                     route: &str,
+                     closed: bool| {
             let spoken = alias.map(crate::session_handle::spoken_alias);
             let legacy_exact = name == rest || alias == Some(rest) || id.starts_with(rest);
             let at = if legacy_exact
@@ -214,8 +214,8 @@ impl Hub {
                 .map(|at| (false, at))
                 .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
-            if let Some(at) = at {
-                found.push((
+            at.map(|at| {
+                (
                     at,
                     legacy_exact,
                     Candidate {
@@ -224,8 +224,8 @@ impl Hub {
                         route: route.to_owned(),
                         closed,
                     },
-                ));
-            }
+                )
+            })
         };
         match machine {
             Machine::Here(own) => {
@@ -233,7 +233,7 @@ impl Hub {
                     self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values()
                 {
                     let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    take(
+                    found.extend(judge(
                         own,
                         &meta.name,
                         meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
@@ -241,25 +241,32 @@ impl Hub {
                         meta.handle.as_deref(),
                         &s.id,
                         meta.status == SessionStatus::Closed,
-                    );
+                    ));
                 }
             }
             Machine::Peer(peer) => {
-                for (route, r) in
-                    self.remote_sessions.read().iter().filter(|(_, r)| &r.peer == peer)
-                {
+                let rows = self.remote_sessions.read();
+                let prefix = format!("{peer}/");
+                let row = |(route, r): (&String, &Arc<RemoteSession>)| {
                     let name = r.summary.name().unwrap_or_default();
-                    let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
-                    let closed = r.summary.closed();
-                    take(
+                    let bare = name.strip_prefix(&prefix).unwrap_or(name);
+                    judge(
                         peer,
                         bare,
                         r.summary.alias(),
                         &r.receipt.mux_session_id,
                         r.summary.handle(),
                         route,
-                        closed,
-                    );
+                        r.summary.closed(),
+                    )
+                };
+                // Every row `rest` names at the first step is in the exact index; a row outside
+                // it names `rest` only at a later step, so only a key no row names exactly walks
+                // the peer's rows (`RemoteRows::exact_of_peer`).
+                found.extend(rows.exact_of_peer(peer, rest).into_iter().filter_map(&row));
+                if !found.iter().any(|(at, _, _)| *at == (false, Step::Exact)) {
+                    found.clear();
+                    found.extend(rows.of_peer(peer).filter_map(&row));
                 }
             }
         }

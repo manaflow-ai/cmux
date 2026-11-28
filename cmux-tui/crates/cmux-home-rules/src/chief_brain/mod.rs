@@ -13,7 +13,6 @@
 //! | `ChiefReplyWatchdog` | `reply_watchdog` |
 //! | `ChiefSettleNotice` | `settle_notice` |
 //! | `HomeEngineTurn` | `engine_turn_from_line`, `engine_turns_from_report`, `engine_turns_from_traces`, `engine_turn_usage` |
-//! | `ModelRouterLease` | `lease_step` |
 //! | `ChiefProfilePageRelay` | `profile_relay_route`, `profile_relay_retry`, `profile_relay_reuse` |
 //! | `PageCallDeadline`, `PageAnswerDeadline` | `page_call_step` |
 //!
@@ -23,7 +22,6 @@
 pub mod heal;
 pub mod host;
 pub mod keeper;
-pub mod lease;
 pub mod notices;
 pub mod relay;
 pub mod time;
@@ -61,7 +59,6 @@ pub const OPS: &[&str] = &[
     "engine_turns_from_report",
     "engine_turns_from_traces",
     "engine_turn_usage",
-    "lease_step",
     "profile_relay_route",
     "profile_relay_retry",
     "profile_relay_reuse",
@@ -182,10 +179,6 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
             let (hit_rate, tokens) =
                 turn::usage(r.cache_read, r.cache_write, r.input, r.output, r.present);
             reply(&UsageReply { hit_rate, tokens })
-        }
-        "lease_step" => {
-            let r: lease::LeaseRequest = parse(request)?;
-            reply(&lease::step(r.state, r.event))
         }
         "profile_relay_route" => reply(&relay::route(&parse(request)?)),
         "profile_relay_retry" => reply(&relay::retry(&parse(request)?)),

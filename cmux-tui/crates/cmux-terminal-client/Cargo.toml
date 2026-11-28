@@ -31,5 +31,4 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
 tempfile = "3"

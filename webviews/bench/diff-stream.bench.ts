@@ -1,3 +1,5 @@
+// The Diff view area's `run` bench (docs/benches/relevance-map.toml): bench-baselines-nightly.yml records it, and a pull
+// request touching the area or this file compares 3 repeats with that baseline (bench-relevance-pr.yml).
 import { parsePatchFiles, processFile } from "@pierre/diffs";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";

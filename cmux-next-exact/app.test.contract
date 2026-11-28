@@ -1,0 +1,9 @@
+test "the tabs switch and the feed answers"
+  tap "tab-activity"
+  expect state nav.tab == "activity"
+  tap "ask-yes"
+  expect text "answered" == "You answered Yes"
+  tap "tab-dms"
+  tap "dm-chief"
+  clock settle
+  expect tree has "detail"

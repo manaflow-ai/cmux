@@ -191,9 +191,12 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
       <RemoveGlyph />
     </button>
   );
-  const pendingClass = chip.resolvingPath
-    ? "acpmux-attachment-pending"
-    : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`;
+  // A video wears the glass from its drop on, resolving its path too: the tile it becomes keeps that
+  // look until its poster comes (VideoAttachmentTile.tsx), so a video loads in one look.
+  const pendingClass =
+    chip.resolvingPath && !chip.video
+      ? "acpmux-attachment-pending"
+      : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`;
   const indicator = !chip.resolvingPath && (
     <PasteLoadingMark
       look={look}
@@ -254,7 +257,7 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
   return (
     <div
       className={`acpmux-attachment acpmux-attachment-image ${pendingClass}`}
-      data-paste-look={chip.resolvingPath ? undefined : look}
+      data-paste-look={chip.resolvingPath && !chip.video ? undefined : look}
       aria-busy="true"
       aria-label={name}
       // tooltip-allow: the tile is a picture; once its upload has been asked again a while, the
@@ -268,7 +271,20 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
       {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
-      {chip.resolvingPath ? chip.image ? <ImageIcon size={16} /> : <PlayTriangle size={16} /> : indicator}
+      {chip.video ? (
+        <>
+          {/* The tile's own play glyph, where the ready tile draws it. */}
+          <span className="ui-glass acpmux-attachment-video-play" data-video-glyph="" aria-hidden="true">
+            <PlayTriangle size={12} style={{ color: "inherit" }} />
+          </span>
+          {/* An upload's progress only: the glyph is its loading mark, as on the tile it becomes. */}
+          {chip.progress !== undefined && indicator}
+        </>
+      ) : chip.resolvingPath ? (
+        <ImageIcon size={16} />
+      ) : (
+        indicator
+      )}
       {remove}
     </div>
   );
@@ -674,6 +690,7 @@ function AttachmentChipPreview({
         {menu(
           play,
           <VideoAttachmentTile
+            id={attachment.id}
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}

@@ -189,7 +189,7 @@ import Testing
             #expect(model.composerText == (edited ? "next draft" : "tapped"))
             #expect(model.attachments.first?.uploadID == "u1")
             #expect(sender.forgotten.isEmpty)
-            #expect(model.composerNotice != nil)
+            #expect(model.composerNotice == nil, "a refused send comes back to the composer silently (#54757)")
             session.refuseSubmission = false
             model.send()
             #expect(await Self.waitFor { !model.isUploading })

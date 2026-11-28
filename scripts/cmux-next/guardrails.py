@@ -3139,12 +3139,15 @@ def owner_route_files(repo: Path, own) -> list[str]:
     return sorted(files)
 
 
-def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
+def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None,
+                pusher: str | None = None, worked=None) -> list[str]:
     """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
-    notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
-    report; never a refusal, and nothing on CI or without acpmux."""
+    notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests); PUSHER (HOST/NAME):
+    owner_live.sender_name() unless a listing is given. The pushing lane that holds an area itself is told nothing.
+    Lines for the report; never a refusal, and nothing on CI or without acpmux."""
     live = load_owner_live()
     hits: dict[str, tuple[str, str, list[str], str]] = {}
+    area_globs: dict[str, list[str]] = {}
     for own in ranges:
         if not own.head:
             continue
@@ -3156,20 +3159,33 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
+            area_globs.setdefault(area, next((g for a, g, _, _ in owners if a == area), []))
     if not hits:
         return []
-    rows, error = listing if listing is not None else live.list_sessions()
+    given = listing is not None
+    rows, error = listing if given else live.list_sessions()
     if rows is None:
         return [f"owner: no live holder looked up ({error})"] if error else []
+    if pusher is None and not given:
+        pusher = live.sender_name()
     try:
         branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() or None
     except (Exception, SystemExit):
         branch = None
+    # Who committed in each area decides its role lane, not a name that happens to start with the area word (the
+    # 2026-11-28 sidebar-bench-chiefs-61230-2 misroutes, owner_live step 2). A test's listing reads commits only when
+    # it gives WORKED; with no agent-link key here no lane holds by name: the push goes to the coordinator.
+    key = None if given else live.link_key()
     out = []
     for area, (cell, doc, files, head) in hits.items():
-        who, how = live.holder(cell, rows, coordinator, area)
+        mine = worked if given else (
+            live.worked_by(live.area_work(repo, area_globs.get(area, [])), key) if key else None)
+        who, how = live.holder(cell, rows, coordinator, area, pusher, branch, mine)
         if not who:
             out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
+            continue
+        if live.is_self(how):
+            out.append(f"owner: {area} is held by {who} ({how}); you hold it, nobody told")
             continue
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)

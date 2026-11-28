@@ -134,23 +134,30 @@ fn result_text(result: &Value) -> String {
             .and_then(Value::as_str)
             .unwrap_or("Repository action failed")
             .to_owned();
-        if error.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
+        let code = error.get("code").and_then(Value::as_str);
+        if code == Some("repo.needs_github") {
             text.push_str(
                 " Connect GitHub; this add will be retried automatically when it finishes.",
             );
         }
+        if code == Some("repo.no_access") {
+            // One line the person and the agent both read: whose grant, which owner, the fix.
+            text = no_access_line(
+                error.get("org").and_then(Value::as_str),
+                error.get("install_url").and_then(Value::as_str),
+            );
+        }
+        // The agent reads only this text (no outputSchema is declared, so clients
+        // like Claude Code never show structuredContent to the model), and the chat
+        // reads its card's fields from the same text: keep the payload on it.
+        if matches!(code, Some("repo.needs_github" | "repo.no_access")) {
+            text.push('\n');
+            text.push_str(&serde_json::to_string(error).unwrap_or_default());
+        }
         return text;
     }
     if let Some(repos) = result.get("repos").and_then(Value::as_array) {
-        return if repos.is_empty() {
-            "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
-        } else {
-            format!(
-                "Found {} {}.",
-                repos.len(),
-                if repos.len() == 1 { "repository" } else { "repositories" }
-            )
-        };
+        return repos_text(repos, result.pointer("/connect/install_url").and_then(Value::as_str));
     }
     if result.get("state").and_then(Value::as_str) == Some("done") {
         return format!(
@@ -160,6 +167,67 @@ fn result_text(result: &Value) -> String {
         );
     }
     serde_json::to_string(result).unwrap_or_else(|_| "Repository action completed.".to_owned())
+}
+
+/// The refusal for a repository the team's GitHub grant does not cover, in one line.
+pub(crate) fn no_access_line(owner: Option<&str>, install_url: Option<&str>) -> String {
+    let owner = owner.filter(|o| !o.is_empty());
+    let what = match owner {
+        Some(owner) => format!(
+            "This chat's GitHub grant does not cover {owner}: the cmux GitHub App is not installed on {owner} for this cmux team."
+        ),
+        None => "This chat's GitHub grant does not cover this repository.".to_owned(),
+    };
+    match install_url {
+        Some(url) => format!(
+            "{what} Install it from the chat's Install GitHub App button or {url}, then retry."
+        ),
+        None => format!(
+            "{what} Install the cmux GitHub App there (in cmux choose Connect GitHub), then retry."
+        ),
+    }
+}
+
+/// The most repository names one list result names; the rest are counted.
+const LISTED_REPOS: usize = 200;
+
+/// The names themselves: an agent sees only this text, so "Found 202
+/// repositories." with no names left it nothing to choose (proof-3).
+fn repos_text(repos: &[Value], install_url: Option<&str>) -> String {
+    let mut text = if repos.is_empty() {
+        "No repositories match. Use a repository your GitHub connection covers, or a local project."
+            .to_owned()
+    } else {
+        format!(
+            "Found {} {}; add one with add_repo:",
+            repos.len(),
+            if repos.len() == 1 { "repository" } else { "repositories" }
+        )
+    };
+    for repo in repos.iter().take(LISTED_REPOS) {
+        let Some(name) = repo.get("fullName").and_then(Value::as_str) else { continue };
+        text.push_str("\n- ");
+        text.push_str(name);
+        let private = repo.get("private").and_then(Value::as_bool) == Some(true);
+        match (private, repo.get("source").and_then(Value::as_str)) {
+            (true, Some(source)) => text.push_str(&format!(" (private, {source})")),
+            (true, None) => text.push_str(" (private)"),
+            (false, Some(source)) => text.push_str(&format!(" ({source})")),
+            (false, None) => {}
+        }
+    }
+    if repos.len() > LISTED_REPOS {
+        text.push_str(&format!(
+            "\n...and {} more; pass a query to list_repos to narrow it.",
+            repos.len() - LISTED_REPOS
+        ));
+    }
+    if let Some(url) = install_url {
+        text.push_str(&format!(
+            "\nA repository of an organization that is not listed needs the cmux GitHub App installed there: {url}"
+        ));
+    }
+    text
 }
 
 /// The Cloud CLI already speaks the legacy machine socket contract. Calling
@@ -208,9 +276,10 @@ async fn run_cli_with(
     )
     .await
     .map_err(|_| {
-        "Repository action timed out; reconnect to the Cloud machine and retry.".to_owned()
+        "The Cloud machine did not finish the repository action in time; it is slow or unreachable."
+            .to_owned()
     })?
-    .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
+    .map_err(|e| format!("Could not run cmux to reach the Cloud machine ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
         && let Ok(value) = serde_json::from_str::<Value>(line)
@@ -229,15 +298,15 @@ async fn run_cli_with(
         if value.get("error_code").is_some() {
             return Ok(json!({
                 "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
-                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("The Cloud machine refused the repository action.")
             }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(if stderr.trim().is_empty() {
-        "The Cloud machine returned no repository result; reconnect and retry.".to_owned()
+        "The Cloud machine returned no repository result.".to_owned()
     } else {
-        format!("Repository action failed; reconnect and retry: {}", stderr.trim())
+        format!("Repository action failed: {}", stderr.trim())
     })
 }
 
@@ -266,7 +335,8 @@ where
 {
     if caller != Some(session) {
         return error_result(
-            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+            "Repository tools could not verify this chat. Restart the chat session to use them."
+                .to_owned(),
         );
     }
     let args = match args_object(params) {
@@ -295,7 +365,26 @@ where
             {
                 req.set("query", json!(query));
             }
-            match run(REPO_LIST_ACTION, req).await {
+            // A list only reads: one the Cloud machine did not answer is asked again for a few
+            // seconds (a reconnect in progress), never handed to the agent as "retry".
+            let listed = cmux_tui_util::retry::Patience::new("the Cloud machine", LIST_PATIENCE)
+                .quiet()
+                .run_async(
+                    || "The Cloud machine did not return the repository list in time.".to_owned(),
+                    {
+                        let run = &run;
+                        move || {
+                            let req = req.clone();
+                            async move {
+                                run(REPO_LIST_ACTION, req)
+                                    .await
+                                    .map_err(cmux_tui_util::retry::Attempt::Retry)
+                            }
+                        }
+                    },
+                )
+                .await;
+            match listed {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -325,6 +414,9 @@ where
         }
     }
 }
+
+/// How long `list_repos` asks the Cloud machine again while it does not answer.
+const LIST_PATIENCE: Duration = Duration::from_secs(10);
 
 /// Keep retry information in the agent result even if an older daemon only
 /// returns the typed error. The UI uses this exact payload to retry silently.
@@ -427,6 +519,30 @@ mod tests {
         assert_eq!(result["isError"], false);
     }
 
+    /// A list the Cloud machine did not answer is asked again, and the agent gets the list.
+    #[tokio::test]
+    async fn an_unanswered_list_is_asked_again() {
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"list_repos","arguments":{}}),
+            |_, _| {
+                let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if n == 0 {
+                        Err("The Cloud machine returned no repository result.".to_owned())
+                    } else {
+                        Ok(json!({"repos": [{"name": "org/repo"}]}))
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
     #[test]
     fn instructions_state_the_machine_and_its_lifetime() {
         for fact in [
@@ -460,6 +576,58 @@ mod tests {
             json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
+    /// proof-3: the agent sees only the content text, so it must carry the names.
+    #[test]
+    fn list_repos_text_names_each_repository() {
+        let repos: Vec<Value> = (0..202)
+            .map(
+                |i| json!({"fullName": format!("leo/r{i}"), "private": i == 0, "source": "github"}),
+            )
+            .collect();
+        let result = ok(
+            json!({"repos": repos, "connect": {"install_url": "https://github.com/apps/cmux/installations/new"}}),
+        );
+        assert_eq!(result["isError"], false);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Found 202 repositories; add one with add_repo:"), "{text}");
+        assert!(text.contains("\n- leo/r0 (private, github)\n- leo/r1 (github)"), "{text}");
+        assert!(text.contains("\n- leo/r199 (github)"), "{text}");
+        assert!(!text.contains("leo/r200"), "{text}");
+        assert!(text.contains("...and 2 more"), "{text}");
+        assert!(text.contains("https://github.com/apps/cmux/installations/new"), "{text}");
+        let one = ok(json!({"repos": [{"fullName": "leo/x"}]}));
+        assert_eq!(
+            one["content"][0]["text"],
+            "Found 1 repository; add one with add_repo:\n- leo/x"
+        );
+        let none = ok(json!({"repos": []}));
+        assert!(!none["content"][0]["text"].as_str().unwrap().contains("Connect GitHub"));
+    }
+
+    /// Gap 1: an owner the grant leaves out reads as one line naming it, and the
+    /// payload the chat's card reads rides on the same text.
+    #[test]
+    fn no_access_says_the_grant_does_not_cover_the_owner_in_one_line() {
+        let url = "https://github.com/apps/cmux/installations/new";
+        let result = ok(
+            json!({"code":"repo.no_access","message":"Install GitHub access.","org":"manaflow-ai","install_url":url}),
+        );
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let (line, payload) = text.split_once('\n').unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "This chat's GitHub grant does not cover manaflow-ai: the cmux GitHub App is not \
+                 installed on manaflow-ai for this cmux team. Install it from the chat's Install \
+                 GitHub App button or {url}, then retry."
+            )
+        );
+        let payload: Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(payload["org"], "manaflow-ai");
+        assert_eq!(payload["install_url"], url);
+    }
+
     #[test]
     fn other_errors_are_not_retried() {
         let mut result = json!({"code":"repo.not_found"});

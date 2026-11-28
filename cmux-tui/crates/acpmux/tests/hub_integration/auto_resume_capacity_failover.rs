@@ -139,6 +139,7 @@ async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
     session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
         from: OPUS.to_owned(),
         to: SONNET.to_owned(),
+        asked: false,
     });
     overload(&hub, &mut c, &id).await;
 
@@ -166,6 +167,7 @@ async fn the_next_prompt_of_a_chat_left_on_its_fallback_runs_on_its_own_model() 
     session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
         from: OPUS.to_owned(),
         to: SONNET.to_owned(),
+        asked: false,
     });
     c.request(
         method::SESSION_PROMPT,
@@ -191,6 +193,7 @@ async fn a_model_the_person_picked_after_the_switch_stays() {
     session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
         from: OPUS.to_owned(),
         to: SONNET.to_owned(),
+        asked: false,
     });
     c.request(
         method::SESSION_PROMPT,

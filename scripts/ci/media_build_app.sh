@@ -25,7 +25,9 @@ client="$dir/scripts/cmux-next/build-cmux-tui-client.sh"
 if [ -z "${CMUX_NEXT_TUI_BIN:-}${CMUX_TUI_CLIENT_LOCAL:-}${CMUX_TUI_TREE_KEY:-}" ] && [ -x "$client" ] &&
   ! (cd "$dir" && GITHUB_EVENT_NAME= CMUX_TUI_TREE_DISPATCH= CMUX_TUI_TREE_RECHECK_SECONDS=0 \
     ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null) | grep -q ': ready ('; then
-  export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-$HOME/Library/Caches/cmux-ci-media/cmux-tui-client-target/${RUNNER_NAME:-local}}"
+  # One Cargo target per host, not per runner: a mini runs up to 18 runners and each copy was about 12 GiB
+  # (2026-11-27 disk census). Cargo locks the target dir itself, so concurrent tours on one host wait, not clash.
+  export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-$HOME/Library/Caches/cmux-ci-media/cmux-tui-client-target/shared}"
   echo "cmux-tui tree for $tag is not published: building its client set here"
   # The tree's pinned Zig, not the Mac's (media_pinned_zig.sh); without it build.rs tries PATH's.
   if zig="$("$(dirname "${BASH_SOURCE[0]}")/media_pinned_zig.sh" "$dir")"; then

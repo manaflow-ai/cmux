@@ -134,9 +134,16 @@ extension LiveCoordinator {
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         let outputMac = session.macID
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
-        session.acpmux.onWatchEvent = { [weak session] event in
+        session.acpmux.onWatchEvent = { [weak self, weak session] event in
             guard let session else { return }
             let hub = session.acpmux
+            // The chats are ready the moment the list is in, which is before `bind` returns (it
+            // still seeds the pending prompts): a failure the bind before left says nothing from
+            // here on, not only once this bind returns (#46669's follow made that gap a read).
+            if hub.isReady, session.chatsError != nil {
+                session.chatsError = nil
+                self?.phaseChanged(session)
+            }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
@@ -1141,6 +1148,15 @@ extension LiveCoordinator {
         return listed != built
     }
 
+    /// The Mac sent its workspaces: a "didn't send its workspaces" left by the deadline on a slow
+    /// first load no longer stands, so Diagnostics drops it with no Retry (Leo, 2026-11-27: "An error
+    /// set by a timeout clears when the next good data arrives").
+    func workspacesArrived(_ session: MacSession) {
+        guard session.daemonError != nil else { return }
+        session.daemonError = nil
+        updateDiagnostics(session)
+    }
+
     private func apply(_ tree: DaemonTree, session: MacSession) {
         let macID = session.macID
         guard sessions[macID] === session else { return }
@@ -1165,6 +1181,7 @@ extension LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        workspacesArrived(session)
         // Rows of tabs and workspaces closed on the Mac or on this phone leave the Feed.
         feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: macID)
         session.fedData = true
@@ -1372,6 +1389,7 @@ extension LiveCoordinator {
         updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
+        updateNetworkReturnWatch()
         scheduleQuietStatus(session)
         let status = statusLines()
         if status != store.macLinkStatus { store.macLinkStatus = status }

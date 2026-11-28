@@ -327,6 +327,7 @@ impl App {
         self.mux_titles = mux_titles;
         self.mux_recovery_generation = mux_recovery_generation;
         self.session_label = label;
+        self.clear_machine_recovery();
         self.reset_session_presentation(tree);
         if let Some(worker) = self.session_event_worker.as_ref() {
             worker.activate();
@@ -463,6 +464,7 @@ impl App {
         // reuses the same selection intent, so select_machine_intent
         // will not clear it.
         machine.clear_connection_progress(active);
+        self.clear_machine_recovery();
         true
     }
 
@@ -470,12 +472,16 @@ impl App {
         if self.present_machine_as_asleep_after_stream_loss() {
             return true;
         }
+        if self.machine_ui.is_some() {
+            self.begin_machine_recovery();
+        }
         let Some(machine) = self.machine_ui.as_mut() else { return false };
         if machine.request.is_none() {
             let request = machine
                 .snapshot
                 .active
                 .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
+            // retry-prompt-ok: a client log line naming the automatic reconnect, not text a person acts on
             crate::client_log::info(
                 "machine",
                 &format!("stream lost; queueing {request:?} to reconnect"),

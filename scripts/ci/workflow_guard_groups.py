@@ -187,6 +187,8 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
+    "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
