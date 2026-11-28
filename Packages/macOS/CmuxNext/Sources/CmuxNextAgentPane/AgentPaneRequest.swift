@@ -115,10 +115,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `app`: the editor id
     /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸. `repo` and
     /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
-    /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
+    /// `OWNER/REPO` and the chat's own link, each dropped when malformed. `service` and `returnTo`: a chat's
+    /// Connect card (`connections.connect`) for a tool call that answered needs_auth or a service the agent
+    /// named, the catalog name (``isCatalogName(_:)``) and the chat's own link, each dropped when malformed.
     case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
                    repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
-                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil)
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil,
+                   service: String? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.

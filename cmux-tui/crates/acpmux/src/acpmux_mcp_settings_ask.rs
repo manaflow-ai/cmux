@@ -23,13 +23,13 @@ use serde_json::{Value, json};
 pub(super) const NAME: &str = "settings_ask";
 /// What every chat with the tool is told.
 /// The tool's description carries the targets; this only says to use it.
-pub(super) const STEER: &str = "To get a GitHub connection or any setting from the person, call \
+pub(super) const STEER: &str = "To get a GitHub or other service connection or any setting from the person, call \
 settings_ask (a card or a link opens that one control) instead of telling them to open Settings.";
 /// The longest `why` the card draws.
 const MAX_WHY: usize = 160;
 
 /// The targets the card draws, as the tool's description names them.
-const TARGETS: &str = "connection:github, connection:github:ORG or connection:github:OWNER/REPO";
+const TARGETS: &str = "connection:github, connection:github:ORG, connection:github:OWNER/REPO, or connection:SERVICE for a service in cmux's connections catalog (linear, sentry, notion, atlassian, vercel, slack, stripe, ...)";
 /// The other targets, which come back as a link.
 const LINKS: &str = "setting:SECTION or setting:SECTION/KEY (for example setting:terminal/fontSize), or a cmux://settings/... link";
 
@@ -64,6 +64,16 @@ fn is_owner(value: &str) -> bool {
         && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
 }
 
+/// A cmux connections catalog name (cmux-platform `Catalog.ts`, `[a-z0-9-]`, as webviews
+/// serviceConnect.ts checks): 1 to 40 lowercase letters, digits and inner dashes.
+fn is_service(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    (1..=40).contains(&bytes.len())
+        && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+}
+
 /// `OWNER/REPO` as GitHub allows it (webviews githubConnect.ts `isGitHubRepo`).
 fn is_repo(value: &str) -> bool {
     let Some((owner, name)) = value.split_once('/') else { return false };
@@ -93,8 +103,21 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
         }
         return Ok(Value::Object(shown));
     }
-    let rest = target.strip_prefix("connection:").unwrap_or(target);
+    let prefixed = target.strip_prefix("connection:");
+    let rest = prefixed.unwrap_or(target);
     let (provider, scope) = rest.split_once(':').unwrap_or((rest, ""));
+    // A catalog service (`connection:linear`): the card connects it through Settings > Connections'
+    // own flow. Only with the `connection:` prefix; it takes no scope.
+    let service = provider.trim().to_ascii_lowercase();
+    if prefixed.is_some() && service != "github" && scope.is_empty() && is_service(&service) {
+        let mut shown = serde_json::Map::new();
+        shown.insert("kind".into(), json!("connection"));
+        shown.insert("provider".into(), json!(service));
+        if let Some(why) = field("why") {
+            shown.insert("why".into(), json!(why.chars().take(MAX_WHY).collect::<String>()));
+        }
+        return Ok(Value::Object(shown));
+    }
     if !provider.eq_ignore_ascii_case("github") {
         return Err(format!(
             "{target} is not one the card draws; it draws {TARGETS}. For another setting, target {LINKS}."
@@ -164,6 +187,15 @@ pub(super) fn call(args: &Value) -> Value {
             ok(
                 format!(
                     "Write this link in your answer: {link}. The chat draws it as a link, and the person's click opens that exact setting in Settings."
+                ),
+                shown,
+            )
+        }
+        Ok(shown) if shown["provider"] != "github" => {
+            let service = shown["provider"].as_str().unwrap_or_default().to_owned();
+            ok(
+                format!(
+                    "A Connect {service} card is shown to the person under your answer. End your turn now; when they connect, the chat goes on."
                 ),
                 shown,
             )

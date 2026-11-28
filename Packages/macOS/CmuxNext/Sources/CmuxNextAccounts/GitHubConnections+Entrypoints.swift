@@ -6,6 +6,13 @@ import Foundation
 /// The App's entry points into the GitHub connection: the `accounts.githubConnect` action and the
 /// Accounts part of the Settings page. The App only binds them (code-quality.md SW14).
 extension GitHubConnections {
+    /// The `accounts.githubConnect` effect: a chat card names the repo or org, so GitHub opens and Settings
+    /// does not; without one (the palette, Settings, the CLI) SHOWACCOUNTS opens Settings > Accounts first.
+    public func connectEffect(_ invocation: ActionInvocation, showAccounts: @MainActor () throws -> Void) rethrows -> ActionEffect {
+        if invocation["repo"] == nil, invocation["org"] == nil { try showAccounts() }
+        return .applied(result: { await self.connectResult(invocation) })
+    }
+
     /// The `accounts.githubConnect` result: connect, then report the page's outcome and detail.
     /// A chat's Connect GitHub card (webviews githubConnect.ts) names the failed call's `repo` and
     /// the chat's link (`returnTo`), both checked by the pane (AgentPaneRequest+Decoding.swift): the

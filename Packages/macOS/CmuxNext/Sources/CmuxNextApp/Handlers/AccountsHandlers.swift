@@ -19,10 +19,8 @@ enum AccountsHandlers {
             try services.settingsWindow.show(section: .accounts, setting: MobileSettings.allowIPhoneConnectionsPath.joined(separator: "."),
                                              focus: invocation.allowsViewChange)
         })
-        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { invocation in
-            if invocation["repo"] == nil, invocation["org"] == nil { try services.settingsWindow.show(section: .accounts) } // a chat card names the repo or org: GitHub opens, Settings does not
-            return .applied(result: { await services.accounts.github.connectResult(invocation) })
-        })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { try services.accounts.github.connectEffect($0) { try services.settingsWindow.show(section: .accounts) } })
+        registry.bindEffect("connections.connect", requires: nil, effect: { services.integrationConnections.chatConnectEffect($0) { try? services.settingsWindow.show(section: nil, route: "#/settings/integrations") } })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)

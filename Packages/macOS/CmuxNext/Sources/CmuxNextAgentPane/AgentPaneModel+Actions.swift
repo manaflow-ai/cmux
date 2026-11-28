@@ -60,6 +60,10 @@ extension AgentPaneModel {
     /// hurdles to jump through as possible"): the app's `accounts.githubConnect`, with the failed
     /// call's repository and the chat's link. It opens GitHub's page, so it needs the person's gesture.
     static let githubActions: Set<String> = ["accounts.githubConnect"]
+    /// A chat's Connect card for a cmux connection (Settings > Integrations > Connections): a tool call that
+    /// answered needs_auth, or a service the agent asked for by name. It opens the provider's sign-in, so it
+    /// takes the person's gesture, as Connect GitHub's card does.
+    static let connectionActions: Set<String> = ["connections.connect"]
     /// The model picker's "Set up more for Cloud…" row with Cloud picked (webviews cloudPickerEntries.ts, cmux#51731):
     /// the app's Open Settings on Settings > Cloud (`#/settings/cloud`, DeepLink.cloudRoute), where more ways to reach models on Cloud are set up. The page names no
     /// section; the app fixes it. It opens a tab, so it spends the person's gesture.
@@ -79,11 +83,13 @@ extension AgentPaneModel {
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
                    repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
-                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil) -> [String: Any] {
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil,
+                   service: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
             || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id) || Self.settingsActions.contains(id)
+            || Self.connectionActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -111,6 +117,16 @@ extension AgentPaneModel {
             if let org, repo == nil { arguments["org"] = org }
             // Only a link this build opens, carrying nothing it would ignore: GitHub's return comes
             // back to this chat, nowhere else.
+            if let returnTo, let scheme = linkScheme, let url = URL(string: returnTo),
+               DeepLink.read(url, scheme: scheme)?.ignoredParameters.isEmpty == true {
+                arguments["returnTo"] = returnTo
+            }
+        }
+        if Self.connectionActions.contains(id) {
+            // A Connect card always names its service; one without (or a malformed one, dropped) runs nothing.
+            guard let service else { return Self.refused("This card does not name a service to connect.") }
+            arguments["service"] = service
+            // The sign-in's return comes back to this chat only through a link this build opens (as GitHub's).
             if let returnTo, let scheme = linkScheme, let url = URL(string: returnTo),
                DeepLink.read(url, scheme: scheme)?.ignoredParameters.isEmpty == true {
                 arguments["returnTo"] = returnTo

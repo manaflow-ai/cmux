@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextAgentIntegrations
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -94,6 +95,7 @@ final class AppServices {
     let mainWork: MainWorkScheduler
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
+    private(set) lazy var integrationConnections = SettingsConnections(cli: { [bundled = bundledCLI] in await bundled.resolve() }, linkScheme: { [weak self] in self?.linkScheme ?? "cmux" }, openInBrowser: { [weak self] url in if self?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } }) // Settings > Integrations > Connections, shared with a chat's Connect card (connections.connect)
     let machines: MachineRegistry
     /// The browser import's reader: `browser_import.read` on the local daemon.
     var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
