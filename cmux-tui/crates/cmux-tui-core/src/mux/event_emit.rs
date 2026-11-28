@@ -110,6 +110,14 @@ impl Mux {
         self.subscribers.emit(event);
     }
 
+    /// Output the terminal's reader read: the echo of an armed person's input (server/activity.rs). Every read
+    /// notes it, not only the one that dirties the terminal: with no renderer taking frames (a bytes-mode attach,
+    /// the wake-echo probe) the terminal stays dirty after its first output and no later output reaches
+    /// [`Self::emit_terminal_output`] (RFD 0167: the census saw 1 echo in 782 wakes). One atomic load unless armed.
+    pub(crate) fn note_terminal_output_for_echo(&self, runtime_id: SurfaceId) {
+        self.activity.note_output(runtime_id);
+    }
+
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
         self.activity.note_output(runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
