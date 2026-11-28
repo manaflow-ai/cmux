@@ -675,7 +675,7 @@
       "accessKeyIdField": "アクセスキーID",
       "secretAccessKeyField": "シークレットアクセスキー",
       "sessionTokenField": "セッショントークン",
-      "bedrockTemporaryHint": "一時的なAWS認証情報（ASIA... のキーとセッショントークン）を追加してください。長期キー（AKIA...）はここには保存されません。ご自身のシークレットストアかローカルのBedrockルートで管理してください。",
+      "optionalPlaceholder": "任意",
       "codexBody": "Codex はブラウザでサインインするため、ターミナルから追加します。このチームでサインインしてから次を実行してください:",
       "opencodeBody": "OpenCode は coderouter からプロバイダー一覧を読み込みます。このチームでサインインしてから次を実行してください:",
       "copyCommand": "コマンドをコピー",
