@@ -1559,10 +1559,10 @@ async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by
 /// this inbox does not hold is read as its one thread of that shape, else refused naming them.
 #[test]
 fn an_unknown_thread_id_is_read_as_its_one_listed_thread_of_that_shape() {
-    let ids = ["from:mac-gray/lead-sr2-coord", "from:vm-lane-2/asks-router", "pr:12"];
+    let ids = ["from:one-host/main-ask-coord", "from:vm-host-2/asks-router", "pr:12"];
     let like = |t: &str| thread_like(t, &ids);
-    assert_eq!(like("uegh:pew-yfka/jcoy-uf6-xrjkw"), Some("from:mac-gray/lead-sr2-coord"));
-    assert_eq!(like("from:mac-gray/lead-sr2-coord"), Some("from:mac-gray/lead-sr2-coord"));
+    assert_eq!(like("uegh:pew-yfka/jcoy-uf6-xrjkw"), Some("from:one-host/main-ask-coord"));
+    assert_eq!(like("from:one-host/main-ask-coord"), Some("from:one-host/main-ask-coord"));
     assert_eq!(like("uegh:pew-yfka/jcoy-uf-xrjkw"), None, "a different shape is no match");
     assert_eq!(like("pr:34"), None, "short ids share shapes too often to guess");
     let twins = ["from:lane-aa/x-yy", "from:lane-bb/z-ww"];
