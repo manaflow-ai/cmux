@@ -3598,7 +3598,6 @@ dependencies = [
  "glob",
  "ignore",
  "libc",
- "mimalloc",
  "notify",
  "parking_lot",
  "plist",
