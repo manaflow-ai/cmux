@@ -78,6 +78,16 @@ echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 51
 out=$(run)
 grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: memory.max not the lesser budget"; exit 1; }
 
+# 6b. GIANTS_UNDER_A_CAP: the pool slot whose darwin cross leg lost acpmux twice (8 cores, memory.max 25 GiB,
+# MemAvailable 29, 10 groups; run 46194335494): not capped by cores, but the giants compile one at a time.
+echo $((25 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 31 29
+out=$(FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" "" "echo e" "" "echo f" "" "echo g" "" "echo h" "" "echo i" "" "echo j" 2>&1)
+grep -q 'memory.max 25 GiB: giants (acpmux cmux_tui_core) compile one at a time' <<<"$out" || { echo "$out"; echo "FAIL: giants together under memory.max 25 GiB"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=8 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: cores capped under memory.max 25 GiB"; exit 1; }
+out=$(CARGO_GROUPS_HEAVY="1 5" FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" 2>&1)
+! grep -q 'giants (' <<<"$out" || { echo "$out"; echo "FAIL: giant lock on a heavy leg under memory.max 25 GiB"; exit 1; }
+echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 300
+
 # 8. The pool slot that OOM-killed the Cloud machine channel's x86_64 build (8 threads, memory.max 14 GiB, 5
 # groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all, not 4 + 4 x 2 = 12, and (run 46151055767, where seven one-token groups
 # still lost the acpmux rustc) only 14 / 4 = 3 groups at once: 3 + 2 x 2 tokens.
