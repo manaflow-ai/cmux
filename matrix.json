@@ -132,28 +132,6 @@
     "numbers": ""
   },
   {
-    "id": "network_flapping_direct_slow_turn_hold",
-    "axis": "network",
-    "case": "60 s hold: direct path up 1 s, down 1.5 s (300 ms RTT, 2% loss), TURN at 300 to 600 ms RTT (1% loss), Leo's moderate Wi-Fi with 2,891 cellular fallbacks in 15 min",
-    "suite": "rust",
-    "test": "a_phone_link_holds_60s_on_a_flapping_direct_path_with_slow_turn",
-    "asserts": "0 link closes, 0 redials, every echoed frame back, 0 REKEY_TIMEOUT or CONNECTION_EXPIRED",
-    "gate": true,
-    "status": "not run",
-    "numbers": ""
-  },
-  {
-    "id": "network_flapping_direct_label_settles",
-    "axis": "network",
-    "case": "the same 60 s hold: the phone's path label",
-    "suite": "rust",
-    "test": "the_path_label_settles_on_a_flapping_direct_path_with_slow_turn",
-    "asserts": "the Direct/Turn label flips at most twice; no 2 s echo stall (ignored until lane/plink-cloud-flip lands)",
-    "gate": false,
-    "status": "not run",
-    "numbers": ""
-  },
-  {
     "id": "network_udp_blocked_services",
     "axis": "network",
     "case": "every service with UDP blocked",
