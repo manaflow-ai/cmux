@@ -395,6 +395,9 @@ impl Hub {
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
+                        // A task's diff, read once by a reviewer with none of this context
+                        // (`fresh_review.rs`, off by default).
+                        self.fresh_review_turn_end(session, turn_id);
                     }
                     // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
                     self.goal_turn_ended(session, prompt_id, status == "completed");

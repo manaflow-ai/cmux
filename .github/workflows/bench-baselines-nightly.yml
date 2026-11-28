@@ -113,8 +113,8 @@ jobs:
             n=$((n + 1))
           done < <(find "$root" -type f -name '*.json' | sort)
           if [ "$n" -eq 0 ]; then
-            echo "::warning::No bench measured all 3 repeats; nothing recorded, the stamp stays old"
-            exit 0
+            echo "::error::No bench measured all 3 repeats; nothing recorded, the stamp stays old (a recorder that records nothing is red, not green)"
+            exit 1
           fi
           printf '{"recorded_at": "%s", "sha": "%s", "objects": %d}\n' \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$n" > "$RUNNER_TEMP/_stamp.json"

@@ -59,6 +59,9 @@ pub(crate) enum Refusal {
     /// `agent-session-start`: the agent's model route cannot serve it on this machine (acpmux
     /// `route.*`); `data` names the route's reason and the harness (hq#11225).
     RouteUnavailable,
+    /// `agent-session-start` on the caller's own Cloud VM: the agent home pull left files the
+    /// person revoked in place, so no harness starts with them (agent_session_home_pull.rs).
+    AgentHomeNotCleared,
 }
 
 impl Refusal {
@@ -94,6 +97,7 @@ impl Refusal {
             Self::SignInRequired => "agent_session.sign_in_required",
             Self::HarnessMissing => "agent_session.harness_missing",
             Self::RouteUnavailable => "agent_session.route_unavailable",
+            Self::AgentHomeNotCleared => "agent_session.agent_home_not_cleared",
         }
     }
 
@@ -143,6 +147,9 @@ impl Refusal {
             Self::SignInRequired => "the agent is not signed in on this machine",
             Self::HarnessMissing => "this agent is not installed on this machine",
             Self::RouteUnavailable => "the agent's model route cannot serve it on this machine",
+            Self::AgentHomeNotCleared => {
+                "files you removed from your agent home could not be cleared from this machine"
+            }
         }
     }
 
