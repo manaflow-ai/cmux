@@ -230,19 +230,8 @@ fn an_automatic_code_says_why_it_came_and_where_replies_go() {
     assert!(!asked.contains("acpmux send"), "{asked}");
 }
 
-/// Repro (Lawrence, 2026-11-28): 203 codes told a terminal chat "your `acpmux send` went out",
-/// when cmux's prompt hook had asked and the chat ran no send. A hook's code says the hook
-/// asked, names its process, and says it is the only one.
 #[test]
-fn a_code_the_prompt_hook_asked_for_says_so_and_names_the_hook() {
-    let by = "pid 7001 (`cmux acp register --auto claude-h-ab627c05 --json`)".to_owned();
-    let hook = Why::Hook { host: "h".into(), by: by.clone() };
-    let text = code_text("claude-h-ab627c05", "c0de", &hook);
-    assert!(!text.contains("`acpmux send`"), "{text}");
-    assert!(text.contains("cmux's prompt hook"), "{text}");
-    assert!(text.contains(&by), "{text}");
-    assert!(text.contains("acpmux register claude-h-ab627c05 --code c0de"), "{text}");
-    assert!(text.contains("no other code on its own"), "{text}");
+fn an_automatic_ask_says_what_asked() {
     let origin = |o: &str| {
         let p = json!({"name": "claude-h-ab627c05", "auto": true, "origin": o});
         RegisterRequest::from_params(&p).unwrap().origin
@@ -298,6 +287,22 @@ fn a_caller_is_named_by_pid_command_and_the_chats_process_that_runs_it() {
     let short = short_command(&long);
     assert!(short.chars().count() <= 103 && short.ends_with("..."), "{short}");
     assert!(!short_command(&["a`b\nc".into()]).contains(['`', '\n']));
+}
+
+/// Repro (Lawrence, 2026-11-28: "who keeps sending this to the claude code TUIs??"): chats that
+/// ran no `acpmux send` (claude-34, claude-lawrences-macbook-pro-2-ab627c05) got a register code
+/// as a prompt, because cmux's prompt hook asked for one at every prompt. A code goes only for
+/// a send the chat's own shell ran: never for the hook, nor for an ask that does not say it is
+/// a send (an older CLI's, which a hook of an older build runs).
+#[test]
+fn only_a_send_from_the_chats_own_shell_gets_an_automatic_code() {
+    let why = |origin| auto_why(origin, &[], "h".into(), "pid 1 (`acpmux send x hi`)".into());
+    assert!(matches!(why(Some(Origin::Send)), Ok(Why::Send { .. })));
+    assert_eq!(why(Some(Origin::Hook)).err(), Some(NO_SEND), "the prompt hook");
+    assert_eq!(why(None).err(), Some(NO_SEND), "an ask that names no send");
+    let script = (9, "/bin/bash".to_owned(), vec!["bash".to_owned(), "deploy.sh".to_owned()]);
+    let from_script = auto_why(Some(Origin::Send), &[script], "h".into(), "pid 9".into());
+    assert_eq!(from_script.err(), Some(NOT_OWN_SEND));
 }
 
 #[test]

@@ -61,6 +61,28 @@ class ResolveTest(unittest.TestCase):
             with self.subTest(why=why), self.assertRaises(fd.Refused):
                 fd.check_pr(p, REPO, sha)
 
+    def test_a_dirty_state_is_a_conflict_even_while_mergeable_recomputes(self) -> None:
+        with self.assertRaisesRegex(fd.Refused, "conflicts with its base"):
+            fd.check_pr(pr(merge_commit_sha=None, mergeable=None, mergeable_state="dirty"), REPO, SHA)
+
+    def test_a_computing_pr_is_read_again_until_github_decides(self) -> None:
+        # cmux#39420: a conflicting PR read once as computing was refused "dispatch again", every time.
+        answers = iter([pr(merge_commit_sha=None, mergeable=None), pr(merge_commit_sha=None, mergeable=None),
+                        pr(merge_commit_sha=None, mergeable=False)])
+        slept: list[float] = []
+        got = fd.read_settled(lambda: next(answers), sleep=slept.append)
+        self.assertIs(got["mergeable"], False)
+        self.assertEqual(slept, [fd.SETTLE_WAIT_S] * 2)
+        with self.assertRaisesRegex(fd.Refused, "conflicts with its base"):
+            fd.check_pr(got, REPO, SHA)
+
+    def test_settling_is_bounded_and_fits_the_job(self) -> None:
+        slept: list[float] = []
+        got = fd.read_settled(lambda: pr(merge_commit_sha=None, mergeable=None), sleep=slept.append)
+        self.assertIsNone(got["mergeable"])
+        self.assertEqual(len(slept), fd.SETTLE_READS - 1)
+        self.assertLess(sum(slept), 60)  # the job's GH_HTTP_DEADLINE_S is 240
+
     def test_a_merge_commit_of_another_head_is_refused(self) -> None:
         for parents in ([{"sha": BASE}, {"sha": "c" * 40}], [{"sha": SHA}], []):
             with self.subTest(parents=parents), self.assertRaises(fd.Refused):
@@ -93,6 +115,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(inputs["pr"]["required"])
         self.assertTrue(inputs["sha"]["required"])
         self.assertEqual(self.wf["permissions"], {})
+        # A per-target title: a sweep over many PRs is not one run fanned out.
+        self.assertIn("${{ inputs.pr }}", self.wf["run-name"])
+        self.assertIn("${{ inputs.sha }}", self.wf["run-name"])
 
     def test_the_pipeline_runs_only_the_ios_fast_verdict_at_the_merge_commit(self) -> None:
         call = self.jobs["pipeline"]

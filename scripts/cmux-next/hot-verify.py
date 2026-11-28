@@ -3,7 +3,8 @@
 
     hot-verify.py plan --source dir:PATH|pr:N|sha:SHA [--repo CMUX_CLONE] [--app APP | --base COMMIT] [--json]
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
-                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch] [--pr N --record]
+                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch] [--pr N --record [--no-post]]
+                       [--head-app APP]
     hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
     hot-verify.py extract --side NAME [--out FILE.patch]
     hot-verify.py stop --side NAME [--remove]
@@ -67,6 +68,11 @@ commit's time until that shot)}. The marker is the line cmuxterm-hq's hot-verify
 
     <!-- cmux-hot-verify sha=<40-hex head> app=<CMUXCommit> layers=<web,rust> source=<worktree|pr> -->
 
+--head-app APP is the head's Swift already swapped into a copy of --app (scripts/measure/ui-proof-look.sh, a fleet
+Mac: swap-binary.sh): a plan whose build is only Swift, manifests, resources and strings shows that copy after, with
+its web and rust layers put in as onto NIGHTLY's, instead of a fleet app build. --no-post writes proof-record.md and
+posts nothing.
+
 Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the change needs a build (no look).
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
 live) until `hot-verify.py stop --side NAME`, which stops the copy and everything the look started.
@@ -106,6 +112,7 @@ from xml.etree import ElementTree
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
+import look_page_log  # noqa: E402
 ROOT = HERE.parents[1]
 BASE_BRANCH = "feat-cmux-next"
 NO_APP = "/nonexistent/hot-verify-no-app"
@@ -502,6 +509,18 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     if behind:
         out["notes"].append(f"the app's commit {base[:12]} is {lag} commits behind the change's fork {fork[:12]} "
                             "on feat-cmux-next: those commits are not the change, and a look does not show them")
+    elif fork not in (base, head):
+        # An app newer than the change's fork (a nightly cut after the PR branched, cmux#64758): the look puts the
+        # change's whole web bundle, built at its head, over the app, so web commits merged between the fork and
+        # the app are not in the look, and the app's native side may expect web it no longer gets. The notes were
+        # empty here, and a blank New Tab on such a look read as the change's own regression.
+        # A head the app already contains (fork == head) is not this: hot-apply notes that, and nothing is looked at.
+        ahead = git(repo, "rev-list", "--count", f"{fork}..{base}", check=False) or "?"
+        web_ahead = git(repo, "rev-list", "--count", f"{fork}..{base}", "--", "webviews", check=False) or "?"
+        out["notes"].append(f"the app's commit {base[:12]} is {ahead} commits ahead of the change's fork "
+                            f"{fork[:12]} ({web_ahead} of them in webviews/): a look shows the "
+                            "change's own web bundle over the app, without the web merged after the fork, so a "
+                            "difference there may be that gap and not the change")
     left = dict(planned.get("left") or {})
     web = left.pop(LEFT_WEB, [])
     # The web checks' router decides the web layer too: a change it routes the webview suite on (land-judge's
@@ -730,6 +749,13 @@ class Side:
         except LookError:
             return None
 
+    def logs(self) -> list[str]:
+        """The files launch sent the copy's stdout and stderr to (side-instance.sh logs); none for an older script."""
+        try:
+            return [line for line in self.run("logs", timeout=30).splitlines() if line]
+        except LookError:
+            return []
+
     def dir(self) -> Path:
         return self.app().parent
 
@@ -781,6 +807,12 @@ class Side:
             self.run("stop", timeout=120)
         except (LookError, subprocess.SubprocessError) as error:
             errors.append(str(error))
+        if not errors and state.get("capture_kit"):
+            try:
+                finish_kit_home(self, state["capture_kit"])
+                self.remember(capture_kit=None)
+            except (RuntimeError, OSError, ValueError, ImportError) as error:
+                errors.append(f"capture home cleanup: {error}")
         tree, repo = state.get("worktree"), state.get("repo")
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
@@ -861,6 +893,70 @@ def launch_seconds(env=None) -> float:
     except ValueError:
         wait = 1800.0
     return wait + LAUNCH_SECONDS
+
+
+LAUNCH_LOG_LINES = 80
+LAUNCH_LINE_CHARS = 240
+# The line of a copy's own output that says why it ended: a Swift trap, an assertion, dyld, an uncaught
+# exception or a signal.
+CRASH_LINE = re.compile(r"Fatal error:|Assertion failed|Precondition failed|dyld(?:\[\d+\])?:|Terminating app due to|"
+                        r"uncaught exception|EXC_[A-Z_]+|SIG(?:ABRT|SEGV|BUS|ILL|TRAP|KILL)\b")
+
+
+def error_chars(error: object) -> int:
+    """How much of ERROR a receipt keeps: 500 characters, and the whole of a launch failure's output (its 80
+    lines are the why; cut to 500 they were the first two)."""
+    return 500 if "app launch: running" not in str(error) else 500 + LAUNCH_LOG_LINES * (LAUNCH_LINE_CHARS + 1) * 2
+# A token, a key or a bearer header in the copy's own output never reaches a receipt or a PR comment.
+SECRET_TEXT = re.compile(r"(?i)((?:token|secret|password|api[_-]?key|authorization|bearer|cookie)[\"']?\s*[:=]?\s*[\"']?)"
+                         r"[A-Za-z0-9._~+/=-]{8,}")
+
+
+def redact_log(text: str) -> str:
+    """TEXT with every secret-shaped value after a token, secret, key, password, cookie or bearer word cut."""
+    return SECRET_TEXT.sub(r"\1<redacted>", text)
+
+
+def launch_failure(pid: int, logs: list[str], most: int = LAUNCH_LOG_LINES) -> str:
+    """Why a copy whose control socket never answered: `running True` (alive but slow: look at the Mac's load
+    before a rerun) or `running False` (it ended: a crash at launch, a dyld or signing refusal; `open` starts it,
+    so its exit status is not ours to read), then the redacted last MOST lines of its stdout and stderr
+    (side-instance.sh logs). Before, the look said only "nothing within 120 s" and a dead copy looked like a slow
+    one (cmuxterm-hq docs/handbook/failure-drops-its-reason.md)."""
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    except OSError:
+        alive = True
+    said = [f"app launch: running {alive}"]
+    crash = None
+    for path in logs:
+        try:
+            lines = Path(path).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        lines = [line[:LAUNCH_LINE_CHARS] for line in lines if line.strip()][-most:]
+        crash = next((line for line in reversed(lines) if CRASH_LINE.search(line)), crash)
+        if lines:
+            said.append(f"{Path(path).name} (last {len(lines)} lines):\n" + redact_log("\n".join(lines)))
+    if crash:
+        # First, so the console line and the proof record's note (both cut near 500 characters) keep the why:
+        # cmux#64397's look said only "running False" and the head of a 2 KB ignored-env line, while its
+        # stderr ended "HostedChiefRules.swift:15: Fatal error: ... unknownOp".
+        said.insert(1, "crash: " + redact_log(crash.strip()))
+    if len(said) == 1:
+        said.append("no output from the copy")
+    return "\n".join(said)
+
+
+def copy_socket(side, pid: int, named: str | None) -> str:
+    """The copy's control socket within LAUNCH_SECONDS; else a LookError that says why (launch_failure)."""
+    try:
+        return until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+    except LookError as error:
+        raise LookError(f"{error}; {launch_failure(pid, side.logs())}") from None
 
 
 def until(what: str, seconds: float, probe):
@@ -1227,6 +1323,8 @@ def load_steps(path: str | None, kit) -> list:
     data = json.loads(Path(path).read_text())
     if kit is not None:
         return kit.validate(data)
+    if isinstance(data, dict) and data.get("fakeHarness"):
+        raise Usage("fakeHarness needs the capture kit (--kit)")
     steps = data.get("steps") if isinstance(data, dict) else None
     if not isinstance(steps, list) or not 0 < len(steps) <= MAX_STEPS:
         raise Usage(f"--state {path}: a steps file is {{\"steps\": [...]}} with 1 to {MAX_STEPS} steps")
@@ -1331,7 +1429,8 @@ def run_steps(steps: list, pid: int, sock: str, app: Path, out: Path, shoot: Sho
     return results
 
 
-def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -> list[dict]:
+def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path,
+                  env: dict | None = None, prepared=None) -> list[dict]:
     """STEPS through the kit's runner (nightly_steps.Steps: pointer, keyboard, chat and recording steps too);
     its shots/ become steps/."""
 
@@ -1343,7 +1442,8 @@ def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -
             return None if process_runs_any(self.pid) else 0
 
     runner = kit.Steps(steps, out, "/nonexistent/ocr", str(Path(kit.__file__).with_name("private-terms.json")))
-    runner(Process(pid), sock, dict(os.environ), app, out, {"rendered_at": 0})
+    runner.prepared = prepared
+    runner(Process(pid), sock, dict(os.environ) if env is None else env, app, out, {"rendered_at": 0})
     results = json.loads((out / kit.RESULT).read_text()).get("steps") or []
     shots = out / "shots"
     if shots.is_dir():
@@ -1355,6 +1455,74 @@ def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -
         if str(entry.get("shot", "")).startswith("shots/"):
             entry["shot"] = "steps/" + entry["shot"][len("shots/"):]
     return results
+
+
+def prepare_kit_home(kit, state: str | None, repo: Path, head: str, side: Side, engine: str):
+    """Use the capture kit's preflight inside this copy, never the worker account's home.
+
+    Launch Services does not inherit the caller's HOME. Return the exact environment to give both `open --env`
+    and Steps, so harness profiles, folder trust and the composer socket name all refer to the same app.
+    """
+    data = json.loads(Path(state).read_text()) if state else {}
+    root = side.dir() / "capture"
+    home = root / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    kit_path = Path(kit.__file__).parent
+    files = root / "kit"
+    files.mkdir(exist_ok=True)
+    fake = kit._load("hot_verify_fake_harness", kit_path / "fake_harness.py")
+    spec = fake.normalize(data.get("fakeHarness"))
+    if spec is not None:
+        # The head's test agent speaks the same protocol as the daemon under test. Its data files are versioned
+        # alongside it; fake.prepare rejects missing required siblings rather than running a real harness.
+        (files / "fake_harness.json").write_text(json.dumps(spec))
+        (files / "fake_agent.py").write_text(git(repo, "show", f"{head}:{fake.AGENT_PATH}") + "\n")
+        folder = fake.AGENT_PATH.rsplit("/", 1)[0]
+        for name in fake.SIBLINGS:
+            if git(repo, "cat-file", "-t", f"{head}:{folder}/{name}", check=False) == "blob":
+                (files / name).write_text(git(repo, "show", f"{head}:{folder}/{name}") + "\n")
+    env = {**os.environ, **side.env(), "HOME": str(home), "CFFIXED_USER_HOME": str(home)}
+    # An inherited daemon/socket/config must never point this isolated copy at the caller's session.
+    for key in ("ACPMUX_HOME", "ACPMUX_SOCKET", "XDG_CONFIG_HOME"):
+        env.pop(key, None)
+    prepared = kit.prepare_home(env, "", root, account_home=str(home), kit=kit_path,
+                                engine=engine, fake_dir=files)
+    try:
+        if spec is not None and not isinstance(prepared.notes.get("fake_harness"), dict):
+            raise LookError(f"fakeHarness: {prepared.notes.get('fake_harness', 'preparation failed')}")
+        # Keep the side copy's config path: web-overlay and the app must continue to edit/read one file.
+        config = side.env()["CMUX_NEXT_CONFIG_FILE"]
+        shutil.copyfile(env["CMUX_NEXT_CONFIG_FILE"], config)
+        env["CMUX_NEXT_CONFIG_FILE"] = config
+        env["ACPMUX_HOME"] = kit.acpmux_home(env, side.app())[0]
+        env["ACPMUX_SOCKET"] = kit.acpmux_socket(env, side.app())
+        env["XDG_CONFIG_HOME"] = str(home / ".config")
+    except BaseException:
+        prepared.finish()
+        raise
+    return env, prepared
+
+
+def kit_launch_args(env: dict) -> list[str]:
+    """Only the isolated runtime's explicit settings cross Launch Services, never arbitrary worker variables."""
+    return [part for key in ("HOME", "CFFIXED_USER_HOME", "PATH", "CMUX_NEXT_CONFIG_FILE", "ACPMUX_HOME",
+                              "ACPMUX_SOCKET", "XDG_CONFIG_HOME") for part in ("--env", f"{key}={env[key]}")]
+
+
+def finish_kit_home(side: Side, kit_path: str) -> None:
+    """A watched copy can outlive this process; stop/remake restores its isolated keychain before removing it."""
+    root = side.dir() / "capture"
+    if not (root / "keychain/state.json").exists():
+        return
+    kit = load_kit(kit_path)
+    prepared = kit.Prepared()
+    prepared.home = str(root / "home")
+    prepared.keychain = kit.rig_keychain(Path(kit_path), "", root)
+    if prepared.keychain is None:
+        raise LookError("the capture kit cannot restore its keychain; keep the copy and restore its kit")
+    prepared.finish()
+    if not prepared.notes.get("keychain_restored"):
+        raise LookError("the capture keychain was not restored; keep the copy and retry stop")
 
 
 def process_runs_any(pid: int) -> bool:
@@ -1538,7 +1706,7 @@ def squash_landed(repo: Path, pr: object) -> bool:
 
 
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
-              settle: bool = True) -> dict:
+              settle: bool = True, page_log: look_page_log.Sink | None = None) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
     server returns once the server answers the agent pane. A look (SETTLE, whose after shot follows) then waits for
     the copy's window to repaint (Repaint, in look); a run takes no shot, so it waits for nothing more (cmux app
@@ -1554,11 +1722,22 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         key = None if settle else tree_web_key(src_tree)
     if key:
         bundles = fetch_bundles(key)
+        if page_log is not None:
+            # PAGE_LOG (a look's): its sink is the copy's server before the bundles go in, and the bundles carry its
+            # probe, so the first load of the head's pane already reports (look_page_log.py).
+            page_log.start()
+            served = subprocess.run([str(HERE / "web-overlay.sh"), "server", page_log.url], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            if served.returncode != 0:
+                raise LookError(f"web-overlay.sh server {page_log.url}: {why_exited(served)}")
+            bundles = look_page_log.stage(bundles, scratch / "page-log-bundles")
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
             raise LookError(f"web-overlay.sh install: {why_exited(done)}")
         applied = {"how": "published bundles", "key": key}
+        if page_log is not None:
+            applied["page_log"] = page_log.url
         if src_tree is not None:
             applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
         return applied
@@ -1802,7 +1981,8 @@ def command_look(args) -> int:
         # A Swift-only change (strings beside it) gets the head's complete app from the fleet: NIGHTLY's copy is
         # shot first, then the copy is made again from that app and shot after (look(), built). Without this no
         # Swift PR could get a look, and cmux/ui-proof held every one pending (cmux#62345, cmux#61438, 2026-11-27).
-        built = planned["needs_build"] and can_build_swift_app(planned)
+        swapped = getattr(args, "head_app", None)
+        built = planned["needs_build"] and (swap_carries(planned) if swapped else can_build_swift_app(planned))
         if planned["needs_build"] and not built:
             receipt["errors"].append("the change needs a build: " + "; ".join(planned["build"]))
             return finish(out, receipt, phases, began, EXIT_NEEDS_BUILD)
@@ -1819,7 +1999,7 @@ def command_look(args) -> int:
                                    planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began, built=built)
     except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
-        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
@@ -1856,6 +2036,9 @@ def command_look_recorded(args) -> int:
     from proof_record import render  # noqa: E402 - ui_proof_verdict put scripts/ci on the path
     body = out / "proof-record.md"
     body.write_text(render(record, ui_proof_verdict.summary(record)))
+    if getattr(args, "no_post", False):
+        log(f"proof record {record['verdict']}: written to {body}, not posted (--no-post)")
+        return code
     done = subprocess.run(["gh", "pr", "comment", str(args.pr), "--repo", args.repo_slug, "--body-file", str(body)],
                           capture_output=True, text=True)
     log(f"proof record {record['verdict']}: " + (why_exited(done) if done.returncode else "posted")
@@ -1899,25 +2082,40 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
     src_tree = resolve_tree(planned, args.source)
     scratch = Path(tempfile.mkdtemp(prefix="hot-verify-look-"))
     video = None
+    prepared = None
+    step_env = None
+    page_log = None
 
     def copy_of(app: Path):
         """A fresh side copy of APP, launched: its pid, control socket and repaint watch."""
+        nonlocal prepared, step_env
         if side.exists():
-            side.stop()
+            errors = side.stop()
+            if errors:
+                raise LookError("; ".join(errors))
+        if prepared is not None:
+            prepared.finish()
+            prepared = None
+        if side.exists():
             side.run("remove", timeout=300)
         side.run(*side_make_args(app), timeout=600)
+        if kit is not None:
+            step_env, prepared = prepare_kit_home(kit, args.state, repo, planned["head"], side, engine)
+            side.remember(capture_kit=str(Path(kit.__file__).parent))
+            receipt["preparation"] = prepared.notes
         set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
         if planned.get("ffi_baseline"):
             receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
         # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
         # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
-        launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
+        launch_args = ["--shown", *kit_launch_args(step_env)] if kit is not None else []
+        launched = side.run("launch", *launch_args, timeout=launch_seconds())
         found = re.search(r"pid (\d+)", launched)
         if not found:
             raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
         pid = int(found.group(1))
         named = side.socket()
-        sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+        sock = copy_socket(side, pid, named)
         until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
         repaint = Repaint(shoot, pid, scratch)
         repaint.wait("launch", REPAINT_LAUNCH)
@@ -1925,7 +2123,14 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
 
     try:
         built_app = None
-        if built:
+        swapped = bool(built and getattr(args, "head_app", None))
+        if swapped:
+            # The head's Swift a fleet Mac swapped into a copy of NIGHTLY (scripts/measure/ui-proof-look.sh): its
+            # web and rust layers still go in after it, as onto NIGHTLY's copy.
+            built_app = real_app(args.head_app)
+            if built_app is None:
+                raise LookError(f"--head-app {args.head_app} is not an app")
+        elif built:
             # First, so a build that fails or times out costs no copy and no shots.
             with phases("app-build"):
                 built_app = build_swift_app(repo, planned, args.source, scratch)
@@ -1956,16 +2161,21 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         with phases("apply"):
             if built_app is not None:
                 pid, sock, repaint = copy_of(built_app)
-                applied["app"] = {"how": "fleet app build of the head (a fresh side copy)", "commit": planned["head"]}
+                applied["app"] = ({"how": "the head's Swift swapped into a copy of NIGHTLY (swap-binary.sh)",
+                                   "commit": planned.get("daemon_from") or planned["head"]} if swapped else
+                                  {"how": "fleet app build of the head (a fresh side copy)", "commit": planned["head"]})
                 if not args.no_video:
                     video = start_video()
-            if built_app is None and "rust" in planned["layers"]:
+            if (built_app is None or swapped) and "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
                 head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
                                else None)
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
-            if built_app is None and "web" in planned["layers"]:
-                applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
+            if (built_app is None or swapped) and "web" in planned["layers"]:
+                if not getattr(args, "no_page_log", False):
+                    config = Path(side.env()["CMUX_NEXT_CONFIG_FILE"])
+                    page_log = look_page_log.Sink(out, config.parent / "web-dev.json")
+                applied["web"] = apply_web(rules, planned, src_tree, side, scratch, page_log=page_log)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
                 # and settle (a change the main window does not show waits out the bound).
                 dev = applied["web"].get("how") == "dev server"
@@ -1988,18 +2198,34 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
             # video ends here, with the change in and the after shots, and the clips show the steps.
             video = stop_video(video, receipt, side, phases)
         with phases("steps"):
-            receipt["steps"] = (run_kit_steps(kit, steps, pid, sock, side.app(), out) if kit is not None
+            receipt["steps"] = (run_kit_steps(kit, steps, pid, sock, side.app(), out,
+                                              env=step_env, prepared=prepared) if kit is not None
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
-        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
     finally:
         if video is not None and video.running:
             video.abandon()
+        if page_log is not None and page_log.server is not None:
+            # Before the copy stops: each shot takes the DOM snapshot that was live when it was written.
+            try:
+                receipt["page_log"] = page_log.attach(out)
+            except OSError as error:
+                receipt["errors"].append(f"page log: {error}")
+            page_log.stop()
+            if args.watch:
+                # The copy keeps running with no sink: web-dev.json names no server again, so its pages load the
+                # overlay with the app's own start check, as a look without a page log leaves them.
+                with contextlib.suppress(OSError, subprocess.SubprocessError, LookError):
+                    subprocess.run([str(HERE / "web-overlay.sh"), "server", "off"], env={**os.environ, **side.env()},
+                                   capture_output=True, text=True, timeout=60)
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
+            if prepared is not None:
+                prepared.finish()
             shutil.rmtree(scratch, ignore_errors=True)
         else:
             log(f"watching: {side.name} keeps running; hot-verify.py stop --side {side.name} ends it")
@@ -2017,7 +2243,7 @@ def resolve_tree(planned: dict, source: str) -> Path | None:
 def command_stop(args) -> int:
     side = Side(args.side)
     errors = side.stop()
-    if getattr(args, "remove", False) and side.exists():
+    if not errors and getattr(args, "remove", False) and side.exists():
         try:
             side.run("remove", timeout=300)
         except (LookError, subprocess.SubprocessError) as error:
@@ -2378,6 +2604,17 @@ def can_build_swift_app(planned: dict) -> bool:
                for reason, paths in build.items())
 
 
+SWAP_REASONS = {"Swift", "Swift, resources or manifests", "strings"}
+
+
+def swap_carries(planned: dict) -> bool:
+    """Whether a swap of the head's Swift into NIGHTLY's copy (look --head-app, swap-binary.sh) carries every build
+    reason in the plan: Swift, the packages' manifests and resources, strings. Helpers, the FFI and the web ABI need
+    the complete fleet app (can_build_swift_app); the plan's web and rust layers go in after the swap."""
+    build = planned.get("build")
+    return bool(planned.get("needs_build") and isinstance(build, dict) and build and set(build) <= SWAP_REASONS)
+
+
 def _ci_client() -> str:
     ci = os.environ.get("CMUX_CI") or str(Path.home() / ".local/bin/cmux-ci")
     if not os.access(ci, os.X_OK):
@@ -2436,6 +2673,23 @@ def _artifact_app(bundle: Path) -> Path:
     return apps[0]
 
 
+def app_build_failed(ci: str, job: str, waited: subprocess.CompletedProcess, cwd: Path) -> str:
+    """Why the fleet app build JOB gave no app: the job's own state and error (`cmux-ci status`), else the wait's
+    words. The wait's last lines are its progress ("job ... running on ... after 11m05s; still waiting"), so a
+    build that had failed read as one still running: cmux#63536's look, 2026-11-28, whose Linux-pool build had
+    stopped on an undefined-symbol link error."""
+    with contextlib.suppress(OSError, subprocess.SubprocessError, ValueError, IndexError, AttributeError):
+        done = subprocess.run([ci, "status", job], cwd=cwd, capture_output=True, text=True, errors="replace",
+                              timeout=60)
+        answer = json.loads(done.stdout.strip().splitlines()[0])
+        state, error = answer.get("state"), answer.get("error")
+        if state in {"failed", "cancelled"} or (state and error):
+            return (f"fleet app build {job} {state}" + (f": {str(error)[:500]}" if error else "")
+                    + f" (its log: cmux-ci log {job})")
+    said = why_failed(waited.stderr or waited.stdout, 500) or "no output"
+    return f"cmux-ci wait {job} exited {waited.returncode}: {said}"
+
+
 def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     """Build the exact source tree on the fleet and return its complete app artifact."""
     ci = _ci_client()
@@ -2459,7 +2713,10 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     measured = (f"the pool's p90 queue {metrics.get('queue_p90')} s + run {metrics.get('run_p90')} s"
                 if wait != APP_BUILD_UNREAD and metrics else "no pool reading")
     log(f"fleet app build {job} for {planned['head'][:12]}: waiting up to {wait} s ({measured})")
-    _ci_run([ci, "wait", "--timeout", str(wait), job], cwd=tree, timeout=wait + 30)
+    waited = subprocess.run([ci, "wait", "--timeout", str(wait), job], cwd=tree, capture_output=True, text=True,
+                            errors="replace", timeout=wait + 30)
+    if waited.returncode != 0:
+        raise LookError(app_build_failed(ci, job, waited, tree))
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
@@ -2593,7 +2850,7 @@ def command_run(args) -> int:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
             pid = int(found.group(1))
             named = side.socket()
-            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+            sock = copy_socket(side, pid, named)
         result.update(copy=str(side.app()), socket=sock, pid=pid)
         try:
             handed = time.monotonic()
@@ -2607,7 +2864,7 @@ def command_run(args) -> int:
             shutil.rmtree(scratch, ignore_errors=True)
         return emit(result, phases, began, EXIT_LOOKED)
     except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
-        result["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        result["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
         with phases("stop"):
             result["errors"] += side.stop()
         if scratch is not None:
@@ -2663,6 +2920,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--kit")
     p.add_argument("--state")
     p.add_argument("--no-video", action="store_true")
+    p.add_argument("--no-page-log", action="store_true",
+                   help="no page/ (the agent pane's console and a DOM snapshot with each shot) for published web")
     p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
                    "the app's commit), when no CI build of it is published")
     p.add_argument("--rust-binary-head", help="the cmux-tui built from the head itself, for a plan with no "
@@ -2673,6 +2932,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="after a look at pull request --pr, post its proof record (cmux/ui-proof reads it: "
                    "scripts/ci/ui_proof_verdict.py) and rerun that gate")
     p.add_argument("--repo-slug", default="manaflow-ai/cmux", help="the GitHub repository --record posts on")
+    p.add_argument("--no-post", action="store_true",
+                   help="with --record: write proof-record.md and post nothing (a fleet step: its caller posts it)")
+    p.add_argument("--head-app", help="the head's Swift swapped into a copy of --app (scripts/measure/"
+                   "ui-proof-look.sh): the look's after copy for a plan whose build only a swap needs, instead of "
+                   "a fleet app build")
     p.set_defaults(func=command_look_recorded)
     p = sub.add_parser("run")
     p.add_argument("--source", required=True)
