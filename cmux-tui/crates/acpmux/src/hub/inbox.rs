@@ -143,6 +143,18 @@
 //! Leo, 2026-11-25: "is there a timeout where it can always check again at some point, like a
 //! promise of "i'll respond within x minutes since this isn't urgent"".
 //!
+//! A program's FYI has no wake deadline: it rides along with the chat's next notice and never
+//! starts a turn of its own ([`Item::rides_along`]). A program is a sender with no session (the
+//! lane-gh broker's notice rule, cmuxterm-hq `docs/handbook/notice-flood.md`: "A program's message
+//! is an inbox fyi"): the broker relays its message with the address its answers go to (a
+//! coordinator) as the label, so the label is not the session the relay took it from. On one
+//! host over 30 hours, 14 of 33 program-only notices were the 60-minute FYI deadline's own turns
+//! (RFD-IDLE, "co-owner ... started", "UI preview of your push"). A FIRE, a page, a message that
+//! waited for this machine and one whose sender set `--within` keep their deadline. Expiry still
+//! counts from the FYI deadline ([`Item::expiry_due`]), so a chat that never wakes again keeps
+//! no program notices past its grace. Leo, 2026-11-28: "us not getting fucking swamped by our own
+//! fucking wake-ups, our own tool calls".
+//!
 //! The timer lives in memory: a restart reviews every restored inbox that holds new messages,
 //! a sweep reviews every chat's inbox every 10 minutes, and a message still undelivered a day
 //! past its deadline in a chat with no running turn expires and goes back to its sender with
@@ -1093,10 +1105,46 @@ fn loudest(items: &[&Item]) -> Option<&'static str> {
 }
 
 impl Item {
-    /// When the daemon wakes an idle receiver to deliver it (module docs, "Deadlines").
+    /// When the daemon wakes an idle receiver to deliver it (module docs, "Deadlines"): never
+    /// for one that [`rides_along`](Self::rides_along).
     pub(super) fn due(&self) -> u64 {
+        if self.rides_along() { u64::MAX } else { self.expiry_due() }
+    }
+
+    /// Its class's deadline (`prompt_class::due_at`), which the expiry sweep counts from
+    /// (`inbox_deadline.rs`) for a message that rides along too.
+    pub(super) fn expiry_due(&self) -> u64 {
         crate::prompt_class::due_at(self.class, self.at, self.within)
     }
+
+    /// Whether it goes with the chat's next notice and wakes it at no deadline (module docs,
+    /// "Deadlines"): a program's plain FYI ([`program_notice`]), not a FIRE, a page or fold, a
+    /// message that waited for this machine, or one whose sender set its own deadline.
+    pub(super) fn rides_along(&self) -> bool {
+        self.class == PromptClass::Fyi
+            && !self.fire
+            && !self.waited
+            && self.within.is_none()
+            && self.verdict.is_none()
+            && program_notice(&self.sender)
+    }
+}
+
+/// The relay that carries a lane VM's sends (cmuxterm-hq `tools/lane-gh-broker`).
+const BROKER_RELAY: &str = "lane-gh";
+
+/// Whether `sender` (a [`prompt_provenance`](crate::prompt_provenance) sender record) is a
+/// program the lane-gh broker relayed: its label, where answers go, is not the session the
+/// relay took the message from. The broker labels an agent's message with the agent's own
+/// `VM/LANE` and a program's (args.program, no lane name, or a name on its NOTICE_PROGRAMS list)
+/// with the session that answers for it (`send_sender`).
+pub(super) fn program_notice(sender: &Value) -> bool {
+    let Some(relay) = sender.get("relay").and_then(crate::prompt_provenance::RelaySender::of)
+    else {
+        return false;
+    };
+    relay.by == BROKER_RELAY
+        && sender.get("label").and_then(Value::as_str).is_some_and(|label| label != relay.name())
 }
 
 /// A message's text as the notice quotes it: without the blank lines around it, and with the first
@@ -1174,7 +1222,7 @@ fn quiet(session_id: &str, meta: &SessionMeta, lapsed: bool, item: &Item) -> boo
 
 /// `item`'s deadline ([`Item::due`]), or an FYI's when it is [`quiet`] (`is_quiet`).
 fn due_for(item: &Item, is_quiet: bool) -> u64 {
-    if is_quiet {
+    if is_quiet && !item.rides_along() {
         crate::prompt_class::due_at(PromptClass::Fyi, item.at, item.within)
     } else {
         item.due()
