@@ -107,13 +107,13 @@ fn waiters_on_one_pull_request_share_one_poll() {
     std::fs::create_dir_all(&dir).unwrap();
     let waiters: Vec<_> = (0..6)
         .map(|_| {
-            let ctx = Ctx { dir: dir.clone(), gh: gh.clone().into_os_string() };
+            let ctx = Ctx { dir: dir.clone(), gh: gh.clone().into_os_string(), land: None };
             std::thread::spawn(move || {
                 let args = PrWaitArgs {
                     pr: "7".into(),
                     repo: Some("octo/app".into()),
                     sha: Some("abc123".into()),
-                    until: Until::Checks,
+                    until: Some(Until::Checks),
                     timeout: 60,
                 };
                 wait_blocking(&ctx, &args, true).is_ok()
@@ -145,7 +145,7 @@ fn a_rate_limit_holds_the_next_poll_until_its_reset() {
     )
     .unwrap();
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let ctx = Ctx { dir: tmp.path().to_owned(), gh: gh.into_os_string() };
+    let ctx = Ctx { dir: tmp.path().to_owned(), gh: gh.into_os_string(), land: None };
     let target = Target { selector: "7".into(), repo: Some("octo/app".into()) };
     let mut shared = Shared::default();
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -265,4 +265,106 @@ fn timeout_takes_seconds_or_a_duration() {
     assert!(timeout_secs("1x").is_err());
     assert!(timeout_secs("m").is_err());
     assert!(timeout_secs("30m5").is_err());
+}
+
+/// A fake land client: `land status` answers ROW_STATE for octo/app#7 at head abc123, and
+/// `wait pr` exits WAIT_EXIT. Every call is logged to `calls`.
+#[cfg(unix)]
+fn fake_land(dir: &Path, row_state: &str, wait_exit: i32) -> (std::ffi::OsString, PathBuf) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let calls = dir.join("land-calls");
+    let land = dir.join("glaeda-gh");
+    std::fs::write(
+        &land,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{calls}'\n\
+             if [ \"$1\" = land ]; then echo '{{\"entries\": [{{\"key\": \"pr:octo/app#7\", \"state\": \"{row_state}\", \"head\": \"abc123def\"}}], \"ok\": true}}'; exit 0; fi\n\
+             exit {wait_exit}\n",
+            calls = calls.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&land, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (land.into_os_string(), calls)
+}
+
+#[cfg(unix)]
+fn green_gh(dir: &Path) -> (std::ffi::OsString, PathBuf) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let calls = dir.join("gh-calls");
+    let fixture = dir.join("answer.json");
+    std::fs::write(
+        &fixture,
+        answer("OPEN", "abc123def", json!([run_check("COMPLETED", "SUCCESS")])).to_string(),
+    )
+    .unwrap();
+    let gh = dir.join("gh");
+    std::fs::write(
+        &gh,
+        format!("#!/bin/sh\necho \"$*\" >> '{}'\ncat '{}'\n", calls.display(), fixture.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (gh.into_os_string(), calls)
+}
+
+fn args(until: Option<Until>) -> PrWaitArgs {
+    PrWaitArgs {
+        pr: "7".into(),
+        repo: Some("octo/app".into()),
+        sha: Some("abc123".into()),
+        until,
+        timeout: 60,
+    }
+}
+
+/// Goal wakes-per-landed-pr: a wait that ended on green a few minutes before the land queue's
+/// merge notice woke the same session twice for one landing. With no --until, a PR the land
+/// queue holds is waited on through its row (one wake, the merge or the stop), and no GitHub poll.
+#[cfg(unix)]
+#[test]
+fn a_pr_the_land_queue_holds_is_waited_on_through_its_row_until_merged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (gh, gh_calls) = green_gh(tmp.path());
+    let (land, land_calls) = fake_land(tmp.path(), "waiting", 0);
+    let ctx = Ctx { dir: tmp.path().join("state"), gh, land: Some(land) };
+    assert!(wait_blocking(&ctx, &args(None), true).is_ok());
+    let made = std::fs::read_to_string(&land_calls).unwrap();
+    assert!(made.contains("land status octo/app#7 --json"), "{made}");
+    assert!(
+        made.contains("wait pr octo/app#7 --until merged --timeout 60 --sha abc123 --json"),
+        "{made}"
+    );
+    assert!(!gh_calls.exists(), "the row's wait polls no GitHub itself");
+
+    // The land stopped: exit 1, said as the land's stop.
+    let (land, _) = fake_land(tmp.path(), "judging", 1);
+    let ctx = Ctx { dir: tmp.path().join("state"), gh: ctx.gh.clone(), land: Some(land) };
+    let err = wait_blocking(&ctx, &args(None), true).unwrap_err();
+    assert!(format!("{err:#}").contains("stopped"), "{err:#}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_ended_row_a_typed_until_or_a_failed_land_wait_keeps_the_checks_wait() {
+    for (state, until, wait_exit) in [
+        ("merged", None, 0),
+        ("stopped", None, 0),
+        ("waiting", Some(Until::Checks), 0),
+        ("waiting", None, 3),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (gh, gh_calls) = green_gh(tmp.path());
+        let (land, _) = fake_land(tmp.path(), state, wait_exit);
+        let ctx = Ctx { dir: tmp.path().join("state"), gh, land: Some(land) };
+        assert!(wait_blocking(&ctx, &args(until), true).is_ok(), "{state} {until:?}");
+        assert!(gh_calls.exists(), "{state} {until:?}: the checks wait ran");
+    }
+    // A row pinned to another head is not this wait's.
+    let tmp = tempfile::tempdir().unwrap();
+    let (land, _) = fake_land(tmp.path(), "waiting", 0);
+    let ctx = Ctx { dir: tmp.path().join("state"), gh: "gh".into(), land: Some(land) };
+    assert_eq!(land_row(&ctx, "octo/app", "7", Some("fff000")), None);
+    assert_eq!(land_row(&ctx, "octo/app", "7", Some("ABC123")).as_deref(), Some("waiting"));
+    assert_eq!(land_row(&ctx, "octo/app", "8", None), None);
 }

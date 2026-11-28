@@ -1,14 +1,14 @@
-//! Server and client command handlers: identify, ping, server stats,
+//! Server and client command handlers: ping, server stats,
 //! daemon shutdown, config reload, client info, focus reports, client list,
 //! pairing responses, machine usage and listening ports, and window titles.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
+//! `identify` is built in the cmux-tui binary crate (identify_reply.rs).
 
 use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
 use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
-use super::identify_capabilities;
 use crate::platform;
 
 use super::ClientIdentityWire;
@@ -49,61 +49,6 @@ pub(super) fn process_census(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Valu
     }
     #[cfg(not(any(unix, windows)))]
     anyhow::bail!("process census is not available on this platform")
-}
-
-pub(super) fn identify(
-    mux: &Arc<Mux>,
-    machine_metadata: bool,
-    revisions: bool,
-) -> anyhow::Result<Value> {
-    let (registry_id, generation) = mux.registry_identity();
-    let (build_id, cli_path) = super::daemon_build::identify_build_fields();
-    let mut identity = json!({
-        "app": "cmux-tui",
-        // The npm/PyPI release (the crate version in the app and local builds).
-        "version": crate::release::distribution_version(),
-        "build_commit": stamped_build_commit(),
-        "build_id": build_id,
-        "cli_path": cli_path,
-        "ghostty_commit": stamped_ghostty_commit(),
-        "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities(mux),
-        "session": mux.session,
-        "pid": std::process::id(),
-        "session_id": registry_id,
-        "machine_name": crate::machine_name::machine_name(),
-        "registry_id": registry_id,
-        "generation": generation,
-        "workspace_revision": mux.with_state(|state| state.workspace_revision),
-        "terminal_revision": mux.terminal_registry_revision()?,
-        "daemon_handoff": 1,
-        "lifecycle_ready": mux.server_lifecycle_ready(),
-        "launch_snapshot_path": mux.launch_snapshot_path(),
-    });
-    // Opt-in like machine metadata: strict pre-revision SDKs decode the
-    // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
-    if revisions {
-        insert_revision_fields(&mut identity);
-    }
-    if machine_metadata {
-        identity.insert("machine_id", json!(mux.machine_public_id));
-        identity.insert("session_resource_id", json!(mux.session_public_id));
-        identity.insert("machine_platform", crate::resource_api::machine_platform());
-        // What kind of device this machine is and the SF Symbol that kind draws
-        // (`cmux-device-kind`): the sidebar's machine header, hover card and remote headers
-        // draw the symbol by this name.
-        let device = cmux_device_kind::this_device().kind;
-        identity.insert("machine_device", json!(device.as_str()));
-        identity.insert("machine_symbol", json!(device.symbol()));
-        identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
-        // The worker's independently generated screen UUID is intentionally
-        // separate from the daemon machine ID. It is read only from the
-        // authenticated local supervisor cache and omitted from legacy
-        // identify replies.
-        identity
-            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
-    }
-    Ok(identity)
 }
 
 /// `identify` while the owner restores its session (server/restoring.rs):

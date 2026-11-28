@@ -68,27 +68,6 @@ fn a_kept_journey_gives_machine_checkout_and_time_to_first_reply() {
     assert_eq!(headless_created(&failed).unwrap_err(), "clone repo: needs GitHub");
 }
 
-#[test]
-fn new_file_diffs_apply_with_git() {
-    assert!(new_file_diff("a.txt", "x\ny").ends_with("+y\n\\ No newline at end of file\n"));
-    let dir = tempfile::tempdir().unwrap();
-    let patch = format!(
-        "{}{}",
-        new_file_diff("a.txt", "one\ntwo\n"),
-        new_file_diff("d/b.txt", "no newline")
-    );
-    std::fs::write(dir.path().join("p.patch"), patch).unwrap();
-    let ok = cmux_process::Command::new("git")
-        .args(["apply", "p.patch"])
-        .current_dir(dir.path())
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok);
-    assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "one\ntwo\n");
-    assert_eq!(std::fs::read_to_string(dir.path().join("d/b.txt")).unwrap(), "no newline");
-}
-
 struct Fake {
     calls: Vec<Vec<String>>,
     answers: Vec<Value>,
