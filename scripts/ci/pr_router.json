@@ -440,7 +440,8 @@
     ".github/workflows/bench-relevance-pr.yml"
    ],
    "affects_why": "cmux-bench for-paths --run measures only the areas of docs/benches/relevance-map.toml with a Linux `run` bench: New Tab (web), Diff view and Model picker search under webviews/src (benches in webviews/bench, run with the webviews packages), and Bench tooling (scripts/bench, docs/benches). A change touching none of those has no bench to compare with its nightly baseline.",
-   "skip_docs_only": true
+   "skip_docs_only": true,
+   "land_affected": true
   }
  }
 }
