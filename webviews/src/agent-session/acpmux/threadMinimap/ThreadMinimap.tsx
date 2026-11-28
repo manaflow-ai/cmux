@@ -1920,7 +1920,13 @@ function ThreadMinimapView({
               if (!within(event.currentTarget, event.relatedTarget)) setDomFocus(undefined);
             }}
             onScroll={(event) => {
-              listOffset.current = event.currentTarget.scrollTop;
+              const offset = event.currentTarget.scrollTop;
+              // The rail's own write (a chat switch placing the list, its rows added above), already
+              // drawn at this offset, with no pointer over the rail to follow: nothing to commit. A
+              // flushSync here rendered every pending update of the pane before the frame painted
+              // (7-10 ms inside each chat switch's first frame; settled-page bench, chat_switch).
+              if (offset === listOffset.current && offset === listTop && pointerY.current === undefined) return;
+              listOffset.current = offset;
               // Committed in the scroll event, before the frame paints: a scroll is a continuous
               // event, whose update React renders in a task after the frame, so the frame showed the
               // list at its new offset with the rows of the old one (blank at the edge it scrolled
