@@ -16,7 +16,7 @@
 ///   }
 /// }
 /// ```
-public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
+public nonisolated struct NotificationSoundPreferences: Hashable, Sendable, Codable {
     /// Master volume, 0 to 1; every level's volume is a share of it.
     public var volume: Double = Self.volumeDefault
     /// Each sound cmux plays itself stops after this many seconds; 0 plays it to its end.

@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
-public nonisolated struct NotificationPreferences: Hashable, Sendable {
+public nonisolated struct NotificationPreferences: Hashable, Sendable, Codable {
     /// `focus`, as in cmux classic: attention is one on/off state per pane, cleared when the pane is
     /// selected, including by entering its workspace, and an event on the pane the person looks at
     /// sets none (https://github.com/manaflow-ai/cmux/issues/25662). Under `click` (2026-10-20) a

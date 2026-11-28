@@ -1,5 +1,5 @@
 /// When a notification plays its sound (`notifications.sounds.when`).
-public nonisolated enum NotificationSoundTiming: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum NotificationSoundTiming: String, Hashable, Sendable, CaseIterable, Codable {
     /// Unless the notifying pane is the one in front of the person (the default, as before).
     case unlessViewed
     /// Only while cmux is not the active app.

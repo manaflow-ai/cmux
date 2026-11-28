@@ -1,7 +1,7 @@
 public import Foundation
 
 /// A daily window (local time) in which banners and sounds stay quiet.
-public nonisolated struct QuietHours: Hashable, Sendable {
+public nonisolated struct QuietHours: Hashable, Sendable, Codable {
     /// Minutes after midnight.
     public var start: Int
     public var end: Int

@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 /// Where a notification came from; `notifications.sources.<source>` can
 /// override the defaults per source.
-public nonisolated enum NotificationSource: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum NotificationSource: String, Hashable, Sendable, CaseIterable, Codable, CodingKeyRepresentable {
     /// `cmux notify` and the `notification.create*` socket methods.
     case cli
     /// A terminal program: OSC 9, OSC 777 or OSC 99.
@@ -31,11 +31,14 @@ public nonisolated extension NotificationSource {
 }
 
 /// Per-source overrides (`notifications.sources.<source>`); nil keeps the global value.
-public nonisolated struct NotificationSourceOverrides: Hashable, Sendable {
+/// Codable without `color`: Rust sends it as hex, which ``NotificationConfigParser`` reads.
+public nonisolated struct NotificationSourceOverrides: Hashable, Sendable, Codable {
     public var dismissal: NotificationDismissal?
     public var color: ThemeRGB?
     public var sound: String?
     public var desktop: Bool?
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey { case dismissal, sound, desktop }
 }

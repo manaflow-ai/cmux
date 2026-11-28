@@ -1,5 +1,5 @@
 /// The sound a notification plays and how loud, after every level had its say.
-public nonisolated struct NotificationSoundChoice: Hashable, Sendable {
+public nonisolated struct NotificationSoundChoice: Hashable, Sendable, Decodable {
     /// A sound name (``NotificationSoundLibrary``), a file path, or `"default"` (the banner's own sound).
     public var name: String
     /// 0 to 1: the deciding level's volume times the master volume.

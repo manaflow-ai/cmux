@@ -1,6 +1,6 @@
 /// What a notification is about, for its sound (`notifications.sounds.events.<event>` and each
 /// level's `events`): a person usually wants "an agent needs me" to sound unlike "an agent finished".
-public nonisolated enum NotificationSoundEvent: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum NotificationSoundEvent: String, Hashable, Sendable, CaseIterable, Codable, CodingKeyRepresentable {
     /// An agent finished its turn.
     case finished
     /// An agent asks: a permission prompt, a question, a plan review (an agent's warning).

@@ -1,6 +1,6 @@
 /// Where a notification comes from, for its sound: each part names a level whose
 /// ``NotificationSoundRule`` may apply. Nil or empty parts skip their level.
-public nonisolated struct NotificationSoundScope: Hashable, Sendable {
+public nonisolated struct NotificationSoundScope: Hashable, Sendable, Encodable {
     /// The agent kind of the notifying tab (`claude`, `codex`, `opencode`), lowercased.
     public var agent: String?
     /// The workspace id (`WorkspaceModel.id`, the key `notifications.mutedWorkspaces` uses).
@@ -10,7 +10,7 @@ public nonisolated struct NotificationSoundScope: Hashable, Sendable {
     public var groups: [Group] = []
 
     /// One group the workspace sits in.
-    public struct Group: Hashable, Sendable {
+    public struct Group: Hashable, Sendable, Encodable {
         public var id: String
         public var name: String
 

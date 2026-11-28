@@ -1,6 +1,6 @@
 /// When a notification's attention clears on its own
 /// (`notifications.dismissal`). The dismiss verbs always clear it.
-public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseIterable, Codable {
     /// The pane is selected (focused in the key window, app active, including by entering its
     /// workspace), clicked, typed in, or opened (default, as in cmux classic).
     case focus
@@ -17,7 +17,7 @@ public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseI
 }
 
 /// When a macOS notification banner is posted (`notifications.desktop`).
-public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, CaseIterable, Codable {
     /// Unless the notifying pane is the focused pane of the key window
     /// while cmux is active (default).
     case unlessFocused
@@ -29,7 +29,7 @@ public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, Cas
 
 /// Whether the Dock icon bounces when a notification alerts while cmux is not
 /// the active app (`notifications.dockBounce`).
-public nonisolated enum DockBounceMode: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum DockBounceMode: String, Hashable, Sendable, CaseIterable, Codable {
     case off
     /// One bounce (default).
     case once

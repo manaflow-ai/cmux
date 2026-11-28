@@ -2,7 +2,7 @@
 /// toasts/prompts, make a swift playground for me to pick my favorite"). The pick
 /// (``CmuxToastStyleStore``) is the style of every toast and prompt the app draws; ``standard`` is
 /// today's look and the default until the person picks.
-public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable {
+public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable, Codable {
     /// Today's toast: the veil-tinted glass, the toast role's corners, a text action, rising in.
     case standard
     /// A Liquid Glass pill with round ends, clear glass, popping in.
