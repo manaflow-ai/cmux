@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.ownHarnessUpdatesOnly.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The model menu offers an update for this chat's agent only, not for every agent on this Mac."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض قائمة النماذج تحديثًا لوكيل هذه المحادثة فقط، وليس لكل وكيل على هذا الـ Mac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Meni modela nudi ažuriranje samo za agenta ovog chata, ne za svakog agenta na ovom Macu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modelmenuen tilbyder kun en opdatering til denne chats agent, ikke til alle agenter på denne Mac."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Modellmenü bietet nur ein Update für den Agenten dieses Chats an, nicht für jeden Agenten auf diesem Mac."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El menú de modelos ofrece una actualización solo para el agente de este chat, no para todos los agentes de este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le menu des modèles propose une mise à jour pour l'agent de ce chat uniquement, pas pour chaque agent de ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il menu dei modelli offre un aggiornamento solo per l'agente di questa chat, non per ogni agente su questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "モデルメニューは、この Mac のすべてのエージェントではなく、このチャットのエージェントの更新のみを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ឺនុយម៉ូដែលផ្ដល់ការធ្វើបច្ចុប្បន្នភាពសម្រាប់តែភ្នាក់ងាររបស់ការជជែកនេះ មិនមែនសម្រាប់ភ្នាក់ងារទាំងអស់នៅលើ Mac នេះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모델 메뉴가 이 Mac의 모든 에이전트가 아니라 이 채팅의 에이전트 업데이트만 제공합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modellmenyen tilbyr bare en oppdatering for denne chattens agent, ikke for alle agenter på denne Macen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menu modeli oferuje aktualizację tylko dla agenta tego czatu, a nie dla każdego agenta na tym Macu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O menu de modelos oferece uma atualização só para o agente deste chat, não para todos os agentes deste Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Меню моделей предлагает обновление только для агента этого чата, а не для каждого агента на этом Mac."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมนูโมเดลเสนอการอัปเดตเฉพาะเอเจนต์ของแชตนี้ ไม่ใช่ทุกเอเจนต์บน Mac เครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Model menüsü bu Mac'teki her ajan için değil, yalnızca bu sohbetin ajanı için güncelleme sunar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Меню моделей пропонує оновлення лише для агента цього чату, а не для кожного агента на цьому Mac."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menu mô hình chỉ đề xuất cập nhật cho tác tử của cuộc trò chuyện này, không phải mọi tác tử trên máy Mac này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型菜单只提供此聊天代理的更新，而不是此 Mac 上每个代理的更新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型選單只提供此聊天代理的更新，而非此 Mac 上每個代理的更新。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
