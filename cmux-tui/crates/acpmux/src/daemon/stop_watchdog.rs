@@ -127,6 +127,13 @@ pub(super) fn arm(hub: &Arc<crate::hub::Hub>, deadline: Instant, hard_exit: bool
     armed
 }
 
+/// [`exit`] for a stop the runtime never began (`term_backstop.rs`): the same hard exit, the
+/// same last writes, from a thread with no runtime.
+#[cfg(unix)]
+pub(super) fn exit_now(hub: &Weak<crate::hub::Hub>) -> ! {
+    exit(hub)
+}
+
 /// Ends the process now, with the status `run`'s return would have given it: an intended stop
 /// stays one for whoever started the daemon. First the agents that are this daemon's own
 /// children (nothing else would end them), then, within [`LAST_WORDS`], this daemon's end and pid
