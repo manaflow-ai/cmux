@@ -33,6 +33,11 @@ public final class FirstRunSetup {
     @ObservationIgnored private let cardWait: Duration
     /// Hands an ask to the dialog when no card was drawn within ``cardWait``.
     @ObservationIgnored private let cardDeadline = DemandTimer(owner: "onboarding.classic-card-wait")
+    /// Whether something on screen holds the card back for now, so it is drawn later, not never: Meet Chief, which
+    /// Home finishes before it draws the card (``ChiefOnboarding/holdsWelcome``). While it holds, ``cardWait`` starts
+    /// again instead of handing the ask to the dialog, so a person reading Meet Chief for longer than ``cardWait``
+    /// still answers the import on the card's cmux Classic row, not in a second dialog.
+    @ObservationIgnored public var cardHeld: @MainActor () -> Bool = { false }
     /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
     private var agentsModel: AgentsStepModel?
 
@@ -203,13 +208,20 @@ public final class FirstRunSetup {
         let answer = await withCheckedContinuation { reply in
             classicReply = reply
             guard cardsOpen == 0 else { return }
-            cardDeadline.schedule(after: cardWait) { @MainActor [weak self] in
-                guard let self, self.cardsOpen == 0 else { return }
-                self.resolveClassic(nil)
-            }
+            scheduleCardDeadline()
         }
         if answer == nil { classic = nil }
         return answer
+    }
+
+    /// After ``cardWait`` with no card drawn, the dialog asks, unless the card is held (``cardHeld``): then it waits
+    /// ``cardWait`` again.
+    private func scheduleCardDeadline() {
+        cardDeadline.schedule(after: cardWait) { @MainActor [weak self] in
+            guard let self, self.cardsOpen == 0, self.classicReply != nil else { return }
+            if self.cardHeld() { return self.scheduleCardDeadline() }
+            self.resolveClassic(nil)
+        }
     }
 
     /// Ends the ask on the row with `answer` (nil: the dialog asks instead).
