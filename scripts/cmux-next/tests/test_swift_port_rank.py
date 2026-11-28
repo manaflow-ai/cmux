@@ -2,7 +2,8 @@
 """scripts/cmux-next/swift-port-rank.py on a throwaway git repository.
 
 A pure logic declaration (no platform import, no platform call) ranks by its lines times its file's commits; a file
-that imports AppKit or a declaration that calls NSView is not pure; a mirror declaration whose name the SDK schema
+that imports AppKit or a declaration that calls NSView is not pure; a file in a package an iOS app reaches (transitively) is iOS-shared and left out of the ranking; a mirror
+declaration whose name the SDK schema
 has (or the swift_app bindings name) is generated-now, one only a Rust struct names is schema-first, the rest are port.
 
 Run it after a change to the script:
@@ -95,19 +96,29 @@ class PortRankTests(unittest.TestCase):
                                             "events": {}}))
         self.write(rank.BINDINGS, json.dumps({"types": {}, "families": {"Agents": {"requests": {
             "agent.list": {"name": "ListAgentsRequest"}}}}}))
+        # ios/CmuxiOS reaches Packages/Shared/Core, which reaches the counted CmuxNextShared folder: both are
+        # iOS-shared (the counter only reads CmuxNext's closure, so the fixture's shared code sits in it).
+        self.write("ios/CmuxiOS/Package.swift", 'Package(dependencies: [.package(path: "../../Packages/Shared/Core")])\n')
+        self.write("Packages/Shared/Core/Package.swift", 'dependencies: [.package(path: "../../macOS/CmuxNext/Sources/'
+                   'CmuxNextShared")]\n')
+        self.write(f"{SRC}/CmuxNextShared/Shared.swift", "struct Shared {\n" + "    let a = 1\n" * 30 + "}\n")
         self.write("crates/x/src/lib.rs", "pub struct RustOnly { c: i64 }\n")
         self.commit()
         for i in range(4):  # Hot.swift gets 4 more commits: 3 lines x 5 = 15 > Big's 10 x 1
             self.write(f"{mod}/Hot.swift", f"import Foundation\nstruct Hot {{\n    let a = {i}\n}}\n")
             self.commit()
         r = self.run_rank()
+        self.assertEqual(r["ios_shared"]["pure_logic_lines"], 32)
+        self.assertEqual(r["ios_shared"]["packages"], {"Packages/Shared/Core": ["CmuxiOS"],
+                                                       f"{SRC}/CmuxNextShared": ["CmuxiOS"], "ios/CmuxiOS": ["CmuxiOS"]})
+        self.assertNotIn("Shared.swift", [f["path"].rsplit("/", 1)[1] for f in r["files"]])  # mac-only by default
         files = {f["path"].rsplit("/", 1)[1]: f for f in r["files"]}
         self.assertEqual([f["path"].rsplit("/", 1)[1] for f in r["files"]][:2], ["Hot.swift", "Big.swift"])
         self.assertEqual((files["Hot.swift"]["pure"], files["Hot.swift"]["churn"], files["Hot.swift"]["score"]),
                          (3, 5, 15))
         self.assertEqual((files["Mac.swift"]["pure"], files["Mac.swift"]["platform_imports"]), (0, ["AppKit"]))
         self.assertEqual((files["Call.swift"]["pure"], files["Call.swift"]["logic"]), (0, 3))
-        self.assertEqual(r["pure_logic_lines"], 13)
+        self.assertEqual(r["pure_logic_lines"], 13 + 32)
         self.assertEqual(r["mirror"]["buckets"], {"generated-now": 6, "schema-first": 3, "port": 3})
         self.assertEqual(r["mirror_lines"], 12)
 
