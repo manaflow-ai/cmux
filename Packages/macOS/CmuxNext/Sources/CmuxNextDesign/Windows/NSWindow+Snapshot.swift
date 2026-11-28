@@ -84,6 +84,16 @@ extension NSWindow {
                                  frame: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY))
     }
 
+    /// What ``capture(_:)`` takes of this window alone over `rect` (this window's coordinates): the window as the
+    /// window server composited it there (its backdrop art, tint and glass, and the views over them), with no child
+    /// window (a Chromium page's window, a hover card's panel); nil when the window is not on screen or `rect` is empty.
+    /// A hover card's picture of a see-through chat lays the page over it, so the card shows the background the chat
+    /// shows (Leo, 2026-11-27: "the thumbnail be fixed to reflect the actual bg instead of black screen").
+    public func ownCapturePlan(of rect: NSRect) -> WindowCapturePlan? {
+        guard windowNumber > 0, isVisible, rect.width >= 1, rect.height >= 1, let primary = NSScreen.screens.first else { return nil }
+        return WindowCapturePlan(numbers: [windowNumber], frame: Self.globalRect(of: convertToScreen(rect), primaryHeight: primary.frame.maxY))
+    }
+
     /// The window server's image for `plan`, nil when it gives none or a blank one. Any thread.
     public nonisolated static func capture(_ plan: WindowCapturePlan) -> CGImage? {
         let image: CGImage?
