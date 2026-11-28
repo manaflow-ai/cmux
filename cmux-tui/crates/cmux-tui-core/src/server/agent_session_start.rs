@@ -1271,8 +1271,19 @@ fn start_and_bind(
         if picked.is_none() && permission_mode == Some("standard") {
             settle_standard_mode(link, &session);
         }
-        let family = session_family(link, until, &session).map_err(end)?;
-        if let Some(mode) = cloud_default_mode(picked, permission_mode, &family) {
+        // The Auto move goes out with the family read, on the family the catalog resolved before
+        // the start (`start_family`), so the two round trips overlap; it is still answered before
+        // the bind, so the chat's first prompt runs in Auto. A session whose own family differs
+        // gets the move its family takes, after the read, as before.
+        let before = cloud_default_mode(picked, permission_mode, &family);
+        let early = before.and_then(|mode| begin_cloud_default_mode(link, &session, mode));
+        let read = session_family(link, until, &session);
+        if let Some(pending) = early {
+            let _ = pending.wait(CALL_TIMEOUT);
+        }
+        let family = read.map_err(end)?;
+        let own = cloud_default_mode(picked, permission_mode, &family);
+        if let Some(mode) = own.filter(|mode| before != Some(*mode)) {
             settle_cloud_default_mode(link, &session, mode);
         }
         family
@@ -1353,6 +1364,16 @@ fn cloud_default_mode(
 fn settle_cloud_default_mode(link: &AcpmuxLink, session: &str, mode: &str) {
     let params = json!({"sessionId": session, "modeId": mode});
     let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
+}
+
+/// [`settle_cloud_default_mode`], sent now and answered later ([`AcpmuxLink::begin`]); none when the
+/// link is closed (the family read then refuses the start).
+fn begin_cloud_default_mode<'a>(
+    link: &'a AcpmuxLink,
+    session: &str,
+    mode: &str,
+) -> Option<super::agent_session_link::Pending<'a>> {
+    link.begin("session/set_mode", json!({"sessionId": session, "modeId": mode})).ok()
 }
 
 /// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
