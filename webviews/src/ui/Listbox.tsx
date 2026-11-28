@@ -7,7 +7,10 @@
 // same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Rows
 // may differ in height (a steer-queue row with its line and last message): each mounted row's height
 // is kept by its key, and a row not yet measured is taken as the measured rows' mean. Each row is a
-// memoized component: a highlight change re-renders the two rows it moved between.
+// memoized component: a highlight change re-renders the two rows it moved between. The list draws
+// each mounted row's content and attributes itself and a row compares what they draw, not the
+// callbacks' identity: a caller's inline renderItem re-renders no row, and one whose drawn output
+// changed (data its closure reads) re-renders that row.
 import {
   memo,
   useCallback,
@@ -325,6 +328,8 @@ export function Listbox<T>({
               setSize={windowed ? items.length : undefined}
               renderItem={renderItem}
               itemAttributes={itemAttributes}
+              content={renderItem(item, index, index === current)}
+              attributes={itemAttributes?.(item, index)}
               onHover={hoverRow}
               onOpen={openRow}
             />
@@ -346,55 +351,139 @@ export function Listbox<T>({
   );
 }
 
-interface ListboxRowProps<T> {
-  item: T;
+interface ListboxRowProps {
   index: number;
   id: string;
   className?: string;
   selected: boolean;
   /** Set when the list is windowed: the full length, for aria-setsize and aria-posinset. */
   setSize?: number;
-  renderItem(item: T, index: number, selected: boolean): ReactNode;
-  itemAttributes?(item: T, index: number): Record<string, string | undefined>;
+  /** The row's item and the callbacks that drew it: unchanged, the row is (a stable callback's
+   * output may hold a new handler or style object each call, which no comparison would match). */
+  item: unknown;
+  renderItem: unknown;
+  itemAttributes: unknown;
+  /** What the row draws, and its attributes: else compared by value, so a new callback identity
+   * alone (a caller's inline arrow) re-renders nothing. */
+  content: ReactNode;
+  attributes?: Record<string, string | undefined>;
   onHover(index: number): void;
   onOpen(index: number): void;
 }
 
-const ListboxRow = memo(function ListboxRow<T>({
-  item,
-  index,
-  id,
-  className,
-  selected,
-  setSize,
-  renderItem,
-  itemAttributes,
-  onHover,
-  onOpen,
-}: ListboxRowProps<T>) {
-  return (
-    <div
-      id={id}
-      className={cx("ui-listbox-row", className)}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
-      role="option"
-      tabIndex={-1}
-      aria-selected={selected}
-      aria-posinset={setSize === undefined ? undefined : index + 1}
-      aria-setsize={setSize}
-      {...itemAttributes?.(item, index)}
-      onMouseMove={() => onHover(index)}
-      onMouseDown={(event) => {
-        // Secondary/middle press and macOS Control-click keep the system context menu.
-        if (event.button !== 0 || event.ctrlKey) return;
-        event.preventDefault();
-        onOpen(index);
-      }}
-    >
-      {renderItem(item, index, selected)}
-    </div>
-  );
-}) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;
+/** The row props compared together, by the item and its callbacks or else by what they draw. */
+const DRAWN_BY: ReadonlySet<keyof ListboxRowProps> = new Set([
+  "item",
+  "renderItem",
+  "itemAttributes",
+  "content",
+  "attributes",
+]);
+
+const ListboxRow = memo(
+  function ListboxRow({
+    index,
+    id,
+    className,
+    selected,
+    setSize,
+    item,
+    renderItem,
+    content,
+    attributes,
+    onHover,
+    onOpen,
+  }: ListboxRowProps) {
+    return (
+      <div
+        id={id}
+        className={cx("ui-listbox-row", className)}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
+        role="option"
+        tabIndex={-1}
+        aria-selected={selected}
+        aria-posinset={setSize === undefined ? undefined : index + 1}
+        aria-setsize={setSize}
+        {...attributes}
+        onMouseMove={() => onHover(index)}
+        onMouseDown={(event) => {
+          // Secondary/middle press and macOS Control-click keep the system context menu.
+          if (event.button !== 0 || event.ctrlKey) return;
+          event.preventDefault();
+          onOpen(index);
+        }}
+      >
+        <ListboxRowContent item={item} renderItem={renderItem} selected={selected} content={content} />
+      </div>
+    );
+  },
+  (previous, next) => {
+    for (const key of Object.keys(next) as (keyof ListboxRowProps)[]) {
+      if (DRAWN_BY.has(key)) continue;
+      if (!Object.is(previous[key], next[key])) return false;
+    }
+    const sameItem = Object.is(previous.item, next.item);
+    return (
+      ((sameItem && Object.is(previous.itemAttributes, next.itemAttributes)) ||
+        sameAttributes(previous.attributes, next.attributes)) &&
+      ((sameItem && Object.is(previous.renderItem, next.renderItem)) || sameDrawn(previous.content, next.content))
+    );
+  },
+);
+
+/** The row's content on its own: a highlight change re-renders the row, and its content only when
+ * what it draws changed (renderItem takes `selected`, so the same item and callback count as the same
+ * content only at the same highlight). */
+const ListboxRowContent = memo(
+  function ListboxRowContent({
+    content,
+  }: {
+    item: unknown;
+    renderItem: unknown;
+    selected: boolean;
+    content: ReactNode;
+  }) {
+    return content;
+  },
+  (previous, next) =>
+    (Object.is(previous.item, next.item) &&
+      Object.is(previous.renderItem, next.renderItem) &&
+      previous.selected === next.selected) ||
+    sameDrawn(previous.content, next.content),
+);
+
+function sameAttributes(
+  a: Record<string, string | undefined> | undefined,
+  b: Record<string, string | undefined> | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key]);
+}
+
+/** Past this depth of nested elements, drawn output counts as changed. */
+const SAME_DRAWN_DEPTH = 12;
+
+/** Whether two drawn outputs (React nodes) draw the same: equal primitives, or elements of the same
+ * kind, type and key whose props are each `Object.is`-equal or, for elements and arrays, the same
+ * drawn output again. A function compares by identity, so an inline handler counts as a change. */
+export function sameDrawn(a: unknown, b: unknown, depth = 0): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (depth >= SAME_DRAWN_DEPTH) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((value, index) => sameDrawn(value, b[index], depth + 1));
+  }
+  const x = a as { $$typeof?: unknown; type?: unknown; key?: unknown; props?: Record<string, unknown> };
+  const y = b as typeof x;
+  if (typeof x.$$typeof !== "symbol" || x.$$typeof !== y.$$typeof) return false;
+  if (x.type !== y.type || x.key !== y.key || !x.props || !y.props) return false;
+  const keys = Object.keys(x.props);
+  if (keys.length !== Object.keys(y.props).length) return false;
+  return keys.every((key) => Object.hasOwn(y.props!, key) && sameDrawn(x.props![key], y.props![key], depth + 1));
+}
 
 /** Each row's top in a self-windowed list, and the list's height as the last entry: a row's measured
  * height by its key, else the measured rows' mean (ESTIMATED_ROW_PX before any is measured). */
