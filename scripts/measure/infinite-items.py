@@ -300,7 +300,7 @@ def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
-    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
+    syncer = busy_thread_states(top.get("tui"), "sqlite-wal-sync", seconds)
     after = snapshot(top)
     commits = {}
     if log_at is not None:
@@ -361,7 +361,40 @@ def idle_window(top, seconds, disks):
     for r in roles.values():
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
-    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits, "window": seconds}
+    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
+            "syncer": syncer, "window": seconds}
+
+
+def busy_thread_states(pid, name, seconds, every=0.2):
+    """Sleeps `seconds` (the idle window) and meanwhile reads, every `every` s, what each thread of `pid` called
+    `name` is doing: its syscall number (or running) and kernel wait channel, with the WAL files' sizes at the end.
+    Names what a woken syncer thread was in (a checkpoint's I/O, a condvar wait) without strace."""
+    states, deadline = {}, time.monotonic() + seconds
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        time.sleep(min(every, left))  # sleep-ok: the idle window itself, sampled in steps
+        if not (IS_LINUX and pid):
+            continue
+        try:
+            tids = os.listdir(f"/proc/{pid}/task")
+        except OSError:
+            continue
+        for tid in tids:
+            try:
+                with open(f"/proc/{pid}/task/{tid}/comm") as f:
+                    if f.read().strip() != name:
+                        continue
+                with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                    call = f.read().split()[0]
+                with open(f"/proc/{pid}/task/{tid}/wchan") as f:
+                    wchan = f.read().strip() or "-"
+            except (OSError, IndexError):
+                continue
+            key = f"{tid}:{call}:{wchan}"
+            states[key] = states.get(key, 0) + 1
+    return dict(sorted(states.items(), key=lambda kv: -kv[1])[:12])
 
 
 # ------------------------------------------------------------------ sockets
@@ -1019,6 +1052,8 @@ def report(results):
                   f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
             print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
                   f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
+            print(f"INFINITE-SYNCER {n} day={s['day']} states={json.dumps(s.get('syncer', {}))} "
+                  f"wal={json.dumps({k: v for k, v in s.get('files', {}).items() if k.endswith('-wal')})}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
