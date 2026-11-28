@@ -2640,6 +2640,114 @@
             "alternate_replay_next_image_id",
             "alternate_next_image_id"
           ]
+        },
+        "TerminalSizePolicy": {
+          "type": "SizePolicy",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "omit": [
+            "priority",
+            "fixed"
+          ],
+          "doc": [
+            "The sizing policy of a terminal's size state (`TerminalSizeState.policy`)."
+          ],
+          "fields": {
+            "mode": {
+              "type": "String",
+              "doc": [
+                "`latest`, `smallest`, `largest`, `priority` or `fixed`."
+              ]
+            }
+          }
+        },
+        "TerminalSizeParticipant": {
+          "type": "SizeParticipant",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "omit": [
+            "user_id",
+            "device_id",
+            "via",
+            "counts_override",
+            "priority_key"
+          ],
+          "doc": [
+            "One view of a terminal in its size state (`TerminalSizeState.participants`)."
+          ],
+          "order": [
+            "id",
+            "display_name",
+            "device_kind",
+            "device_name",
+            "viewport",
+            "counts"
+          ],
+          "fields": {
+            "device_kind": {
+              "type": "String",
+              "optional": true,
+              "doc": [
+                "`mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`."
+              ]
+            },
+            "counts": {
+              "optional": true
+            }
+          }
+        },
+        "TerminalSizeState": {
+          "type": "SizeState",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "doc": [
+            "The daemon's shared-sizing state of one terminal (`size-state`, docs/shared-terminal-sizing.md",
+            "\"Size state\"): its grid, who sets it, and every view of it. A view reads it only to tell its",
+            "user who the grid is sized for (plans/cmux-next/sync-ux/DESIGN.md 2.6)."
+          ],
+          "order": [
+            "generation",
+            "cols",
+            "rows",
+            "owners",
+            "policy",
+            "reason",
+            "participants"
+          ],
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            },
+            "owners": {
+              "default": "[]"
+            },
+            "policy": {
+              "optional": true
+            },
+            "reason": {
+              "type": "String",
+              "optional": true,
+              "doc": [
+                "Why the grid has this size: `latest`, `smallest`, `largest`, `priority`, `fixed`, `held` or",
+                "`priority-fallback` (no ranked view counts, so the grid follows activity)."
+              ]
+            },
+            "participants": {
+              "default": "[]"
+            }
+          }
         }
       }
     },
