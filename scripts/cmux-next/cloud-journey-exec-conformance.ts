@@ -14,6 +14,10 @@
  * computes it (exec_conformance_report.rs Summary::of).
  * `cargo-build-test` needs cargo: when the image has none, a minimal rustup toolchain is installed in $HOME first
  * (the fork copies the disk, so the run VM has it too). A case skipped for a missing program fails the step.
+ * The acpmux that runs is the one this job built from journey_ref (the `--cmux` binary, which is acpmux when named so),
+ * copied to JOURNEY_ACPMUX_DIR and first on PATH, so the run tests journey_ref and not whatever the image baked: run
+ * 46147212934 (journey_ref 21bc3e4c) ran the image's c6cd14b59, older than the fork-path fix #64491, and every routed
+ * side fell back on a fork 404. When the copy fails the image's acpmux runs and the summary says so.
  * CMUX_JOURNEY_EXEC_CONFORMANCE=1 turns the step on (unset: skipped).
  */
 export const EXEC_CONFORMANCE_STEP = "exec router conformance (run VMs)";
@@ -25,11 +29,42 @@ export function execConformanceOn(value: string | undefined): boolean {
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-/** The guest's preamble: HOME, the acpmux binary as `$a`, cargo on PATH when $HOME has it. */
+/** Where the journey's own acpmux goes on the machine (fs/write runs as root and names an absolute path). */
+export const JOURNEY_ACPMUX_DIR = "/home/cmux/.cmux-conformance";
+/** One fs/write carries at most 8 MiB (cmux-platform MachineGuest.ts FILE_MAX_BYTES); a piece stays under it. */
+export const JOURNEY_ACPMUX_PIECE_BYTES = 6 * 1024 * 1024;
+/** Past this many compressed bytes the copy is not tried (a binary that big was not stripped). */
+export const JOURNEY_ACPMUX_MAX_BYTES = 192 * 1024 * 1024;
+
+/** The gzip of the journey's acpmux cut into fs/write pieces, in order. */
+export function journeyAcpmuxPieces(gz: Uint8Array, pieceBytes = JOURNEY_ACPMUX_PIECE_BYTES): { path: string; data: Uint8Array }[] {
+  const out: { path: string; data: Uint8Array }[] = [];
+  for (let at = 0, i = 0; at < gz.length; at += pieceBytes, i++) {
+    out.push({ path: `${JOURNEY_ACPMUX_DIR}/acpmux.gz.${String(i).padStart(4, "0")}`, data: gz.subarray(at, at + pieceBytes) });
+  }
+  return out;
+}
+
+/** Joins the pieces into JOURNEY_ACPMUX_DIR/acpmux, checks it runs, and prints its version on an @@ec line. */
+export function journeyAcpmuxAssemble(pieces: number, sha256: string): string {
+  const d = JOURNEY_ACPMUX_DIR;
+  const parts = Array.from({ length: pieces }, (_, i) => q(`${d}/acpmux.gz.${String(i).padStart(4, "0")}`)).join(" ");
+  return [
+    `cat ${parts} > ${q(`${d}/acpmux.gz`)} && rm -f ${parts}`,
+    `got=$(sha256sum ${q(`${d}/acpmux.gz`)} | cut -d' ' -f1); [ "$got" = ${q(sha256)} ] || { echo "@@ec journey_acpmux=bad-sum got=$got"; exit 1; }`,
+    `gunzip -c ${q(`${d}/acpmux.gz`)} > ${q(`${d}/acpmux.new`)} && rm -f ${q(`${d}/acpmux.gz`)} && chmod 755 ${q(`${d}/acpmux.new`)} && mv -f ${q(`${d}/acpmux.new`)} ${q(`${d}/acpmux`)}`,
+    // fs/write writes as root: the work user runs and owns it.
+    `chown -R cmux:cmux ${q(d)} 2>/dev/null || true`,
+    `v=$(${q(`${d}/acpmux`)} --version 2>&1 | head -1); echo "@@ec journey_acpmux=${d}/acpmux version=$v"`,
+    `case "$v" in acpmux*) exit 0;; *) exit 1;; esac`,
+  ].join("; ");
+}
+
+/** The guest's preamble: HOME, the acpmux binary as `$a` (the journey's own first), cargo on PATH when $HOME has it. */
 const PREAMBLE = [
   'export HOME="${HOME:-/home/cmux}"',
   'cd "$HOME" 2>/dev/null || cd /',
-  'export PATH="$HOME/.cargo/bin:$PATH"',
+  `export PATH="${JOURNEY_ACPMUX_DIR}:$HOME/.cargo/bin:$PATH"`,
   'a=$(command -v acpmux 2>/dev/null); [ -n "$a" ] || a=/opt/cmux/current/bin/acpmux',
 ].join("; ");
 
@@ -49,12 +84,36 @@ export function execConformanceProbe(): string {
 export function execConformanceCargoInstall(): string {
   return [
     PREAMBLE,
-    "command -v cargo >/dev/null && { echo '@@ec cargo already'; exit 0; }",
+    "cargo --version >/dev/null 2>&1 && { echo '@@ec cargo already'; exit 0; }",
     "curl -fsSL --max-time 120 https://sh.rustup.rs -o /tmp/rustup-init.sh",
     "sh /tmp/rustup-init.sh -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null 2>&1; s=$?",
     "rm -f /tmp/rustup-init.sh",
     'echo "@@ec cargo_install exit=$s cargo=$(command -v cargo || echo none)"',
     "exit $s",
+  ].join("; ");
+}
+
+/** Starts that install in the background before the acpmux upload, so the two overlap (run 46159895648: the install
+ *  ran past its 300 s exec and was cut mid-toolchain, so the local side saw "rustup could not choose a version of
+ *  cargo" while the routed side, run later, found the finished toolchain: cargo-build-test DIFF exit 1/0). */
+export function execConformanceCargoStart(): string {
+  return [
+    PREAMBLE,
+    "rm -f /tmp/cmux-ec-cargo.done",
+    "if cargo --version >/dev/null 2>&1; then echo 0 > /tmp/cmux-ec-cargo.done; echo '@@ec cargo already'; exit 0; fi",
+    `setsid nohup sh -c ${q(`( ${execConformanceCargoInstall()} ) >/tmp/cmux-ec-cargo.log 2>&1; echo $? > /tmp/cmux-ec-cargo.done`)} </dev/null >/dev/null 2>&1 & echo '@@ec cargo_install started'`,
+  ].join("; ");
+}
+
+/** Waits for the background install, then proves cargo runs, so both sides of a case see one toolchain. */
+export function execConformanceCargoWait(budgetSeconds = 420): string {
+  return [
+    PREAMBLE,
+    `i=0; while [ ! -e /tmp/cmux-ec-cargo.done ] && [ $i -lt ${Math.max(1, Math.floor(budgetSeconds / 5))} ]; do sleep 5; i=$((i+1)); done`,
+    "cargo --version >/dev/null 2>&1 || rustup default stable >/dev/null 2>&1",
+    'v=$(cargo --version 2>&1 | head -1)',
+    'echo "@@ec cargo_ready=$(cargo --version >/dev/null 2>&1 && echo yes || echo no) install_exit=$(cat /tmp/cmux-ec-cargo.done 2>/dev/null || echo unfinished) waited_s=$((i*5)) version=$v"',
+    "cargo --version >/dev/null 2>&1 || tail -5 /tmp/cmux-ec-cargo.log 2>/dev/null",
   ].join("; ");
 }
 

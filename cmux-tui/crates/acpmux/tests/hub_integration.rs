@@ -755,6 +755,72 @@ async fn a_fork_keeps_the_chats_model_and_effort_when_the_agent_answers_with_its
     let _ = std::fs::remove_file(&calls);
 }
 
+/// A model picked through the `model` option is the one a fork runs, also when the harness
+/// reports its model as ACP `models` too (Codex). The report kept the start model, the fork's
+/// replay let it win, and a Codex chat on gpt-6-luna forked onto gpt-6.2-sol (Leo's ask
+/// c-0e429cbe77: "we ought to really hammer it hard and just test tons of variations of it").
+#[tokio::test]
+async fn a_fork_keeps_a_model_picked_by_option_when_the_harness_reports_models_too() {
+    let calls = std::env::temp_dir().join(format!("acpmux-fork-optmodel-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_PICKER".to_owned(), "1".to_owned()),
+        ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
+        ("FAKE_FORK_DEFAULTS".to_owned(), "1".to_owned()),
+        ("FAKE_MODELS".to_owned(), "default,claude-haiku-5-5".to_owned()),
+        ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "optmodel"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "model", "value": "claude-haiku-5-5"}),
+    )
+    .await
+    .unwrap();
+    let chat = hub.resolve(&id).unwrap().meta();
+    assert_eq!(
+        chat.models.as_ref().and_then(|m| m["currentModelId"].as_str()),
+        Some("claude-haiku-5-5"),
+        "the chat's model report follows the option: {:?}",
+        chat.models
+    );
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let agent_sid = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    let last_model = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == agent_sid.as_str())
+        .filter_map(|c| {
+            if c["method"] == "session/set_model" {
+                Some(c["params"]["modelId"].clone())
+            } else {
+                (c["params"]["configId"] == "model").then(|| c["params"]["value"].clone())
+            }
+        })
+        .last();
+    assert_eq!(
+        last_model,
+        Some(json!("claude-haiku-5-5")),
+        "the fork's agent runs the chat's model"
+    );
+    let _ = std::fs::remove_file(&calls);
+}
+
 // An agent that does not offer `session/fork` (pi, Kimi, DeepSeek) forks from the chat's
 // transcript, idle or working: `hub_integration/fork_context.rs` (#50089).
 
