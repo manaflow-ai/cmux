@@ -365,6 +365,7 @@ inputs = [
   "scripts/cmux-next/test-shim-file-dialog-cpp.sh",
   "scripts/cmux-next/test-shim-helper-signals-cpp.sh",
   "scripts/cmux-next/test-shim-webstore-cpp.sh",
+  "scripts/cmux-next/test-host-focus-policy-cpp.sh",
   "scripts/cmux-next/lib/cxx.sh",
   "tests/test_cmux_next_shim_cpp_linux.py",
 ]
@@ -388,6 +389,7 @@ rc=0
 ./scripts/cmux-next/test-shim-file-dialog-cpp.sh || rc=1
 ./scripts/cmux-next/test-shim-helper-signals-cpp.sh || rc=1
 ./scripts/cmux-next/test-shim-webstore-cpp.sh || rc=1
+./scripts/cmux-next/test-host-focus-policy-cpp.sh || rc=1
 exit "$rc"
 '''
 
