@@ -66,3 +66,23 @@ export function cloudSendAgent(
   // The agent the machine runs: a Mac-only profile (claude-sr2) starts its base agent there, with its model.
   return { harness: agent.harness ?? harness, ...(model ? { model } : {}), ...pick };
 }
+
+/** The model a chat composer's Cloud send names: the one a switch holds, else the chat's own (a reported "default"
+ * names none), else, before the picker has a harness, the person's last local pick (cmux#51731), else the model
+ * the picker's face draws for a chat that has not started (ComposerPickers startingId: defaultModel). Austin: "The
+ * user picks it, dont change what thr hser picks, always persist it". Before, the face's model never went, so the
+ * machine started on its own default and the Cloud chat's picker changed to a model no one picked. */
+export function cloudSendModel(pick: {
+  held: string | undefined;
+  shown: string | undefined;
+  harness: string | undefined;
+  remembered: string | undefined;
+  face: string | undefined;
+}): string | undefined {
+  if (pick.held) return pick.held;
+  if (pick.shown && !isDefaultModel(pick.shown)) return pick.shown;
+  if (!pick.harness) return pick.remembered && !isDefaultModel(pick.remembered) ? pick.remembered : undefined;
+  return pick.face && !isDefaultModel(pick.face) ? pick.face : undefined;
+}
+
+const isDefaultModel = (id: string) => id.toLowerCase() === "default";

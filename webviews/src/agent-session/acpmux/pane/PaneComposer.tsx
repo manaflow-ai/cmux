@@ -21,7 +21,7 @@ import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
-import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
+import { cloudSendAgent, cloudSendModel, cloudStartModePick } from "../cloudModePick";
 import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
@@ -40,7 +40,7 @@ import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
 import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
-import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
+import { lastPick } from "../lastPick";
 import { cloudAgentPick } from "../cloudAgentPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
@@ -103,7 +103,7 @@ import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
 import { hatPillInMiddle, hatPillQuiet, type HatPillPlace } from "../hatPillPlace.experiment";
-import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
+import { defaultModel, type SwitchView, type HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
 import type { SendGesture } from "../heldPrompt";
@@ -1204,13 +1204,16 @@ export function drawPaneComposer({
                 const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
                 const cloudShownAgent = machinePick ?? {
                   harness: shownHarness || remembered?.harness,
-                  model:
-                    held.model ??
-                    (shownModel && shownModel !== "default"
-                      ? shownModel
-                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
-                        ? remembered?.model
-                        : undefined),
+                  // The face's model goes when nothing else names one (cloudSendModel).
+                  model: cloudSendModel({
+                    held: held.model,
+                    shown: shownModel,
+                    harness: shownHarness,
+                    remembered: remembered?.model,
+                    face: shownHarness
+                      ? defaultModel(shownHarness, composerSnapshot.catalog, undefined, composerSnapshot.summary?.cwd)
+                      : undefined,
+                  }),
                 };
                 const started = sendToCloud(
                   text,
