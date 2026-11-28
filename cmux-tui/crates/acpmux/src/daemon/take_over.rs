@@ -52,6 +52,14 @@ fn launchd_job(xpc_service_name: Option<&str>) -> bool {
 /// (`exe_swap.rs`) and the installer starts another. Asking only the first holder left the
 /// later start waiting forever on the one that won (`take_over_under_load`, 2026-11-20).
 ///
+/// A holder that never answers is replaced, not waited on forever (`hung_holder.rs`). Each ask's
+/// connect and status are bounded by the probe bound, and once no ask reached the holder and its
+/// beat stopped, both past its phase's bound ([`hung_holder::stalled`]), this start replaces it
+/// ([`hung_holder::replace`], which proves the pid is this home's daemon first). Lane VMs,
+/// 2026-11-28: a detached daemon a CLI started in the unit's restart window hung, and each start
+/// of `acpmux.service` sat for hours on "the daemon has not answered the connection's hello",
+/// restarted every few minutes by its repair, while the machine served no hub carrier.
+///
 /// launchd's own start of the LaunchAgent (`unready`: no `--ready-fd`, so not a child that
 /// inherited the job's environment and reports to its starter) waits too, without asking
 /// ([`launchd_job`]).
@@ -71,14 +79,17 @@ pub(super) async fn acquire_daemon_lock(
     // it must own the home, or the unit is left failed while a detached daemon serves it.
     let yields_since = (!unit).then(crate::store::now_ms);
     let stands_by = !unit && launchd_standby::this_start_stands_by(take_over);
-    // The holder a supervised start watches, and since when it answered none of this start's
-    // asks: past the stall rule it is replaced (`hung_holder.rs`), as a ready-fd waiter would.
     #[cfg(unix)]
     let bounds = hung_holder::Bounds::current();
+    #[cfg(not(unix))]
+    let probe = Duration::from_secs(20);
     #[cfg(unix)]
-    let mut watched: Option<(u32, tokio::time::Instant)> = None;
+    let probe = bounds.probe;
+    // The holder whose answers this start counts, and since when no ask reached it.
     #[cfg(unix)]
-    let mut said = tokio::time::Instant::now();
+    let mut watched: Option<u32> = None;
+    #[cfg(unix)]
+    let mut unanswered_since = tokio::time::Instant::now();
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
@@ -112,61 +123,37 @@ pub(super) async fn acquire_daemon_lock(
                 let holder = live_holder_pid(path);
                 #[cfg(not(unix))]
                 let holder = None;
-                let mut answered = false;
-                if asked != Some(holder)
-                    && let Some(by) = take_over_holder(&socket_path(), yields_since).await?
+                #[cfg(unix)]
+                if holder != watched {
+                    // Another holder (a successor, or the first look): its own clock.
+                    watched = holder;
+                    unanswered_since = tokio::time::Instant::now();
+                }
+                if asked != Some(holder) {
+                    let answer = take_over_holder(&socket_path(), yields_since, probe).await?;
+                    #[cfg(unix)]
+                    if answer.is_some() {
+                        unanswered_since = tokio::time::Instant::now();
+                    }
                     // What answered is the holder (or the lock named none): asked. Another
                     // daemon answering for a holder still starting is not; ask again.
-                    && (holder.is_none() || by == holder)
-                {
-                    asked = Some(holder);
-                    answered = true;
+                    if let Some(answered) = answer
+                        && (holder.is_none() || answered == holder)
+                    {
+                        asked = Some(holder);
+                    }
                 }
-                // A holder that answers nothing and whose beat stopped is hung: the unit's start
-                // replaces it once proven this home's daemon, never waits on it for good. Fleet
-                // lane VMs, 2026-11-28: a detached `--ready-fd` daemon a client started during a
-                // unit restart held the lock and hung; the unit's daemon waited behind it for
-                // hours and every restart of the unit queued another start behind it.
                 #[cfg(unix)]
-                if let Some(pid) = holder {
-                    let now = tokio::time::Instant::now();
-                    let since = match watched {
-                        Some((p, since)) if p == pid && !answered => since,
-                        _ => now,
-                    };
-                    watched = Some((pid, since));
-                    let unanswered = now - since;
+                if asked != Some(holder)
+                    && let Some(pid) = holder
+                {
+                    let unanswered = unanswered_since.elapsed();
                     let beat = hung_holder::beat_of(&home(), pid);
                     if hung_holder::stalled(unanswered, beat, bounds) {
-                        let why = format!(
-                            "daemon {pid} holds the lock but answered no ask of the unit's start \
-                             for {}s and its beat is {} old",
-                            unanswered.as_secs(),
-                            beat.map_or("missing".to_owned(), |(_, age)| format!(
-                                "{}s",
-                                age.as_secs()
-                            ))
-                        );
-                        match hung_holder::replace(&home(), &why).await {
-                            // The lock is free or a successor holds it: look again now.
-                            Ok(_) => {
-                                watched = None;
-                                continue;
-                            }
-                            Err(refusal) => {
-                                tracing::warn!("{why}; not replacing it: {refusal}");
-                                // Its clock starts again: one refusal a bound, not one a look.
-                                watched = Some((pid, tokio::time::Instant::now()));
-                            }
-                        }
-                    }
-                    if said.elapsed() >= hung_holder::WAITER_SAYS_EVERY {
-                        said = tokio::time::Instant::now();
-                        tracing::info!(
-                            holder = pid,
-                            "the unit's start still waits for the lock holder; no answer for {}s",
-                            unanswered.as_secs()
-                        );
+                        replace_hung(pid, unanswered, beat).await;
+                        // Its clock starts again: one replace (or refusal) a bound, not a look.
+                        unanswered_since = tokio::time::Instant::now();
+                        continue;
                     }
                 }
                 // Still no wall-clock cutoff: the wait only looks again at who holds the lock.
@@ -174,6 +161,31 @@ pub(super) async fn acquire_daemon_lock(
             }
             Err(error) => return Err(error),
         }
+    }
+}
+
+/// Replaces the hung holder `pid` as the home's one standing waiter (`hung_holder::stand`): when
+/// another start already stands, that one replaces it and this start keeps waiting for the lock.
+#[cfg(unix)]
+async fn replace_hung(
+    pid: u32,
+    unanswered: Duration,
+    beat: Option<(hung_holder::Phase, Duration)>,
+) {
+    let why = format!(
+        "daemon {pid} holds the lock but answered no hand-over ask for {}s and its beat is {} old",
+        unanswered.as_secs(),
+        beat.map_or("missing".to_owned(), |(_, age)| format!("{}s", age.as_secs()))
+    );
+    let _standing = match hung_holder::stand(&home()) {
+        Ok(standing) => standing,
+        Err(waiter) => {
+            tracing::info!("{why}; start {waiter} stands as this home's waiter and replaces it");
+            return;
+        }
+    };
+    if let Err(refusal) = hung_holder::replace(&home(), &why).await {
+        tracing::warn!("{why}; not replacing it: {refusal}");
     }
 }
 
@@ -185,31 +197,28 @@ const HOLDER_LOOK: Duration = Duration::from_secs(1);
 /// Ask the daemon at `socket` to hand this home over: `_acpmux/shutdown` with its agents kept,
 /// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
-/// caller. The pid that answered its status, or `None` when nothing answered (a holder still
-/// starting has no socket yet): the caller asks again. With `yields_since` (when a start that may
+/// caller. The pid that answered its status, or `None` when nothing answered within `probe` (a
+/// holder still starting has no socket yet; a hung one never answers its hello): the caller asks
+/// again, and replaces a holder hung past its bound. With `yields_since` (when a start that may
 /// yield began waiting), a holder of this home that runs this build and started since is not asked:
 /// the error [`take_over_yield::ServedByThisBuild`] says so.
 async fn take_over_holder(
     socket: &std::path::Path,
     yields_since: Option<u64>,
+    probe: Duration,
 ) -> Result<Option<Option<u32>>> {
-    // Bounded on Unix: a holder that bound its socket and accepts nothing leaves the connect or
-    // its status queued with no answer forever, and the unit's start with it (fleet lane VMs,
-    // 2026-11-28: blocked here for hours after "open-file limit raised"). Past the probe bound
-    // nothing answered; the caller asks again and replaces a hung holder (`hung_holder.rs`).
-    // Once it answered, the handover request itself waits as long as the holder takes.
-    let probe = async {
+    // Bounded: a connect into a queue nobody accepts from, or a hello nobody answers, waits
+    // forever otherwise. A holder that answered its status and took the hand-over request is
+    // stopping; that request is not cut.
+    let asked = async {
         let client = crate::client::Client::connect(socket).await.ok()?;
         let status =
             client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await.ok()?;
         Some((client, status))
     };
-    #[cfg(unix)]
-    let probed =
-        tokio::time::timeout(hung_holder::Bounds::current().probe, probe).await.ok().flatten();
-    #[cfg(not(unix))]
-    let probed = probe.await;
-    let Some((client, status)) = probed else { return Ok(None) };
+    let Ok(Some((client, status))) = tokio::time::timeout(probe, asked).await else {
+        return Ok(None);
+    };
     let same = |key: &str, want: &std::path::Path| {
         status
             .get(key)
