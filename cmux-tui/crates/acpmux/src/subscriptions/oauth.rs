@@ -159,7 +159,7 @@ impl OAuth {
             return Ok(client);
         }
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = Client::builder()
+        let client = cmux_egress::client_builder("acpmux::subscriptions::oauth")
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()
@@ -512,6 +512,54 @@ fn copilot_api_url(raw: &str) -> Option<String> {
         && url.query().is_none()
         && url.fragment().is_none())
     .then(|| url.origin().ascii_serialization())
+}
+
+#[cfg(test)]
+mod seeded_tests {
+    use super::*;
+
+    /// A refresh or revoke sends the sign-in's refresh token only in the provider's token form body,
+    /// and Kimi's device id only in its `x-msh-device-id` header; the access token goes nowhere.
+    /// tests/egress_seeded.json names this test for `acpmux::subscriptions::oauth`.
+    #[tokio::test]
+    async fn seeded_refresh_token_rides_only_in_the_token_form() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        cmux_egress::capture::install().unwrap();
+        let oauth = OAuth::new(Endpoints::default());
+        let record = |refresh: &str, access: &str, region, device: Option<&str>| Record {
+            access_token: access.to_owned(),
+            refresh_token: refresh.to_owned(),
+            expires_at: 0,
+            region,
+            device_id: device.map(str::to_owned),
+            sub: None,
+            login: None,
+            email: None,
+        };
+        let kimi = record(
+            "SEEDkimiRefresh-4b7e",
+            "SEEDkimiAccess-9a2c",
+            Some(KimiRegion::Global),
+            Some("SEEDkimiDevice-31f0"),
+        );
+        let grok = record("SEEDgrokRefresh-0c5d", "SEEDgrokAccess-e81b", None, None);
+        let _ = oauth.refresh(Provider::Kimi, &kimi).await;
+        let _ = oauth.refresh(Provider::Grok, &grok).await;
+        oauth.revoke_grok(&grok).await;
+        let leaks = |s: &str| cmux_egress::capture::leaks(s);
+        assert_eq!(leaks("SEEDkimiRefresh-4b7e"), ["auth.kimi.ai POST /api/oauth/token: body"]);
+        assert_eq!(
+            leaks("SEEDkimiDevice-31f0"),
+            ["auth.kimi.ai POST /api/oauth/token: header x-msh-device-id"]
+        );
+        assert_eq!(
+            leaks("SEEDgrokRefresh-0c5d"),
+            ["auth.x.ai POST /oauth2/token: body", "auth.x.ai POST /oauth2/revoke: body"]
+        );
+        for access in ["SEEDkimiAccess-9a2c", "SEEDgrokAccess-e81b"] {
+            assert!(leaks(access).is_empty(), "{access}: {:?}", leaks(access));
+        }
+    }
 }
 
 #[cfg(test)]

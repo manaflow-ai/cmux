@@ -101,3 +101,39 @@ fn the_s3_secret_key_never_leaves_only_its_signature_does() {
         ]
     );
 }
+
+#[test]
+fn the_archive_store_secret_key_never_leaves_only_its_signature_does() {
+    use cmux_projection::repo_archive::{HttpStore, Store as _};
+    install();
+    let secret = "SEEDrepoArchiveSecretKey-41e7/AsDfGh";
+    let session = "SEEDrepoArchiveSession-9b0c";
+    let config = Config::bucket(
+        "s3",
+        Bucket {
+            endpoint: "https://s3.us-west-2.amazonaws.com".into(),
+            bucket: "seededarchives".into(),
+            region: "us-west-2".into(),
+            prefix: "archives".into(),
+            keys: Some(Keys {
+                access_key_id: "AKIASEEDREPOARCHIVE1".into(),
+                secret_access_key: secret.into(),
+                session_token: Some(session.into()),
+            }),
+            tenant: "t1".into(),
+            ..Bucket::default()
+        },
+    )
+    .unwrap();
+    let host = config.host.clone();
+    let store = HttpStore::new(config).unwrap();
+    let _ = store.get("seeded-owner/seeded-repo/head");
+    store.put_bytes("seeded-owner/seeded-repo/head", b"SEEDrepoArchiveBytes-77f1").unwrap();
+
+    let sent = capture::requests_to(&host);
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(capture::leaks(secret).is_empty(), "{:?}", capture::leaks(secret));
+    let at = capture::leaks(session);
+    assert_eq!(at.len(), 2, "{at:?}");
+    assert!(at.iter().all(|place| place.ends_with(": header x-amz-security-token")), "{at:?}");
+}

@@ -74,6 +74,16 @@ api.github.com
 # when: when an agent on a Cloud machine calls a GitHub tool
 # off: don't connect GitHub to Cloud machines
 api.githubcopilot.com
+# the Kimi API (global), when an agent uses your Kimi sign-in
+# sends: your Kimi sign-in token and the account and model requests made with it
+# when: when you sign in to Kimi or an agent uses that sign-in
+# off: sign out of Kimi in cmux
+api.kimi.ai
+# the Kimi API (China region), when an agent uses your China-region Kimi sign-in
+# sends: your Kimi sign-in token and the account and model requests made with it
+# when: when you sign in to Kimi's China region or an agent uses that sign-in
+# off: sign out of Kimi in cmux
+api.kimi.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 # sends: your city's coordinates
 # when: when the clock and weather widget refreshes
@@ -109,6 +119,21 @@ app.notion.com
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# Kimi's sign-in (global), when you sign in to Kimi with your Kimi account
+# sends: the device sign-in request, a random per-install device id, and the token exchange and refresh for your Kimi sign-in
+# when: only when you sign in to Kimi or cmux refreshes that sign-in
+# off: sign out of Kimi in cmux
+auth.kimi.ai
+# Kimi's sign-in (China region), when you sign in to Kimi with a China-region Kimi account
+# sends: the device sign-in request, a random per-install device id, and the token exchange and refresh for your Kimi sign-in
+# when: only when you sign in to Kimi's China region or cmux refreshes that sign-in
+# off: sign out of Kimi in cmux
+auth.kimi.com
+# xAI's sign-in, when you sign in to Grok with your xAI account (`cmux subscriptions login grok`)
+# sends: the device sign-in request and, after you approve it, the token exchange and refresh for your xAI sign-in
+# when: only when you sign in to Grok or cmux refreshes that sign-in
+# off: sign out of Grok in cmux
+auth.x.ai
 # images in GitHub pages and agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -399,6 +424,11 @@ openaccess-cdn.clevelandart.org
 # when: when you install OpenCode
 # off: don't install OpenCode
 opencode.ai
+# OpenRouter's sign-in, when you connect your OpenRouter account
+# sends: the sign-in code exchange that turns your approval into an OpenRouter key
+# when: only when you connect OpenRouter
+# off: don't connect OpenRouter, or remove its key
+openrouter.ai
 # update channel push: tells the app a new build is out
 # sends: an update-channel subscription, no account data
 # when: while the app runs, to learn a new build is out
