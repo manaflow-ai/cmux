@@ -837,17 +837,22 @@ final class CEFLandingAttaches {
         waiting.append(Ref(hosting: hosting))
     }
 
-    private func arm(_ afterCommit: CEFLayerHosting.Scheduler) {
-        afterCommit { [weak self] in self?.next(afterCommit) }
+    /// The scheduler of the turn in flight: the first landing's, so one queue waits on one commit source.
+    private var afterCommit: CEFLayerHosting.Scheduler?
+
+    private func arm(_ scheduler: @escaping CEFLayerHosting.Scheduler) {
+        afterCommit = scheduler
+        scheduler { [weak self] in self?.next() }
     }
 
     /// Attaches the oldest page still waiting (a new motion, a focus grant, a window change or a closed page took the
     /// others off) and waits for the next commit before the one after it.
-    private func next(_ afterCommit: @escaping CEFLayerHosting.Scheduler) {
+    private func next() {
         while !waiting.isEmpty {
             guard let hosting = waiting.removeFirst().hosting, hosting.attachLanded(first: false) else { continue }
-            return arm(afterCommit)
+            if let afterCommit { return arm(afterCommit) }
         }
+        afterCommit = nil
         armed = false
     }
 }
