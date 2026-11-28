@@ -30,57 +30,79 @@ lkr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lkr)
 
 KEY = "experiments.seeThroughDock"
-ROW = f'[data-row-key="{KEY}"]'
-SWITCH_SELECTORS = [f'{ROW} [role="switch"]', f'{ROW} input[type="checkbox"]', f"{ROW} button", ROW]
-PAGE = "cmux.settings"
+TITLE = "see-through dock"
 
 
-def page(sock: str, action: str, **params) -> dict:
-    return lkr.rpc(sock, "debug.page", {"page": PAGE, "action": action, **params}, timeout=30)
+def ax_elements(pid: int) -> list:
+    """Every AX element of the copy's windows, in tree order: dicts with role, a label and a token to click it by.
+    A release NIGHTLY has no debug.page (DEBUG and CMUX_BENCH_HOOKS only), so the page is read and driven the way a
+    person's pointer does: through the accessibility tree cua-driver reports."""
+    found: list = []
+
+    def visit(node, window_id):
+        if isinstance(node, dict):
+            if "role" in node and ("element_token" in node or "element_index" in node):
+                found.append(dict(node, _window=window_id))
+            for value in node.values():
+                visit(value, window_id)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value, window_id)
+
+    for window in lkr.cua("list_windows", {"pid": pid}).get("windows") or []:
+        if isinstance(window, dict) and window.get("window_id") is not None:
+            state = lkr.cua("get_window_state", {"pid": pid, "window_id": window["window_id"],
+                                                 "include_screenshot": False, "max_depth": 80, "max_elements": 8000})
+            visit(state, window["window_id"])
+    return found
 
 
-def visible_text(sock: str) -> str:
-    state = page(sock, "state")
-    return json.dumps(state)[:20000]
+def label_of(element: dict) -> str:
+    for key in ("label", "title", "value", "description", "name"):
+        if str(element.get(key) or "").strip():
+            return str(element[key]).strip()
+    return ""
 
 
-def query(sock: str, selector: str) -> list:
-    reply = page(sock, "query", selector=selector)
-    for key in ("elements", "matches", "nodes", "value"):
-        if isinstance(reply.get(key), list):
-            return reply[key]
-    return [reply] if reply and "error" not in reply else []
+def is_toggle(element: dict) -> bool:
+    role = str(element.get("role", "")).lower()
+    return any(word in role for word in ("switch", "checkbox", "toggle"))
 
 
-def in_view(sock: str) -> dict:
-    """Whether the switch's row is on screen: its rect against the page's viewport, as query reports them."""
-    nodes = query(sock, ROW)
-    if not nodes:
-        return {"present": False}
-    node = nodes[0]
-    rect = node.get("rect") or node.get("bounds") or {}
-    view = page(sock, "state").get("viewport") or {}
-    out = {"present": True, "rect": rect, "viewport": view}
-    try:
-        top, height = float(rect.get("y", rect.get("top"))), float(view.get("height"))
-        out["visible"] = 0 <= top < height
-    except (TypeError, ValueError):
-        out["visible"] = None
-    return out
+def find_switch(pid: int) -> dict | None:
+    """The See-Through Dock switch: a switch or checkbox named for it, else the first one after its text."""
+    elements = ax_elements(pid)
+    for element in elements:
+        if is_toggle(element) and TITLE in label_of(element).lower():
+            return element
+    for i, element in enumerate(elements):
+        if TITLE in label_of(element).lower():
+            return next((e for e in elements[i:i + 12] if is_toggle(e)), None)
+    return None
 
 
-def click_switch(sock: str) -> dict:
-    for selector in SWITCH_SELECTORS:
-        if query(sock, selector):
-            reply = page(sock, "click", selector=selector)
-            if reply.get("clicked"):
-                return {"selector": selector, "reply": reply}
-    return {"error": "no switch matched", "tried": SWITCH_SELECTORS}
+def find_labelled(pid: int, text: str, toggle: bool = False) -> dict | None:
+    return next((e for e in ax_elements(pid) if text in label_of(e).lower() and (not toggle or is_toggle(e))), None)
 
 
-def open_settings(sock: str) -> dict:
+def press(pid: int, element: dict) -> dict:
+    token = {"element_token": element["element_token"]} if "element_token" in element else {"element_index": element["element_index"]}
+    return lkr.cua("click", {"pid": pid, "window_id": element["_window"], **token})
+
+
+def outline(pid: int) -> list:
+    """The page's elements a failed step saw, the menu bar left out (it alone filled the old 150 rows), after the
+    copy's windows (id, title, bounds), so a miss shows what was on screen."""
+    windows = [f"window {w.get('window_id')} | {w.get('title', '')} | {w.get('bounds')}"
+               for w in lkr.cua("list_windows", {"pid": pid}).get("windows") or [] if isinstance(w, dict)]
+    rows = [f"{e.get('role')} | {label_of(e)}"[:100] for e in ax_elements(pid)
+            if not str(e.get("role", "")).startswith("AXMenu")]
+    return windows + rows[:150]
+
+
+def open_settings(sock: str, pid: int) -> dict:
     reply = lkr.rpc(sock, "action.run", {"action": "openSettings", "focus": True}, timeout=30)
-    ready = lkr.wait_for(lambda: "error" not in page(sock, "state"), 30, step=0.5)
+    ready = lkr.wait_for(lambda: find_labelled(pid, "advanced") or find_labelled(pid, TITLE), 30, step=1)
     return {"reply": reply, "page_ready": bool(ready)}
 
 
@@ -89,34 +111,38 @@ def close_settings(sock: str) -> None:
     time.sleep(1)
 
 
+def click_switch(pid: int) -> dict:
+    switch = find_switch(pid)
+    if not switch:
+        return {"error": "no switch matched", "outline": outline(pid)}
+    return {"clicked": label_of(switch), "role": switch.get("role"), "reply": press(pid, switch)}
+
+
 def walk(sock: str, pid: int, out: Path, name: str, search: bool) -> dict:
     folder = out / name
     steps, clicks, keys = [], 0, 0
     before = lkr.read_key(sock, KEY)
     steps.append({"step": "cold", "shots": lkr.shoot(pid, folder, "00-start")})
-    steps.append({"step": "Cmd-, (openSettings)", **open_settings(sock)})
+    steps.append({"step": "Cmd-, (openSettings)", **open_settings(sock, pid)})
     keys += 1
     time.sleep(1.5)
     steps[-1]["shots"] = lkr.shoot(pid, folder, "01-settings")
     if search:
-        steps.append({"step": "Cmd-F + type see-through", "focus": page(sock, "command", command="focusSearch"),
-                      "type": page(sock, "type", text="see-through")})
+        window = next((e["_window"] for e in ax_elements(pid) if "search" in label_of(e).lower()), None)
+        hotkey = lkr.cua("hotkey", {"pid": pid, **({"window_id": window} if window else {}), "keys": ["cmd", "f"]})
+        typed = lkr.cua("type_text", {"text": "see-through", "scope": "desktop"})
+        steps.append({"step": "Cmd-F + type see-through", "hotkey": hotkey, "type": typed})
         keys += 2  # Cmd-F and the typing
-        time.sleep(1)
+        time.sleep(1.5)
         steps[-1]["shots"] = lkr.shoot(pid, folder, "02-search")
-    else:
-        view = in_view(sock)
-        steps.append({"step": "row in view before Advanced?", **view})
-        if not view.get("visible"):
-            reply = page(sock, "click", selector='[data-section-link="advanced"]')
-            clicks += 1
-            time.sleep(1)
-            steps.append({"step": "click Advanced", "reply": reply, "shots": lkr.shoot(pid, folder, "02-advanced"),
-                          **in_view(sock)})
-            if not steps[-1].get("visible") and steps[-1].get("present"):
-                page(sock, "scroll", selector=ROW, block="center")
-                steps.append({"step": "scroll to the row (a wheel, not a click)", **in_view(sock)})
-    flip = click_switch(sock)
+    elif not find_switch(pid):
+        link = find_labelled(pid, "advanced")
+        reply = press(pid, link) if link else {"error": "no Advanced link", "outline": outline(pid)}
+        clicks += 1
+        time.sleep(1.5)
+        steps.append({"step": "click Advanced", "reply": reply, "shots": lkr.shoot(pid, folder, "02-advanced"),
+                      "present": bool(find_switch(pid))})
+    flip = click_switch(pid)
     clicks += 1
     time.sleep(1)
     after = lkr.read_key(sock, KEY)
@@ -124,7 +150,7 @@ def walk(sock: str, pid: int, out: Path, name: str, search: bool) -> dict:
                   "shots": lkr.shoot(pid, folder, "03-flipped")})
     ok = after is True and before is not True
     if after is True:  # put it back as it was
-        click_switch(sock)
+        click_switch(pid)
         steps.append({"step": "flip back", "read_back": lkr.read_key(sock, KEY)})
     close_settings(sock)
     return {"path": name, "clicks": clicks, "key_presses": keys, "before": before, "after": after, "ok": ok,
@@ -157,7 +183,7 @@ def main() -> int:
                 receipt["paths"].append(walk(sock, pid, out, name, search))
             except Exception as error:  # one path's failure is recorded; the next still runs
                 receipt["paths"].append({"path": name, "ok": False, "error": f"{type(error).__name__}: {error}"})
-        receipt["settings_text_sample"] = visible_text(sock)[:4000]
+        receipt["outline"] = outline(pid)
     receipt["ok"] = any(p.get("ok") for p in receipt["paths"])
     receipt["fewest_clicks"] = min((p["clicks"] for p in receipt["paths"] if p.get("ok")), default=None)
     (out / "result.json").write_text(json.dumps(receipt, indent=2))

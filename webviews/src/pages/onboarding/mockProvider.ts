@@ -3,7 +3,14 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type ImportDataKind, type MakeItYoursMaterial, type OnboardingState, type WorkStyle } from "./ops";
+import {
+  OPS,
+  type ChatsRunIn,
+  type ImportDataKind,
+  type MakeItYoursMaterial,
+  type OnboardingState,
+  type WorkStyle,
+} from "./ops";
 import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
 import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
@@ -128,6 +135,7 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
+      case OPS.chatsRunIn:
       case OPS.background:
       case OPS.opacity:
       case OPS.material: {
@@ -139,11 +147,13 @@ export class MockOnboardingProvider implements PageClient {
             ? { ...choices, workStyle: input.value as WorkStyle }
             : op === OPS.density
               ? { ...choices, density: String(input.value) }
-              : op === OPS.opacity
-                ? { ...choices, opacity: Number(input.value), opacitySet: true }
-                : op === OPS.material
-                  ? { ...choices, material: input.value as MakeItYoursMaterial }
-                  : { ...choices, background: input.id ?? null };
+              : op === OPS.chatsRunIn
+                ? { ...choices, chatsRunIn: input.value as ChatsRunIn }
+                : op === OPS.opacity
+                  ? { ...choices, opacity: Number(input.value), opacitySet: true }
+                  : op === OPS.material
+                    ? { ...choices, material: input.value as MakeItYoursMaterial }
+                    : { ...choices, background: input.id ?? null };
         this.change({ ...state, makeItYours: next });
         return {} as R;
       }

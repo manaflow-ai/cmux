@@ -14,13 +14,7 @@ import Testing
     }()
 
     static func generated() throws -> [(String, Data)] {
-        [
-            ("com.manaflow.cmux.plist", try ManagedPreferencesManifest.profileManifest()),
-            ("com.manaflow.cmux.json", try ManagedPreferencesManifest.jamfSchema() + Data("\n".utf8)),
-            ("cmux-example.mobileconfig", try ManagedPreferencesManifest.exampleMobileconfig()),
-            ("com.manaflow.cmux.intune.plist", Data(try ManagedPreferencesManifest.intunePreferenceFile().utf8)),
-            ("managed-preferences.md", Data(ManagedPreferencesManifest.markdown().utf8)),
-        ]
+        try ManagedPreferencesManifest.exportFiles()
     }
 
     @Test func checkedInSchemaMatchesTheCatalog() throws {
@@ -61,6 +55,15 @@ import Testing
                 #expect(descriptor.accepts(json))
             }
         }
+    }
+
+    /// An admin reads a key's description in Jamf; a row with no help falls back to its title,
+    /// never to the key itself (#55871: `appearance.menu.*` showed their own key as description).
+    @Test func noJamfDescriptionIsItsOwnKey() throws {
+        let schema = try #require(try JSONSerialization.jsonObject(with: ManagedPreferencesManifest.jamfSchema()) as? [String: Any])
+        let properties = try #require(schema["properties"] as? [String: [String: Any]])
+        let echoing = properties.filter { $0.value["description"] as? String == $0.key }.map(\.key).sorted()
+        #expect(echoing.isEmpty, "descriptions equal to their key: \(echoing)")
     }
 
     @Test func intuneFileHasNoPlistWrapper() throws {

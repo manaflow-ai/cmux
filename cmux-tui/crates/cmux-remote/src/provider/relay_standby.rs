@@ -54,7 +54,47 @@ pub(super) fn inline_wanted() -> bool {
     std::env::var_os("CMUX_RELAY_INLINE").is_none_or(|value| value != "0")
 }
 
+/// An early Connect (`RelayProvider::with_early_connect`) the relay answered with `Allocated`:
+/// no Standby was free, so the frames sent behind the Connect reached no circuit. The caller
+/// dials again with early Connect off.
+pub const EARLY_CONNECT_NOT_INLINE: &str =
+    "relay answered the early Connect with a two-hop circuit";
+
+/// The early Connect's default: `CMUX_RELAY_EARLY_CONNECT=1` turns it on (off unset).
+pub(super) fn early_connect_wanted() -> bool {
+    std::env::var_os("CMUX_RELAY_EARLY_CONNECT").is_some_and(|value| value == "1")
+}
+
 impl RelayLinkGroup {
+    /// Whether this lane's Connect is early: asked for, inline, a first meeting (a resume keeps
+    /// the read-the-answer-first allocation), and one frame per WebSocket message (the batched
+    /// `relay+do` route keeps it too).
+    pub(super) fn early_connect(&self, generation: u64) -> bool {
+        self.early_connect
+            && generation == 0
+            && inline_wanted()
+            && self.framing == RelayCircuitFraming::Single
+    }
+
+    /// This socket as the circuit an early Connect asked for: its first receive reads the
+    /// relay's answer, `Ready` for `lane` and `generation`, before any frame.
+    pub(super) fn inline_link_awaiting(
+        &self,
+        socket: RelaySocket,
+        lane: cmux_remote_protocol::LaneToken,
+        generation: u64,
+    ) -> Box<dyn FrameLink> {
+        Box::new(
+            RelayCircuitLink::new_with_framing(
+                sanitized_route(&self.endpoint),
+                self.config.maximum_frame_bytes,
+                self.framing,
+                socket,
+            )
+            .awaiting_ready(lane, generation),
+        )
+    }
+
     /// The client's control socket as the circuit the relay answered `Ready` on.
     pub(super) fn inline_link(&self, socket: RelaySocket) -> Box<dyn FrameLink> {
         Box::new(RelayCircuitLink::new_with_framing(
@@ -105,11 +145,11 @@ impl<'a> Standbys<'a> {
     ) -> Self {
         let mut standbys =
             Self { config, framing, tls, pending: FuturesUnordered::new(), failures: 0 };
-        // Only the Durable Object relay pairs Standbys; a self-hosted relay is left as it was.
-        if framing == RelayCircuitFraming::Batch {
-            for _ in 0..STANDBY_SOCKETS {
-                standbys.open(ticket.clone(), Duration::ZERO);
-            }
+        // Both relays pair Standbys: the Durable Object and `cmux-relay` (`relay_inline.rs`). A
+        // self-hosted relay older than that refuses `Standby` (`unexpected-control`), which is
+        // `Unsupported`: three refused sockets, then one more ask per `STANDBY_UNSUPPORTED_WAIT`.
+        for _ in 0..STANDBY_SOCKETS {
+            standbys.open(ticket.clone(), Duration::ZERO);
         }
         standbys
     }

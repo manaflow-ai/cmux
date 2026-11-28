@@ -430,6 +430,21 @@
   color: var(--accent-text);
 }
 
+/* A Channels build's PR count: a link-styled toggle that opens the build's list of PRs below. */
+.channel-prs-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.channel-prs {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  white-space: normal;
+}
+
 /* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
    and kept while its switch runs, so the track reads as a list, not a column of buttons. */
 .channel-build .channel-switch {
@@ -1255,6 +1270,12 @@
 .accent-popover .theme-option[aria-selected="true"] {
   background: var(--row-focus);
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* A result's crumb: its page, muted, then its category (findings G6). */
+.result-section-page,
+.result-section-crumb {
+  color: var(--muted-text);
 }
 
 /* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted

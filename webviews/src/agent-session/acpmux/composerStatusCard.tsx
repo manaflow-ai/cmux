@@ -1,15 +1,15 @@
 // The one seam between the composer status dot (ComposerStatusDot.tsx) and the pane's shared hover
 // card pieces: the glass card (ui/Tooltip.tsx AnchoredCard, its see-through blur), the hover bridge and
-// its timings (ui/hoverIntent.ts), the warm tooltip group, focus after Escape, and the keycap. The dot
+// its timings (ui/hoverIntent.ts), the warm tooltip group, focus after Escape, and the key hint. The dot
 // imports none of them directly, so a change to how cards look or hover lands here once.
 import type { ReactNode, Ref } from "react";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { hoverCardGlass, hoverCardUnder } from "../../ui/glass/hoverCardGlass";
 import { HOVER_INTENT, HoverBridge, tooltipGroup, type HoverBridgeOptions } from "../../ui/hoverIntent";
 import { focusAfterEscape } from "../../ui/escapeFocus";
-import { Keycap } from "./Keycap";
+import { KeyHint } from "../../ui/KeyHint";
 
-export { HOVER_INTENT, HoverBridge, Keycap, focusAfterEscape };
+export { HOVER_INTENT, HoverBridge, KeyHint, focusAfterEscape };
 export type { HoverBridgeOptions };
 
 /// Whether a tooltip showed a moment ago: the dot's peek then opens at once, as a warm hint does.

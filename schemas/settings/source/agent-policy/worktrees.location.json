@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Where new worktrees go and how their branches start: only worktrees made afterwards follow it, and setting it back undoes it."
+}

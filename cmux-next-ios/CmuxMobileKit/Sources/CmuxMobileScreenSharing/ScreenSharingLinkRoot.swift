@@ -45,6 +45,7 @@ public struct ScreenSharingLinkRoot: View {
         let marker = Self.environment["CMUX_MOBILE_SS_MARKER"]?.split(separator: ",").compactMap { Double($0) }
         let probe = marker.flatMap { $0.count == 2 ? ScreenPresentProbe(cellFraction: $0[0], originY: $0[1]) : nil }
         let session = ScreenSession(title: pairing.name, pairing: pairing)
+        session.vncRules = ScreenSharingVNCRules.rules
         // Before the viewer exists: the probe watches its video view from when it is made.
         session.debugVideoProbe = probe
         self.session = session

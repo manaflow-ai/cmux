@@ -20,12 +20,35 @@ export function monthTotal(usage: CloudUsage): number {
   return finite(usage.usd.total);
 }
 
-/** One meter's amount in its quoted unit, and the server's dollars for it. */
-export function meterAmount(usage: CloudUsage, meter: UsageMeter): { amount: number; usd: number } {
+/** One meter's amount in its quoted unit, the server's dollars for it, and the list rate that priced it (per
+ * vCPU-hour, GiB-hour or GiB-month; undefined from a server that sends no rates). */
+export function meterAmount(
+  usage: CloudUsage,
+  meter: UsageMeter,
+): { amount: number; usd: number; rate: number | undefined } {
   const seconds =
     meter === "vcpu" ? usage.vcpu_seconds : meter === "memory" ? usage.memory_gib_seconds : usage.stored_gib_seconds;
   const amount = meter === "stored" ? finite(seconds) / (MONTH_HOURS * HOUR) : finite(seconds) / HOUR;
-  return { amount: Math.max(0, amount), usd: finite(usage.usd[meter]) };
+  return { amount: Math.max(0, amount), usd: finite(usage.usd[meter]), rate: meterRate(usage, meter) };
+}
+
+function meterRate(usage: CloudUsage, meter: UsageMeter): number | undefined {
+  const rates = usage.rates;
+  if (!rates) return undefined;
+  const rate =
+    meter === "vcpu"
+      ? rates.vcpu_hour_usd
+      : meter === "memory"
+        ? rates.memory_gib_hour_usd
+        : rates.stored_gib_month_usd;
+  return typeof rate === "number" && Number.isFinite(rate) && rate >= 0 ? rate : undefined;
+}
+
+/** A rate in dollars with as many decimals as it needs, from two to four ("$0.10", "$0.045", "$0.0145"). */
+export function ratePrice(rate: number, language: string): string {
+  return intl
+    .NumberFormat(language, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 })
+    .format(rate);
 }
 
 /** "12.5", "0.03": at most two significant decimals below 1, one above. */

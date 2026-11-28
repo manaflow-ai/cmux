@@ -50,6 +50,9 @@ KEEP_PATHS = frozenset({
     ".github/workflows/cmux-next-batch.yml",
     ".github/workflows/cloud-resume-matrix.yml",
     ".github/workflows/cloud-wake-echo.yml",
+    # Kill-mid-move drills on real staging machines (PR #51760): its group queues a newer head behind a live run
+    # (cancel-in-progress: false), since a drill cancelled mid-move uploads nothing and leaves its machines behind.
+    ".github/workflows/cloud-move-kill.yml",
     ".github/workflows/chat-open-perf-report.yml",
 })
 

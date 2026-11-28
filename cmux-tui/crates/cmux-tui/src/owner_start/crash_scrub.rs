@@ -3,7 +3,8 @@
 //! The app's reports go through `SentryScrubber` (Packages/Shared/CmuxSentryTelemetry); this is
 //! the same free-text rule set, in the same order, for the panic and memory lines `crash_forward`
 //! sends: URL credentials, then tokens and keys (`ScrubberDenylists.valuePatterns`), then emails,
-//! then the home directory and any other `/Users/<name>` or `/home/<name>`. A rule's group 1, when
+//! then the home directory and any other `/Users/<name>`, `/home/<name>` or Windows
+//! `\Users\<name>` (`C:\Users\<name>`, the profile `USERPROFILE` names). A rule's group 1, when
 //! it has one, is a prefix kept in the output (`token=`).
 
 use regex::{Captures, Regex};
@@ -48,6 +49,7 @@ struct Rules {
     email: Regex,
     users: Regex,
     homes: Regex,
+    windows_users: Regex,
 }
 
 fn compile(pattern: &str) -> Option<Regex> {
@@ -63,6 +65,9 @@ static RULES: LazyLock<Option<Rules>> = LazyLock::new(|| {
         email: compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")?,
         users: compile(r#"(?i)/Users/[^/\s"']+"#)?,
         homes: compile(r#"(?i)/home/[^/\s"']+"#)?,
+        // A Windows profile in a backslash path (`C:\Users\alice\.cargo\...`, `\\?\C:\Users\alice`).
+        // The forward-slash form (`C:/Users/alice`) is the `users` rule's.
+        windows_users: compile(r#"(?i)\\Users\\[^\\/\s"']+"#)?,
     })
 });
 
@@ -72,7 +77,7 @@ fn keep_prefix<'t>(with: &'t str) -> impl FnMut(&Captures<'_>) -> String + 't {
 }
 
 /// `text` with secrets, emails and user names removed; `home` becomes `~`, unless it is `/`,
-/// `/Users` or `/home`.
+/// `/Users` or `/home` (or a drive's `\Users`).
 pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     let Some(rules) = RULES.as_ref() else {
         return USER.to_string();
@@ -85,10 +90,18 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     // `/`, `/Users` or `/home` as the home would swallow the users' directory before the generic
     // rule below sees the name after it, so those get no home rule (as in `SentryScrubber`).
     let users_dir = |home: &&str| {
-        matches!(home.trim_matches('/').to_ascii_lowercase().as_str(), "" | "users" | "home")
+        // A Windows drive (`C:`) before `\Users` is still the users' directory.
+        let bare = match home.as_bytes() {
+            [drive, b':', ..] if drive.is_ascii_alphabetic() => home.get(2..).unwrap_or(home),
+            _ => home,
+        };
+        matches!(
+            bare.trim_matches(['/', '\\']).to_ascii_lowercase().as_str(),
+            "" | "users" | "home"
+        )
     };
-    // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
-    let home = home.map(|home| home.trim_end_matches('/'));
+    // A trailing slash (`HOME=/srv/alice/`, `C:\Users\alice\`) would keep the home from matching.
+    let home = home.map(|home| home.trim_end_matches(['/', '\\']));
     if let Some(home) = home.filter(|home| !users_dir(home)) {
         // Only a whole name: with `/Users/al`, `/Users/alice` must not become `~ice`, so the home
         // ends at any character that cannot continue a name (`/`, `:`, `)`, a space, the end).
@@ -99,6 +112,7 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
         out = bounded.replace_all(&out, "~$1").into_owned();
     }
     out = rules.users.replace_all(&out, format!("/Users/{USER}")).into_owned();
+    out = rules.windows_users.replace_all(&out, format!("\\Users\\{USER}")).into_owned();
     rules.homes.replace_all(&out, format!("/home/{USER}")).into_owned()
 }
 

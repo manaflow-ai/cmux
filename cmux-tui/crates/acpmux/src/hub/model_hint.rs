@@ -21,7 +21,6 @@ impl Hub {
             Some(m) => format!("{head}/{m}"),
             None => head.to_owned(),
         };
-        let known = self.known_models.lock().unwrap();
         let mut hits: Vec<String> = Vec::new();
         let mut claude_harness: Option<&str> = None;
         for (name, p) in &cfg.harnesses {
@@ -34,7 +33,7 @@ impl Hub {
                     ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
                 }
                 crate::config::HarnessKind::Acp => {
-                    ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
+                    ids.extend(self.model_lists.acp(name).into_iter().flatten().map(|(id, _)| id))
                 }
                 crate::config::HarnessKind::Terminal => {}
             }

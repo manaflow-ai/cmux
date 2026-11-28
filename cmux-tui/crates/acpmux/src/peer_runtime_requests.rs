@@ -170,11 +170,14 @@ impl Peer {
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
+            // `data.reason` names the wait past its deadline for the callers that sort the
+            // failure by kind (`attach_failure_class`); the message is unchanged.
             Err(_) => Err(RpcError::internal(format!(
                 "peer {} timed out after {}s",
                 self.name,
                 started.elapsed().as_secs()
-            ))),
+            ))
+            .with_data(json!({"reason": "deadline_exceeded", "peer": self.name}))),
         }
     }
 
@@ -295,7 +298,8 @@ impl Peer {
                 // unless a client marked it again meanwhile.
                 Err(e) => {
                     let refused = refuses_attach(&e);
-                    tracing::warn!(peer = %self.name, session = %sid, refused, "the peer's chat was not replayed: {}", e.message);
+                    let class = attach_failure_class(&e);
+                    tracing::warn!(peer = %self.name, session = %sid, refused, class = %class, "the peer's chat was not replayed: {}", e.message);
                     self.clear_attached(&sid);
                     if refused {
                         let mut marks = self.attached.lock_or_recover();
@@ -327,6 +331,7 @@ impl Peer {
             let mut progressed = false;
             if let Some(events) = page.get("events").and_then(Value::as_array) {
                 for event in events {
+                    self.received.add_replay(serde_json::to_string(event).map_or(0, |t| t.len()));
                     if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
                         progressed |= seq > after;
                         after = after.max(seq);

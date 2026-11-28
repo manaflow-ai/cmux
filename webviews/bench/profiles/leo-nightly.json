@@ -25,6 +25,7 @@
     "frame_p99_ms": 9.3,
     "frames_over_50ms": 0,
     "frame_count": 1181,
+    "display_hz": 120,
     "keydown_to_frame_p95_ms": null,
     "long_task_blocking_ms_per_s": 0.0
   },

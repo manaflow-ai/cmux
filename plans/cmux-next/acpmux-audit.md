@@ -394,3 +394,7 @@ take the wrapper as the daemon binary either.
   the progress bar on `ghostty`, and a Ghostty version turns their copy-on-select off (cmux#22585).
 - Nothing needed from you unless an acpmux path starts a person-facing terminal; that one must
   call `PtyCommand::terminal_identity()`.
+
+## Notice to PL-acpmux: Codex provider catalogs and speed changes (2026-11-20)
+
+The live probe uses the native bridge profile’s executable, global arguments and environment. The bridge selects the configured provider on its own connection and reads the remaining model pages before validating tiers. The CLI regression `running_chat_uses_its_own_providers_later_model_page` exercises two profiles sharing one executable. `cli_changes_codex_speed_without_switching_model` alternates the tier ten times and checks the model on each answer.

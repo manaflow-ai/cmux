@@ -4,7 +4,7 @@
 // pills, proportions and motion as the dark theme.
 {
   "name": "Basalt Light",
-  "description": "The agent editor, light: #f9f7f8 page, #f7f7f7 sidebar, steel-blue Send, bordered prompt.",
+  "description": "Light: soft off-white, a framed prompt, a steel-blue accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

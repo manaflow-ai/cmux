@@ -522,7 +522,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     // Ghost calls: tasks whose provider call never ends and that no `cancel` reaches.
     let ghosts: Vec<_> = (0..unreserved)
         .map(|_| {
-            let slot = slots.try_take(false).expect("a slot under the share");
+            let slot = slots.try_take(false).expect("a permit under the share");
             tokio::spawn(async move {
                 std::future::pending::<()>().await;
                 drop(slot);
@@ -542,7 +542,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     // A `cancel` aborts the call's task: dropping it frees the slot (RAII), and the waiter takes it.
     ghosts[0].abort();
     let taken = waiter.await.unwrap();
-    assert!(taken.is_some(), "the freed slot goes to the waiting call");
+    assert!(taken.is_some(), "the freed permit goes to the waiting call");
     assert_eq!(slots.in_flight(), unreserved);
     for ghost in &ghosts {
         ghost.abort();
@@ -553,7 +553,7 @@ async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed
     assert_eq!(
         slots.in_flight(),
         1,
-        "every aborted call gave its slot back; the waiter's is the one left"
+        "every aborted call gave its permit back; the waiter's is the one left"
     );
 }
 
@@ -610,7 +610,7 @@ async fn a_call_past_the_wait_gets_a_529_overloaded_error_with_a_jittered_retry_
     assert_eq!(body["error"]["type"], "overloaded_error");
     assert_eq!(body["error"]["code"], "inference.gateway_busy");
     assert_eq!(frames[2]["t"], "end");
-    assert_eq!(slots.in_flight(), MAX_CALLS, "a busy call takes no slot");
+    assert_eq!(slots.in_flight(), MAX_CALLS, "a busy call takes no permit");
     drop(held);
 }
 
@@ -620,4 +620,149 @@ fn busy_retry_after_is_full_jitter_within_its_bound() {
     assert!(samples.iter().all(|s| (1..=BUSY_RETRY_AFTER_MAX_S).contains(s)));
     let distinct: std::collections::HashSet<_> = samples.iter().collect();
     assert!(distinct.len() > 5, "spread out, not one value: {distinct:?}");
+}
+
+/// A keep-alive fake proxy: answers every request on every socket `200 ok`, and counts the sockets it accepted.
+async fn counting_upstream() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = accepted.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            count.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut got = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let Ok(n) = sock.read(&mut buf).await else { return };
+                    if n == 0 {
+                        return;
+                    }
+                    got.extend_from_slice(&buf[..n]);
+                    // One request at a time: its head, then its declared body.
+                    while let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .map_or(0, |v| v.trim().parse::<usize>().unwrap());
+                        if got.len() < end + 4 + len {
+                            break;
+                        }
+                        got.drain(..end + 4 + len);
+                        // HEAD advertises the representation length but sends no body bytes.
+                        let reply = if head.starts_with("head ") {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n"
+                        } else {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}"
+                        };
+                        if sock.write_all(reply.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    (base, accepted)
+}
+
+#[tokio::test]
+async fn the_start_warms_the_proxy_and_the_first_call_reuses_that_connection() {
+    use std::sync::atomic::Ordering;
+    let (base, accepted) = counting_upstream().await;
+    let provider = Arc::new(Provider::new(Upstream::Proxy { base, key_file: None }, test_client()));
+    // What serve() starts before it dials the backend.
+    let scope = cmux_scope::Scope::new("test warm-up");
+    assert_eq!(start_warm(&scope, &provider).await.unwrap(), Some(1));
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    let (tx, mut rx) = mpsc::channel(8);
+    answer(&provider, "c1", pending("/v1/messages", "{}"), &tx).await;
+    let got = frames(&mut rx).await;
+    assert_eq!(got[0]["t"], "head", "{got:?}");
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        1,
+        "the call dialed again instead of reusing the warm socket"
+    );
+}
+
+#[tokio::test]
+async fn a_warm_up_that_fails_changes_nothing() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let provider = Arc::new(Provider::new(
+        Upstream::Proxy { base: format!("http://127.0.0.1:{port}"), key_file: None },
+        test_client(),
+    ));
+    let scope = cmux_scope::Scope::new("test warm-up");
+    assert_eq!(start_warm(&scope, &provider).await.unwrap(), Some(0));
+    // The call still runs and fails the way it always did.
+    let (tx, mut rx) = mpsc::channel(4);
+    answer(&provider, "c2", pending("/v1/messages", "{}"), &tx).await;
+    let got = frames(&mut rx).await;
+    assert_eq!(got[0]["code"], "inference.upstream_unreachable");
+}
+
+#[test]
+fn warms_every_origin_its_calls_go_to() {
+    let proxy = Provider::new(
+        Upstream::Proxy { base: "http://sr2:4016".into(), key_file: None },
+        test_client(),
+    );
+    assert_eq!(proxy.warm_urls(), vec!["http://sr2:4016".to_owned()]);
+    let codex = Provider::new(Upstream::Codex { auth: "/x/auth.json".into() }, test_client());
+    assert_eq!(codex.warm_urls(), vec![CODEX_BACKEND.to_owned()]);
+}
+
+/// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
+/// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
+#[test]
+fn call_line_splits_head_from_stream() {
+    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
+    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
+    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
+    let longest =
+        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
+}
+
+/// A Codex login sends its access token only as ChatGPT's bearer and its account only as `chatgpt-account-id`;
+/// the refresh and id tokens stay on the gateway (the access token is fresh), and so does the backend's machine id.
+#[tokio::test]
+async fn seeded_codex_login_rides_only_where_chatgpt_needs_it() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"exp\":4102444800}");
+    let access = format!("e30.{payload}.SEEDgatewayCodexAccess-3a1f");
+    let refresh = "SEEDgatewayCodexRefresh-8c02";
+    let id_token = "SEEDgatewayCodexIdToken-55e9";
+    let account = "SEEDgatewayCodexAccount-d7b6";
+    let dir = tempfile::tempdir().unwrap();
+    let auth = dir.path().join("auth.json");
+    let login = json!({"tokens": {
+        "access_token": access, "refresh_token": refresh, "id_token": id_token, "account_id": account,
+    }});
+    std::fs::write(&auth, login.to_string()).unwrap();
+    let http = cmux_egress::client_builder("cmux_tui::cli::inference_gateway").build().unwrap();
+    let provider = Provider::new(Upstream::Codex { auth }, http);
+    let (tx, mut rx) = mpsc::channel(32);
+    answer(&provider, "c1", pending("/v1/responses", r#"{"model":"m"}"#), &tx).await;
+    let _ = frames(&mut rx).await;
+    let sent = cmux_egress::capture::requests_to("chatgpt.com");
+    assert!(sent.iter().any(|r| r.target == "/backend-api/codex/responses"), "{sent:?}");
+    for (secret, place) in
+        [(access.as_str(), ": header authorization"), (account, ": header chatgpt-account-id")]
+    {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
+    for secret in [refresh, id_token, "vm_abcdefghij0123456789"] {
+        assert_eq!(cmux_egress::capture::leaks(secret), Vec::<String>::new(), "{secret}");
+    }
 }

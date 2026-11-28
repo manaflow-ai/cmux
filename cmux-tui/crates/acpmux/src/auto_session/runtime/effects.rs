@@ -131,6 +131,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         let sent_at_epoch = tracked.copying.take();
         let wanted = tracked.wanted.take();
+        let copied_ok = result.is_ok();
         let (mut lost, mut outdated) = (false, false);
         let event = match result {
             Ok(copied) => {
@@ -167,7 +168,24 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let copies = chat.may_run() || chat.moving().is_some();
         let Some(epoch) = chat.epoch().filter(|_| copies) else { return };
         match wanted {
-            Some(copy) => self.copy(id, epoch, copy),
+            Some(copy) => {
+                self.copy(id, epoch, copy);
+                // If the chat cannot copy at this point (for example, a laptop stopped on a
+                // wake), the queued copy is discarded. The completed copy is then the newest
+                // one that exists, so do not leave the holder in `Sending` for a copy that has
+                // no task behind it. A failed copy remains retryable on its next tick.
+                if let Some(tracked) = self.chats.get_mut(id)
+                    && tracked.copying.is_none()
+                    && tracked.wanted.is_none()
+                    && tracked.chat.copy == holder::CopyState::Sending
+                {
+                    tracked.chat.copy = if copied_ok {
+                        holder::CopyState::Stored
+                    } else {
+                        holder::CopyState::Failed
+                    };
+                }
+            }
             // The copy is still owed, at the epoch the chat runs at now.
             None if outdated && chat.may_run() => self.read_work(id, Some(Change::QueueChanged)),
             None => {}

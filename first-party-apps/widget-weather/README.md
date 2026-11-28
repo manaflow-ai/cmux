@@ -24,8 +24,8 @@ imports nothing but `cmux-extension-sdk`.
   storage, so a new window or a restart draws at once with no read; it is read again at most every
   10 minutes, on the host's 15 minute refresh (`refresh.everySeconds: 900`). Changing units or the
   background reads nothing.
-- **Units and clock.** The locale's region decides (Fahrenheit and a 12-hour clock in the US), else,
-  for a locale with no region (what hosts send today), the place's country. Units in Settings
+- **Units and clock.** The widget context's locale wins over the app locale. Its region decides
+  (Fahrenheit and a 12-hour clock in the US), else the place's country. Units in Settings
   (auto, celsius, fahrenheit) overrides.
 
 ## Scopes
@@ -60,10 +60,5 @@ Open-Meteo answers (`preview/fixtures.ts`).
 
 ## Gaps
 
-- The web scene renderer has no weather glyphs (its icon pack maps few SF Symbols), so the New Tab
-  draws a neutral fallback for the sky symbols; the native sidebar draws the SF Symbols.
-- No gradients and no multicolor symbols in the scene: the sky is one color, a lone sun is yellow
-  and every other symbol white.
 - A store app is unverified, so installing it grants no `net:` scope even though the install sheet
   lists them; the person allows network access in Settings > Apps first.
-- The host passes the locale without its region (`en`), so units fall back to the place's country.

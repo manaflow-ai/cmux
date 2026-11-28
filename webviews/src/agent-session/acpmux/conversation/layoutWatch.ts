@@ -306,6 +306,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
         cause: "reflow",
         deltaPx: 0,
         frame: frameCount,
+        // l10n-allow: a layout probe's developer finding, not shown
         detail: "inline translate left after settle",
       });
   }
@@ -317,6 +318,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
         cause: "resize",
         deltaPx: 0,
         frame: frameCount,
+        // l10n-allow: a layout probe's developer finding, not shown
         detail: "fold kept an inline height after settle",
       });
   for (const ghost of root.querySelectorAll<HTMLElement>(".acpmux-row--fold-ghost"))
@@ -326,6 +328,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
       cause: "unmount",
       deltaPx: 0,
       frame: frameCount,
+      // l10n-allow: a layout probe's developer finding, not shown
       detail: "ghost left after settle",
     });
   return flags;
@@ -367,18 +370,6 @@ export function expect(
 
 /// The declared moves live now (tests, debug automation).
 export const liveExpectations = (at = performance.now()) => live(expects, at);
-
-/// The watch's flags so far, newest last, and a count per invariant (debug automation, the metric).
-export function layoutWatchReport(): { flags: ShiftFlag[]; counts: Record<string, number>; unexplained: number } {
-  let unexplained = 0;
-  for (const value of counts.values()) unexplained += value;
-  return { flags: [...kept], counts: Object.fromEntries(counts), unexplained };
-}
-
-export function onLayoutFlags(listener: (flags: ShiftFlag[]) => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
 
 /// Forget flags and declared moves (tests).
 export function resetLayoutWatch(): void {

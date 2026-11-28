@@ -58,6 +58,12 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(found[0]["queued"], 2)
         self.assertEqual(found[0]["job_url"], queued["html_url"])
 
+    def test_scheduler_waiting_states_are_starved_when_no_runner_is_assigned(self) -> None:
+        for status in ("waiting", "pending", "requested"):
+            with self.subTest(status=status):
+                found = starved(job(status=status, created=30))
+                self.assertEqual([entry["label"] for entry in found], [SIDE])
+
     def test_a_recent_start_on_the_label_means_it_is_served(self) -> None:
         self.assertEqual(starved(job(created=60), job(status="completed", created=20, started=4, runner="mini-3")), [])
         self.assertEqual(starved(job(created=60), job(status="in_progress", created=90, started=80, runner="mini-3")),

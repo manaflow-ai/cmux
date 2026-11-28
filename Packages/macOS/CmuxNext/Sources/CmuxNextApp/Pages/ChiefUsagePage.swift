@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextHomeEngine
 import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let chiefUsage = InternalPageID(rawValue: "chief-usage")
 }
 

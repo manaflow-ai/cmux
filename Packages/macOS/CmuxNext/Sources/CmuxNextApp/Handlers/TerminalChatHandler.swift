@@ -171,13 +171,13 @@ enum TerminalChatHandler {
             .compactMap { services.agentTabs.tab(showing: $0.id) }.first
     }
 
-    /// A swap of a pair lands at the same turn in the other view (``TerminalChatPlacing``, Rust's
-    /// `tabs::place`): the face about to show moves first, then `reveal` shows it; at once when nothing moves.
+    /// A swap of a pair lands at the same turn in the other view with the unsent draft (``TerminalChatPlacing``, Rust's
+    /// `tabs::place` and `tabs::draft`): the face about to show moves first, then `reveal` shows it; at once when nothing moves.
     private static func swap(_ placing: TerminalChatPlacing, toTerminal: Bool, reveal: @escaping @MainActor @Sendable () -> Bool) throws -> ActionEffect {
-        if placing.settled { if reveal() { return .done }; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal) }
+        if placing.settled(toTerminal: toTerminal) { if reveal() { return .done }; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal) }
         // action-wait-allow: the chat page (its own process) names its turn before either face shows, 60 ms at most in all
         return .waiting(.externalProcess) {
-            if toTerminal { await placing.placeTerminal() } else { await placing.placeChat() }
+            await placing.swap(toTerminal: toTerminal)
             return reveal() ? nil : "\(MiscHandlerStrings.terminalChatNoTerminal)"
         }
     }
