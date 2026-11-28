@@ -46,8 +46,7 @@ extension UpdaterService {
             }
             actions = [.install]
             // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
-            if let prs = stagedPullRequests, !prs.isEmpty,
-               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+            if let prs = stagedPullRequests, !prs.isEmpty, var members = prs.settingsMembers {
                 members["title"] = .string(UpdaterStrings.pullRequestsTitle)
                 members["other"] = .string(UpdaterStrings.pullRequestsOther)
                 json["prs"] = .object(members)
@@ -230,4 +229,12 @@ public final class AppUpdatePageProvider: PageProvider {
 nonisolated extension UpdaterStrings {
     static var settingsTitle: String { text("updater.settings.title", "App Update") }
     static var settingsCheckNow: String { text("updater.settings.checkNow", "Check Now") }
+}
+
+extension BuildPullRequests {
+    /// The list as the Settings page reads it, encoded outside the main actor (a nonisolated value type's own conversion).
+    nonisolated var settingsMembers: [String: JSONValue]? {
+        guard case .object(let members)? = try? JSONValue.parse(JSONEncoder().encode(self)) else { return nil }
+        return members
+    }
 }
