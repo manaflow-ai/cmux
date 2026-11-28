@@ -600,12 +600,19 @@ impl HealthService {
             return self.rows();
         }
         let previous = self.rows();
+        // Each subject starts its CLI (`--version`, `auth.check`): a few at a time
+        // (`local_check_slots`), and one `--version` per program however many profiles run it.
+        let versions = std::sync::Arc::new(Versions::default());
         let probes = subjects.into_iter().map(|s| {
             let home = settings.home.clone();
-            tokio::task::spawn_blocking(move || local(s, &home))
+            let versions = versions.clone();
+            move || local_with(s, &home, &versions)
         });
-        let mut rows: Vec<HarnessHealth> =
-            futures::future::join_all(probes).await.into_iter().filter_map(Result::ok).collect();
+        let mut rows: Vec<HarnessHealth> = run_bounded(probes, local_check_slots())
+            .await
+            .into_iter()
+            .filter_map(Result::ok)
+            .collect();
         let now = now_ms();
         let mut asked: HashMap<String, Option<String>> = HashMap::new();
         for row in &mut rows {
@@ -713,9 +720,76 @@ fn save(path: &Path, rows: &[HarnessHealth]) {
     crate::config::write_atomic_later(path, body);
 }
 
-/// The part of a check that runs here: where the program is, how it was
-/// installed, its version, its sign-in, and its update and login commands.
+/// How many subjects a check probes at once. Every subject starts its agent CLI, and the
+/// daemon's first check asked them all together: on a new 2-CPU cloud VM, `claude`,
+/// `cursor-agent` and three `opencode` (one per profile on it) started beside the model probes
+/// held a load of 7.5 to 9 with 21 to 23 runnable tasks for the first 15 s. Half the cores,
+/// one on a 2-CPU guest, at most 4.
+fn local_check_slots() -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    (cores / 2).clamp(1, 4)
+}
+
+/// Runs `jobs` on the blocking pool, at most `slots` at once, and answers in their order. A
+/// job holds its slot until it returns, even when the caller stopped waiting.
+async fn run_bounded<T, J>(
+    jobs: impl IntoIterator<Item = J>,
+    slots: usize,
+) -> Vec<Result<T, tokio::task::JoinError>>
+where
+    T: Send + 'static,
+    J: FnOnce() -> T + Send + 'static,
+{
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(slots.max(1)));
+    let runs = jobs.into_iter().map(|job| {
+        let gate = gate.clone();
+        async move {
+            let slot = gate.acquire_owned().await.expect("the check's gate is never closed");
+            tokio::task::spawn_blocking(move || {
+                let _slot = slot;
+                job()
+            })
+            .await
+        }
+    });
+    futures::future::join_all(runs).await
+}
+
+/// One check's `--version` answers by program path: profiles on the same CLI (OpenCode's
+/// `github-copilot` and `openrouter` beside `opencode`) share one run. A second asker waits
+/// for the first's answer.
+#[derive(Default)]
+struct Versions(
+    Mutex<HashMap<String, std::sync::Arc<std::sync::OnceLock<Result<String, String>>>>>,
+);
+
+impl Versions {
+    fn of(
+        &self,
+        path: &str,
+        ask: impl FnOnce(&str) -> Result<String, String>,
+    ) -> Result<String, String> {
+        let cell = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(path.to_owned())
+            .or_default()
+            .clone();
+        cell.get_or_init(|| ask(path)).clone()
+    }
+}
+
+/// `local_with` with no other subject to share a `--version` answer with.
+#[cfg(test)]
 fn local(s: Subject, home: &Path) -> HarnessHealth {
+    local_with(s, home, &Versions::default())
+}
+
+/// The part of a check that runs here: where the program is, how it was
+/// installed, its version (`versions`: this check's answers so far), its sign-in,
+/// and its update and login commands.
+fn local_with(s: Subject, home: &Path, versions: &Versions) -> HarnessHealth {
     // Bundled or installed, while Labs `labs.bundledCodexAppServer` is on; None while off.
     let codex_bundle = (s.family == "codex")
         .then(|| {
@@ -736,7 +810,9 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
             problem = Some(format!("`{}` is not installed", s.program));
             None
         }
-        (Some(path), _) => probe::installed_version(path).map_err(|e| problem = Some(e)).ok(),
+        (Some(path), _) => {
+            versions.of(path, probe::installed_version).map_err(|e| problem = Some(e)).ok()
+        }
     };
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
