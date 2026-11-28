@@ -1572,6 +1572,15 @@ struct Tap {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     /// The terminal bytes `output` and `vt-state` events carried, decoded (their payload).
     terminal_bytes: u64,
+    /// The last `vt-state`'s `history_rows_omitted` and `history_rows_skipped` (the scroll-step
+    /// bench walks the phone's history fetches from them).
+    vt_history: Option<(u64, u64)>,
+    /// `output` and `vt-state` lines whose terminal bytes repaint from the top (`ESC [ H`, a
+    /// full-screen program's whole-screen redraw): the redraws they carry (one per `ESC [ H`)
+    /// and their line bytes; the rest of those lines' bytes are incremental output.
+    full_redraws: u64,
+    full_redraw_bytes: u64,
+    incremental_bytes: u64,
 }
 
 impl Tap {
@@ -1593,10 +1602,29 @@ impl Tap {
                 match (v.get("event").and_then(Value::as_str), v.get("id").and_then(Value::as_u64))
                 {
                     (Some(event), _) => {
+                        if event == "vt-state" {
+                            let field =
+                                |name: &str| v.get(name).and_then(Value::as_u64).unwrap_or(0);
+                            self.vt_history = Some((
+                                field("history_rows_omitted"),
+                                field("history_rows_skipped"),
+                            ));
+                        }
                         if matches!(event, "output" | "vt-state")
                             && let Some(data) = v.get("data").and_then(Value::as_str)
                         {
                             self.terminal_bytes += (data.len() as u64 / 4) * 3;
+                            let bytes = base64::engine::general_purpose::STANDARD
+                                .decode(data)
+                                .unwrap_or_default();
+                            let homes =
+                                bytes.windows(3).filter(|window| *window == b"\x1b[H").count();
+                            if homes > 0 {
+                                self.full_redraws += homes as u64;
+                                self.full_redraw_bytes += len as u64;
+                            } else {
+                                self.incremental_bytes += len as u64;
+                            }
                         }
                         format!("event:{event}")
                     }
@@ -1616,6 +1644,9 @@ impl Tap {
         self.down.clear();
         self.up.clear();
         self.terminal_bytes = 0;
+        self.full_redraws = 0;
+        self.full_redraw_bytes = 0;
+        self.incremental_bytes = 0;
         out
     }
 }
@@ -1833,6 +1864,446 @@ fn terminal_bytes_per_minute() {
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per scroll step: the phone's history fetches over a long, streaming terminal
+
+/// `DaemonTerminalSession.swift`: rows each `loadOlderHistory()` adds to the tail allowance.
+const HISTORY_CHUNK_ROWS: u64 = 2_000;
+/// The newest rows the phone holds before it switches to a window (`maxTailHistoryRows`).
+const MAX_TAIL_HISTORY_ROWS: u64 = 5 * HISTORY_CHUNK_ROWS;
+/// The window far above the screen (`historyWindowRows`) and its step (`historyWindowStep`).
+const HISTORY_WINDOW_ROWS: u64 = 2 * HISTORY_CHUNK_ROWS;
+const HISTORY_WINDOW_STEP: u64 = 1_500;
+
+/// One scroll step's request, as `DaemonTerminalSession.loadOlderHistory()` makes it from the
+/// last `vt-state`'s `history_rows_omitted`: against a daemon with
+/// `attach-replay-history-window-v1`, the tail grows to `MAX_TAIL_HISTORY_ROWS` and past it a
+/// window moves up `HISTORY_WINDOW_STEP`; against one without, the tail allowance grows a chunk per
+/// step (the whole history once a chunk or less is left). `None`: the phone sends nothing.
+struct ScrollPolicy {
+    tail: bool,
+    window: bool,
+    allowance: Option<u64>,
+    start: Option<u64>,
+}
+
+impl ScrollPolicy {
+    fn next(&mut self, surface: u64, omitted: u64) -> Option<Value> {
+        if !self.tail || omitted == 0 {
+            return None;
+        }
+        if self.window
+            && (self.start.is_some()
+                || self.allowance.unwrap_or(0) + HISTORY_CHUNK_ROWS > MAX_TAIL_HISTORY_ROWS)
+        {
+            let start = omitted.saturating_sub(HISTORY_WINDOW_STEP);
+            self.start = Some(start);
+            return Some(json!({"surface": surface, "cols": COLS, "rows": ROWS,
+                "replay_history_rows": HISTORY_WINDOW_ROWS, "replay_history_start": start}));
+        }
+        let allowance = self.allowance?;
+        self.allowance =
+            if omitted <= HISTORY_CHUNK_ROWS { None } else { Some(allowance + HISTORY_CHUNK_ROWS) };
+        let mut params = json!({"surface": surface, "cols": COLS, "rows": ROWS});
+        if let Some(rows) = self.allowance {
+            params["replay_history_rows"] = json!(rows);
+        }
+        Some(params)
+    }
+}
+
+/// Bytes per scroll step: a terminal with `NETCOND_SCROLL_LINES` (20000) lines of history that
+/// keeps streaming a line every 50 ms, attached the phone's way (`replay_history_rows: 0`), then
+/// `NETCOND_SCROLL_STEPS` (10) history fetches up toward line 1, each the request the phone's
+/// `loadOlderHistory()` sends to this daemon (`ScrollPolicy`), through the shaper. Per step
+/// (`phase` `scroll_step`, `scale` `step<N>`): `bytes_down` (everything down from the request to
+/// its replay: the `vt-state`, its reply and the streamed output meanwhile), `replay_bytes`
+/// (the `vt-state` and the reply), `rows_asked`, `history_rows_omitted`, `step_ms`. Env:
+/// `NETCOND_PROFILES` (lte,good-wifi), `NETCOND_RUNS` (1), `NETCOND_SEED_BASE` (0).
+#[test]
+#[ignore = "the scroll-step bench: run with --ignored --nocapture"]
+fn terminal_scroll_steps() {
+    let file = ProfileFile::builtin();
+    let profiles = env_list("NETCOND_PROFILES", "lte,good-wifi");
+    let lines = env_u64("NETCOND_SCROLL_LINES", 20_000);
+    let steps = env_u64("NETCOND_SCROLL_STEPS", 10);
+    let runs = env_u64("NETCOND_RUNS", 1);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let daemon = Daemon::start(&[]);
+    let surface = daemon.tab(&format!(
+        "awk 'BEGIN{{for(i=0;i<{lines};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; i=0; while :; do i=$((i+1)); printf 'stream %07d an agent streaming its answer while the reader scrolls\\n' $i; sleep 0.05; done"
+    ));
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while !client
+            .call(json!({"cmd": "read-screen", "surface": surface}))
+            .to_string()
+            .contains("stream ")
+        {
+            assert!(std::time::Instant::now() < deadline, "history did not finish printing");
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    println!(
+        "NETCOND-SCROLL lines={lines} steps={steps} streaming=20 lines/s (about 1.5 KB/s) cols={COLS} rows={ROWS}"
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let failed = runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        let mut failed = 0;
+        for name in &profiles {
+            let profile =
+                file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+            for run in 0..runs {
+                let seed = seed_base + run;
+                if let Err(why) = scroll_steps(upstream, &profile, surface, steps, run, seed).await
+                {
+                    error(&profile, "scroll_step", "all", run, &why);
+                    failed += 1;
+                }
+            }
+        }
+        failed
+    });
+    drop(runtime);
+    daemon.stop();
+    assert_eq!(failed, 0, "scroll-step runs failed (NETCOND-ERROR lines above)");
+}
+
+async fn scroll_steps(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    surface: u64,
+    steps: u64,
+    run: u64,
+    seed: u64,
+) -> Result<(), String> {
+    let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+        .await
+        .map_err(|e| format!("shaper: {e}"))?;
+    let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    let mut info = client_info();
+    info["capabilities"].as_array_mut().unwrap().push(json!("attach-replay-history-window-v1"));
+    let ids = conn
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
+    let caps = identify.to_string();
+    let tail = caps.contains("attach-replay-history-rows-v1");
+    let window = tail && caps.contains("attach-replay-history-window-v1");
+    println!(
+        "NETCOND-SCROLL {}@{} run {run}: daemon tail={tail} window={window}",
+        profile.name, profile.version
+    );
+    attach(&mut conn, surface, false).await.ok_or("no first attach")?;
+    let mut policy = ScrollPolicy { tail, window, allowance: Some(0), start: None };
+    for step in 1..=steps {
+        let (omitted, _) = conn.tap.lock().unwrap().vt_history.unwrap_or((0, 0));
+        let Some(params) = policy.next(surface, omitted) else { break };
+        let rows_asked = params["replay_history_rows"].as_u64();
+        conn.tap.lock().unwrap().take();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let ids = conn.send(vec![("attach-surface", params)]).await.map_err(|e| e.to_string())?;
+        let mut replayed = false;
+        let reply = conn
+            .reply(ids[0], |_, got, _, is_state| replayed |= got == surface && is_state)
+            .await
+            .ok_or(format!("step {step}: no reply"))?;
+        if reply["ok"] != json!(true) {
+            return Err(format!("step {step}: {reply}"));
+        }
+        if !replayed {
+            conn.output(surface, None, true, Instant::now() + WAIT)
+                .await
+                .ok_or(format!("step {step}: no replay"))?;
+        }
+        let took = started.elapsed();
+        let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+        let tap = conn.tap.lock().unwrap().take();
+        let of = |key: &str| tap.down.get(key).map(|slot| slot.1).unwrap_or(0);
+        let replay = of("event:vt-state") + of("reply:attach-surface");
+        let scale = format!("step{step:02}");
+        let put = |metric: &str, value: f64| {
+            emit(profile, "scroll_step", &scale, metric, Some(value), run, seed);
+        };
+        put("bytes_down", down as f64);
+        put("replay_bytes", replay as f64);
+        put("streamed_bytes", of("event:output") as f64);
+        put("rows_asked", rows_asked.map(|r| r as f64).unwrap_or(-1.0));
+        put("history_rows_omitted", omitted as f64);
+        put("step_ms", ms(took));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per alt-screen pan: a one-finger drag over a full-screen app (#49954's path)
+
+/// A pager on the alternate screen over `NETCOND_PAN_LINES` lines that asked for the mouse
+/// (DECSET 1000 + 1006), appends a line every 50 ms and redraws its whole screen on each line and
+/// on each input read; a wheel report (button 64 up, 65 down) moves its view a line.
+const PAGER: &str = r#"
+import os, re, select, sys, time, tty
+n = int(sys.argv[1])
+lines = ["%07d the quick brown fox jumps over the lazy dog, pager line for the mobile link bench" % i for i in range(n)]
+tty.setraw(0)
+out = sys.stdout.buffer
+out.write(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[?25l")
+off, pending, tick, due = 0, b"", 0, time.time() + 0.05
+wheel = re.compile(rb"\x1b\[<(\d+);\d+;\d+[Mm]")
+def draw():
+    cols, rows = os.get_terminal_size(1)
+    end = len(lines) - off
+    view = lines[max(0, end - (rows - 1)):end]
+    body = "".join(line[:cols] + "\x1b[K\r\n" for line in view)
+    out.write(("\x1b[H" + body + "\x1b[7m PAGER %d/%d \x1b[0m\x1b[K" % (end, len(lines))).encode())
+    out.flush()
+draw()
+while True:
+    ready, _, _ = select.select([0], [], [], max(0.0, due - time.time()))
+    dirty = False
+    if ready:
+        pending += os.read(0, 4096)
+        last = 0
+        for m in wheel.finditer(pending):
+            off += {64: 1, 65: -1}.get(int(m.group(1)), 0)
+            last = m.end()
+        pending = pending[last:][-64:]
+        off = max(0, min(off, len(lines) - 1))
+        dirty = True
+    if time.time() >= due:
+        tick += 1
+        lines.append("stream %07d an agent streaming its answer while the reader pans" % tick)
+        if off:
+            off += 1
+        due += 0.05
+        dirty = True
+    if dirty:
+        draw()
+"#;
+
+/// The phone's display rate, and the pan's drag: `PAN_FRAMES` frames at `PAN_SPEED` points per
+/// second (a reading drag, released without a fling).
+const PAN_FRAME: Duration = Duration::from_micros(16_667);
+const PAN_FRAMES: u64 = 30;
+const PAN_SPEED: f64 = 600.0;
+/// Points of wheel per line Ghostty reports (a cell's height at the phone's default font).
+const PAN_CELL_PT: f64 = 16.0;
+/// After the finger lifts, the window waits this long for the app's last redraw.
+const PAN_SETTLE: Duration = Duration::from_millis(500);
+
+/// `TerminalTUIScroll.gain(speed:)`: 1:1 up to 300 pt/s, rising to 3x at 3000 pt/s.
+fn pan_gain(speed: f64) -> f64 {
+    if speed <= 300.0 { 1.0 } else { 1.0 + 2.0 * ((speed - 300.0) / 2700.0).min(1.0) }
+}
+
+/// Bytes per alt-screen pan: the pager above over `NETCOND_PAN_LINES` (20000) lines, streaming
+/// 20 lines/s, attached the phone's way, then `NETCOND_PAN_PANS` (10) one-finger pans up, each the
+/// phone's rule (`TerminalTUIScrollController` + `TerminalTUIScroll`, unchanged by #49954, and
+/// `DaemonTerminalSession.scheduleInputDrain`): every display frame the finger's movement times
+/// the gain becomes wheel points, each `PAN_CELL_PT` of them one SGR wheel-up report at the
+/// finger, and a frame's reports go out as one `send {surface, bytes, key}` that nothing waits
+/// on. Per pan (`phase` `alt_pan`, `scale` `pan<N>`): `bytes_down` (everything down from the first
+/// frame to `PAN_SETTLE` after the last: the app's redraws, the send replies and the stream
+/// meanwhile), `bytes_up`, `sends`, `wheel_reports`, `output_bytes`, `pan_ms`; and `scale`
+/// `idle`: `bytes_down` over the same window length with no finger (the stream alone). Env:
+/// `NETCOND_PROFILES` (lte,good-wifi), `NETCOND_SEED_BASE` (0).
+#[test]
+#[ignore = "the alt-screen pan bench: run with --ignored --nocapture"]
+fn alt_screen_pan_bytes() {
+    let file = ProfileFile::builtin();
+    let profiles = env_list("NETCOND_PROFILES", "lte,good-wifi");
+    let lines = env_u64("NETCOND_PAN_LINES", 20_000);
+    let pans = env_u64("NETCOND_PAN_PANS", 10);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let daemon = Daemon::start(&[]);
+    let pager = daemon.dir.join("pager.py");
+    fs::write(&pager, PAGER).unwrap();
+    let surface = daemon.tab(&format!("exec python3 {} {lines}", pager.display()));
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        while !client
+            .call(json!({"cmd": "read-screen", "surface": surface}))
+            .to_string()
+            .contains("PAGER ")
+        {
+            assert!(std::time::Instant::now() < deadline, "the pager did not start");
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    println!(
+        "NETCOND-PAN lines={lines} pans={pans} streaming=20 lines/s, a full-screen redraw each \
+         frames={PAN_FRAMES} speed={PAN_SPEED}pt/s cell={PAN_CELL_PT}pt cols={COLS} rows={ROWS}"
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let failed = runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        let mut failed = 0;
+        for name in &profiles {
+            let profile =
+                file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+            let run = profiles.iter().position(|p| p == name).unwrap_or(0) as u64;
+            if let Err(why) = alt_pans(upstream, &profile, surface, pans, seed_base, run).await {
+                error(&profile, "alt_pan", "all", 0, &why);
+                failed += 1;
+            }
+        }
+        failed
+    });
+    drop(runtime);
+    daemon.stop();
+    assert_eq!(failed, 0, "alt-screen pan runs failed (NETCOND-ERROR lines above)");
+}
+
+/// Reads everything the connection got so far (the reader task already counted its bytes).
+fn drain_inbound(conn: &mut Conn) {
+    while conn.inbound.try_recv().is_ok() {}
+}
+
+async fn alt_pans(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    surface: u64,
+    pans: u64,
+    seed: u64,
+    run: u64,
+) -> Result<(), String> {
+    let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+        .await
+        .map_err(|e| format!("shaper: {e}"))?;
+    let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    // `NETCOND_PAN_CAPS`: capabilities the phone declares besides `client_info`'s (a transport
+    // setting under test, e.g. `terminal-full-screen-frames-v1` with the lean ones it needs).
+    let mut info = client_info();
+    for cap in env_list("NETCOND_PAN_CAPS", "") {
+        info["capabilities"].as_array_mut().unwrap().push(json!(cap));
+    }
+    let ids = conn
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
+    let keyed = identify.to_string().contains("send-key-v1");
+    // The attach's reply; what draws the screen (a `vt-state`, or a frames viewer's keyframe)
+    // lands in the second before the first window.
+    let ids = conn
+        .send(vec![("attach-surface", attach_params(surface))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let reply = conn.reply(ids[0], |_, _, _, _| {}).await.ok_or("no attach reply")?;
+    if reply["ok"] != json!(true) {
+        return Err(format!("attach: {reply}"));
+    }
+    let window = PAN_FRAME * PAN_FRAMES as u32 + PAN_SETTLE;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    drain_inbound(&mut conn);
+    let put = |scale: &str, metric: &str, value: f64| {
+        emit(profile, "alt_pan", scale, metric, Some(value), 0, seed);
+    };
+    // Per category: whole-screen redraws vs incremental output, lean frames (a frames viewer's
+    // `agent-cli-lean`/`agent-cli-frame`), and the shaper's own count of what it carried down (a
+    // lost segment is delayed one RTO, never sent twice: equal to `bytes_down` when no byte
+    // is retransmitted).
+    let categories = |scale: &str, tap: &Tap, shaper_down: u64| {
+        let of = |key: &str| tap.down.get(key).copied().unwrap_or((0, 0));
+        let (lean_n, lean_b) = of("event:agent-cli-lean");
+        let (frame_n, frame_b) = of("event:agent-cli-frame");
+        put(scale, "full_redraws", tap.full_redraws as f64);
+        put(scale, "full_redraw_bytes", tap.full_redraw_bytes as f64);
+        put(scale, "incremental_output_bytes", tap.incremental_bytes as f64);
+        put(scale, "frame_events", (lean_n + frame_n) as f64);
+        put(scale, "frame_bytes", (lean_b + frame_b) as f64);
+        put(scale, "shaper_down_bytes", shaper_down as f64);
+    };
+    // The stream alone over one pan's window.
+    let down_before = conn.down_bytes.load(Ordering::SeqCst);
+    conn.tap.lock().unwrap().take();
+    shaper.reset_counters();
+    tokio::time::sleep(window).await;
+    drain_inbound(&mut conn);
+    let tap = conn.tap.lock().unwrap().take();
+    put("idle", "bytes_down", (conn.down_bytes.load(Ordering::SeqCst) - down_before) as f64);
+    put("idle", "output_bytes", tap.down.get("event:output").map(|s| s.1).unwrap_or(0) as f64);
+    categories("idle", &tap, shaper.counters().down_bytes);
+    // The finger at the screen's middle, 1-based (Ghostty reports the cell under it).
+    let report = format!("\x1b[<64;{};{}M", COLS / 2 + 1, ROWS / 2 + 1);
+    let per_frame = PAN_SPEED * PAN_FRAME.as_secs_f64() * pan_gain(PAN_SPEED);
+    for pan in 1..=pans {
+        conn.tap.lock().unwrap().take();
+        shaper.reset_counters();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let up_before = conn.up_bytes;
+        let started = Instant::now();
+        let mut ticks = tokio::time::interval(PAN_FRAME);
+        let (mut points, mut sends, mut reports) = (0.0_f64, 0_u64, 0_u64);
+        for frame in 0..PAN_FRAMES {
+            ticks.tick().await;
+            points += per_frame;
+            let lines = (points / PAN_CELL_PT).floor();
+            points -= lines * PAN_CELL_PT;
+            if lines < 1.0 {
+                continue;
+            }
+            let bytes = report.repeat(lines as usize);
+            let mut params = json!({"surface": surface,
+                "bytes": base64::engine::general_purpose::STANDARD.encode(bytes.as_bytes())});
+            if keyed {
+                // Unique per profile run too: the daemon remembers applied keys daemon-wide
+                // for 600 s (`send_once`), so a second profile reusing the first's keys had
+                // every wheel send answered and dropped (good-wifi's pans never reached the
+                // pager in run 45101382894).
+                params["key"] = json!(format!(
+                    "00000000-0000-4000-{:04x}-{:06x}{:06x}",
+                    0x8000 + run,
+                    pan,
+                    frame
+                ));
+            }
+            conn.send(vec![("send", params)]).await.map_err(|e| e.to_string())?;
+            sends += 1;
+            reports += lines as u64;
+            drain_inbound(&mut conn);
+        }
+        tokio::time::sleep_until(started + window).await;
+        drain_inbound(&mut conn);
+        let took = started.elapsed();
+        let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+        let tap = conn.tap.lock().unwrap().take();
+        let of = |key: &str| tap.down.get(key).map(|slot| slot.1).unwrap_or(0);
+        let scale = format!("pan{pan:02}");
+        put(&scale, "bytes_down", down as f64);
+        put(&scale, "bytes_up", (conn.up_bytes - up_before) as f64);
+        put(&scale, "sends", sends as f64);
+        put(&scale, "wheel_reports", reports as f64);
+        put(&scale, "output_bytes", of("event:output") as f64);
+        put(&scale, "send_reply_bytes", of("reply:send") as f64);
+        put(&scale, "pan_ms", ms(took));
+        categories(&scale, &tap, shaper.counters().down_bytes);
+        // The finger lifts and comes back.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drain_inbound(&mut conn);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -157,6 +157,9 @@ set_runs "$active"
 expect "push, publisher active" push deferred
 set_head "$newer"; set_runs "$cancelled"
 expect "push, superseded" push superseded "$newer"
+# A tip daemon suite (CMUX_TUI_TREE_TIP_SUITE): no newer run tests this exact commit, so a cancelled
+# publisher defers to the tree's next publish instead of skipping daemon-test (2026-11-27).
+CMUX_TUI_TREE_TIP_SUITE=daemon expect "tip suite, publisher cancelled by a newer push" workflow_dispatch deferred "tip suite tests this exact commit"
 set_head "$sha"; set_runs "$failed_run"
 expect "push, publish failed" push failed "failure: u3"
 # A coalesced push (base-coalesce.yml: the window's build ran on an earlier push) ends success with
@@ -235,6 +238,18 @@ expect "push, permission 403" push failed "could not read"
 refuse_body '{"message":"Server Error"}'
 refuse always 502
 expect "push, 5xx" push failed "could not read"
+# (r6) RATE_LIMIT_MOVES_TO_A_SPARE: the token's hour spent (reset 50 min out) with a
+# spare in GH_TOKEN_SPARES reads again at once on the spare, no wait, no "unknown"
+# (nightly 46095639816 answered unknown for 25 min on github.token alone).
+set_runs "$active"
+refuse_body "$primary_body"
+refuse 1 403 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 3000 ))"
+GH_TOKEN_SPARES="test-token pool-spare" probe push
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(r6) a spare token must read the runs"
+grep -qF "active cmux-tui artifacts run ($sha)" <<<"$reason" || fail "(r6) reason must name the resolved publisher: $reason"
+(( took == 0 )) || fail "(r6) must not wait with a spare token (${took}s)"
+[[ "$(refusals)" == 1 ]] || fail "(r6) expected one refused read, got $(refusals)"
+grep -qF "reading again on spare token 2 of 2" <<<"$out" || fail "(r6) the move to the spare must be logged (and GH_TOKEN itself skipped)"
 rm -f "$TMP/refuse-count"
 
 # A pull request whose merge keeps the base's cmux-tui waits for the base push's publisher.

@@ -131,6 +131,12 @@
           ],
           "prefixes": []
         },
+        "full-carry": {
+          "exact": [
+            "full-ci base merge carry"
+          ],
+          "prefixes": []
+        },
         "mac-ios-e2e": {
           "exact": [
             "mac-ios-e2e"
@@ -164,6 +170,12 @@
           ],
           "prefixes": []
         },
+        "react-apps-base-bundles": {
+          "exact": [],
+          "prefixes": [
+            "web / react-apps-base-bundles / "
+          ]
+        },
         "react-apps-base-check": {
           "exact": [
             "web / react-apps-base-check"
@@ -182,16 +194,10 @@
             "web / react-apps-check ("
           ]
         },
-        "react-doctor": {
-          "exact": [
-            "web / react-doctor"
-          ],
-          "prefixes": []
-        },
-        "runners": {
+        "react-apps-head-bundles": {
           "exact": [],
           "prefixes": [
-            "web / runners / "
+            "web / react-apps-head-bundles / "
           ]
         },
         "web-db-migrations": {

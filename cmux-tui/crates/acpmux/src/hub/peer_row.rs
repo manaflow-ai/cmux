@@ -192,6 +192,7 @@ fn json_text(value: &impl serde::Serialize) -> String {
 impl PeerRow {
     /// `summary`, packed.
     pub fn new(summary: &Value) -> Self {
+        super::remote_table::under_writer::built();
         let hot = Hot::of(summary);
         let Some(map) = summary.as_object() else {
             return Self { base: json_text(summary).into(), hot, ..Self::default() };
@@ -377,6 +378,10 @@ impl PeerRow {
 
     pub fn alias(&self) -> Option<&str> {
         self.hot.alias.as_deref()
+    }
+
+    pub(super) fn former_names(&self) -> &[Box<str>] {
+        self.hot.former_names.as_deref().unwrap_or_default()
     }
 
     /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).

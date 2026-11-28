@@ -1,5 +1,6 @@
 import { LayeredMap } from "../conversation/layeredMap";
 import { skippedRow } from "../conversation/offscreenRows";
+import { shelvedRow } from "../conversation/shelvedRows";
 import type { AcpmuxRow } from "../model";
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
@@ -59,6 +60,8 @@ export function drawnHeightOf(node: HTMLElement): number | undefined {
   // A row whose contents the page skips (mounted away from the view, conversation/offscreenRows.ts)
   // is as high as it was placed: that is no drawn height, and it must not overwrite the estimate.
   if (skippedRow(node)) return undefined;
+  // A shelved row (conversation/shelvedRows.ts) is as high as it was placed, the same way.
+  if (shelvedRow(node)) return undefined;
   const height = node.getBoundingClientRect().height;
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Behavioral guard for resumable, mirror-isolated Zig downloads.
 set -euo pipefail
+# A fleet Mac's prebaked Zig trees (install-zig-ci.sh ZIG_FLEET_TOOLS_DIR) must not answer for these fakes.
+export ZIG_FLEET_TOOLS_DIR=""
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"

@@ -504,6 +504,19 @@ mod tests {
         args.iter().map(OsString::from).collect()
     }
 
+    /// [`resolve`] for a test that checks what the answer says, not how soon it came: the fake
+    /// Codex is a shell script, and on a loaded runner its start alone can pass [`TIMEOUT`]
+    /// (CI run 45641669048: the `-C link` case read `Unknown`). The tests of the bound itself
+    /// call `resolve` and `resolve_within`.
+    fn answered(
+        codex: &Path,
+        args: &[OsString],
+        cwd: &Path,
+        env: &[(OsString, OsString)],
+    ) -> CmuxEntry {
+        resolve_within(codex, args, cwd, env, Duration::from_secs(60))
+    }
+
     #[test]
     fn config_args_keeps_the_options_mcp_get_takes_in_order() {
         let found = config_args(&os(&[
@@ -610,9 +623,9 @@ mod tests {
         );
         let none =
             fake_codex(&root, "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1");
-        assert_eq!(resolve(&none, &[], &work, &env).0, CmuxEntry::None);
+        assert_eq!(answered(&none, &[], &work, &env), CmuxEntry::None);
         let http = fake_codex(&root, r#"printf '{"transport":{"type":"streamable_http"}}'"#);
-        assert_eq!(resolve(&http, &[], &work, &env).0, CmuxEntry::Http);
+        assert_eq!(answered(&http, &[], &work, &env), CmuxEntry::Http);
         let slow = fake_codex(&root, "exec sleep 5");
         let started = Instant::now();
         assert_eq!(
@@ -772,7 +785,7 @@ mod tests {
         let codex =
             fake_codex(&root, "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1");
         assert!(matches!(
-            resolve(&codex, &os(&["-C", "link", "exec", "hi"]), &root, &env).0,
+            answered(&codex, &os(&["-C", "link", "exec", "hi"]), &root, &env),
             CmuxEntry::Doubt(_)
         ));
     }

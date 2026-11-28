@@ -138,7 +138,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
-// delay (450 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
+// delay (250 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
 // group is warm, and cool 500 ms after the last one hid. A control whose own text says the tooltip
 // shows none (#20375). The timers run on a clock the test moves.
 class FakeClock {
@@ -190,10 +190,10 @@ test("the first tooltip waits the hover delay; a neighbor's then shows at once u
   const { buttons, text } = toolbar(clock);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(300);
+  clock.advance(150);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(200);
+  clock.advance(100);
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(text()).toBe("Back");
   // Warm: straight to the neighbor, its tooltip at once.

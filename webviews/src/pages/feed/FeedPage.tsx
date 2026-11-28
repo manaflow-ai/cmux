@@ -20,6 +20,7 @@ export function rejectText(reject: FeedReject, strings: Pick<Strings, "t" | "for
     case "closed":
       return (reject.item && closedStatus(reject.item, strings)) ?? strings.t("owner.refused");
     case "moving":
+      // retry-prompt-ok: the refused action was the person's; doing it again once the move ends is theirs.
       return strings.t("owner.moving");
     case "disconnected":
       return strings.t("owner.disconnected");

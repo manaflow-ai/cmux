@@ -6357,3 +6357,63 @@ mod terminal_journal_append;
 mod terminal_keep_tests;
 mod terminal_resume_tests;
 mod terminal_unplaced_tests;
+
+/// Registries created before Keep Awake (`workspace-keep-awake-v1`) gain the column on open;
+/// existing rows keep their pin and are not kept awake until the app mirrors its set.
+#[test]
+fn registries_created_before_keep_awake_gain_the_column_not_kept() {
+    let root = temp_root("workspace-keep-awake-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
+               marked_unread INTEGER NOT NULL DEFAULT 0 CHECK(marked_unread IN (0,1)),
+               description TEXT,
+               task_status TEXT
+             );
+             INSERT INTO workspace_presentation(workspace_key, pinned) VALUES('one', 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(!record.keep_awake);
+
+    let update = WorkspacePresentationUpdate { keep_awake: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::daemon("keep-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","keep_awake":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(record.keep_awake, "Keep Awake survives a restart");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}

@@ -1,10 +1,12 @@
 // l10n-allow-file: test fixture transport replies, not shipped UI.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
+const { PERMISSION_GROUP_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/permissions/protocol"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

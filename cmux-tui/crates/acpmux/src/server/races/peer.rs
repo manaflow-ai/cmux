@@ -112,7 +112,7 @@ pub(super) async fn forward(
     if peer.served_as().as_deref() != Some("peer") {
         return Some(Err(refused()));
     }
-    crate::server::view::subscribe_remote(hub, conn, &id, None);
+    crate::server::view::subscribe_remote(hub, conn, &id, &peer.name, None);
     if peer.mark_attached(&id) {
         // The subscription belongs to the shared peer link, not the duration of this request.
         let attaching = tokio::spawn({

@@ -31,8 +31,9 @@ extension AgentPaneView {
     /// its own window over the pane, so the page lies outside the window until it reports its first frame and comes
     /// back in that turn, with the picture's clearing (``AgentPaneModel/whenPainted(_:)``). It never draws over the
     /// picture in pieces (the composer row drawn twice, 2026-10-24) and the picture is what the pane shows meanwhile.
-    public func holdChromiumPageUntilPainted() {
-        guard pageDrawsOverCovers, model.newTab != nil, !model.hasPainted, !holdsPageAway else { return }
+    /// `rebuilt`: a shown chat built again over its own picture (`AgentPageRendererPacking`) is held the same way.
+    public func holdChromiumPageUntilPainted(rebuilt: Bool = false) {
+        guard pageDrawsOverCovers, model.newTab != nil || rebuilt, !model.hasPainted, !holdsPageAway else { return }
         holdPageAway(moved: { [weak self] in self?.page?.chromiumWindowMoved() })
     }
 

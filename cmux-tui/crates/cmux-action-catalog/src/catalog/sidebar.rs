@@ -270,6 +270,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar resume-session-in-new-workspace",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -294,6 +295,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar open-session-pull-request",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

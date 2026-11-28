@@ -59,9 +59,22 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   expect(pulled.querySelector<HTMLAnchorElement>("[data-channel-compare]")?.href).toBe(
     "https://github.com/manaflow-ai/cmux/compare/3c1d9e0a...9f1e2d3c",
   );
-  expect(pulled.querySelector<HTMLAnchorElement>("[data-channel-pr]")?.href).toBe(
+  // Which PRs went into the build: the host's count, which opens every one as "#N title".
+  const toggle = pulled.querySelector<HTMLButtonElement>("[data-channel-prs-toggle]")!;
+  expect(toggle.textContent).toBe("PRs (3)");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(pulled.querySelector("[data-channel-pr]")).toBeNull();
+  await run(() => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  const prs = [...pulled.querySelectorAll<HTMLAnchorElement>("[data-channel-pr]")];
+  expect(prs.map((pr) => pr.href)).toEqual([
     "https://github.com/manaflow-ai/cmux/pull/23947",
-  );
+    "https://github.com/manaflow-ai/cmux/pull/23948",
+    "https://github.com/manaflow-ai/cmux/pull/23949",
+  ]);
+  expect(pulled.querySelector("[data-channel-prs] li")?.textContent).toBe("#23947 Fix the Dock badge after a restart");
+  // Other builds stay closed.
+  expect(element.querySelectorAll("[data-channel-prs]").length).toBe(1);
   // The installed build compares with nothing.
   expect(element.querySelector('[data-channel-build="3419"] [data-channel-compare]')).toBeNull();
   expect(element.querySelector('[data-channel-build="3418"]')?.textContent).toContain("Kept on This Mac");
