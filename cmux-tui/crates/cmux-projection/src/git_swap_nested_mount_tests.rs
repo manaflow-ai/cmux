@@ -34,6 +34,8 @@ fn a_nested_clone_swaps_through_the_mount_and_bring_back_sees_its_commits() {
     // The unpushed commits are local: they read with the public remote gone.
     std::fs::rename(&repo.public, repo.public.with_extension("gone")).unwrap();
     assert_eq!(sh(&at.join("app"), &["show", "HEAD~1:unpushed.txt"]), "only on the mac\n");
+    // The remote again: the machine's repository is blobless, and a commit reads old blobs from it.
+    std::fs::rename(repo.public.with_extension("gone"), &repo.public).unwrap();
     assert_eq!(
         run_nested(&p.overlay, &forget, at, "app", p.state.path()).unwrap(),
         Outcome::Already
@@ -146,13 +148,26 @@ fn git_in_a_nested_clone_reads_its_packs_over_the_link_until_it_swaps() {
         }
     };
     let app = at.path().join("app");
-    // What an agent runs first in a clone: its log, status, an old file and a diff.
+    // What an agent reads first in a clone: its log, status, history and a diff. Read-only
+    // (`GIT_OPTIONAL_LOCKS=0`, as an agent's first look before the swap lands): a status that
+    // rewrites the index writes into the projected `.git`, and a `.git` the machine wrote in stays
+    // projected (`swap_to_link` answers EBUSY), never swapped over the machine's edit.
+    let read = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&app)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
     let agent = || {
         let started = std::time::Instant::now();
-        sh(&app, &["log", "--oneline", "-n", "200"]);
-        sh(&app, &["-c", "core.checkStat=minimal", "status", "--porcelain"]);
-        sh(&app, &["show", "HEAD~100:file-3.bin"]);
-        sh(&app, &["diff", "--stat", "HEAD~60", "HEAD~2"]);
+        read(&["log", "--oneline", "-n", "200"]);
+        read(&["-c", "core.checkStat=minimal", "status", "--porcelain"]);
+        read(&["log", "-p", "-n", "40", "--format=%H %s", "--", "README.md"]);
+        read(&["diff", "--stat", "HEAD~60", "HEAD~2"]);
         started.elapsed().as_millis()
     };
     link.take();
