@@ -210,6 +210,31 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
 
+    def test_a_red_on_other_steps_is_another_red(self) -> None:
+        # Run 46058976708 (11-27): web-typecheck red on `Install dependencies` after a batch that was red on `Typecheck`.
+        # They are two reds: the install red looks past the typecheck one to the green (one confirm probe, not a
+        # seven-probe bisect of a stuck red), and the typecheck red is still the typecheck red's own known red.
+        verdicts = {"web / check": ("web", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        older = {3: ({"web / check": ("web", "failure")}, True), 2: ({"web / check": ("web", "failure")}, True),
+                 1: ({"web / check": ("web", "success")}, True)}
+        typecheck = {"web / check": frozenset({"Typecheck"})}
+        install = {"web / check": frozenset({"Install dependencies"})}
+        steps = {3: typecheck, 2: typecheck, 1: {}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, install, steps.get)
+        self.assertEqual(found, [("web / check", "web", "d" * 40)])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=install, steps_of=steps.get), [])
+        found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, typecheck, steps.get)
+        self.assertEqual(found, [])
+        self.assertIn("known red", notes[0])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=typecheck, steps_of=steps.get), [("web / check", "web", "d" * 40, "c" * 40)])
+        # Unknown steps on either side keep the job-level reading.
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, {}, steps.get)
+        self.assertEqual(found, [])
+
     def stuck_setup(self):
         verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
         runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
@@ -459,6 +484,10 @@ class WiringTest(unittest.TestCase):
             self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
+                # A literal is the called workflow's own constant (swift-acpmux-protocol.yml's `check: acpmux`,
+                # #61885 folded several Swift checks into one workflow); an expression is plan's output of its name.
+                if isinstance(v, str) and "${{" not in v:
+                    continue
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             if key == "gallery-health":
                 self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
@@ -1107,6 +1136,56 @@ class FlakeAwareConfirmTest(unittest.TestCase):
         self.assertIn("parent", ok("c1", "c1", "c3", "green-1"))
         self.assertIn("culprit or parent", ok("c4", "c2", "c3", "red-1"))
         self.assertIn("bad", ok("x", "x0", "x", "red-1"))
+
+
+class EarlierConfirmRoundTest(unittest.TestCase):
+    """A stuck red's re-bisect reaches the same culprit: its confirm round already finished, so it is read, not rendered
+    again (web agent-pane-real-acpmux at 4dbaa78f, three identical rounds on 11-27)."""
+
+    job = "web / Web tests (2/4)"
+    culprit, parent = "d" * 40, "c" * 40
+
+    def round_(self):
+        return pmb.confirm_probes(pmb.Probe("web", self.job, "web-tests", "", "", "", "60"), self.culprit, self.parent)
+
+    def runs(self, verdicts: dict[str, tuple[str, str]]):
+        runs, jobs = [], {}
+        for n, p in enumerate(self.round_()):
+            if p.confirm not in verdicts:
+                continue
+            verdict, status = verdicts[p.confirm]
+            rid = 100 - n
+            runs.append({"id": rid, "status": status, "display_title": pmb.probe_title(p)})
+            jobs[rid] = ({self.job: ("web", verdict)} if verdict else {}, status == "completed")
+        return runs, (lambda rid: jobs[int(rid)])
+
+    def test_a_finished_agreeing_round_names_the_culprit(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("success", done)})
+        self.assertEqual(pmb.earlier_confirm_round(self.round_(), runs, jobs_of)[0], "culprit")
+
+    def test_a_finished_round_with_a_disagreeing_run_is_a_flake(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("success", done), "green-2": ("success", done)})
+        self.assertEqual(pmb.earlier_confirm_round(self.round_(), runs, jobs_of)[0], "flake")
+
+    def test_a_missing_unfinished_or_verdictless_run_dispatches_the_round(self) -> None:
+        done = "completed"
+        for verdicts in ({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done)},
+                         {"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("", "in_progress")},
+                         {"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("cancelled", done)}):
+            runs, jobs_of = self.runs(verdicts)
+            self.assertIsNone(pmb.earlier_confirm_round(self.round_(), runs, jobs_of))
+
+    def test_the_off_switch_renders_the_round_again(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("success", done)})
+        with mock.patch.dict(pmb.os.environ, {pmb.CONFIRM_REUSE_ENV: "0"}):
+            self.assertIsNone(pmb.earlier_confirm_round(self.round_(), runs, jobs_of))
+
+    def test_the_workflow_passes_the_off_switch_to_the_judge(self) -> None:
+        text = (pmb.ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
+        self.assertIn("POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}", text)
 
 
 class SkippedProbeTest(unittest.TestCase):
