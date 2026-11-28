@@ -70,7 +70,8 @@ class SimsPostMerge(unittest.TestCase):
 
     def test_a_push_never_reads_the_skip(self):
         self.assertTrue(SKIP.startswith("(github.event_name != 'pull_request' ||"))
-        self.assertTrue(re.search(r"!startsWith\(github\.event\.pull_request\.base\.ref, 'feat-cmux-next'\)", SKIP))
+        self.assertTrue(re.search(r"!\(startsWith\(github\.event\.pull_request\.base\.ref, 'feat-cmux-next'\)"
+                                  r" \|\| startsWith\(github\.event\.pull_request\.base\.ref, 'lane/'\)\)", SKIP))
 
 
 if __name__ == "__main__":

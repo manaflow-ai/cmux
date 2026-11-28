@@ -571,7 +571,7 @@ class PullRequestSkip(unittest.TestCase):
         # (which skips them) or main (which runs them). The App Review gate walked 33-43 min on those heads, the
         # p90 of now.json ios_pr_ci, 2026-11-28.
         lane = pr_test_lanes.event_context("lane/ios-chat-send-settle")
-        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", lane), False)
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", lane), True)
         lane_route = jobs.route(None, [], base_ref="lane/ios-chat-send-settle").pr_skip
         self.assertTrue(lane_route)
         self.assertEqual(set(lane_route.values()), {False})
