@@ -105,6 +105,8 @@ public final class OmnibarGlassAppearance {
     /// `browser.omnibar.height` and `fontSize` in points; nil follows density (`OmnibarMetrics.current`).
     public private(set) var height: Double?
     public private(set) var fontSize: Double?
+    /// ``OmnibarMetrics/current`` as last built, kept until an input it read changes.
+    @ObservationIgnored let metrics = TokenMemo<OmnibarMetrics>()
     /// How many times ``OmnibarMetrics/current`` was built from the design tokens (tests count it).
     @ObservationIgnored var metricsBuilds = 0
     init() {}
