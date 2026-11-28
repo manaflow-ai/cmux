@@ -59,7 +59,9 @@ import Testing
     /// from the prompt. On a tagged dev Mac (another space) the setting leaves them to the quiet ask.
     @Test func aBuildSpacelessPhoneStillPairsOnANightlyOrReleaseMac() {
         for bundleID in ["dev.cmux.mobile.prod", "dev.cmux.mobile.demo", "dev.cmux.mobile.dev", "DEV.CMUX.MOBILE.PROD"] {
-            #expect(IPhoneDevAutoApprove.asksQuietly(Self.request(bundleID: bundleID), macDevTag: nil), "\(bundleID)")
+            // Their Mac prompts for them since 11-28 (Leo: "can't connect to [his NIGHTLY] on my connected iphone").
+            #expect(!IPhoneDevAutoApprove.asksQuietly(Self.request(bundleID: bundleID), macDevTag: nil), "\(bundleID)")
+            #expect(IPhoneDevAutoApprove.asksQuietly(Self.request(bundleID: bundleID), macDevTag: "pair-fast-v1"), "\(bundleID)")
             #expect(Self.approves(Self.request(bundleID: bundleID)), "\(bundleID)")
             #expect(!Self.approves(Self.request(bundleID: bundleID), macDevTag: "pair-fast-v1"), "\(bundleID)")
         }

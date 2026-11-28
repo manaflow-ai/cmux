@@ -1480,7 +1480,10 @@ Mobile removal work as for any paired phone. Recommendation filed on #13742.
 
 Its other half holds in every build and only removes prompts: a request from a dev iPhone app
 (`dev.cmux.mobile.<tag>`) to any Mac but its own tag's dev build (NIGHTLY, release, another tag)
-shows no prompt, banner or Dock bounce; it waits in Settings > Mobile, where the person can still
+shows no prompt, banner or Dock bounce, except an app with no build space (cmux Dev
+`dev.cmux.mobile.dev`, Production `.prod`, Demo `.demo`) on a NIGHTLY, RC or release Mac, which is
+that app's own Mac and shows the usual "Allow … to connect?" prompt (2026-11-28: cmux Dev only waited
+quietly on the person's NIGHTLY, so it never connected). A quiet request waits in Settings > Mobile, where the person can still
 allow it. Quiet requests have their own few places (`MobileHostPairPrompts.quietLimit`, the oldest
 going first) and never take one of the places that cap real prompts, so dev phones can never block
 the next real phone's prompt. A signed-in phone dials the Macs it lists, which can be another build on the same
