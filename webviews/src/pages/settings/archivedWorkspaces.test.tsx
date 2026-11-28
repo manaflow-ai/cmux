@@ -10,7 +10,7 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click } = await import("./testing");
-const { archivedDetail } = await import("./components/ArchivedWorkspacesCard");
+const { archivedDetail } = await import("./components/archivedDetail");
 
 const scrolled: string[] = [];
 const view = globalThis.window.HTMLElement.prototype;
