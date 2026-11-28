@@ -89,8 +89,8 @@ pub(super) async fn ask(
     }
 }
 
-/// The preflight answer's `envLacking` names.
-fn lacking(answer: &Value) -> Vec<String> {
+/// The preflight answer's `envLacking` names (and a hub move's `moved` answer's).
+pub(super) fn lacking(answer: &Value) -> Vec<String> {
     answer["envLacking"]
         .as_array()
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())

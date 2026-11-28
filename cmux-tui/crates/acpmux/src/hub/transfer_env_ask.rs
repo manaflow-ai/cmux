@@ -14,7 +14,7 @@ impl Hub {
     /// The names of `manifest.env` a start of the chat would lack here, under `as_harness` (the
     /// move's `--as`) or its own harness. Empty while off, with nothing asked, or for a harness
     /// this daemon cannot build a start for (the admission names that refusal).
-    pub(super) async fn env_lacking_here(
+    pub(in crate::hub) async fn env_lacking_here(
         &self,
         manifest: &Value,
         as_harness: Option<&str>,
@@ -57,6 +57,30 @@ impl Hub {
         };
         crate::session_manifest::env_lacking(&asked, &profile.env)
     }
+
+    /// The same question for a move over the hub, which asks nothing before its freeze: op
+    /// `move`'s `envAsk` (`{names, preset}`, the source's `manifestEnv`) against the moved chat's
+    /// harness (`manifest.session.harness`), answered in the move's own `moved` reply
+    /// (`hub/transfer_pull.rs`). Empty from a source older than the question.
+    pub(in crate::hub) async fn env_lacking_for_move(
+        &self,
+        body: &Value,
+        manifest: &Value,
+    ) -> Vec<String> {
+        match hub_ask(body, manifest) {
+            Some(ask) => self.env_lacking_here(&ask, None).await,
+            None => Vec::new(),
+        }
+    }
+}
+
+/// The preflight-shaped manifest [`Hub::env_lacking_with`] reads, made from op `move`'s `envAsk`
+/// and the moved chat's manifest: None when the source sent no names.
+fn hub_ask(body: &Value, manifest: &Value) -> Option<Value> {
+    let ask = body.get("envAsk").filter(|a| a["names"].is_array())?;
+    Some(json!({"sessionId": manifest["sessionId"],
+                "session": {"harness": manifest["session"]["harness"]},
+                "env": ask["names"], "preset": ask["preset"]}))
 }
 
 #[cfg(test)]

@@ -66,6 +66,10 @@ pub(super) struct Row {
     target_session_id: Option<String>,
     error: Option<String>,
     timings: Option<Value>,
+    /// The recorded env names a start on the target would lack, as its answer named them
+    /// (`hub/transfer_env_ask.rs`, RFD 0181 B7); none from a target older than the question.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    env_lacking: Vec<String>,
 }
 
 impl Row {
@@ -82,6 +86,7 @@ impl Row {
             target_session_id: None,
             error: None,
             timings: None,
+            env_lacking: Vec::new(),
         }
     }
 
@@ -99,6 +104,7 @@ impl Row {
         outcome.moved = self.moved;
         outcome.there = self.there;
         outcome.error = self.error;
+        outcome.env_lacking = self.env_lacking;
         outcome
     }
 }
@@ -273,7 +279,17 @@ async fn steps(
     let staged = precopy(src, &id, daemon).await;
     let lane = super::lane_of(&o.name);
     let lane = lane.as_deref();
-    let moving = Moving { src, id: &id, lane, args, home: &home, home_text: &home_text, cwd: &cwd };
+    let env_ask = env_ask(&info);
+    let moving = Moving {
+        src,
+        id: &id,
+        lane,
+        args,
+        home: &home,
+        home_text: &home_text,
+        cwd: &cwd,
+        env_ask: env_ask.as_ref(),
+    };
     let (sent, answer, timing) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
@@ -301,7 +317,17 @@ async fn steps(
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
     o.target_session_id = o.there.clone();
+    o.env_lacking = super::target_ask::lacking(moved);
     Ok(())
+}
+
+/// What op `move` asks the target about the chat's env (RFD 0181 B7): the names its first start
+/// had that it does not carry, and its preset, as the chat's info gives them (`manifestEnv`, only
+/// with the manifest on). None sends nothing, and the target says nothing.
+fn env_ask(info: &Value) -> Option<Value> {
+    info.get("manifestEnv")
+        .filter(|e| e["names"].as_array().is_some_and(|n| !n.is_empty()))
+        .cloned()
 }
 
 /// What one chat's move needs to be made: the chat, its folder, and the move's flags.
@@ -314,6 +340,8 @@ struct Moving<'a> {
     home: &'a Path,
     home_text: &'a str,
     cwd: &'a Path,
+    /// The env names the target is asked about ([`env_ask`]).
+    env_ask: Option<&'a Value>,
 }
 
 /// The source-side timing split for one hub move. Values are milliseconds elapsed from the
@@ -394,7 +422,7 @@ impl Moving<'_> {
         host: &str,
         staged: Option<&Staged>,
     ) -> Result<(Value, Value, Timing)> {
-        let Moving { src, id, lane, args, home, home_text, cwd } = *self;
+        let Moving { src, id, lane, args, home, home_text, cwd, env_ask } = *self;
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
         let started = std::time::Instant::now();
         let started_at = crate::store::now_ms();
@@ -431,6 +459,9 @@ impl Moving<'_> {
                                   "host": host});
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
+            }
+            if let Some(ask) = env_ask {
+                sent.set("envAsk", ask.clone());
             }
             // No files and no uncommitted changes go over the hub: only a clean checkout is the
             // chat's own folder there, which its namespace manifest rebinds to.
@@ -569,6 +600,26 @@ mod tests {
         assert_eq!(carried["freezeMs"], 70);
         assert_eq!(carried["via"], "circuit");
         assert_eq!(timing(false).value(80)["carriedRunningTurn"], false);
+    }
+
+    #[test]
+    fn a_hub_move_asks_about_the_recorded_env_and_keeps_what_its_target_lacks() {
+        let info = json!({"manifestEnv": {"names": ["OPENAI_API_KEY"], "preset": "fast"}});
+        assert_eq!(env_ask(&info), Some(json!({"names": ["OPENAI_API_KEY"], "preset": "fast"})));
+        // Nothing recorded, or the manifest off on the source: nothing asked.
+        assert_eq!(env_ask(&json!({})), None);
+        assert_eq!(env_ask(&json!({"manifestEnv": {"names": []}})), None);
+        // The row a move_out answers carries the names to the asking machine; an older one
+        // without them still reads.
+        let mut row = Row::new("s1", "vm-b", false);
+        row.env_lacking = vec!["GITHUB_TOKEN".into()];
+        let sent = serde_json::to_value(&row).unwrap();
+        assert_eq!(sent["envLacking"], json!(["GITHUB_TOKEN"]));
+        let back: Row = serde_json::from_value(sent).unwrap();
+        assert_eq!(back.into_outcome().env_lacking, ["GITHUB_TOKEN"]);
+        let old = serde_json::to_value(Row::new("s1", "vm-b", false)).unwrap();
+        assert!(old.get("envLacking").is_none());
+        assert!(serde_json::from_value::<Row>(old).unwrap().env_lacking.is_empty());
     }
 
     #[test]

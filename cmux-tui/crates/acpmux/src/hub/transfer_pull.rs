@@ -443,6 +443,9 @@ impl Hub {
         }
         let manifest = &manifest;
         let epoch = manifest.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+        // The recorded env a start here would lack (RFD 0181 B7, `transfer_env_ask.rs`): said in
+        // the answer, never a refusal.
+        let env_lacking = self.env_lacking_for_move(body, manifest).await;
         // Op `move` comes only from this person's own daemons (`sameUser`,
         // `mesh_relay_config.rs`), so the chat keeps the origin it had there: their own chat
         // stays theirs, and its local prompts here are owner prompts.
@@ -477,6 +480,9 @@ impl Hub {
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
+        if !env_lacking.is_empty() {
+            moved.set("envLacking", json!(env_lacking));
+        }
         moved.set(
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
@@ -677,8 +683,8 @@ impl Hub {
     ///   remote source daemon to run its own hub move, and waits for its move JSON row. `DAEMON`
     ///   is the source's hub-stamped id, so this local request never trusts a host or session
     ///   field as authority;
-    /// - `{sessionId, transferId, epoch, manifest, folder, host?, branch?, commit?}`: sends op `move` for
-    ///   that move, begun with `to.hub`, to the daemon it names, and waits for its answer:
+    /// - `{sessionId, transferId, epoch, manifest, folder, host?, branch?, commit?, envAsk?}`:
+    ///   sends op `move` for that move, begun with `to.hub`, to the daemon it names, and waits for its answer:
     ///   `{moved: {sessionId, cwd, ...}}`. A refusal is an error with `data.refused`; no answer in
     ///   time is one with `data.unknown` (the move stays frozen; its watch ends it).
     pub(super) async fn transfer_hub(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
@@ -713,6 +719,10 @@ impl Hub {
             if let Some(v) = params.get(key).and_then(Value::as_str) {
                 body.set(key, json!(v));
             }
+        }
+        // The recorded env names the target answers about (`transfer_env_ask.rs`).
+        if let Some(ask) = params.get("envAsk").filter(|a| a.is_object()) {
+            body.set("envAsk", ask.clone());
         }
         super::transfer_watch::note_activity(&dir, None);
         // A pre-copied move whose target parked its stage's circuit goes over that circuit, its

@@ -576,6 +576,11 @@ pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
         }
         let outcome = row.into_outcome();
         if !json_out {
+            let host = outcome.host.as_deref().unwrap_or_default();
+            if let Some(line) = target_ask::lacking_text(&outcome.name, host, &outcome.env_lacking)
+            {
+                eprintln!("{line}");
+            }
             print_outcome(&outcome, args.dry_run);
         }
         hub_outcomes.push(outcome);
