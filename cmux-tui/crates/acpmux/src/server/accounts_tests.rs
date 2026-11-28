@@ -21,6 +21,7 @@ fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding()
     let (dir, state) = (root.join("routes"), root.join("state"));
     std::fs::create_dir_all(&dir).unwrap();
     let file = RouteFile {
+        credential_instance: None,
         name: Some("Work key".into()),
         kind: RouteKind::DirectApiKey,
         families: vec!["claude".into()],
@@ -28,6 +29,8 @@ fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding()
         openai_base_url: None,
         auth: None,
         secret: Some("env:ANTHROPIC_WORK_KEY".into()),
+        claude_token_expires_at: None,
+        cloud_enabled: None,
         headers: BTreeMap::new(),
         health_url: None,
         fallback: vec![],
@@ -38,7 +41,9 @@ fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding()
         disabled: false,
         provider: None,
     };
-    routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+    let route = routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+    let revision = super::super::connections::key_revision(&route.file).unwrap();
+    let instance = Some(route.file.credential_instance);
     routes::update_bindings(&state, |b| {
         b.families.insert("claude".into(), "claude-key".into());
         b.families.insert("codex".into(), "codex-2".into());
@@ -47,12 +52,29 @@ fn turning_off_the_default_account_clears_its_defaults_but_not_a_chats_binding()
         b.chats.insert("chat-1".into(), "claude-key".into());
     })
     .unwrap();
-    set(Some(&dir), &state, "claude-key", Some(true), None).unwrap();
+    set(
+        Some(&dir),
+        &state,
+        "claude-key",
+        None,
+        None,
+        Some((false, revision.clone())),
+        instance.clone(),
+    )
+    .unwrap();
+    let saved = routes::find(Some(&dir), "claude-key").unwrap();
+    assert_eq!(saved.file.cloud_enabled, Some(false));
+    assert_eq!(saved.file.secret, file.secret);
+    assert_eq!(saved.file.disabled, file.disabled);
+    set(Some(&dir), &state, "claude-key", None, None, Some((true, revision)), instance).unwrap();
+    assert_eq!(routes::find(Some(&dir), "claude-key").unwrap().file.cloud_enabled, Some(true));
+
+    set(Some(&dir), &state, "claude-key", Some(true), None, None, None).unwrap();
     assert_eq!(
         routes::bindings(&state).families.get("claude").map(String::as_str),
         Some("claude-key")
     );
-    set(Some(&dir), &state, "claude-key", Some(false), None).unwrap();
+    set(Some(&dir), &state, "claude-key", Some(false), None, None, None).unwrap();
     let b = routes::bindings(&state);
     assert_eq!(b.families.get("claude"), None, "a turned-off account still picks new chats");
     assert_eq!(b.global, None);

@@ -196,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: df63f80db6bc2e38a153abc4f3e8626da075d5081775330d673ea35e0d5c69e3
+// app-ffi-pin-checksum: 8fb52925c3320cb1cd962bf79fee6717a8d1e19019a685c2c8ed003130cd653f
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -840,6 +840,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
+                "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextHomeEngine",
@@ -1075,6 +1076,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -1597,7 +1600,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
-        // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        // gets, where it goes and whether its browser data can be recorded. The App composes it.
         .target(
             name: "CmuxNextBrowserTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2237,6 +2240,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextCloud",
+                "CmuxNextCloudStart",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
@@ -2568,6 +2572,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCopyMode",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
+                "CmuxNextHibernation",
                 "CmuxNextIcons",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextTerminalFind",
@@ -2703,7 +2708,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            // CCmuxAppFFI: the keyboard resize rules (cmux-layout-reducer shown_resize).
+            // CCmuxAppFFI: the keyboard resize and pane close rules (cmux-layout-reducer shown_resize, pane_close).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
@@ -2836,8 +2841,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs' remote localhost (routes, the proxy's daemon tunnels,
-        // badges) and Set Workspace Localhost. The App gives it its machines
-        // (RemoteLocalhostMachines) and the approval sheet.
+        // badges), Set Workspace Localhost and chat machine sign-in. The App supplies the
+        // machines, browser page creation and Workbench placement.
         .target(
             name: "CmuxNextRemoteLocalhostService",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2906,6 +2911,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPalette",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],

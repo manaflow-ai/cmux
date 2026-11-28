@@ -201,3 +201,34 @@ async fn a_daemon_tasks_tail_reads_its_spool() {
     assert_eq!(tail["eof"], false, "{tail}");
     assert!(tail["data"].is_string() && tail["nextByte"].is_u64(), "{tail}");
 }
+
+/// A task that runs with no row (a start whose row a history reload undid before its log took it,
+/// a launch whose record read failed, a task from before this daemon's rows) gets one at the next
+/// listing.
+#[tokio::test]
+async fn a_listing_finds_a_running_task_with_no_row() {
+    let (hub, session) = hub_with_chat("bg-row-found");
+    let _lock = hub.bg_fake_running(&session, false).unwrap();
+    let (_, record) = only_task(&hub, &session, |r| r.command = "npm run dev".into());
+    let rows = listed(&hub, &session);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["id"], format!("{}/{}", session.id, record.id));
+    assert_eq!(rows[0]["state"], "running");
+}
+
+/// A wait moved with its chat runs again as a new task: the row of the task it was ends, naming
+/// the move, and gives up its call, so the chat lists the call once.
+#[tokio::test]
+async fn a_moved_waits_old_row_gives_up_its_call() {
+    let (hub, session) = hub_with_chat("bg-row-moved");
+    let _lock = hub.bg_fake_running(&session, false).unwrap();
+    let (dir, record) = only_task(&hub, &session, |r| r.tool_call_id = Some("toolu_wait".into()));
+    hub.bg_publish(&session, &dir, &record);
+    hub.bg_moved(&session, &record.id);
+    let row = listed(&hub, &session).remove(0);
+    assert_eq!(row["state"], "killed", "{row}");
+    assert_eq!(row["reason"], "moved");
+    assert_eq!(row["toolCallId"], "");
+    hub.bg_moved(&session, &record.id);
+    assert_eq!(listed(&hub, &session).len(), 1, "a second move changes nothing");
+}
