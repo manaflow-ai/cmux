@@ -368,10 +368,10 @@ async fn a_chat_round_the_ring_imports_in_flat_time() {
             c.call(method::SESSION_PROMPT, prompt).await;
         }
         let next = (holder + 1) % 3;
-        let source =
-            if holder == 0 { id.clone() } else { format!("{}/{id}", machines[holder].name) };
-        let target = if next == 0 { "local".to_owned() } else { machines[next].name.to_owned() };
-        let t = machines[0].drive(&source, &target, "--after-turn", &id).await;
+        // The third machine drives, by name, as the probe's mover does.
+        let driver = &machines[(holder + 2) % 3];
+        let source = format!("{}/{id}", machines[holder].name);
+        let t = driver.drive(&source, machines[next].name, "--after-turn", &id).await;
         finish.push(t["finishMs"].as_u64().unwrap());
         holder = next;
     }
