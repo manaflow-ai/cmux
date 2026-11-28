@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -131,6 +134,89 @@ class StripTest(unittest.TestCase):
         self.assertEqual(strip.stem("cmux-json-3d4e5f"), "cmux_json")
         self.assertEqual(strip.stem("libc-99bb"), "libc")  # a crate whose name starts with "lib"
         self.assertEqual(strip.stem("liblibc-99bb.rlib"), "libc")
+
+
+class TargetSaveTest(unittest.TestCase):
+    def test_save_carries_native_output_and_source_manifest_after_pruning(self) -> None:
+        """Exercise the production save branches; no compiler, network or archive pack."""
+        root = Path(__file__).resolve().parents[1]
+        for size_gib in (1, 15):
+            with self.subTest(size_gib=size_gib), tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp) / "producer"
+                for name in ("ci/cmux-tui-test-target.sh", "ci/cargo_target_strip.py",
+                             "ci/timeout.sh", "blacksmith-testbox-source-mtimes.py"):
+                    dest = repo / "scripts" / name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(root / "scripts" / name, dest)
+                target = repo / "cmux-tui/target"
+                native = (".fingerprint/ghostty-vt-sys-77aa/run-build-script-build-script-build",
+                          "build/ghostty-vt-sys-77aa/out/lib/libghostty-vt.a",
+                          "build/ghostty-vt-sys-55cc/build-script-build",
+                          "deps/libghostty_vt_sys-88dd.rlib")
+                for name in (*native, "deps/libghostty_vt-99ee.rlib", "incremental/cache"):
+                    touch(target / "debug" / name)
+                same = repo / "cmux-tui/same.rs"
+                changed = repo / "cmux-tui/changed.rs"
+                old = 1_000_000_000 * 10**9
+                for source in (same, changed):
+                    source.write_text("original\n")
+                    os.utime(source, ns=(old, old))
+                (repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "stable"\n')
+                (repo / "scripts/ci/zig-tarballs.sha256").write_text("fixture\n")
+                cpuinfo = Path(tmp) / "cpuinfo"
+                cpuinfo.write_text("model name: Test CPU\nflags: sse2\n")
+                commands = Path(tmp) / "bin"
+                commands.mkdir()
+                metadata = {"packages": [{"name": name, "targets": []}
+                                         for name in ("ghostty-vt-sys", "ghostty-vt")]}
+                stubs = {
+                    "cargo": "case $1 in\n build) exit 0;;\n metadata) cat <<'JSON'\n"
+                    + json.dumps(metadata) + "\nJSON\n ;;\n *) exit 90;;\nesac\n",
+                    "curl": "exit 22\n",  # A cache miss, without contacting R2.
+                    "git": "printf 'fixture-gitlink\\n'\n",
+                    "cc": "printf 'fixture-compiler\\n'\n",
+                    "clang": "printf 'fixture-compiler\\n'\n",
+                    "du": f"if [ \"$1\" = -sxk ]; then printf '{size_gib * 1048576}\\tfixture\\n'; "
+                    "else printf 'fixture\\tpath\\n'; fi\n",
+                }
+                for name, body in stubs.items():
+                    path = commands / name
+                    path.write_text("#!/bin/sh\n" + body)
+                    path.chmod(0o755)
+                capture = Path(tmp) / "captured"
+                capture.mkdir()
+                (repo / "scripts/ci/r2-cache.sh").write_text(
+                    '#!/bin/sh\nset -eu\n[ "$1" = save ]\ncp -a "$2/." "$TEST_CAPTURE/"\n'
+                )
+                env = {**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                       "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                       "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next",
+                       "CARGO_TARGET_DIR": str(target), "CMUX_TUI_TEST_TARGET_MAX_GIB": "14",
+                       "CMUX_TESTBOX_CPUINFO": str(cpuinfo), "TEST_CAPTURE": str(capture)}
+                result = subprocess.run(["bash", str(repo / "scripts/ci/cmux-tui-test-target.sh"), "save"],
+                                        env=env, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for name in native:
+                    self.assertTrue((capture / "debug" / name).is_file(), name)
+                self.assertEqual((capture / "debug/deps/libghostty_vt-99ee.rlib").exists(), size_gib <= 14)
+                self.assertFalse((capture / "debug/incremental").exists())
+                manifest = capture / ".cmux-testbox-source-mtimes.tsv"
+                self.assertTrue(manifest.is_file(), result.stdout)
+                self.assertTrue((capture / ".cmux-testbox-cpu").is_file())
+                consumer = Path(tmp) / "consumer"
+                (consumer / "cmux-tui").mkdir(parents=True)
+                restored = consumer / "cmux-tui/same.rs"
+                updated = consumer / "cmux-tui/changed.rs"
+                restored.write_text(same.read_text())
+                updated.write_text("changed\n")
+                fresh = old + 10**9
+                for source in (restored, updated):
+                    os.utime(source, ns=(fresh, fresh))
+                subprocess.run([sys.executable, "-I", str(repo / "scripts/blacksmith-testbox-source-mtimes.py"),
+                                "restore", str(consumer), str(manifest)],
+                               env=env, check=True, capture_output=True, timeout=30)
+                self.assertEqual(restored.stat().st_mtime_ns, old)
+                self.assertEqual(updated.stat().st_mtime_ns, fresh)
 
 
 if __name__ == "__main__":

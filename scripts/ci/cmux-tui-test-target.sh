@@ -28,7 +28,8 @@
 # bucket has), and a restore reads the newest save under the environment's prefix. r2_cache_prune.py keeps one day.
 #
 # Disk: a restore needs CMUX_TUI_TEST_TARGET_MIN_FREE_GIB (30) free, else it builds cold. A save drops incremental state
-# first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps only third-party output (scripts/ci/cargo_target_strip.py).
+# first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps third-party output plus ghostty-vt-sys's expensive
+# native build (scripts/ci/cargo_target_strip.py). Both save branches carry source mtimes for the retained output.
 # A restore that fails or is cut removes the half-unpacked target. A target that already holds a workspace build is kept
 # as is; one with third-party output only (a rust-cache restore) gives way to a hit and comes back on a miss.
 #
@@ -197,14 +198,15 @@ save() {
   local size_gib
   size_gib="$(du -sxk "$target" | awk '{ printf "%d", $1 / 1048576 }')"
   if ((size_gib > max_gib)); then
-    say "the target is $size_gib GiB, over $max_gib: saving third-party output only"
+    say "the target is $size_gib GiB, over $max_gib: saving third-party output plus ghostty-vt-sys"
     local crates
     mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
       | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-    python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}"
-  else
-    python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
+    python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}" --keep ghostty-vt-sys
   fi
+  # The retained native build needs unchanged source mtimes even after pruning.
+  # Recording also carries the CPU identity used by restore's native-output check.
+  python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
   say "saving $(du -sxh "$target" | cut -f1) as $key"
   bash "$repo/scripts/ci/timeout.sh" 900 bash "$repo/scripts/ci/r2-cache.sh" save "$target" "$key" || say "save ended with status $?; nothing more to do"
 }
