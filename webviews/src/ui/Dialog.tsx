@@ -8,6 +8,8 @@
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
+import { useExperimentArm } from "../experiments/useExperimentArm";
+import { dialogCorner } from "./dialogCorner.experiment";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 
@@ -48,6 +50,8 @@ export function Dialog({
   children,
 }: DialogProps) {
   const container = usePortalContainer();
+  // RFD 0207 "Dialog corner": the dialog-corner experiment's arm (off by default; popupSurface.css).
+  const corner = useExperimentArm(dialogCorner);
   useEffect(() => {
     if (!open) return;
     const guardChordEscape = (event: KeyboardEvent) => {
@@ -75,6 +79,7 @@ export function Dialog({
           data-host-glass-cover={glass ? "" : undefined}
           data-page-glass={glass ? undefined : "a dialog whose class draws no .ui-glass: no glass to hand to the App"}
           data-surface-role="sheet"
+          data-dialog-corner={corner}
           aria-label={label}
           style={style}
           initialFocus={initialFocus}

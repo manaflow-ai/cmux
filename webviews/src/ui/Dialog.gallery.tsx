@@ -4,7 +4,16 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import { Dialog, DialogDescription, DialogTitle } from "./Dialog";
 
-function DialogGallery({ titled = false, alert = false }: { titled?: boolean; alert?: boolean }) {
+function DialogGallery({
+  titled = false,
+  alert = false,
+  glass = false,
+}: {
+  titled?: boolean;
+  alert?: boolean;
+  /** The shared glass dialog (`.ui-glass`, popupSurface.css THE SHEET ROLE), whose corner RFD 0207 sets. */
+  glass?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   if (titled)
     return (
@@ -28,7 +37,12 @@ function DialogGallery({ titled = false, alert = false }: { titled?: boolean; al
       <button type="button" className="menu-gallery-trigger" onClick={() => setOpen(true)}>
         Open demo dialog
       </button>
-      <Dialog open={open} onOpenChange={setOpen} label="Demo dialog" className="dialog-gallery-popup">
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        label="Demo dialog"
+        className={glass ? "ui-glass" : "dialog-gallery-popup"}
+      >
         <p>A modal dialog over the page: it and its backdrop fade in and out.</p>
         <button type="button" className="menu-gallery-trigger" onClick={() => setOpen(false)}>
           Close
@@ -74,6 +88,17 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.find({ role: "alertdialog" }));
       },
       note: "alert: role alertdialog; a press outside does not dismiss it, Escape does.",
+    },
+    glass: {
+      props: { glass: true },
+      play: open,
+      note: "The shared glass dialog (.ui-glass): today's corner, the button corner plus 24 padding, 32.",
+    },
+    "glass-native-corner": {
+      props: { glass: true },
+      play: open,
+      experiments: { "dialog-corner": "native" },
+      note: "RFD 0207 Dialog corner, dialog-corner arm native (off by default): 16 padding, a 24 corner, the native dialog's; compare with glass (24 padding, 32).",
     },
   },
 });
