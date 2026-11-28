@@ -162,14 +162,6 @@ struct TeamPick {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GitHubConfirm {
-    name: Option<String>,
-    email: Option<String>,
-    app: decide::GitHubApp,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct Facts {
     #[serde(default)]
     machine_id: String,
@@ -319,10 +311,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Ok(select) => json!({ "select": select }),
                 Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
-        }
-        b"cloud_handler_github_confirm" => {
-            let g: GitHubConfirm = read(request)?;
-            json!({ "parts": value(decide::github_confirm(g.name.as_deref(), g.email.as_deref(), g.app))? })
         }
         b"cloud_handler_answer" => {
             let found: answers::Found = read(request)?;

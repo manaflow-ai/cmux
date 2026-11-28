@@ -182,11 +182,6 @@ fn answers_and_fields_shape_through_the_abi() {
         json!({"refusal": {"key": "portLimit", "args": ["box", "vm-1", "3000"]}})
     );
     assert_eq!(
-        ok(c"cloud_handler_github_confirm", json!({"name": "Ada", "app": "notConnected"})),
-        json!({"parts": [{"key": "gitHubFallbackNotConnected"},
-                         {"key": "gitHubConfirmBody", "args": ["Ada", "—"]}]})
-    );
-    assert_eq!(
         ok(c"cloud_handler_arg", json!({"check": "resize", "args": {"disk": 8}}))["value"]["diskGib"],
         json!(8)
     );
