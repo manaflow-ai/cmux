@@ -454,10 +454,11 @@ run_package_tests() {
     cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
     export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
   fi
-  # Every selected package runs even after another one fails, so one
-  # broken or hung package cannot hide the results of the packages
-  # after it. test_package returns the package's status instead of
-  # exiting; the summary at the end fails the lane.
+  # With CMUX_CI_FULL_TESTS=1 every selected package runs even after another
+  # one fails, so one broken or hung package cannot hide the results of the
+  # packages after it; by default the loop stops at the first failure.
+  # test_package returns the package's status instead of exiting; the
+  # summary at the end fails the lane.
   prebuild_packages
   test_package() {
     local pkg="$1"
@@ -541,6 +542,15 @@ run_package_tests() {
       fi
     fi
     summary+=("$(printf '%-34s %-18s %6ss' "$pkg" "$result" "$seconds")")
+    # Fail fast: a package that failed after its runner-flake retry (or
+    # stalled) is a definitive red, so the packages after it only spend
+    # minutes on a lane that is already failed. CMUX_CI_FULL_TESTS=1 restores
+    # the full run that reports every package (Leo, 2026-11-21: "whatever we
+    # need to cut, we cut.").
+    if [ "$package_status" -ne 0 ] && [ "${CMUX_CI_FULL_TESTS:-0}" != 1 ]; then
+      echo "Stopping at the first failed package ($pkg); set CMUX_CI_FULL_TESTS=1 to test every selected package."
+      break
+    fi
   done < "$selected"
 
   table="$(
