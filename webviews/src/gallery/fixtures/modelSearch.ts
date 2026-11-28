@@ -45,7 +45,7 @@ export const SOL_SEARCH_CATALOG: ModelPickerProps["catalog"] = [
       { id: "openrouter/openai/gpt-6.1-sol-nano", name: "OpenAI: GPT-6.1 Sol Nano (extended context)" },
     ],
   },
-  { id: "gemini", name: "Gemini CLI", models: [{ id: "gemini-3-pro", name: "Gemini 3 Pro" }] },
+  { id: "gemini", name: "Antigravity", models: [{ id: "gemini-3-pro", name: "Gemini 3 Pro" }] },
 ];
 
 export const SOL_SEARCH_QUERY = "sol 6.1";
@@ -81,5 +81,5 @@ export const DEEPSEEK_SEARCH_CATALOG: ModelPickerProps["catalog"] = [
       deepseek("openrouter/deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017"),
     ],
   },
-  { id: "gemini", name: "Gemini CLI", models: [{ id: "gemini-3-pro", name: "Gemini 3 Pro" }] },
+  { id: "gemini", name: "Antigravity", models: [{ id: "gemini-3-pro", name: "Gemini 3 Pro" }] },
 ];

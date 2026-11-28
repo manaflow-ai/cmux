@@ -270,7 +270,7 @@ test("a started Antigravity chat that cannot fork lists Antigravity on the share
   const { switched } = await mount(1, false, "antigravity", await everyHarness());
   await open();
   // Antigravity is a route of the Gemini tab (Lucas 2026-11-25: "just have the gemini symbol").
-  expect(tabNames()).toContain("Gemini");
+  expect(tabNames()).toContain("Antigravity");
   const codex = [...(columns()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])].find(
     (tab) => tab.getAttribute("aria-label") === "Codex",
   )!;
@@ -310,7 +310,7 @@ test("a started chat whose host cannot fork in place continues in the picked har
   snapshot.rows = [{ id: "u1", version: 1, kind: "user", text: "1+1" } as Snapshot["rows"][number]];
   const calls = await mountChat(snapshot);
   await open();
-  expect(tabNames()).toContain("Gemini");
+  expect(tabNames()).toContain("Antigravity");
   const codex = [...(columns()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])].find(
     (tab) => tab.getAttribute("aria-label") === "Codex",
   )!;
@@ -342,7 +342,7 @@ test("every harness's chat opens the shared picker on its own harness's tab", as
       // A second account of a harness (claude-work) is a route of its harness's tab.
       // Gemini CLI and Antigravity are routes of one Gemini tab (Lucas 2026-11-25).
       const own = ["gemini", "antigravity"].includes(entry.id)
-        ? "Gemini"
+        ? "Antigravity"
         : agentName(entry.id.replace(/-work$/, ""), entry.id.endsWith("-work") ? undefined : entry.name);
       const selected = selectedTab();
       if (selected.length !== 1 || selected[0] !== own)
@@ -403,6 +403,6 @@ test("a picker left open while its chat becomes another harness's moves to that 
   await render("antigravity", "gemini-4-hydrogen");
   await settle();
   expect(columns()).not.toBeNull();
-  expect(selectedTab()).toEqual(["Gemini"]);
+  expect(selectedTab()).toEqual(["Antigravity"]);
   expect(columns()!.querySelector('[role="listbox"]')?.textContent).toContain("Gemini 4 Hydrogen");
 }, 30_000);
