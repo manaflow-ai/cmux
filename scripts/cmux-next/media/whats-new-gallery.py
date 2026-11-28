@@ -6,6 +6,8 @@
                           [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
     whats-new-gallery.py overlays --plan PLAN.json --parent SHA       the gallery files to take from each commit there
+    whats-new-gallery.py heal --at DIR --parent SHA --head SHA --log BUILD.log [--plan PLAN.json]
+                                                                     the fix-forward of each file a parent's build broke on
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
 Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
@@ -340,6 +342,45 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
     return out, missing
 
 
+# A fixture module a gallery file imports: mock data and gallery support, never product code.
+FIXTURE = re.compile(r"(^|/)(mock[^/]*|[^/]*[Ff]ixtures?[^/]*)\.tsx?$|^webviews/src/gallery/")
+IMPORT = re.compile(r"""\bfrom\s+["'](\.{1,2}/[^"']+)["']""")
+
+
+def fixture_overlays(commit: str, parent: str, path: str, text_at=show) -> list[str]:
+    """The fixture modules an overlaid gallery file imports (and theirs, fixture to fixture) that its commit changed
+    from PARENT: the overlay brings them along, or the file fails to load at the parent. 2026-11-28, run
+    46142019889: models-and-cloud-connections' dropdown (#54956) came with models.gallery.ts alone, which imports
+    chatgptDeviceError from the mockModels.ts the same commit changed, so the parent loaded 0 cases and the highlight
+    shipped with no before. Product code stays the parent's: the before is the old code drawing the new state."""
+    found: list[str] = []
+    queue = [path]
+    while queue:
+        here = queue.pop(0)
+        for spec in IMPORT.findall(text_at(commit, here) or ""):
+            base = os.path.normpath(os.path.join(os.path.dirname(here), spec))
+            for cand in (base, *(base + ext for ext in (".ts", ".tsx", "/index.ts", "/index.tsx"))):
+                text = text_at(commit, cand) if re.search(r"\.tsx?$", cand) else None
+                if text is None:
+                    continue
+                if cand not in found and cand != path and FIXTURE.search(cand) and text != text_at(parent, cand):
+                    found.append(cand)
+                    queue.append(cand)
+                break
+    return found
+
+
+def overlay_lines(rows: list[dict], parent: str, text_at=show) -> list[str]:
+    """"COMMIT PATH" per file to take from a highlight's commit into the checkout at PARENT: each overlaid gallery
+    file (resolve) and the changed fixtures it imports (fixture_overlays)."""
+    lines: list[str] = []
+    for r in rows:
+        if r.get("parent") == parent and r.get("overlay"):
+            for path in (r["overlay"], *fixture_overlays(r["commit"], parent, r["overlay"], text_at)):
+                lines.append(f"{r['commit']} {path}")
+    return list(dict.fromkeys(lines))
+
+
 def manifest(rows: list[dict], cases: list[dict], parent: str | None = None) -> tuple[list[dict], list[str]]:
     """One case per row: the dark default theme's case of its entry and variant; and the rows with none.
     With `parent`, the befores rendered at that commit: the same state there, never another one (the entry's
@@ -493,6 +534,36 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
     return problems
 
 
+BROKEN_SOURCE = re.compile(r"(?:SyntaxError:|\[BabelError\])\s+(/\S+?):\s")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def heal(at: Path, parent: str, head: str, log: str, keep: set[str] = frozenset()) -> list[tuple[str, str]]:
+    """(COMMIT, PATH) for each source file the build at PARENT failed to parse: the oldest first-parent commit in
+    PARENT..HEAD that changed it, the base's fix-forward. 2026-11-27, run 46069736799: parent b2f1339a of an
+    Improved highlight sat inside a base red (#51044 declared layoutGeometry twice in VirtualTranscript.tsx; #61071
+    fixed it 106 first-parent commits later), so its gallery:build failed and the highlight shipped with no before.
+    Only the files the build named, never one the plan overlays from the highlight's commit (KEEP)."""
+    root = str(Path(at).resolve())
+    found: list[tuple[str, str]] = []
+    for match in BROKEN_SOURCE.finditer(ANSI.sub("", log)):
+        path = match.group(1)
+        for prefix in (root, str(at)):
+            if path.startswith(prefix.rstrip("/") + "/"):
+                rel = path[len(prefix.rstrip("/")) + 1:]
+                break
+        else:
+            continue
+        if rel in keep or any(rel == p for _, p in found):
+            continue
+        run = subprocess.run(["git", "-C", str(at), "log", "--first-parent", "--reverse", "--format=%H",
+                              f"{parent}..{head}", "--", rel], capture_output=True, text=True)
+        commits = run.stdout.split() if run.returncode == 0 else []
+        if commits:
+            found.append((commits[0], rel))
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -513,6 +584,12 @@ def main(argv: list[str] | None = None) -> int:
     o = sub.add_parser("overlays")
     o.add_argument("--plan", type=Path, required=True)
     o.add_argument("--parent", required=True)
+    h = sub.add_parser("heal")
+    h.add_argument("--at", type=Path, required=True)
+    h.add_argument("--parent", required=True)
+    h.add_argument("--head", required=True)
+    h.add_argument("--log", type=Path, required=True)
+    h.add_argument("--plan", type=Path, help="the plan: the gallery files it overlays stay as they are")
     u = sub.add_parser("publish")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
@@ -524,6 +601,14 @@ def main(argv: list[str] | None = None) -> int:
         if all(r.get("state") for r in rows):
             print(" ".join(sorted({r["entry"] for r in rows})))
         return 0
+    if args.cmd == "heal":
+        keep = set()
+        if args.plan:
+            keep = {line.partition(" ")[2] for line in overlay_lines(json.loads(args.plan.read_text()), args.parent)}
+        log = args.log.read_text(errors="replace") if args.log.exists() else ""
+        for commit, path in heal(args.at, args.parent, args.head, log, keep):
+            print(f"{commit} {path}")
+        return 0
     rows = json.loads(args.plan.read_text())
     if args.cmd == "parents":
         # The newest highlights first: a commit whose before keeps failing never holds the newer ones back.
@@ -533,8 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "overlays":
         # "COMMIT PATH" per gallery file to take from the highlight's commit into the checkout at PARENT (resolve).
-        for line in dict.fromkeys(f"{r['commit']} {r['overlay']}" for r in rows
-                                  if r.get("parent") == args.parent and r.get("overlay")):
+        for line in overlay_lines(rows, args.parent):
             print(line)
         return 0
     if args.cmd == "manifest":

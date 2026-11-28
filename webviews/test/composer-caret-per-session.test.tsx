@@ -8,8 +8,12 @@ import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
-import { promptField, proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { promptField, proseMirrorGlobals } = await importWithDom(
+  () => import("../src/agent-session/acpmux/promptFieldTesting"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

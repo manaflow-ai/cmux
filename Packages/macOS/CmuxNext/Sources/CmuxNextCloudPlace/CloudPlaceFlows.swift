@@ -103,6 +103,9 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private var started: [String: (auto: Bool, evacuate: Bool, toCloud: Bool)] = [:]
     /// Bumped once per change in the hybrid start drivers' folder; `placeJSON` reads it, so the header re-reads `start`.
     public private(set) var startRevision = 0
+    /// Bumped once per AutoSize row the Cloud wire added (``autoSize(frame:team:)``); `placeJSON` reads it, so the header
+    /// re-reads `autosize`.
+    public private(set) var autoSizeRevision = 0
     /// The cmux-tui sessions folder (`CMUX_TUI_STATE_DIR`) the hybrid start drivers write under; nil reads no `start`.
     @ObservationIgnored private var startState: URL?
     /// Each session's `start` as of a revision, so a header read costs one FFI read per Show, not per read.
@@ -208,9 +211,18 @@ public final class CloudPlaceFlows {
                                 "from": from, "to": to, "cargo": cargo.json, "atMs": nowMs])
     }
 
-    /// `step` starts (the steps before it are done).
+    /// `step` starts (the steps before it are done). `kept` is where the step it leaves spent its time (``phases(_:_:_:)``).
     @discardableResult
-    public func step(_ session: String?, _ step: String) -> Next { session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
+    public func step(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) -> Next {
+        if let kept { phases(session, kept.step, kept.phases) }
+        return session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go
+    }
+
+    /// Where `step`'s time went (its CLI's ``CloudMoveCLI/Answer/phases``), kept with the step in the view's `steps`.
+    public func phases(_ session: String?, _ step: String, _ phases: [String: Int]?) {
+        guard let session, let phases, !phases.isEmpty else { return }
+        _ = report(session, ["event": "phases", "step": step, "phases": phases])
+    }
 
     /// The machine got its name.
     @discardableResult
@@ -245,11 +257,11 @@ public final class CloudPlaceFlows {
     }
 
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
-    /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
-    public func advance(_ session: String?, _ step: String) throws {
+    /// steps before the chat lands; once the chat committed, use ``step(_:_:kept:)``, which never stops the move.
+    public func advance(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) throws {
         try Task.checkCancellation()
         guard let session else { return }
-        guard self.step(session, step) != .stop else {
+        guard self.step(session, step, kept: kept) != .stop else {
             cancelled.insert(session)
             throw CancellationError()
         }
@@ -385,10 +397,15 @@ public final class CloudPlaceFlows {
     /// `place: {mode, at, cloudName?, move?, blocked?, holders?, keep?, start?}` for the chat header, as JSON; nil with no session.
     /// `blocked`, `holders` and `keep` (Keep Running's lit, used, total, waiting) are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil) -> Data? {
+    /// `machine`: the chat's machine id, whose AutoSize rows (RFD 0080 piece 4) `place.autosize` carries with
+    /// `cmux.cloud.autosizeRows` on (default off); nil carries none.
+    /// `modes`: the choices its control offers (`CmuxConfigSnapshot.placeModes`); nil leaves them out.
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil,
+                          machine: String? = nil, modes offered: [String]? = nil) -> Data? {
         if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
+        if let offered { place["modes"] = offered }
         if let cloudName { place["cloudName"] = cloudName }
         // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
@@ -402,6 +419,8 @@ public final class CloudPlaceFlows {
         }
         if let start = start(of: session) { place["start"] = start }
         if let status = computerStatus(session: session, place: place) { place["status"] = status }
+        // The chat's AutoSize rows, off unless the person turns them on (`defaults write … cmux.cloud.autosizeRows -bool YES`).
+        if let machine, defaults.bool(forKey: "cmux.cloud.autosizeRows"), let rows = autoSizeRows(machine: machine) { place["autosize"] = rows }
         // main-actor-ok: this one chat's header place; the order is read: AgentPaneHeaderState compares placeData bytes.
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
     }
@@ -418,6 +437,32 @@ public final class CloudPlaceFlows {
               let reply = core("cloud_computer_status_live", request) else { return nil }
         // main-actor-ok: Rust's one ComputerStatus for this chat (a status line and a few popover rows).
         return try? JSONSerialization.jsonObject(with: reply)
+    }
+
+    /// One Cloud wire frame for Rust's AutoSize feed (`cloud_autosize_frame`), which keeps every chat's AutoSize rows by
+    /// machine record; a row added bumps ``autoSizeRevision``.
+    public func autoSize(frame: Data, team: String?) {
+        // main-actor-ok: one ephemeral wire frame of a few hundred bytes, per AutoSize notice.
+        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return }
+        var ask: [String: Any] = ["frame": object]
+        if let team { ask["team"] = team }
+        guard JSONSerialization.isValidJSONObject(ask), let request = try? JSONSerialization.data(withJSONObject: ask),
+              let reply = core("cloud_autosize_frame", request),
+              // main-actor-ok: Rust's `{added, machine?}`.
+              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              answer["added"] as? Bool == true else { return }
+        autoSizeRevision &+= 1
+    }
+
+    /// The AutoSize rows of `machine` (`cloud_autosize_chat`, ``autosize_row::Row`` each, oldest first); nil for none.
+    func autoSizeRows(machine: String) -> [Any]? {
+        _ = autoSizeRevision // observed: a new row re-reads the header
+        // main-actor-ok: one machine id; Rust answers at most 50 small rows.
+        guard let request = try? JSONSerialization.data(withJSONObject: ["machine": machine]),
+              let reply = core("cloud_autosize_chat", request),
+              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let rows = answer["rows"] as? [Any], !rows.isEmpty else { return nil }
+        return rows
     }
 
     /// What Rust needs to say whether the header's cloud control is blocked or every slot is held (`priority::ControlFacts`).

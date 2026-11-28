@@ -1,0 +1,33 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-sidebar",
+  "description": "A 256-point sidebar with project and activity details on thread rows.",
+  "settings": {
+    "appearance.themeFile": "studio-app-sidebar",
+    "appearance.metrics.sidebarWidth": 256,
+    "sidebar.side": "left",
+    "sidebar.style": "standard",
+    "sidebar.density": "expanded",
+    "sidebar.groupBy": "none",
+    "sidebar.showChats": true,
+    "sidebar.showProjects": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showTimestamps": true,
+    "sidebar.controlsOnHover": true,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.workspaceRow.agent.directory": true,
+    "sidebar.workspaceRow.agent.branch": true,
+    "sidebar.workspaceRow.agent.pullRequest": true,
+    "sidebar.workspaceRow.agent.agentStatus": true,
+    "sidebar.workspaceRow.agent.secondLineOrder": [
+      "directory",
+      "branch",
+      "agentStatus"
+    ]
+  },
+  "files": {
+    "themes/studio-app-sidebar.json": "{\n  \"name\": \"Thread sidebar\",\n  \"description\": \"A 256-point sidebar with rounded rows and a second line for project details.\",\n  \"appearance.sidebarSurface\": \"separate\",\n  \"sidebar.border\": true,\n  \"sidebar.borderWidth\": 1,\n  \"density\": {\n    \"basedOn\": \"compact\",\n    \"tokens\": {\n      \"sidebarWidth\": 256,\n      \"sidebarRowHeight\": 36,\n      \"sidebarRowHeightWithSubtitle\": 60,\n      \"sidebarCornerRadius\": 6,\n      \"sidebarRowGap\": 1\n    }\n  }\n}\n",
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": { \"en\": \"Thread details\" },\n  \"version\": \"1.0.0\",\n  \"description\": \"Project, activity and thread details for a hovered workspace.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"repository\": \"https://github.com/local/customize\",\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": { \"cmux.hovercard/1\": { \"export\": \"renderThreadCard\" } },\n  \"activation\": [\"onInterface:cmux.hovercard/1\"],\n  \"scopes\": {},\n  \"files\": [\"main.js\"]\n}\n",
+    "customize/main.js": "// The host supplies the hovered workspace and its activity in ctx.card.\nfunction renderThreadCard({ card }) {\n  const project = card.facts.find((fact) => fact.kind === \"folder\")\n  const details = card.facts.filter((fact) =>\n    [\"needsInput\", \"branch\", \"pullRequest\", \"machine\", \"agent\"].includes(fact.kind)\n  )\n  return VStack({ spacing: 4, alignment: \"leading\" }, [\n    HStack({ spacing: 6 }, [\n      project ? Text(project.text).font(\"caption\").secondary().lineLimit(1) : null,\n      Spacer(),\n      card.age ? Text(card.age).font(\"caption\").secondary() : null,\n    ]),\n    Text(card.title).weight(\"medium\").lineLimit(2),\n    card.status ? Text(card.status).font(\"caption\") : null,\n    ...details.map((fact) => Text(fact.text).font(\"caption\").secondary().lineLimit(2)),\n  ])\n}\n\nglobalThis.__cmuxAppExports = { renderThreadCard }\n"
+  }
+}

@@ -34,7 +34,7 @@ fn a_task_notification_turn_is_bracketed_and_quiet() {
     assert_eq!(
         ended,
         [json!({"state": "ended", "id": "bg-2", "trigger": "task_notification",
-                "quiet": true, "reason": "result"})]
+                "quiet": true, "reason": "result", "failed": false})]
     );
     // The next one, with nothing before it, is the system's; a long reply is not quiet.
     b.on_line("claude.system.init", &json!({}), false, 6);
@@ -58,11 +58,13 @@ fn a_codex_turn_ends_when_its_thread_goes_idle() {
     assert_eq!(b.on_update(&status("active"), false, 3), None);
     let started = b.on_update(&chunk("m1", "REPORTED work-done"), false, 4);
     assert_eq!(started, Some(json!({"state": "started", "id": "bg-4", "trigger": "system"})));
+    let ended = b.on_update(&status("idle"), false, 9).unwrap();
     assert_eq!(
-        b.on_update(&status("idle"), false, 9),
-        Some(json!({"state": "ended", "id": "bg-4", "trigger": "system",
-                    "quiet": true, "reason": "result"}))
+        ended,
+        json!({"state": "ended", "id": "bg-4", "trigger": "system",
+               "quiet": true, "reason": "result"})
     );
+    assert!(!recovers(&ended), "idle does not distinguish success from failure or cancellation");
     // Idle with none running, or while acpmux's own turn runs, ends nothing.
     assert_eq!(b.on_update(&status("idle"), false, 10), None);
     b.on_update(&chunk("m2", "more"), false, 11);
@@ -183,4 +185,61 @@ fn a_prompt_ends_the_running_one() {
     assert_eq!(ended["reason"], "prompt");
     // Its result, now the prompt's turn's, ends nothing more.
     assert!(b.on_line("claude.result.success", &json!({}), true, 3).is_empty());
+}
+
+#[tokio::test]
+async fn background_recovery_survives_daemon_handoff() {
+    use crate::config::{Config, StoreMode};
+    use crate::store::SessionMeta;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "background-recovery", "name": "recovery",
+        "harness": "fake", "family": "fake", "cwd": dir.path(), "status": "idle",
+        "createdAt": 1, "updatedAt": 1, "lastSeq": 0,
+        "lastTurn": {"turnId": "failed-turn", "status": "failed", "endedAt": 1,
+                     "error": {"message": "earlier failure"}}
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let hub = Hub::new(config.clone(), store);
+    hub.wait_store().await;
+    let session = hub.resolve(&meta.id).unwrap();
+    hub.session_log(&session).await;
+    hub.save_meta(&session);
+    assert_eq!(hub.session_summary(&session)["indicator"], "failed");
+
+    // Drive the same autonomous completion path as the agent tap, with no prompted turn
+    // whose finish could incidentally save the recovery marker.
+    hub.background_turn_update(&session, &chunk("recovered", "Working again."));
+    hub.background_turn_line(&session, "claude.result.success", &json!({"is_error": false}));
+    let recovered = session.meta.lock().unwrap().last_turn.clone().unwrap();
+    assert!(recovered["recoveredAt"].is_u64(), "{recovered}");
+    assert_eq!(recovered["status"], "failed");
+    assert_eq!(recovered["error"]["message"], "earlier failure");
+    assert_ne!(hub.session_summary(&session)["indicator"], "failed");
+    assert_eq!(
+        hub.store.load(&meta.id).unwrap().unwrap().last_turn,
+        Some(recovered.clone()),
+        "the recovery must request its own save before another change or shutdown can mask it"
+    );
+
+    // The normal daemon handoff drains queued metadata writes; unlike Hub::flush it does
+    // not save arbitrary in-memory mutations. Reopen its actual durable store afterwards.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    tokio::time::timeout_at(deadline, async {
+        hub.shutdown_for_handoff(true).await;
+        hub.clone().persist_for_handoff(deadline).await;
+    })
+    .await
+    .unwrap();
+    drop(session);
+    drop(hub);
+    let reopened = crate::store::open(&config.store, dir.path()).unwrap();
+    assert_eq!(reopened.load(&meta.id).unwrap().unwrap().last_turn, Some(recovered));
+    reopened.seal();
 }

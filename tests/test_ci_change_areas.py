@@ -438,6 +438,9 @@ def test_unrelated_app_changes_skip_the_two_macos_hang_diagnostics_jobs() -> Non
 def test_hang_diagnostics_paths_cover_every_file_its_jobs_read() -> None:
     workflow = HANG_WORKFLOW.read_text(encoding="utf-8")
     jobs = workflow.partition("\njobs:\n")[2]
+    # Comment lines name files the jobs do not read (a job's comment may
+    # point at the ci/steps.toml step that runs it on pull requests).
+    jobs = "\n".join(line for line in jobs.splitlines() if not line.lstrip().startswith("#"))
     # Keeps the filter honest as the jobs change: every repository file the job
     # steps name must be routed, and every routed pattern must match something.
     references = {
@@ -468,13 +471,12 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
     release = workflow_job_block("release-build", MACOS_WORKFLOW)
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
 
+    # Own-branch Linux jobs take the one cmux-linux label (#48644).
     assert (
         "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
-        " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || fromJSON(vars.RUNNER_POOLS).linux }}"
+        " && 'ubuntu-24.04' || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -663,9 +665,13 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
     for want in (
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
     ):
         assert want in outside, want
+    # Catalogs are one file per key under NAME.xcstrings.d since #56351.
+    assert any(
+        path.startswith("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/")
+        for path in outside
+    )
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
     unrouted = [
         path for path in outside
@@ -679,9 +685,11 @@ def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
     # reads, so Swift work and its own strings stay off the web lane.
     key = _web_bundle_key()
     read = set(key.gen_strings_catalogs(str(ROOT)) or ())
-    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings" in read
+    # Catalogs are one file per key under NAME.xcstrings.d since #56351.
+    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d" in read
     unread = [
-        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB]) if path not in read
+        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB])
+        if path not in read and not any(path.startswith(catalog + "/") for catalog in read)
     ]
     assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
     for path in (
@@ -790,8 +798,7 @@ def test_stale_run_check_ignores_github_api_errors() -> None:
 
 
 def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
-    script = workflow_job_step_script("changes", "Route standalone project workflows")
-    script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    script = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     cases = (
         (None, "true", "true"),
         ("", "false", "false"),
@@ -813,8 +820,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
 
 
 def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
-    script = workflow_job_step_script("changes", "Route standalone project workflows")
-    script = script.replace("/tmp/cmux-ci-changed-files.txt", '\"$CHANGED_FILES\"')
+    script = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     cases = (
         (".github/workflows/nightly.yml\nscripts/sparkle_generate_appcast.sh\n", "false"),
         (".github/workflows/release.yml\n", "false"),
@@ -840,9 +846,8 @@ def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> N
 
 
 def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
-    detector = detect_step_script().replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
-    route = workflow_job_step_script("changes", "Route standalone project workflows")
-    route = route.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    detector = changed_files_from_env(detect_step_script())
+    route = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         git = root / "git"
@@ -862,10 +867,10 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
+    # Own-branch Linux jobs take the one cmux-linux label (#48644).
     cells = workflow_jobs.runs_on_cells(admission)
     assert cells is not None, "remote-daemon-admission: runs-on matrix does not resolve"
-    assert "fromJSON(vars.RUNNER_POOLS).linux" in "\n".join(cells)
+    assert "cmux-linux" in "\n".join(cells)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -968,11 +973,24 @@ def test_ios_only_skips_main_macos_ci() -> None:
 
 
 def test_ios_packages_keep_macos_dependency_coverage() -> None:
+    # #50754 dropped the last Packages/iOS edge from the desktop graph, so an
+    # iOS package edit no longer compiles the macOS app. A package the
+    # desktop closure does reach still runs macOS (patched closure below).
     assert_areas(
         ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
-        macos=True,
+        macos=False,
         web=False,
     )
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: frozenset({"Packages/iOS/CmuxMobileRPC"})
+    try:
+        assert_areas(
+            ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
+            macos=True,
+            web=False,
+        )
+    finally:
+        module.load_macos_ios_package_closure = original
 
 
 def test_pbx_list_ids_accepts_bare_and_commented_references() -> None:
@@ -1005,15 +1023,9 @@ def test_pbx_list_ids_rejects_present_malformed_optional_lists() -> None:
 
 
 def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
-    assert module.macos_ios_package_closure(ROOT) == frozenset(
-        {
-            "Packages/iOS/CmuxMobileRPC",
-            "Packages/iOS/CmuxMobileSSH",
-            "Packages/iOS/CmuxMobileShellModel",
-            "Packages/iOS/CmuxMobileSupport",
-            "Packages/iOS/CmuxMobileTunnel",
-        }
-    )
+    # #50754 removed CmuxNext's test-only CmuxMobileRPC/CmuxMobileSSH path
+    # dependencies; no macOS or Shared package names Packages/iOS since.
+    assert module.macos_ios_package_closure(ROOT) == frozenset()
 
 
 def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
@@ -1037,13 +1049,21 @@ def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
         "CmuxMobileSupport",
         "CmuxMobileTunnel",
     )
-    for package in mac_relevant:
-        path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
-        actual = module.classify_files([path])
-        assert actual.macos is True, (path, actual)
-        assert actual.release_build is True, (path, actual)
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: frozenset(
+        f"Packages/iOS/{package}" for package in mac_relevant
+    )
+    try:
+        for package in mac_relevant:
+            path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
+            actual = module.classify_files([path])
+            assert actual.macos is True, (path, actual)
+            assert actual.release_build is True, (path, actual)
+    finally:
+        module.load_macos_ios_package_closure = original
 
-    for package in ("CmuxMobileAnalytics", "CmuxMobileShellUI", "CmuxMobileDiagnostics"):
+    # The real desktop graph reaches no iOS package (#50754).
+    for package in mac_relevant + ("CmuxMobileAnalytics", "CmuxMobileShellUI", "CmuxMobileDiagnostics"):
         path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
         actual = module.classify_files([path])
         assert actual.macos is False, (path, actual)
@@ -1996,6 +2016,21 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
     raise AssertionError(f"{job_name} job not found")
 
 
+CI_CHANGED_FILES = "${RUNNER_TEMP}/cmux-ci-changed-files.txt"
+
+
+def changed_files_from_env(script: str) -> str:
+    """Make a changes-job step read its changed-file list from $CHANGED_FILES.
+
+    Fails when the step no longer names the list's path: a replace that
+    matches nothing would leave the step writing to an unset $RUNNER_TEMP
+    (the 20-red class after #49195 moved the file off /tmp).
+    """
+    assert CI_CHANGED_FILES in script, f"step no longer names {CI_CHANGED_FILES}"
+    return script.replace(CI_CHANGED_FILES, '"$CHANGED_FILES"')
+
+
+
 def isolate_ci_tmp(script: str, directory: Path) -> str:
     """Point a workflow step's fixed /tmp/cmux-* files into `directory`.
 
@@ -2004,7 +2039,9 @@ def isolate_ci_tmp(script: str, directory: Path) -> str:
     those files: one run then reads another's changed-file list, sees an empty
     diff, and routes nothing.
     """
-    return script.replace("/tmp/cmux-", f"{directory}/cmux-")
+    for prefix in ("/tmp/cmux-", "${RUNNER_TEMP}/cmux-", "$RUNNER_TEMP/cmux-"):
+        script = script.replace(prefix, f"{directory}/cmux-")
+    return script
 
 
 def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
@@ -3205,6 +3242,52 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
+def _plan_lines(*args: str, env: Optional[dict] = None) -> list[str]:
+    result = subprocess.run(
+        [sys.executable, str(HELPER), *args],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "GITHUB_ACTIONS": "", **(env or {})},
+    )
+    return [line for line in result.stdout.splitlines() if "ci-plan" in line]
+
+
+def test_cli_names_the_plan_class_and_fallback_rule() -> None:
+    # One line per run says whether the planner narrowed the run or fell
+    # back to every area, and which rule forced the fallback, so a weekly
+    # roll-up can report the fail-open share (cmuxterm-hq
+    # docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md).
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        files_path.write_text("web/app/page.tsx\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=targeted fallback=none",
+        ]
+        files_path.write_text("", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=empty_diff",
+        ]
+        # ci.yml with no base to compare its jobs against fails open.
+        files_path.write_text(".github/workflows/ci.yml\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=ci_yml_jobs_unreadable:1 first=.github/workflows/ci.yml",
+        ]
+    assert _plan_lines("--event-name", "push") == ["ci-plan v1 class=full fallback=post_merge_event"]
+    # In Actions the same line is also a notice annotation on the check run.
+    assert _plan_lines("--event-name", "push", env={"GITHUB_ACTIONS": "true"}) == [
+        "ci-plan v1 class=full fallback=post_merge_event",
+        "::notice title=ci-plan::ci-plan v1 class=full fallback=post_merge_event",
+    ]
+
+
+def test_classify_files_collects_fail_open_rules() -> None:
+    fallbacks: list[tuple[str, str]] = []
+    module.classify_files([".github/workflows/ci.yml", "web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == [("ci_yml_jobs_unreadable", ".github/workflows/ci.yml")]
+    fallbacks = []
+    module.classify_files(["web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == []
+
+
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     block = workflow_job_block("ci-status")
 
@@ -3367,6 +3450,17 @@ def test_every_setup_bun_step_declares_a_version() -> None:
 
     for workflow_path in sorted(workflows.glob("*.yml")):
         lines = workflow_path.read_text(encoding="utf-8").splitlines()
+        version_line = r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?'
+        # A step may reuse another's inputs through a YAML alias
+        # (`with: *bun-with`); read the version from the anchored block.
+        anchored: dict[str, list[str]] = {}
+        for index, line in enumerate(lines):
+            if anchor := re.match(r"^\s+with:\s*&([A-Za-z0-9_-]+)\s*$", line):
+                anchored[anchor.group(1)] = [
+                    match.group(1)
+                    for candidate in lines[index + 1:index + 6]
+                    if (match := re.match(version_line, candidate))
+                ]
         for index, line in enumerate(lines):
             if action not in line:
                 continue
@@ -3375,8 +3469,11 @@ def test_every_setup_bun_step_declares_a_version() -> None:
             versions = [
                 match.group(1)
                 for candidate in tail
-                if (match := re.match(r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?', candidate))
+                if (match := re.match(version_line, candidate))
             ]
+            for candidate in tail:
+                if alias := re.match(r"^\s+with:\s*\*([A-Za-z0-9_-]+)\s*$", candidate):
+                    versions += anchored.get(alias.group(1), [])
             assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,
@@ -5552,8 +5649,8 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
 PR_LANE_XCODE_PIN = (
     "${{ github.event_name == 'pull_request' "
     "&& (inputs.pr_xcode_app || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) "
-    "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
-    "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
+    "&& vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15)) "
+    "|| (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}"
 )
 
 
@@ -5585,7 +5682,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {pin}" in block, job_name
-        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
+        # The macOS 26 pin appears only where the macos_15 pool has failed over to macOS 26.
+        assert block.count("vars.CMUX_CI_XCODE_APP_MACOS_26") == block.count(
+            "endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26"
+        ), job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     # swift-package-tests links the Release Ghostty CLI helper with Zig, which
@@ -5596,6 +5696,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # which takes the lane's pin.
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
+    # The macos_15 pool can fail over to macOS 26 (.github/runners.json), which has no SDK 15 helper Xcode, so this
+    # job names the macOS 15 label itself, never the pool (2026-11-28).
+    assert "RUNNER_POOLS).macos_15" not in package_block
+    assert "|| 'blacksmith-6vcpu-macos-15') }}" in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
         "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
@@ -5931,3 +6035,21 @@ if __name__ == "__main__":
         print("PASS: CI change area filter")
     else:
         sys.exit(1)
+
+
+def test_helper_walk_dead_ends_on_fixtures_docs_tables_comments_and_step_table() -> None:
+    # Each of these failed every helper it names open (all areas) before the
+    # walk placed it: #64464's fixture, #61514's docs table, #48644's comment.
+    assert module.referrer_role("tests/fixtures/cmux-63557-acpmux.yml") == "data"
+    assert module.referrer_role("docs/benches/relevance-map.toml") == "documentation"
+    assert module.referrer_role("ci/steps.toml") == "workflow"
+    text = "// runs scripts/x.sh\n/* scripts/y.sh */\nconst u = 'https://e.com/z';\n"
+    stripped = module._without_slash_comments(text)
+    assert "x.sh" not in stripped and "y.sh" not in stripped
+    assert "https://e.com/z" in stripped
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "run.sh").write_text("#!/bin/sh\n# calls helper.py once\necho hi\n")
+        (root / "real.sh").write_text("#!/bin/sh\npython3 helper.py\n")
+        assert module._shell_runner_names(root, "run.sh", "helper.py") is False
+        assert module._shell_runner_names(root, "real.sh", "helper.py") is True

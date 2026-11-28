@@ -50,6 +50,8 @@ jobs:
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
     env:
+      # The batch is this commit's only run of the `alone` steps (nothing re-runs it): they run on a red job too.
+      CI_RUN_ALONE_ON_RED: "1"
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:

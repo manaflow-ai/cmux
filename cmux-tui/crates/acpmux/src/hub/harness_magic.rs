@@ -11,10 +11,11 @@
 //! situation"), and a
 //! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
-//! with the gate it asks before it acts, so the stamp says exactly what ran: a feature with a
-//! switch and no row here ran unseen, and the scorecard could not split its turns on from off
-//! (RFD 0159's read-back found verify, prefetch, surgery and dedupe all missing). The test
-//! `every_harness_magic_switch_is_a_registered_feature` fails a new switch with no row.
+//! (`harness_magic_registry.rs`) with the gate it asks before it acts, so the stamp says exactly
+//! what ran: a feature with a switch and no row there ran unseen, and the scorecard could not
+//! split its turns on from off (RFD 0159's read-back found verify, prefetch, surgery and dedupe
+//! all missing). The test `every_harness_magic_switch_is_a_registered_feature` fails a new switch
+//! with no row.
 //!
 //! A `turn_result` carries `harnessMagic: {"enabled": [..], "<feature>": {"<counter>": n}}`:
 //! `enabled` the features on for that turn (an empty list: a build that knows the seam with
@@ -32,26 +33,12 @@ pub(crate) struct Feature {
     pub on: fn() -> bool,
 }
 
-/// The features this build carries. A builder adds its feature here with its gate; an empty
-/// list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[Feature] = &[
-    Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
-    Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
-    Feature {
-        name: crate::claude_stdio::PATH_RULES_FEATURE,
-        on: crate::claude_stdio::path_rules_enabled,
-    },
-    Feature { name: "verify", on: super::verify::enabled },
-    Feature { name: "prefetch", on: super::prefetch::enabled },
-    Feature { name: "surgery", on: super::surgery::enabled },
-    Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
-    Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
-    Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
-    Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
-    Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
-    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
-    Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
-];
+/// The features this build carries, each with its gate (`harness_magic_registry.rs`, where a
+/// feature adds its row).
+pub(crate) use registry::FEATURES;
+// Where each feature registers its gate and turn-end step (merged by insertions).
+#[path = "harness_magic_registry.rs"]
+pub(super) mod registry;
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
 pub(crate) const DEFAULT_OFF: &[&str] = &[super::sidecars::FEATURE];
@@ -140,7 +127,6 @@ pub(crate) fn stamp(msg: &mut Value) {
 }
 
 /// Adds `n` to `harnessMagic.<feature>.<counter>` on a `turn_result` message.
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn add_counter(msg: &mut Value, feature: &str, counter: &str, n: u64) {
     let Some(hm) = object(msg) else { return };
     let f = hm.entry(feature.to_owned()).or_insert_with(|| json!({}));

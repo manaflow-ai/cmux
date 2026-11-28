@@ -11,9 +11,13 @@ far right of the tab bar, down into the content, up to Back from below (at rest)
 0.7 s and prints one TRH-STEP line from `debug.pane_chrome` (pointer inside, revealed, band presence, button alphas).
 
 The pointer: real mouse-moved events along each leg (pointer-probe.swift `path`) when this session may post them (the
-cursor arrives); else cua-driver warps the real cursor there (the reveal's own pointer read sees it) and
-`debug.mouse hover` gives the tracking areas the entered and exited events a real move would. The mode prints as
-TRH-MODE. The display is recorded through CuaDriver (tab_switch_capture.CuaSession) into DIR/recording.mp4 when it
+cursor arrives); else CuaDriver's `move_cursor` (desktop scope, foreground delivery, through the recording's own
+`cua-driver mcp` session) warps the real cursor there and `debug.mouse hover` gives the tracking areas the entered and
+exited events a real move would. The mode prints as TRH-MODE. Every stop reads the cursor back (`where`); a run whose
+cursor never lands fails with TRH-FAIL instead of recording a walk the app never saw: HoverRevealProbe re-reads the
+real cursor whenever its region's frame changes (the sticky reveal grows it), so a synthetic hover over a cursor left
+elsewhere reads as "outside" a moment later (step e6593cccbd30b9f99bce2a04: the `cua-driver call` CLI found no daemon
+under the step's HOME, the cursor sat at 10,10, and every row of both arms read pointer_inside=False). The display is recorded through CuaDriver (tab_switch_capture.CuaSession) into DIR/recording.mp4 when it
 can; TRH-VIDEO names it. Quits the app with its own quit; signals only the PID it started.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
@@ -29,7 +33,6 @@ p.add_argument("--probe", required=True, help="the built pointer-probe binary")
 o = p.parse_args()
 SOCK = f"/tmp/cmux-debug-{o.tag}.sock"
 FRAME = (40, 40, 1100, 760)
-CUA = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 
 
 def rpc(method, params=None, timeout=30):
@@ -71,12 +74,18 @@ def probe(*args):
     return r.stdout.strip()
 
 
-def cua(tool, params):
+def where():
+    """The real cursor, global top-left points, or None."""
     try:
-        out = subprocess.run([CUA, "call", tool, json.dumps(params)], capture_output=True, text=True, timeout=30).stdout
-        return json.loads(out or "{}")
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return {}
+        x, y = (float(v) for v in probe("where").split()[:2])
+    except ValueError:
+        return None
+    return x, y
+
+
+def landed(target, tolerance=2.0):
+    at = where()
+    return at is not None and abs(at[0] - target[0]) < tolerance and abs(at[1] - target[1]) < tolerance, at
 
 
 APP = o.app.rstrip("/")
@@ -100,6 +109,21 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60)
     time.sleep(2)
+    # A scratch HOME is a first run: "Make cmux Yours" opens as its own window over the main one, and the CG window
+    # list put it first, so 7b32f9af (2026-11-28) walked the onboarding window's coordinates and every step
+    # read pointer_inside=False in both arms. Close it, and find the main window by its number below.
+    rpc("debug.onboarding", {"action": "close"})
+
+    def shown_windows():
+        listing = rpc("debug.window_list") or {}
+        return [w for w in listing.get("windows") or [] if w.get("visible", True)]
+
+    wait(lambda: all(w.get("kind") == "main" for w in shown_windows()), 10)
+    shown = shown_windows()
+    print(f"TRH-WINDOWS {o.arm} " + " ".join(f"{w.get('id')}:{w.get('kind')}" for w in shown), flush=True)
+    main = next((w for w in shown if w.get("kind") == "main"), None)
+    if main is None:
+        raise SystemExit(f"TRH-FAIL {o.arm} no main window in debug.window_list")
     # The open band's place: with the sidebar shown it is fully present, where the hover opens it over a hidden one.
     controls, _ = chrome()
     if controls.get("sidebar_hidden"):
@@ -110,56 +134,98 @@ try:
     rpc("action.run", {"action": "toggleSidebar", "origin": "script"})
     if not wait(lambda: chrome()[0].get("sidebar_hidden") and chrome()[0].get("band_presence", 1) == 0, 10):
         raise SystemExit("titlebar-hover-reveal: the sidebar did not hide")
-    height = FRAME[3]
-    row_y = height - (by + bh / 2)  # window-local, from the top
-    print(f"TRH-BAND {o.arm} open_band_frame={[bx, by, bw, bh]} row_y={row_y}", flush=True)
+    # The main window where it really is (the test frame is a request: a fleet Mac put a 1100x760 ask at 410,93, 1100x720).
+    # The probe lists window number, top-left x, y, width, height; debug.window_list's id is that number.
+    wx = wy = ww = wh = None
+    for line in probe("windows", app.pid).splitlines():
+        fields = line.split()
+        if len(fields) >= 5 and fields[0].isdigit() and int(fields[0]) == int(main.get("id") or -1):
+            wx, wy, ww, wh = (float(v) for v in fields[1:5])
+    if wx is None:
+        raise SystemExit(f"TRH-FAIL {o.arm} main window {main.get('id')} is not in the on-screen window list")
+    row_y = wh - (by + bh / 2)  # window-local, from the top
+    print(f"TRH-BAND {o.arm} open_band_frame={[bx, by, bw, bh]} row_y={row_y} window={[wx, wy, ww, wh]}", flush=True)
     toggle, back, forward = bx + bw / 6, bx + bw / 2, bx + bw * 5 / 6
-    content_y = 320
-    path = [("content", 560, content_y), ("lights_gap", bx - 4, row_y), ("toggle", toggle, row_y),
-            ("back", back, row_y), ("forward", forward, row_y), ("tab_mid", FRAME[2] / 2, row_y),
-            ("tab_right", FRAME[2] - 40, row_y), ("content_below", FRAME[2] - 40, content_y),
+    content_x, content_y = ww / 2, min(320, wh / 2)
+    path = [("content", content_x, content_y), ("lights_gap", bx - 4, row_y), ("toggle", toggle, row_y),
+            ("back", back, row_y), ("forward", forward, row_y), ("tab_mid", ww / 2, row_y),
+            ("tab_right", ww - 40, row_y), ("content_below", ww - 40, content_y),
             ("below_back", back, content_y), ("back_from_below", back, row_y), ("toggle_again", toggle, row_y)]
-
-    windows = probe("windows", app.pid).splitlines()
-    import re
-    nums = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", windows[0])] if windows else []
-    wx, wy = (nums[1], nums[2]) if len(nums) >= 3 else (FRAME[0], FRAME[1])
-    scale = float(cua("get_screen_size", {}).get("scale_factor") or 2.0)
 
     def screen(x, y):
         return wx + x, wy + y
 
-    # Real moves when posting works: the cursor arrives where the event put it.
-    sx, sy = screen(560, content_y)
-    probe("move", sx, sy)
-    time.sleep(0.2)
-    where = probe("where").split()
-    real = len(where) >= 2 and where[0].replace(".", "", 1).lstrip("-").isdigit() and abs(float(where[0]) - sx) < 2 and abs(float(where[1]) - sy) < 2
-    print(f"TRH-MODE {o.arm} {'real-events' if real else 'warp+debug-hover'} window_at={wx},{wy} scale={scale}", flush=True)
-
+    # One `cua-driver mcp` session moves the cursor and records (the `cua-driver call` CLI looks for its daemon under
+    # the step's HOME and finds none: tab_switch_capture.driver_env).
     try:
-        from tab_switch_capture import CuaSession, CaptureError
+        from tab_switch_capture import CuaSession
         session = CuaSession()
         session.open()
-        session.start(o.out)
-    except Exception as error:  # noqa: BLE001 - a run with no recording still prints its steps
-        print(f"TRH-VIDEO {o.arm} none ({error})", flush=True)
+    except Exception as error:  # noqa: BLE001 - posted moves still work without it
+        print(f"TRH-CUA {o.arm} none ({error})", flush=True)
         session = None
+    scale = 2.0
+    if session is not None:
+        try:
+            scale = float(session.tool("get_screen_size", {}).get("scale_factor") or 2.0)
+        except Exception as error:  # noqa: BLE001
+            print(f"TRH-CUA {o.arm} get_screen_size failed ({error})", flush=True)
+
+    def cua_move(tx, ty):
+        session.tool("move_cursor", {"scope": "desktop", "delivery_mode": "foreground",
+                                     "x": round(tx * scale), "y": round(ty * scale)})
+
+    # Real moves when posting works: the cursor arrives where the event put it. Else the CuaDriver warp, read back.
+    start = screen(content_x, content_y)
+    probe("move", *start)
+    time.sleep(0.2)
+    real, at = landed(start)
+    warped = False
+    why = f"posted move: cursor at {at}"
+    if not real and session is not None:
+        try:
+            cua_move(*start)
+            time.sleep(0.2)
+            warped, at = landed(start)
+            why += f"; cua move_cursor: cursor at {at}"
+        except Exception as error:  # noqa: BLE001
+            why += f"; cua move_cursor failed ({error})"
+    mode = "real-events" if real else "warp+debug-hover" if warped else "none"
+    print(f"TRH-MODE {o.arm} {mode} window_at={wx},{wy} scale={scale} target={start} ({why})", flush=True)
+    if mode == "none":
+        print(f"TRH-FAIL {o.arm} the real cursor cannot be moved here ({why}): the reveal re-reads it, so a walk "
+              "would prove nothing", flush=True)
+        raise SystemExit(1)
+
+    if session is not None:
+        try:
+            session.start(o.out)
+        except Exception as error:  # noqa: BLE001 - a run with no recording still prints its steps
+            print(f"TRH-VIDEO {o.arm} none ({error})", flush=True)
+            session.close()
+            session = None
+            if not real:
+                raise SystemExit(f"TRH-FAIL {o.arm} the CuaDriver session closed ({error})")
     time.sleep(0.5)
-    last = (560, content_y)
+    last = (content_x, content_y)
     rows = []
+    misses = []
     for name, x, y in path:
         if real:
             (ax, ay), (tx, ty) = screen(*last), screen(x, y)
             probe("path", ax, ay, tx, ty, 24)
         else:
             tx, ty = screen(x, y)
-            cua("move_cursor", {"x": round(tx * scale), "y": round(ty * scale), "scope": "desktop"})
+            cua_move(tx, ty)
             rpc("debug.mouse", {"action": "hover", "x": x, "y": y})
         last = (x, y)
         time.sleep(0.7)
+        ok, at = landed(screen(x, y))
+        if not ok:
+            misses.append(name)
+            print(f"TRH-FAIL {o.arm} step {name}: cursor at {at}, not {screen(x, y)}", flush=True)
         controls, buttons = chrome()
-        row = {"arm": o.arm, "step": name, "x": round(x, 1), "y": round(y, 1),
+        row = {"arm": o.arm, "step": name, "x": round(x, 1), "y": round(y, 1), "cursor_ok": ok,
                "pointer_inside": buttons.get("pointer_inside"), "revealed": buttons.get("revealed"),
                "band_presence": round(controls.get("band_presence", -1), 3),
                "toggle_alpha": round(buttons.get("toggle_alpha", -1), 2), "back_alpha": round(buttons.get("back_alpha", -1), 2)}
@@ -172,6 +238,12 @@ try:
             print(f"TRH-VIDEO {o.arm} {session.stop(o.out)}", flush=True)
         except Exception as error:  # noqa: BLE001
             print(f"TRH-VIDEO {o.arm} none ({error})", flush=True)
+    if misses:
+        raise SystemExit(f"TRH-FAIL {o.arm} the cursor missed {len(misses)} stop(s): {' '.join(misses)}")
+    # Every build reveals with the pointer on the toggle (the old one and the new one alike): a walk where it never did
+    # was not over the title bar, so it proves nothing (7b32f9af read flat in both arms and still exited 0).
+    if not any(r["pointer_inside"] for r in rows if r["step"] in ("toggle", "toggle_again")):
+        raise SystemExit(f"TRH-FAIL {o.arm} pointer_inside never went true on the toggle: the walk missed the title bar")
 finally:
     if session is not None:
         session.close()
