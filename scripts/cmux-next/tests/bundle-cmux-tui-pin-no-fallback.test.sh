@@ -25,7 +25,7 @@ fake_tui() { # <path> <commit>
 # A checkout with the pin and the scripts the phase runs; no cmux-tui fetched.
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next"
-cp "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" "$ROOT/scripts/cmux-next/write-cmux-tui-build-stamp.sh" "$src/scripts/cmux-next/"
 pinned="$src/cmux-tui/target/hosted/$pin_commit/cmux-tui"
 write_pin() { # <sha256>
   printf 'commit=%s\nurl=https://files.cmux.com/cmux-tui/%s/cmux-tui-aarch64-apple-darwin\nrun=1\nsha256=%s\n' \
