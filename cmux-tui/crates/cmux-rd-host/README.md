@@ -353,7 +353,9 @@ presented-marker receipts.
 ## Release
 
 `.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
-feat-cmux-next, matching this crate's version) with
+feat-cmux-next, matching this crate's version). To release, bump `version` in Cargo.toml in a
+pull request: when it lands, the workflow makes the missing tag on that commit and releases it in
+the same run (no hand-pushed tag). The release has
 `cmux-rd-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz` and `checksums.txt` (sha256). It builds with
 `--no-default-features --features openh264,link` (no bench, no x264) through cargo-zigbuild at
 the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-later) and

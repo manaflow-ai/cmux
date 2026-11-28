@@ -699,6 +699,18 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         words.extend(this.args_lossy::<&str>(&[]));
         words
     };
+    // Under the aggressive pause policy a foreground `sleep N` waits outside the machine
+    // (`parked_wait.rs`): rewritten into the parked waiter, which returns what `sleep` would.
+    if crate::parked_wait::aggressive(std::path::Path::new("/")) {
+        if let Some(answer) = crate::parked_wait::rewrite(&input, &self_words()) {
+            let marked = answer.pointer("/hookSpecificOutput/updatedInput").and_then(|updated| {
+                let mut call = input.clone();
+                call.set("tool_input", updated.clone());
+                subagent_mark(&call)
+            });
+            return Some(marked.unwrap_or(answer));
+        }
+    }
     // Harness magic `sharedCache` (RFD 0158 §9, `ci_log_cache.rs`): a CI log read goes through
     // this machine's cache of finished logs. The rewritten call is the one every later rule
     // reads; with nothing else to say, the answer is the rewrite itself.
