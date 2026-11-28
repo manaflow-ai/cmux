@@ -53,7 +53,7 @@ final class ComposerKeyToGlyphUITests: XCTestCase {
         open(InputLatencyUITests.chatWorkspace, in: app)
         let field = app.textViews[Self.chatField]
         // A chat that opens on a question card folds the composer into "Reply to Claude".
-        let reply = app.buttons["Reply to Claude"].firstMatch
+        let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
         let deadline = Date().addingTimeInterval(30)
         while !field.exists, !reply.exists, Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
