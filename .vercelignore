@@ -21,4 +21,8 @@ node_modules/
 *.xcframework/
 scripts/
 tests/
+# web/ imports its own scripts (app/[locale]/(landing)/docs/next/next-doc-view.tsx
+# imports @/scripts/export-next-docs since #52725); the unanchored scripts/ above
+# also matched web/scripts/, so every Vercel build of web failed type check.
+!web/scripts/
 captures/

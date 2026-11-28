@@ -1,0 +1,663 @@
+{
+ "pools": {
+  "macos_15": {
+   "members": [
+    "blacksmith-6vcpu-macos-15",
+    "blacksmith-6vcpu-macos-26"
+   ]
+  }
+ },
+ "snapshots": [
+  {
+   "generated_at": "2026-11-27T18:17:57Z",
+   "listed": 582,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 25,
+     "queued": 3,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 21,
+     "queued": 2,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 4,
+     "queued": 9,
+     "running": 16
+    }
+   },
+   "total": 603,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-27T20:07:59Z",
+   "listed": 424,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 85,
+     "queued": 8,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 61,
+     "queued": 7,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 38,
+     "queued": 28,
+     "running": 17
+    }
+   },
+   "total": 451,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-27T21:54:27Z",
+   "listed": 674,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 145,
+     "queued": 7,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 2,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 2,
+     "queued": 7,
+     "running": 13
+    }
+   },
+   "total": 718,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-27T22:51:33Z",
+   "listed": 631,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 202,
+     "queued": 20,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 57,
+     "queued": 11,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 3,
+     "queued": 13,
+     "running": 17
+    }
+   },
+   "total": 674,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-27T23:52:04Z",
+   "listed": 742,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 262,
+     "queued": 18,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 92,
+     "queued": 8,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 6,
+     "queued": 15,
+     "running": 15
+    }
+   },
+   "total": 805,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T00:54:13Z",
+   "listed": 528,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 179,
+     "queued": 12,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 154,
+     "queued": 9,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 29,
+     "queued": 26,
+     "running": 17
+    }
+   },
+   "total": 549,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T01:51:42Z",
+   "listed": 759,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 45,
+     "queued": 6,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 61,
+     "queued": 6,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 2,
+     "queued": 6,
+     "running": 16
+    }
+   },
+   "total": 809,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T02:52:03Z",
+   "listed": 421,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 21,
+     "queued": 1,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 52,
+     "queued": 8,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 1,
+     "queued": 7,
+     "running": 14
+    }
+   },
+   "total": 440,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T03:52:00Z",
+   "listed": 788,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 3,
+     "queued": 9,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 3,
+     "queued": 1,
+     "running": 14
+    }
+   },
+   "total": 875,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T05:13:13Z",
+   "listed": 628,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 11,
+     "queued": 3,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 16,
+     "queued": 22,
+     "running": 13
+    }
+   },
+   "total": 682,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T06:17:50Z",
+   "listed": 441,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 3,
+     "queued": 1,
+     "running": 3
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 9,
+     "queued": 23,
+     "running": 14
+    }
+   },
+   "total": 447,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T07:15:26Z",
+   "listed": 403,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 16,
+     "queued": 3,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 6,
+     "queued": 8,
+     "running": 16
+    }
+   },
+   "total": 436,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T07:52:19Z",
+   "listed": 363,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 8,
+     "queued": 6,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 2,
+     "queued": 9,
+     "running": 11
+    }
+   },
+   "total": 368,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T08:27:32Z",
+   "listed": 394,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 5,
+     "queued": 1,
+     "running": 9
+    }
+   },
+   "total": 401,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T09:02:51Z",
+   "listed": 431,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 6,
+     "running": 6
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 3,
+     "running": 9
+    }
+   },
+   "total": 434,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T09:32:15Z",
+   "listed": 398,
+   "pools": {
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 1,
+     "queued": 2,
+     "running": 14
+    }
+   },
+   "total": 432,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T10:02:29Z",
+   "listed": 431,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 5
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 3,
+     "running": 10
+    }
+   },
+   "total": 442,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T10:32:31Z",
+   "listed": 926,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 1,
+     "queued": 1,
+     "running": 4
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 1,
+     "queued": 5,
+     "running": 14
+    }
+   },
+   "total": 1027,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T11:02:29Z",
+   "listed": 863,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 12,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 6,
+     "queued": 7,
+     "running": 16
+    }
+   },
+   "total": 944,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T11:32:20Z",
+   "listed": 679,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 16,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 29,
+     "queued": 7,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 27,
+     "queued": 9,
+     "running": 14
+    }
+   },
+   "total": 746,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T12:04:09Z",
+   "listed": 938,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 48,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 61,
+     "queued": 4,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 4,
+     "queued": 4,
+     "running": 15
+    }
+   },
+   "total": 1005,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T12:51:40Z",
+   "listed": 639,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 11,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 9,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 25,
+     "queued": 9,
+     "running": 18
+    }
+   },
+   "total": 689,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T13:23:06Z",
+   "listed": 591,
+   "pools": {
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 40,
+     "queued": 7,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 8,
+     "queued": 15,
+     "running": 17
+    }
+   },
+   "total": 600,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T13:51:25Z",
+   "listed": 697,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 24,
+     "queued": 3,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 68,
+     "queued": 10,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 7,
+     "queued": 18,
+     "running": 17
+    }
+   },
+   "total": 768,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T14:23:18Z",
+   "listed": 680,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 100,
+     "queued": 11,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 28,
+     "queued": 19,
+     "running": 17
+    }
+   },
+   "total": 733,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T14:51:33Z",
+   "listed": 661,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 21,
+     "queued": 2,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 118,
+     "queued": 8,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 0,
+     "queued": 2,
+     "running": 18
+    }
+   },
+   "total": 704,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T15:23:14Z",
+   "listed": 629,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 50,
+     "queued": 1,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 98,
+     "queued": 16,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 6,
+     "queued": 6,
+     "running": 17
+    }
+   },
+   "total": 653,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T15:51:48Z",
+   "listed": 554,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 10,
+     "queued": 3,
+     "running": 1
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 46,
+     "queued": 4,
+     "running": 5
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 4,
+     "queued": 10,
+     "running": 13
+    }
+   },
+   "total": 593,
+   "total_at_least": false,
+   "truncated": false
+  },
+  {
+   "generated_at": "2026-11-28T16:15:46Z",
+   "listed": 589,
+   "pools": {
+    "blacksmith-12vcpu-macos-26": {
+     "oldest_queued_minutes": 15,
+     "queued": 4,
+     "running": 0
+    },
+    "blacksmith-6vcpu-macos-15": {
+     "oldest_queued_minutes": 0,
+     "queued": 0,
+     "running": 2
+    },
+    "blacksmith-6vcpu-macos-26": {
+     "oldest_queued_minutes": 27,
+     "queued": 16,
+     "running": 16
+    }
+   },
+   "total": 617,
+   "total_at_least": false,
+   "truncated": false
+  }
+ ]
+}

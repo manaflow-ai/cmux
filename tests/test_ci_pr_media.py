@@ -498,6 +498,31 @@ class ReadTokenTests(unittest.TestCase):
         self.assertEqual(seen, ["app", None])
 
 
+class PaginateWithoutSlurpTests(unittest.TestCase):
+    def test_pages_are_split_without_asking_gh_for_slurp(self) -> None:
+        # The pool's JIT runners carry a gh older than 2.48, which has no
+        # --slurp (main, 2026-11-28, run 46120643203: "unknown flag: --slurp").
+        from unittest import mock
+        import subprocess
+        seen = []
+
+        def run(args, env=None, **_):
+            seen.append(args)
+            if "--slurp" in args:
+                return subprocess.CompletedProcess(args, 1, "", "unknown flag: --slurp")
+            return subprocess.CompletedProcess(args, 0, '[{"filename": "a"}]\n[{"filename": "b"}][]', "")
+
+        with mock.patch.dict(os.environ, {"READ_TOKEN": ""}), mock.patch.object(media.subprocess, "run", run):
+            pages = media.gh_json(["repos/o/r/pulls/1/files?per_page=100", "--paginate", "--slurp"])
+        self.assertEqual(pages, [[{"filename": "a"}], [{"filename": "b"}], []])
+        self.assertNotIn("--slurp", seen[0])
+        self.assertEqual(media.json_pages(""), [])
+
+    def test_the_head_fetch_does_not_recurse_into_submodules(self) -> None:
+        source = (ROOT / "scripts/ci/pr_media.py").read_text()
+        self.assertIn('"fetch", "--no-tags", "--recurse-submodules=no"', source)
+
+
 class UploadRetryTests(unittest.TestCase):
     def test_a_lost_race_is_retried(self) -> None:
         calls = []

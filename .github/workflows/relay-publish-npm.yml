@@ -389,7 +389,7 @@ jobs:
         include:
           - os: ${{ contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
             package: cmux-relay-linux-x64
-          - os: ${{ contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
+          - os: ${{ contains(fromJSON('["blacksmith-6vcpu-macos-15","blacksmith-6vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
             package: cmux-relay-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
