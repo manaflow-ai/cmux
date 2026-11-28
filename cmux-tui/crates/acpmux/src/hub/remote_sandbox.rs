@@ -1424,8 +1424,9 @@ impl Hub {
                     .or_else(|| crate::login_env::var("SUBROUTER_URL"));
                 crate::config::subrouter_route(env.as_deref(), &servers)
             };
-            let (program, args, routed) = subrouter_plan(profile, plan.args, claude, route)
-                .map_err(|why| refused(Refused::Start(why)))?;
+            let refused = |why| refused(Refused::Start(why));
+            let (program, args, routed) =
+                subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
         } else {
             (plan, profile.clone())
