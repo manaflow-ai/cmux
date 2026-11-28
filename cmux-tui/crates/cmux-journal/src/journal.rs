@@ -502,6 +502,11 @@ impl Journal {
     /// whose delete fails stays live, and a later call deletes it.
     pub fn retire_through(&self, compacted: Lsn) -> std::io::Result<usize> {
         let _held = self.held()?;
+        self.retire_held(compacted)
+    }
+
+    /// [`Journal::retire_through`], with the lock's guard held by the caller.
+    fn retire_held(&self, compacted: Lsn) -> std::io::Result<usize> {
         let compacted = compacted.min(self.durable_lsn());
         let retiring: Vec<LiveSegment> = {
             let mut live = self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
@@ -600,6 +605,17 @@ impl Journal {
     /// appends are refused, and retirements and damage clears fail. A seal that fails keeps the
     /// lock: the drop's last attempt may still write what is pending.
     pub fn seal(&self, timeout: Duration) -> Result<Lsn, SealError> {
+        self.seal_compacted(timeout, 0)
+    }
+
+    /// [`Journal::seal`] for a caller whose compaction point is `compacted` at the seal (its last
+    /// checkpoint). When that covers every record, the folder is handed over holding no record:
+    /// an empty segment after the last LSN, made fully synced once the writer ended, and every
+    /// segment before it retired ([`Journal::retire_through`]). So the next open reads one header,
+    /// not the newest segment's records (up to `segment_bytes`, 64 MiB, read at every start: a
+    /// clean restart's read grew with the history written since the last rotation). A failure
+    /// in this step keeps the segments as they are (the next open reads them, as without it).
+    pub fn seal_compacted(&self, timeout: Duration, compacted: Lsn) -> Result<Lsn, SealError> {
         let deadline = Instant::now().checked_add(timeout);
         let mut state = self.shared.lock();
         state.closed = true;
@@ -608,7 +624,13 @@ impl Journal {
             let last = state.stats.next_lsn.saturating_sub(1);
             if state.stats.full_durable_lsn >= last {
                 drop(state);
-                self.hand_over();
+                self.end_writer();
+                if compacted >= last {
+                    // Its failure is not the seal's: every record is fully synced in the
+                    // segments it kept, which the next open reads.
+                    let _ = self.hand_over_empty(last);
+                }
+                self.release_lock();
                 return Ok(last);
             }
             let now = Instant::now();
@@ -636,6 +658,44 @@ impl Journal {
     /// leaves empty), then lets go of the lock: the order the lock's docs give. A retirement or a
     /// damage clear under way on another thread ends first: it holds the lock's guard.
     fn hand_over(&self) {
+        self.end_writer();
+        self.release_lock();
+    }
+
+    /// The seal's empty hand-over ([`Journal::seal_compacted`]): the writer ended, every record
+    /// through `last` fully synced and in the caller's compaction point. A crash between the new
+    /// segment and the deletes leaves segments that recovery skips (the compaction point covers
+    /// them) or reads as before.
+    fn hand_over_empty(&self, last: Lsn) -> std::io::Result<()> {
+        let held = self.held()?;
+        let newest =
+            self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner).last().copied();
+        let Some(newest) = newest else { return Ok(()) };
+        // The newest segment holds a record when the last LSN is past the one before it.
+        if last > newest.prev_last {
+            let header = format::SegmentHeader {
+                journal_id: self.journal_id,
+                seq: newest.seq.saturating_add(1),
+                first_lsn: last.saturating_add(1),
+                prev_last: last,
+            };
+            drop(recovery::make_segment(self.storage.as_ref(), &self.dir, &header)?);
+            self.shared
+                .segments
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(LiveSegment { seq: header.seq, prev_last: header.prev_last });
+            let mut state = self.shared.lock();
+            state.stats.segments_created = state.stats.segments_created.saturating_add(1);
+        }
+        self.retire_held(last)?;
+        drop(held);
+        Ok(())
+    }
+
+    /// Ends the writer (one last attempt at what is pending, which a seal that kept everything
+    /// leaves empty). The lock stays.
+    fn end_writer(&self) {
         {
             let mut state = self.shared.lock();
             state.closed = true;
@@ -646,6 +706,10 @@ impl Journal {
         if let Some(handle) = writer {
             let _ = handle.join();
         }
+    }
+
+    /// Lets go of the lock, after the writer ended: the next open takes the folder.
+    fn release_lock(&self) {
         drop(self.lock.lock().unwrap_or_else(PoisonError::into_inner).take());
     }
 }

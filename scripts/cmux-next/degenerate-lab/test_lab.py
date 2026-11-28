@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -124,6 +126,34 @@ class Jobs(unittest.TestCase):
         self.assertIn("LAB-FAIL daemon x0.1 idle: god attach p95 over budget", fails)
         self.assertTrue(all(len(line) <= lab.LOG_LINE for line in fails))
 
+    def test_a_killed_compiler_names_its_signal(self):
+        """Runs 46145570589, 46148652685: rustc was SIGKILLed and the job log showed only warnings."""
+        died = ("  process didn't exit successfully: `/home/runner/.rustup/toolchains/x/bin/rustc --crate-name acpmux "
+                + "--extern a=b " * 400 + "` (signal: 9, SIGKILL: kill)")
+        log = "\n".join(["warning: unused"] * 40 + ["error: could not compile `acpmux` (lib test)", "", "Caused by:", died])
+        lines = lab.failure_lines(101, log)
+        self.assertEqual(lines[1], "process didn't exit successfully: rustc (signal: 9, SIGKILL: kill)")
+        out = lab.result_lines({"part": "chat", "scale": 0.02, "load": "idle", "exit": 101, "failure": lines})
+        self.assertIn("LAB-FAIL chat x0.02 idle: process didn't exit successfully: rustc (signal: 9, SIGKILL: kill)", out)
+
+    def test_the_lab_build_fits_a_pool_slot(self):
+        env = lab.cargo_env(lab.argparse.Namespace(target_dir=None, out=tempfile.mkdtemp()))
+        self.assertEqual(env["CARGO_PROFILE_RELEASE_LTO"], "off")
+        self.assertEqual(env["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"], "16")
+
+    def test_the_chat_build_takes_one_job(self):
+        """Job 141104459292: the acpmux lib test rustc was SIGKILLed at two jobs."""
+        seen = []
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(
+                lab, "run_logged", lambda cmd, env, cwd, out, timeout: (seen.append(env["CARGO_BUILD_JOBS"]), (0, ""))[1]):
+            env = {k: v for k, v in os.environ.items() if k != "CARGO_BUILD_JOBS"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                for part in ("chat", "daemon"):
+                    lab.prebuild(lab.argparse.Namespace(target_dir=None, out=t, build_jobs=0, heap=False,
+                                                        build_timeout=1), part, Path(t))
+        self.assertEqual(seen, ["1", "2"])
+        self.assertIn("largest child", lab.peak_memory())
+
     def test_the_plan_is_one_job_per_part_scale_and_load(self):
         jobs = lab.plan(lab.PRESETS["nightly"])
         names = [j["name"] for j in jobs]
@@ -165,6 +195,37 @@ class Jobs(unittest.TestCase):
                                  capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertTrue((t / "out" / "summary.md").exists())
+
+
+class PrivateTmp(unittest.TestCase):
+    """The TMPDIR the store takes: a workspace under another user's home moves it to /tmp (run 46117643851)."""
+
+    def test_own_folder_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            got = lab.private_tmp(out)
+            if lab.ancestor_refused(got) is None and got == out / "tmp":
+                self.assertEqual(got.stat().st_mode & 0o777, 0o700)
+
+    def test_foreign_owner_moves_to_tmp(self):
+        real = lab.os.getuid
+        lab.os.getuid = lambda: real() + 4242
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.assertIn("owned by uid", lab.ancestor_refused(Path(d)) or "")
+        finally:
+            lab.os.getuid = real
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            orig = lab.ancestor_refused
+            lab.ancestor_refused = lambda p: calls.append(p) or "owned by uid 1"
+            try:
+                got = lab.private_tmp(Path(d) / "out")
+            finally:
+                lab.ancestor_refused = orig
+            self.assertEqual(got.parent, Path("/tmp"))
+            self.assertEqual(got.stat().st_mode & 0o777, 0o700)
+            got.rmdir()
 
 
 if __name__ == "__main__":
