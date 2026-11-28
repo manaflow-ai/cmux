@@ -33,6 +33,9 @@ public enum CopyModeAction: Equatable, Sendable {
     case searchPrevious
     /// Moves the cursor, or the selection's moving end while selecting.
     case adjustSelection(CopyModeMove)
+    /// Moves the cursor, or the selection's moving end, by words (`w`, `b`,
+    /// `e`, `W`, `B`, `E`).
+    case moveWord(CopyModeWordMove)
 }
 
 /// A cursor or selection-endpoint movement.

@@ -250,7 +250,7 @@ import GhosttyNextKit
         let first = max(0, cell.row - TerminalWrappedLink.reach)
         let last = min(Int(metrics.rows) - 1, cell.row + TerminalWrappedLink.reach)
         guard first <= last else { return nil }
-        let rows = (first...last).map { rowText(surface, row: $0, columns: Int(metrics.columns)) }
+        let rows = (first...last).map { ghosttyViewportRowText(surface, row: $0, columns: Int(metrics.columns)) }
         return TerminalWrappedLink.find(rows: rows, firstRow: first, columns: Int(metrics.columns), column: cell.column, row: cell.row, hint: hint)
     }
 
@@ -273,19 +273,5 @@ import GhosttyNextKit
         return CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
                                    paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
                                    viewHeight: view.bounds.height)
-    }
-
-    private func rowText(_ surface: ghostty_surface_t, row: Int, columns: Int) -> String {
-        guard let y = UInt32(exactly: row), let lastColumn = UInt32(exactly: max(columns - 1, 0)) else { return "" }
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: y),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: lastColumn, y: y),
-            rectangle: false
-        )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 }

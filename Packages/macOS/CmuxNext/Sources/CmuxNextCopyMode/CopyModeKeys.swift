@@ -2,6 +2,7 @@
 /// mode, same keys):
 ///
 /// - h/j/k/l and arrows move the cursor, or the selection's moving end.
+/// - w, b and e move by words, W, B and E by WORDs (vim's).
 /// - 0 or ^ and $ go to the start and end of the line; gg and G to the top
 ///   and bottom; Home, End, Page Up and Page Down scroll or extend.
 /// - Ctrl-U/D half page, Ctrl-B/F page, Ctrl-Y/E one line.
@@ -84,6 +85,9 @@ public struct CopyModeKeys {
         case "k": return .adjustSelection(.up)
         case "h": return .adjustSelection(.left)
         case "l": return .adjustSelection(.right)
+        case "w": return .moveWord(key.isUppercase ? .bigWordForward : .wordForward)
+        case "b": return .moveWord(key.isUppercase ? .bigWordBackward : .wordBackward)
+        case "e": return .moveWord(key.isUppercase ? .bigWordEnd : .wordEnd)
         case "g":
             guard key.isUppercase else { return nil }
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
