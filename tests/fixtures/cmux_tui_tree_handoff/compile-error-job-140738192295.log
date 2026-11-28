@@ -1,0 +1,67 @@
+2026-11-27T21:24:51.3947928Z 43 +     let size = size_of::<libc::proc_bsdinfo>() as c_int;
+2026-11-27T21:24:51.3948527Z    |
+2026-11-27T21:24:51.3948716Z 
+2026-11-27T21:24:51.3949774Z warning: `cmux-sign-clone-sweep` (lib) generated 1 warning (run `cargo fix --lib -p cmux-sign-clone-sweep` to apply 1 suggestion)
+2026-11-27T21:24:51.3951517Z    Compiling cmux-vm v0.1.0 (/home/runner/work/cmux/cmux/workers/cmux-vm/cli/crates/cmux-vm)
+2026-11-27T21:24:51.3953008Z error[E0061]: this method takes 4 arguments but 3 arguments were supplied
+2026-11-27T21:24:51.3954312Z      --> /home/runner/work/cmux/cmux/workers/cmux-vm/cli/crates/cmux-vm/src/run.rs:359:55
+2026-11-27T21:24:51.3955186Z       |
+2026-11-27T21:24:51.3956214Z   359 |     let created = match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, &body))).await
+2026-11-27T21:24:51.3958566Z       |                                                       ^^^^^^^^^^^^^                   ----- argument #3 of type `std::option::Option<&cmux_vm_client::raw::types::VmsCreateVmXCmuxTeamId>` is missing
+2026-11-27T21:24:51.3959692Z       |
+2026-11-27T21:24:51.3960250Z note: method defined here
+2026-11-27T21:24:51.3961519Z      --> /home/runner/work/cmux/cmux/workers/cmux-vm/cli/crates/cmux-vm-client/src/generated_raw.rs:19787:18
+2026-11-27T21:24:51.3962292Z       |
+2026-11-27T21:24:51.3962573Z 19787 |     pub async fn vms_create_vm<'a>(
+2026-11-27T21:24:51.3962967Z       |                  ^^^^^^^^^^^^^
+2026-11-27T21:24:51.3963278Z help: provide the argument
+2026-11-27T21:24:51.3963535Z       |
+2026-11-27T21:24:51.3964413Z   359 |     let created = match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, /* std::option::Option<&cmux_vm_client::raw::types::VmsCreateVmXCmuxTeamId> */, &body))).await
+2026-11-27T21:24:51.3965718Z       |                                                                                       +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-11-27T21:24:51.3966080Z 
+2026-11-27T21:24:51.3966377Z error[E0061]: this method takes 4 arguments but 3 arguments were supplied
+2026-11-27T21:24:51.3967254Z      --> /home/runner/work/cmux/cmux/workers/cmux-vm/cli/crates/cmux-vm/src/lib.rs:983:40
+2026-11-27T21:24:51.3967738Z       |
+2026-11-27T21:24:51.3968147Z   983 |             let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
+2026-11-27T21:24:51.3969364Z       |                                        ^^^^^^^^^^^^^                   ----- argument #3 of type `std::option::Option<&cmux_vm_client::raw::types::VmsCreateVmXCmuxTeamId>` is missing
+2026-11-27T21:24:51.3970252Z       |
+2026-11-27T21:24:51.3970668Z note: method defined here
+2026-11-27T21:24:51.3971337Z      --> /home/runner/work/cmux/cmux/workers/cmux-vm/cli/crates/cmux-vm-client/src/generated_raw.rs:19787:18
+2026-11-27T21:24:51.3971848Z       |
+2026-11-27T21:24:51.3972124Z 19787 |     pub async fn vms_create_vm<'a>(
+2026-11-27T21:24:51.3972498Z       |                  ^^^^^^^^^^^^^
+2026-11-27T21:24:51.3972804Z help: provide the argument
+2026-11-27T21:24:51.3973060Z       |
+2026-11-27T21:24:51.3973870Z   983 |             let vm = fetch_body(client.vms_create_vm(Some(&key), None, /* std::option::Option<&cmux_vm_client::raw::types::VmsCreateVmXCmuxTeamId> */, &body))
+2026-11-27T21:24:51.3975056Z       |                                                                        +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-11-27T21:24:51.3975421Z 
+2026-11-27T21:24:51.3975715Z For more information about this error, try `rustc --explain E0061`.
+2026-11-27T21:24:51.3976307Z error: could not compile `cmux-vm` (lib) due to 2 previous errors
+2026-11-27T21:24:51.3976823Z warning: build failed, waiting for other jobs to finish...
+2026-11-27T21:24:51.3977268Z warning: unused import: `std::time::Duration`
+2026-11-27T21:24:51.3977730Z  --> crates/acpmux/src/hub/journal_restore/seams.rs:4:5
+2026-11-27T21:24:51.3978068Z   |
+2026-11-27T21:24:51.3978342Z 4 | use std::time::Duration;
+2026-11-27T21:24:51.3978623Z   |     ^^^^^^^^^^^^^^^^^^^
+2026-11-27T21:24:51.3978855Z   |
+2026-11-27T21:31:28.0102493Z       0.0 s     0.0-   0.0  zstd-sys
+2026-11-27T21:31:28.0102885Z       0.0 s     0.0-   0.0  acpmux build-script (run)
+2026-11-27T21:31:28.0103271Z       0.0 s     0.0-   0.0  acpmux-book
+2026-11-27T21:31:28.0103673Z       0.0 s     0.0-   0.0  zstd-sys build-script (run)
+2026-11-27T21:31:28.0104122Z       0.0 s     0.0-   0.0  acpmux-build-id build-script
+2026-11-27T21:31:28.0104609Z       0.0 s     0.0-   0.0  zstd-sys build-script
+2026-11-27T21:31:28.0105005Z       0.0 s     0.0-   0.0  acpmux-client
+2026-11-27T21:31:28.0105379Z cargo timings: last to end:
+2026-11-27T21:31:28.0106108Z     391.8 s   728.2-1120.0  acpmux-standalone acpmux-standalone "bin"
+2026-11-27T21:31:28.0106695Z     723.0 s     5.3- 728.2  acpmux
+2026-11-27T21:31:28.0107139Z       0.2 s     5.5-   5.6  acpmux-build-id
+2026-11-27T21:31:28.0107815Z       0.3 s     5.2-   5.5  acpmux-build-id build-script (run)
+2026-11-27T21:31:28.0119087Z       0.0 s     0.0-   0.0  nix build-script (run)
+2026-11-27T21:31:28.0119506Z       0.0 s     0.0-   0.0  zstd-sys
+2026-11-27T21:31:28.4185000Z error: cargo group(s) 2 failed
+2026-11-27T21:31:28.4224904Z ##[error]Process completed with exit code 1.
+2026-11-27T21:31:28.4986470Z ##[group]Run set -euo pipefail
+2026-11-27T21:31:28.4986835Z [36;1mset -euo pipefail[0m
+2026-11-27T21:31:28.4987143Z [36;1mdisk=${POOL_DISK:-/home/runner/cmux-tui-fat-warm}[0m
+2026-11-27T21:31:28.4987624Z [36;1m[[ "$LTO" != thin || "$DARWIN_ON_LINUX" == true ]] || disk=/home/runner/machine-channel-warm[0m
+2026-11-27T21:31:28.4988197Z [36;1m[[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"[0m
