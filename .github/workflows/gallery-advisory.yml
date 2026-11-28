@@ -514,6 +514,8 @@ jobs:
           sparse-checkout: |
             /scripts/ci/
             /cmux-tui/
+            /workers/cmux-vm/cli/crates/cmux-vm/
+            /workers/cmux-vm/cli/crates/cmux-vm-client/
             /.github/actions/
       - name: Download the receipt
         continue-on-error: true
