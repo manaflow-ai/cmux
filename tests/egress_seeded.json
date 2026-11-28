@@ -1,6 +1,5 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 17,
  "sites": {
   "acpmux::cmux_rd::fetch": {
    "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
@@ -9,7 +8,7 @@
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
   "acpmux::hub::forum_hosted": {
-   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "acpmux::range_fetch": {
    "none": "GETs with only a Range header and the acpmux user-agent: a public release archive (managed Codex install) or the URL the person typed (acpmux fetch URL); no auth, cookie or person data"
@@ -80,6 +79,9 @@
   "cmux_projection::peers": {
    "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_seed_token_rides_only_in_authorization"
   },
+  "cmux_projection::repo_archive": {
+   "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_archive_store_secret_key_never_leaves_only_its_signature_does"
+  },
   "cmux_projection::s3": {
    "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_s3_secret_key_never_leaves_only_its_signature_does"
   },
@@ -112,6 +114,9 @@
   },
   "cmux_tui::cli::api_tokens": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
+  },
+  "cmux_tui::cli::app::web_cas": {
+   "none": "GETs of public cas/1 objects under the https base the person named (cmux app web-cas): only a Range header and the cmux-web-cas user-agent, no auth, cookie or person data"
   },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
@@ -167,6 +172,9 @@
   "cmux_tui::cli::runnable_link": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_query"
   },
+  "cmux_tui::cli::vault": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/vault.rs::seeded_bearer_rides_only_in_authorization"
+  },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
@@ -221,11 +229,15 @@
   "cmux_vm_pool::http": {
    "test": "cmux-tui/crates/cmux-vm-pool/src/http_seeded_tests.rs::the_pool_key_rides_only_in_authorization"
   },
+  "cmux_vmd::provider": {
+   "test": "cmux-tui/crates/cmux-vmd/tests/seeded_secret.rs::the_vmd_token_rides_only_in_authorization"
+  },
   "cmux_weft::admin": {
    "test": "cmux-tui/crates/cmux-weft/src/admin_seeded_tests.rs::the_admin_token_rides_only_in_authorization"
   },
   "cmux_weft::client::relay_pool": {
    "test": "cmux-tui/crates/cmux-weft/src/client/relay_pool_seeded_tests.rs::the_ticket_never_rides_in_the_upgrade"
   }
- }
+ },
+ "todo_max": 17
 }

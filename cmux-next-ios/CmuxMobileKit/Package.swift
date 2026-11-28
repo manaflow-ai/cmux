@@ -263,6 +263,7 @@ let package = Package(
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
                 .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),

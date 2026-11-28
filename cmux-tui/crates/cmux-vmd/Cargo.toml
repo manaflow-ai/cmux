@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cmux-egress.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -29,4 +30,5 @@ tokio.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 tokio.workspace = true

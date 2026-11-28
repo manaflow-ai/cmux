@@ -199,7 +199,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(900);
 impl HttpStore {
     pub fn new(config: s3::Config) -> anyhow::Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        // The person configured this endpoint (CMUX_PROJECTION_S3_*), so the egress gate lets it through.
+        cmux_egress::allow_named(&config.base);
+        let client = cmux_egress::blocking_client_builder("cmux_projection::repo_archive")
             .connect_timeout(Duration::from_secs(5))
             .timeout(REQUEST_TIMEOUT)
             .build()?;

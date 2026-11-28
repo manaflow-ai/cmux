@@ -31,12 +31,15 @@ impl VmdProvider {
         token: impl Into<String>,
     ) -> Result<Self, MachineProviderError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let base = base.into();
+        // The person named this host (their own vmd), so the egress gate lets it through.
+        cmux_egress::allow_named(&base);
+        let client = cmux_egress::client_builder("cmux_vmd::provider")
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(3700))
             .build()
             .map_err(|e| MachineProviderError::Backend(format!("http client: {e}")))?;
-        Ok(Self { base: base.into().trim_end_matches('/').to_owned(), token: token.into(), client })
+        Ok(Self { base: base.trim_end_matches('/').to_owned(), token: token.into(), client })
     }
 
     fn url(&self, path: &str) -> String {
