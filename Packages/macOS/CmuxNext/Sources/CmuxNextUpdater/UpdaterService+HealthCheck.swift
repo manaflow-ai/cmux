@@ -12,6 +12,9 @@ nonisolated public struct UpdateHealthFailure: Equatable, Sendable {
     public var checks: [UpdateHealthCheck.Check]
     /// Whether a kept copy of ``previousBuild`` is there to go back to.
     public var canGoBack: Bool
+    /// Why the last Go Back was refused (a kept build that cannot read the stores, or the swap's
+    /// error), shown on the card until Go Back runs again; nil before any refusal.
+    public var goBackRefusal: String?
 
     /// "chat: chat.handshake, relay: relay.refused".
     public var summary: String { checks.map { "\($0.name): \($0.reason)" }.joined(separator: ", ") }
@@ -33,7 +36,7 @@ nonisolated public struct UpdateHealthFailure: Equatable, Sendable {
 /// The check after a relaunch into a new build: once, after the launch settles, the running
 /// bundle's `cmux app health` (``UpdateHealthCheck``) checks chat, the model picker, the relay and
 /// a terminal. A failure is filed (``attachHealthCheck(socket:file:)``) and, with a kept copy of the build that
-/// ran before, the notice card offers Go Back (``UpdateCard/healthFailed(previousBuild:reason:)``).
+/// ran before, the notice card offers Go Back (``UpdateCard/healthFailed(previousBuild:reason:refusal:)``).
 /// Automatic rollback on this verdict is a separate change. Never on a build the person picked
 /// (a rollback or Install this version): going back from it is their call, and it stops a loop.
 extension UpdaterService {
@@ -92,15 +95,17 @@ extension UpdaterService {
     public func goBackAfterHealthFailure() async {
         guard let failure = healthFailure else { return }
         log.append("health check: going back to \(failure.previousBuild)")
-        if let refusal = await UpdateDropBack(self).failure(to: failure.previousBuild, stateDirectories: pulledWatch.stateDirectories()) {
-            log.append("health check: go back refused: \(refusal)")
-        }
+        let refusal = await UpdateDropBack(self).failure(to: failure.previousBuild, stateDirectories: pulledWatch.stateDirectories())
+        if let refusal { log.append("health check: go back refused: \(refusal)") }
+        // The card shows it (#49442: the refusal reached only the log); a run that went ahead clears it.
+        if healthFailure?.previousBuild == failure.previousBuild { healthFailure?.goBackRefusal = refusal }
     }
 
     /// The failed check's card, unless a check the person asked for shows its own.
     var healthCard: UpdateCard? {
         guard let healthFailure, !flow.userAsked else { return nil }
-        return .healthFailed(previousBuild: healthFailure.previousBuild, reason: healthFailure.summary)
+        return .healthFailed(previousBuild: healthFailure.previousBuild, reason: healthFailure.summary,
+                             refusal: healthFailure.goBackRefusal)
     }
 }
 
@@ -108,6 +113,9 @@ nonisolated extension UpdaterStrings {
     static var healthFailedTitle: String { text("updater.health.title", "This Update Failed a Check") }
     static func healthFailedDetail(_ reason: String, _ build: String) -> String {
         format("updater.health.detail", "%1$@. Go back to %2$@, kept on this Mac; settings and sessions stay.", reason, build)
+    }
+    static func healthGoBackRefused(_ reason: String, _ build: String, _ refusal: String) -> String {
+        format("updater.health.goBackRefused", "%1$@. Couldn't go back to %2$@. %3$@", reason, build, refusal)
     }
     static var goBack: String { text("updater.health.goBack", "Go Back") }
 }

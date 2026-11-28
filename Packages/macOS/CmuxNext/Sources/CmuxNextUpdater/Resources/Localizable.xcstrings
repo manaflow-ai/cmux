@@ -35241,6 +35241,138 @@
         }
       }
     },
+    "updater.health.goBackRefused": {
+      "comment": "Update health card detail after Go Back was refused: %1$@ the failed checks, %2$@ the kept build, %3$@ the refusal sentence",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@. Couldn't go back to %2$@. %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@。%2$@ に戻せませんでした。%3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. تعذّر الرجوع إلى %2$@. %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Nije moguće vratiti se na %2$@. %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Kunne ikke gå tilbage til %2$@. %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Zurück zu %2$@ war nicht möglich. %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. No se pudo volver a %2$@. %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Impossible de revenir à %2$@. %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Impossibile tornare a %2$@. %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@។ មិនអាចត្រឡប់ទៅ %2$@ បានទេ។ %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. %2$@(으)로 돌아가지 못했습니다. %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Kunne ikke gå tilbake til %2$@. %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Nie można wrócić do %2$@. %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Não foi possível voltar para %2$@. %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Не удалось вернуться к %2$@. %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่สามารถย้อนกลับไปที่ %2$@ ได้ %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. %2$@ sürümüne geri dönülemedi. %3$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Не вдалося повернутися до %2$@. %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@. Không thể quay lại %2$@. %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@。无法返回 %2$@。%3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@。無法返回 %2$@。%3$@"
+          }
+        }
+      }
+    },
     "updater.goBack.checking": {
       "extractionState": "manual",
       "localizations": {

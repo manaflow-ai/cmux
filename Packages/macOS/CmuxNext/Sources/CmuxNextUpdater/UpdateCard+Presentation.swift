@@ -69,9 +69,11 @@ extension UpdateCard {
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.gettingNewest,
                                           detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText ?? UpdaterStrings.keepsRunning,
                                           showsProgress: true, progress: transfer?.fraction, dismissible: false)
-        case .healthFailed(let previous, let reason):
+        case .healthFailed(let previous, let reason, let refusal):
             return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.healthFailedTitle,
-                                          detail: UpdaterStrings.healthFailedDetail(reason, previous), actions: [.goBack])
+                                          detail: refusal.map { UpdaterStrings.healthGoBackRefused(reason, previous, $0) }
+                                              ?? UpdaterStrings.healthFailedDetail(reason, previous),
+                                          actions: [.goBack])
         }
     }
 

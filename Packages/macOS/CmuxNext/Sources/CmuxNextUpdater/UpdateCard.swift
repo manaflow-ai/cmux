@@ -28,8 +28,9 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     /// only need to do one to get the latest"). `pulled`: the running build was pulled (one line says so).
     case gettingNewest(UpdateTransfer?, pulled: Bool)
     /// The check after a relaunch into a new build failed (``UpdateHealthFailure``): Go Back
-    /// restarts into `previousBuild`, kept on this Mac; `reason` names the failed checks.
-    case healthFailed(previousBuild: String, reason: String)
+    /// restarts into `previousBuild`, kept on this Mac; `reason` names the failed checks. `refusal`:
+    /// why the last Go Back was refused (``UpdateDropBack``), shown in the card's detail.
+    case healthFailed(previousBuild: String, reason: String, refusal: String? = nil)
 }
 
 /// What a notice card's button does. The raw value is the card action id.
