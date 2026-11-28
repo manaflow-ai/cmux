@@ -172,3 +172,24 @@ fn a_keyed_mutation_is_sent_again_only_after_a_connection_failure() {
     }));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn a_request_may_name_its_attempt_timeout_capped_and_a_resend_is_reported() {
+    let one = |extra: Value| {
+        let mut input = json!({"api": "https://api.example", "path": "v1/ops", "body": "{}"});
+        input.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        request(input.to_string().as_bytes()).ok().unwrap().timeout
+    };
+    assert_eq!(one(json!({})), TIMEOUT);
+    assert_eq!(one(json!({"timeout_secs": 40})), Duration::from_secs(40));
+    assert_eq!(one(json!({"timeout_secs": 9999})), Duration::from_secs(MAX_TIMEOUT_SECS));
+    // Nothing listens on a fresh port: a keyed mutation fails to connect, is sent once more, and says so.
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let answer = run(json!({"api": format!("http://127.0.0.1:{port}"), "path": "v1/ops",
+                            "body": r#"{"idempotency_key":"k"}"#, "timeout_secs": 2}));
+    assert_eq!(answer["ok"], json!(false));
+    assert_eq!(answer["resent"], json!(true));
+    let once =
+        run(json!({"api": format!("http://127.0.0.1:{port}"), "path": "v1/ops", "body": "{}"}));
+    assert!(once.get("resent").is_none());
+}

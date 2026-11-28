@@ -63,6 +63,7 @@ CHECKS = (
     "check:catalog-unused",
     "check:popup-hover-reveals",
     "check:surface-bypass",
+    "check:status-outside-dot",
     "check:bundle-matrix",
     "check:refresh-exports",
 )
@@ -80,6 +81,7 @@ CHECK_CLASSES = {
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
     "check:surface-bypass": LINT,
+    "check:status-outside-dot": LINT,
     "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
     "check:refresh-exports": LINT,
 }
@@ -88,6 +90,7 @@ NEW_CHECK_SCRIPTS = {
     "check:design-tokens": "scripts/check-design-tokens.ts",
     "check:ui-review": "scripts/check-ui-review.ts",
     "check:surface-bypass": "scripts/check-surface-bypass.ts",
+    "check:status-outside-dot": "scripts/check-status-outside-dot.ts",
     "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
     "check:refresh-exports": "scripts/check-refresh-exports.mjs",
 }
