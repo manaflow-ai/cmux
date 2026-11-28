@@ -1,5 +1,5 @@
 diff --git a/Sources/CmuxAgentCursor/GlideMotion.swift b/Sources/CmuxAgentCursor/GlideMotion.swift
-index 9069a44804e..e586854ba4d 100644
+index 9069a44804ea..e586854ba4d9 100644
 --- a/Sources/CmuxAgentCursor/GlideMotion.swift
 +++ b/Sources/CmuxAgentCursor/GlideMotion.swift
 @@ -112,3 +112,29 @@ extension GlideMotion {
@@ -33,7 +33,7 @@ index 9069a44804e..e586854ba4d 100644
 +    }
 +}
 diff --git a/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift b/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
-index 04d94bc1a12..48c4f9646c8 100644
+index 04d94bc1a129..48c4f9646c8c 100644
 --- a/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
 +++ b/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift
 @@ -30,3 +30,15 @@ import Testing
