@@ -36,6 +36,7 @@ import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPa
 import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
+import { retainedFoldCover, type RetainedFoldPath } from "./retainedFoldCover";
 import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook, turnEndCrossLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
@@ -1249,6 +1250,8 @@ export function playTurnEnd(
   let easing = settleEasing;
   let grew = false;
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  const retainedCovers = new Map<HTMLElement, { key: string; animation: Animation }>();
+  const retainedPaths = new Map<HTMLElement, RetainedFoldPath>();
   // What the fold moves, declared while it plays (the contract's `turn-end`, motionContract.ts): every
   // box it animates, filled in as the passes find them, and `strict`, so a box the fold does not play
   // on is a shift even if the fold pushed it -- "No row above it moves, no row below it is pushed or
@@ -1327,6 +1330,10 @@ export function playTurnEnd(
     const fill: FillMode | undefined =
       lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
     const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
+    // A pass after RAF can create a pending animation whose implicit start resolves on the
+    // next frame. Pin its clock now: retained moves already running must share this clip's time.
+    // Before the first painted frame, leave the initial animations pending together.
+    if (startedAt !== undefined) animation.startTime = now();
     fold.animations.add(animation);
     // A row the fold carries up from above everything the swap changed is played, never declared.
     if (risen.has(node)) {
@@ -1467,7 +1474,12 @@ export function playTurnEnd(
     /// `tops`, where it is laid out. Taken here, in the pass's read phase with every other
     /// measurement, so this costs no layout of its own; `restart` says why it needs it.
     const drawnTop = new Map<HTMLElement, number>();
-    for (const node of nodes) drawnTop.set(node, node.getBoundingClientRect().top);
+    const preciseHeights = new Map<HTMLElement, number>();
+    for (const node of nodes) {
+      const box = node.getBoundingClientRect();
+      drawnTop.set(node, box.top);
+      preciseHeights.set(node, box.height);
+    }
     for (const snapshot of snapshots.values()) drawnTop.set(snapshot, snapshot.getBoundingClientRect().top);
     // The lowest row the swap kept, where it was drawn then, and how far from its place it starts. A
     // row that comes in under it (the next turn's prompt, its live line and reply, arriving while the
@@ -1646,6 +1658,57 @@ export function playTurnEnd(
       if (!before || moving.has(node) || startsInView(node, startTop(node, before.top), heights[index]!)) return [];
       return [{ from: tops[index]!, to: tops[index]!, height: heights[index]!, padTop: 0, padBottom: 0 }];
     });
+    // Record what each retained row really plays, including each half of a swap. Clearance
+    // runs separately after motion selection; a new clip must not change dip/swap into slide.
+    const retainedGroups: RetainedFoldPath[][] = nodes.map((node, index) =>
+      was.has(node.dataset.rowId!)
+        ? [
+            {
+              node,
+              from: tops[index]!,
+              to: tops[index]!,
+              height: heights[index]!,
+              delay: 0,
+              ms,
+              easing,
+              mode: "end",
+              clip: [],
+              movable: false,
+            },
+          ]
+        : [],
+    );
+    const retainedIndex = new Map<HTMLElement, number>();
+    const restarted = new Set<HTMLElement>();
+    nodes.forEach((node, index) => {
+      if (!was.has(node.dataset.rowId!)) return;
+      retainedIndex.set(node, index);
+      const snapshot = snapshots.get(node.dataset.rowId!);
+      if (snapshot) retainedIndex.set(snapshot, index);
+    });
+    const keepRetainedPath = (node: HTMLElement) => {
+      const prior = retainedPaths.get(node);
+      const index = retainedIndex.get(node);
+      const animation = moving.get(node)?.animations[0];
+      if (!prior || index === undefined || !animation) return;
+      const timing = animation.effect?.getTiming();
+      if (!timing) return;
+      const origin = now() + toMove();
+      const started =
+        typeof animation.startTime === "number" ? animation.startTime : now() - Number(animation.currentTime ?? 0);
+      const shift = tops[index]! - prior.to;
+      const snapshot = node !== nodes[index];
+      const path = {
+        ...prior,
+        from: snapshot ? (drawnTop.get(node) ?? prior.from) : prior.from + shift,
+        to: snapshot ? prior.to : tops[index]!,
+        height: snapshot ? prior.height : heights[index]!,
+        delay: started + timing.delay - origin,
+      };
+      const slot = retainedGroups[index]!.findIndex((entry) => entry.node === node);
+      if (slot < 0) retainedGroups[index]!.push(path);
+      else retainedGroups[index]![slot] = path;
+    };
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
@@ -1685,7 +1748,10 @@ export function playTurnEnd(
       /// `drawnTop` is where the row is drawn in this pass, read with the other places so the pass
       /// still lays the page out once (never a rect per row between `animate()` writes:
       /// chat-render-pipeline R2).
-      if (!startsInView(node, band.from, band.height)) return;
+      if (!startsInView(node, band.from, band.height)) {
+        keepRetainedPath(node);
+        return;
+      }
       // A swap draws two stationary boxes; a dissolve jumps only once its ink has faded.
       // Coverage follows that geometry while the visibility gate keeps the captured band.
       const coverBand = {
@@ -1704,6 +1770,33 @@ export function playTurnEnd(
           ? [endpoints[0], { ...endpoints[0], offset: 0.35 }, { ...endpoints[1], offset: 0.35 }, endpoints[1]]
           : endpoints;
       next.covered = cover ? JSON.stringify(cover) : undefined;
+      const frames = keyframes();
+      // One clip combines the existing bottom reveal with the stationary row cover. Separate
+      // clip animations replace one another, which would reopen the bottom while it moves.
+      if (cover) {
+        for (const sequence of frames) for (const frame of sequence) delete frame.clipPath;
+        frames.push(cover);
+      }
+      const index = retainedIndex.get(node);
+      let retainedPath: RetainedFoldPath | undefined;
+      if (store === moving && index !== undefined) {
+        const snapshot = node !== nodes[index];
+        const record: RetainedFoldPath = {
+          node,
+          ...band,
+          height: snapshot ? (was.get(nodes[index]!.dataset.rowId!)?.height ?? band.height) : band.height,
+          mode: coverMotion,
+          delay: timing.delay ?? 0,
+          ms: Number(timing.duration ?? ms),
+          easing: timing.easing ?? easing,
+          clip: frames.find((sequence) => sequence.some((frame) => frame.clipPath !== undefined)) ?? [],
+          movable: true,
+          snapshot,
+        };
+        retainedPath = record;
+        if (snapshot) retainedGroups[index]!.push(record);
+        else retainedGroups[index]![0] = record;
+      }
       const last = store.get(node);
       if (
         !grew &&
@@ -1713,19 +1806,16 @@ export function playTurnEnd(
         last.covered === next.covered &&
         Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5 &&
         Math.abs((last.hold ?? 0) - (next.hold ?? 0)) < FRAME_MS
-      )
+      ) {
+        keepRetainedPath(node);
         return;
+      }
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
       }
-      const frames = keyframes();
-      // One clip combines the existing bottom reveal with the stationary row cover. Separate
-      // clip animations replace one another, which would reopen the bottom while it moves.
-      if (cover) {
-        for (const sequence of frames) for (const frame of sequence) delete frame.clipPath;
-        frames.push(cover);
-      }
+      if (retainedPath) retainedPaths.set(node, retainedPath);
+      restarted.add(node);
       next.animations = frames.map((sequence) => play(node, sequence, timing));
       store.set(node, next);
     };
@@ -1815,7 +1905,7 @@ export function playTurnEnd(
           moving,
           { from: tops[index]!, to: tops[index]!, height: heights[index]! },
           { delta: 0, fades: true, animations: [], hold },
-          () => [recapEntrance(recap, from, node.offsetHeight)],
+          () => [recapEntrance(recap, from, heights[index]!)],
           { delay: hold, fill: "backwards", ...(recap !== "hold" && { easing: MOTION_EASE_OUT }) },
         );
         return;
@@ -1875,7 +1965,7 @@ export function playTurnEnd(
       // began, a second motion (cmux#50299).
       // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
       if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
-        clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
+        clip = Math.max(clip, preciseHeights.get(node)! - before.height);
       // An offscreen start skips the move below and draws this row at rest. Its ghost cover must
       // use that actual place too: the captured path may be wholly above the view while the row
       // now covers a visible copy (CMUX-896, reply-settle-frames F5). Keep an existing move's path.
@@ -1961,6 +2051,30 @@ export function playTurnEnd(
         lag > 0 ? { delay: lag, fill: "backwards" } : {},
       );
     });
+    for (const node of retainedPaths.keys()) if (!retainedIndex.has(node)) retainedPaths.delete(node);
+    const clearance = retainedFoldCover(retainedGroups);
+    for (const [node, prior] of retainedCovers) {
+      if (clearance.has(node)) continue;
+      prior.animation.cancel();
+      fold.animations.delete(prior.animation);
+      retainedCovers.delete(node);
+    }
+    for (const [node, cover] of clearance) {
+      const key = JSON.stringify(cover);
+      const prior = retainedCovers.get(node);
+      if (!grew && !restarted.has(node) && prior?.key === key && prior.animation.playState !== "idle") continue;
+      if (prior) {
+        prior.animation.cancel();
+        fold.animations.delete(prior.animation);
+      }
+      const animation = play(node, cover.frames, {
+        duration: cover.duration,
+        easing: cover.easing ?? "linear",
+        delay: cover.delay ?? 0,
+        fill: "backwards",
+      });
+      retainedCovers.set(node, { key, animation });
+    }
     for (const [snapshot, offset] of snapshotPlaces) snapshot.style.translate = `0 ${offset}px`;
     // A snapshot whose row did not move (or is not drawn now) pictures nothing that changes: it goes.
     for (const [id, snapshot] of snapshots) {
