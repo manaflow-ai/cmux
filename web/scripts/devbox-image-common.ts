@@ -83,21 +83,40 @@ export function isFreestyleTransient(error: unknown): boolean {
 }
 
 /**
+ * A VM start Freestyle gave up on: the 429 overload, or 409 VM_NON_RESPONSIVE
+ * ("vm stopped responding: timed out reading from guest agent"), a fresh VM
+ * that never answered its guest agent. Either way no VM came back, so asking
+ * for a new one is safe. Rebake run 46028301324 attempt 3 (11-27) lost a
+ * verify whose first machine had passed to one 409 on the second start.
+ */
+export function isFreestyleStartRetryable(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return isFreestyleOverload(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+}
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
  * longest: rebake run 45818176059 lost xl and 2xl to it after the bake, the
  * verify and md..lgx had passed. Every VM start on the rebake path goes
- * through this: back off and ask again for up to ten minutes, and rethrow any
+ * through this: back off and ask again for up to ten minutes of backoff (the
+ * time Freestyle holds an ask in its queue does not count), and rethrow any
  * other error at once.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
-  const deadline = Date.now() + budgetMs;
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleStartRetryable): Promise<T> {
+  // The budget is our own backoff between asks, not wall time: Freestyle holds
+  // each start in its capacity queue up to ten minutes before it answers 429,
+  // so a wall-clock budget was spent by the first ask and the overload was
+  // never asked again (rebake run 46028301324 attempt 2: verify asked at
+  // 22:05:52Z, 429 at 22:15:58Z, gave up with the bake done).
+  let waitedMs = 0;
   for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
     try {
       return await start();
     } catch (error) {
-      if (!retryable(error) || Date.now() + waitMs > deadline) throw error;
+      if (!retryable(error) || waitedMs + waitMs > budgetMs) throw error;
+      waitedMs += waitMs;
       const e = error as { status?: unknown; code?: unknown; message?: unknown };
       const why = isFreestyleOverload(error) ? "Freestyle start capacity overloaded" : `Freestyle answered ${String(e?.status)} ${String(e?.code)}`;
       console.log(`${label}: ${why} (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
