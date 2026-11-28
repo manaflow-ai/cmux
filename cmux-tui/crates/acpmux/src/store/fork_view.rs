@@ -740,7 +740,7 @@ impl Store for ForkView {
             _ => None,
         }
     }
-    fn save_adoption_checkpoint(&self, id: &str, bytes: Vec<u8>) -> Result<()> {
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let _held = self.shared();
         match self.reference(id)? {
             None => self.inner.save_adoption_checkpoint(id, bytes),

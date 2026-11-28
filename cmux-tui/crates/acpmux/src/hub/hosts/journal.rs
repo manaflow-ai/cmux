@@ -396,17 +396,10 @@ impl Hub {
             folded = folded.max(head.seq);
             true
         });
-        // Kept at the end (the usual adoption: no record past the settled one): the folds move
-        // into the checkpoint and only the work fold, which `finish` takes, is copied. The
-        // whole copy (the subagent tree is MBs in a long chat) was the restart's peak.
-        let work_fold = if bound.is_some() && kept.is_none() {
-            let work_fold = folds.work.clone();
-            kept = Some((folded, None, folds, unstarted));
-            work_fold
-        } else {
-            folds.work
-        };
-        let (mut work, host_seq_at) = work_fold.finish(scanned.is_err());
+        if bound.is_some() && kept.is_none() {
+            kept = Some((folded, None, folds.clone(), unstarted.clone()));
+        }
+        let (mut work, host_seq_at) = folds.work.finish(scanned.is_err());
         work.processes = resumed_processes;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at

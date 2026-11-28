@@ -519,9 +519,8 @@ pub trait Store: Send + Sync {
         None
     }
     /// Saves `bytes` as `id`'s adoption checkpoint, whole or not at all. A store that keeps none
-    /// drops it. Owned: a long chat's checkpoint is MBs, and a copy of it beside the one the
-    /// caller serialized was the restart's peak (`restartPeakRss`, infinite-chats).
-    fn save_adoption_checkpoint(&self, _id: &str, _bytes: Vec<u8>) -> Result<()> {
+    /// drops it.
+    fn save_adoption_checkpoint(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
     /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
@@ -1592,18 +1591,16 @@ impl Store for LocalStore {
         Some(bytes)
     }
 
-    fn save_adoption_checkpoint(&self, id: &str, mut bytes: Vec<u8>) -> Result<()> {
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let _open = self.writable()?;
         let dir = self.dir(id);
         // As `save_restore_point`: a chat whose folder went away gets no file of its own again.
         let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
         anyhow::ensure!(folder, "no folder for {id}");
-        // The digest line goes in front in place (`serde_json::to_vec` leaves room as it
-        // grows), not into a second buffer the size of the checkpoint.
-        let mut head = self.compaction_digest(id).into_bytes();
-        head.push(b'\n');
-        bytes.splice(..0, head);
-        write_atomic(&dir.join(ADOPTION_CHECKPOINT), &bytes)
+        let mut file = self.compaction_digest(id).into_bytes();
+        file.push(b'\n');
+        file.extend_from_slice(bytes);
+        write_atomic(&dir.join(ADOPTION_CHECKPOINT), &file)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks

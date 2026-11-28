@@ -329,9 +329,8 @@ impl Hub {
                 return;
             }
             let Ok(bytes) = serde_json::to_vec(&*point) else { return };
-            let len = bytes.len() as u64;
-            match self.store.save_adoption_checkpoint(&session.id, bytes) {
-                Ok(()) => note_saved_bytes(&session.id, len),
+            match self.store.save_adoption_checkpoint(&session.id, &bytes) {
+                Ok(()) => note_saved_bytes(&session.id, bytes.len() as u64),
                 Err(error) => {
                     tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
                 }
