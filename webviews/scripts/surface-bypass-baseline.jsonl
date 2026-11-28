@@ -288,7 +288,6 @@
 {"file":"agent-session/acpmux/offer/SuggestedTasks.tsx","kind":"raw-button","count":5}
 {"file":"agent-session/acpmux/offer/SuggestedTasks.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/OpenAppCard.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/OverloadNotice.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/PaletteMenu.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/PaletteMenu.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/pane/PaneBody.tsx","kind":"raw-button","count":1}

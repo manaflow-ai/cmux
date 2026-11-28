@@ -499,7 +499,6 @@ src/agent-session/acpmux/newtab/useSessionCommands.test.tsx
 src/agent-session/acpmux/noLayoutShift.test.tsx
 src/agent-session/acpmux/olderRelaySkew.test.ts
 src/agent-session/acpmux/openedRunEstimate.test.tsx
-src/agent-session/acpmux/overloadNoticeSetting.test.tsx
 src/agent-session/acpmux/paneViewStore.test.tsx
 src/agent-session/acpmux/place/AutoReserveControl.test.tsx
 src/agent-session/acpmux/place/place.test.tsx

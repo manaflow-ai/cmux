@@ -79,6 +79,24 @@
           "default": null
         }
       ]
+    },
+    {
+      "rev": 3,
+      "note": "_acpmux/host_overload removed with the chat's overload banner (#55840): no reader is left; an old app's poll gets method-not-found and shows no banner",
+      "changes": [
+        {
+          "message": "request:_acpmux/host_overload",
+          "op": "remove",
+          "path": "/*untyped*",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/host_overload",
+          "op": "remove",
+          "path": "/data",
+          "default": null
+        }
+      ]
     }
   ]
 }
