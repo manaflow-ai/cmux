@@ -1060,6 +1060,20 @@ describe("auto-roll scripts", () => {
       expect((await planWith(channel, [older, newest])).pin).toBe(newest);
       serve(served);
       expect((await planWith(channel, [newest])).pin).toBe(newest);
+
+      // The cadence tick (--event newest): the same pick, then a build roll's guards, with no image change needed.
+      const planNewest = async (published: string[]) => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "newest", "--tip", "HEAD", "--lock", lock, "--repo", full, "--channel", channel], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: newest, PUBLISHED: published.join(" ") },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string; fixes: unknown[] };
+      };
+      serve(served);
+      expect(await planNewest([served, newest])).toMatchObject({ roll: true, pin: served, cmuxTui: served });
+      serve(pinned);
+      expect(await planNewest([served, newest])).toMatchObject({ roll: false, pin: "" });
+      serve(older);
+      expect(await planNewest([older, newest])).toMatchObject({ roll: true, pin: newest });
     }), 60_000);
 
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
