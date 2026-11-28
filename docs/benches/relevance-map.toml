@@ -251,6 +251,15 @@ paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/cmux-terminal-find", "cm
 benches = ["terminal-throughput-quick"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt history_", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-find -p cmux-terminal-projection"]
 
+# coverage-map.md's row 8 (cmux#62415). The crate itself stays Terminal core's (that area is first in file order);
+# the scrollback read files route here.
+[[area]]
+name = "Terminal scrollback reads (daemon `read-scrollback`, find, projection parity)"
+paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/ghostty-vt/src/styled_history_tests.rs", "cmux-tui/crates/ghostty-vt/src/screen_row_text_tests.rs", "cmux-tui/crates/ghostty-vt/src/terminal_screen_text.rs"]
+benches = ["styled_history_page_bench", "screen_row_text_bench"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_history_page_looks_up_each_page_not_each_row"]
+budget = "under 1,024 row lookups per 8,192-row page (a_long_history_page_looks_up_each_page_not_each_row)"
+
 [[area]]
 name = "Palette and omnibar"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette"]
