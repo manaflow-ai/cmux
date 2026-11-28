@@ -68,6 +68,14 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         // The cmux workspace the chat was recorded for (`workspace_purge.rs`), so the
         // daemon's phone relay can keep an incognito workspace's chats off a phone.
         obj.insert("workspaceId".into(), json!(s.meta().workspace_id));
+        // The recorded env names a move asks its target about, with the preset that adds env
+        // there (`session_manifest::env_to_ask`): names only, and only with the manifest on.
+        let m = s.meta();
+        let names =
+            crate::session_manifest::env_to_ask(m.manifest.as_ref(), &m.cwd, &m.session_env);
+        if !names.is_empty() {
+            obj.insert("manifestEnv".into(), json!({"names": names, "preset": m.preset}));
+        }
     }
     // One message carries it whole, its largest fields trimmed if need be: a detail refused
     // as too large is refused again on every read (`hub/reply_fit.rs`).
