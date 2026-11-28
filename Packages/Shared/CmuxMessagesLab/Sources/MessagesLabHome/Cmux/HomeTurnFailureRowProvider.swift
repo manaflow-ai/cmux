@@ -2,13 +2,14 @@ import AppKit
 import CmuxHomeRender
 
 /// A failed Chief turn's card in the Home transcript (``HomeTurnFailure``): the plain-words
-/// sentence, then Retry (the Chief answers the person's message again), Copy error and Details,
+/// sentence, then Sign In (a signed-out Chief agent, when the host wires it), Retry (the Chief answers the person's
+/// message again), Copy error and Details,
 /// which opens the raw failure line under them. Drawn into the row bitmap like the approval card.
 final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.turnFailure"
 
     /// The card's buttons.
-    enum Action: String, Codable, Sendable { case retry, copy, details }
+    enum Action: String, Codable, Sendable { case signIn, retry, copy, details }
 
     /// The view's own state of one card (``HomeProjection`` keeps it per message).
     struct Local: Codable, Equatable, Sendable {
@@ -16,6 +17,8 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
         var copied = false
         /// The Chief can answer again: a person's message comes before the card and retry is wired.
         var retry = false
+        /// The card says Chief's agent is signed out and the host wired its sign-in (first-run findings N5).
+        var signIn = false
     }
 
     struct Payload: Codable, Equatable {
@@ -56,7 +59,7 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
     }
 
     static func titles(_ p: Payload) -> [(Action, String)] {
-        var titles: [(Action, String)] = []
+        var titles: [(Action, String)] = p.local.signIn ? [(.signIn, CmuxStrings.turnFailureSignIn)] : []
         // retry-prompt-ok: re-runs a failed model turn (a paid request)
         if p.local.retry { titles.append((.retry, CmuxStrings.turnFailureRetry)) }
         titles.append((.copy, p.local.copied ? CmuxStrings.turnFailureCopied : CmuxStrings.turnFailureCopy))

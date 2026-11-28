@@ -141,6 +141,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onChiefRetry }
         set { transcript.onChiefRetry = newValue }
     }
+    /// A signed-out Chief turn's card's Sign In (first-run findings N5): Chief's agent's login.
+    public var onChiefSignIn: (() -> Void)? {
+        get { transcript.onChiefSignIn }
+        set { transcript.onChiefSignIn = newValue }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// Whether the chat leaves its background clear (the floating Chief's see-through styles): the theme's

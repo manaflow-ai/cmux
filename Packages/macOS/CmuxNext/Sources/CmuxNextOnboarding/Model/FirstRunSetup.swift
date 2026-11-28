@@ -68,8 +68,12 @@ public final class FirstRunSetup {
     public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
 
     /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
-    public func checkChiefAgent(source: (any AgentSignInSource)?) {
-        agents(source: source).start()
+    /// Returns the Sign In a signed-out Chief turn's card offers (first-run findings N5): Chief's agent's login.
+    @discardableResult
+    public func checkChiefAgent(source: (any AgentSignInSource)?) -> @MainActor () -> Void {
+        let model = agents(source: source)
+        model.start()
+        return { [weak model] in model?.signInWhenFound(Self.chiefAgentID) }
     }
 
     /// Hide on the Chief card: away for this launch; Chief's own reply still says what is missing.

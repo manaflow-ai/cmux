@@ -17,7 +17,7 @@ extension HomeHostView {
         setupCardWatch = nil
         guard isChief else { return showSetupCard(nil) }
         let onboarding = control.services.onboarding, setup = onboarding.setup, meetChief = onboarding.chief
-        setup.checkChiefAgent(source: onboarding.signInHarnesses)
+        transcript.onChiefSignIn = setup.checkChiefAgent(source: onboarding.signInHarnesses)
         // task-owner: lives as long as this view is a Chief's; event-driven (Observation of FirstRunSetup; Meet Chief holds it).
         setupCardWatch = Task { [weak self] in
             for await form in ObservationStream({ meetChief.holdsWelcome ? nil : setup.cardForm }) {
