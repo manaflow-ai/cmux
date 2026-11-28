@@ -122,6 +122,32 @@ function printProfile(label: string, profile: CpuProfile) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, count)
       .map(([key, ms]) => `      ${ms.toFixed(1)}ms ${key}`);
+  // Forced layouts: samples whose leaf is a native layout read, by the JS stack above it, and how many separate runs
+  // (each run one layout the page was made to do mid-script).
+  const layoutRead =
+    /^(getBoundingClientRect|getClientRects|offsetHeight|offsetWidth|offsetTop|scrollHeight|scrollTop|clientHeight|clientWidth|getComputedStyle)$/;
+  const forced = new Map<string, number>();
+  let runs = 0;
+  let inRun = false;
+  let t2 = 0;
+  let from2: number | undefined;
+  for (let i = 0; i < profile.samples.length; i += 1) {
+    t2 += profile.timeDeltas[i]! / 1000;
+    if (from2 === undefined && !idle(profile.samples[i]!)) from2 = t2;
+    if (from2 === undefined) continue;
+    if (t2 - from2 > 150) break;
+    const leaf = profile.samples[i]!;
+    const hit = layoutRead.test(byId.get(leaf)!.callFrame.functionName);
+    if (hit && !inRun) runs += 1;
+    inRun = hit;
+    if (!hit) continue;
+    const chain: string[] = [];
+    for (let id = parent.get(leaf); id !== undefined && chain.length < 6; id = parent.get(id)) chain.push(name(id));
+    const key = `${byId.get(leaf)!.callFrame.functionName} <- ${chain.join(" <- ")}`;
+    forced.set(key, (forced.get(key) ?? 0) + (profile.timeDeltas[i + 1] ?? 100) / 1000);
+  }
+  console.log(`  ${label} forced layout: ${runs} runs`);
+  for (const line of top(forced, 12)) console.log(line);
   console.log(`  ${label} profile, self:`);
   for (const line of top(self, 20)) console.log(line);
   console.log(`  ${label} profile, total:`);
