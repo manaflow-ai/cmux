@@ -5,6 +5,10 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
+// A moved chat's uploads, behind `ACPMUX_MOVE_UPLOADS` (a child here: `mod.rs` is at its size cap).
+#[path = "transfer_uploads.rs"]
+pub(crate) mod transfer_uploads;
+
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
@@ -138,6 +142,10 @@ impl Hub {
             c.bundled()
         };
         super::prompt_images::bundle_images(&images, &dir)?;
+        // Its uploads, when this daemon bundles them (`transfer_uploads.rs`, behind its flag).
+        if transfer_uploads::enabled() {
+            transfer_uploads::bundle_uploads(&meta.id, &dir)?;
+        }
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         // The agent's own files (`transfer_agent_files.rs`), which an Auto snapshot carries too.
         let files = self.export_agent_files(&meta, &dir, dest, grown)?;
@@ -223,6 +231,7 @@ impl Hub {
         hold: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let (live, guarded, replace_durable, defer_finalize, staged) = plain;
+        let moved_in = matches!(live, Live::Moved(_));
         let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -338,6 +347,7 @@ impl Hub {
             Ok(Ok(Some(found))) => found,
             _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
         };
+        steps.step("git_state");
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
@@ -360,6 +370,7 @@ impl Hub {
                     return Err(super::credentials::credential_needed());
                 }
                 self.prepare_claude_move_without_credential(&mut meta).await?;
+                steps.step("claude_login");
             }
         }
         steps.step("meta");
@@ -435,6 +446,12 @@ impl Hub {
         if let Err(e) = &images {
             tracing::warn!(session = %meta.id, "moved images not kept: {e:#}");
         }
+        // Its uploads (`transfer_uploads.rs`): a queued prompt that names one resolves here.
+        let uploads =
+            crate::qos::off_worker(|| transfer_uploads::restore_uploads(bundle, &meta.id));
+        if let Err(e) = &uploads {
+            tracing::warn!(session = %meta.id, "moved uploads not kept: {e:#}");
+        }
         // The bundle is the source's manifest of what the chat owns (its agent files, their
         // subagents' transcripts, its images): every entry is here now, or the move fails while
         // the source still holds the chat. A restore that placed some and skipped others read
@@ -445,6 +462,11 @@ impl Hub {
                 unacked.extend(super::prompt_images::unacked_images(bundle).into_iter().map(
                     |id| format!("{}/{id}: image not kept", super::prompt_images::BUNDLE_DIR),
                 ));
+                unacked.extend(
+                    transfer_uploads::unacked_uploads(bundle, &meta.id)
+                        .into_iter()
+                        .map(|path| format!("{path}: upload not kept")),
+                );
                 unacked
             };
         if !unacked.is_empty() {
@@ -536,6 +558,10 @@ impl Hub {
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal(error.to_string()));
+        }
+        steps.step("finalize");
+        if moved_in {
+            transfer_out::transfer_live::keep_import_steps(&session.id, steps.split());
         }
         Ok(session)
     }
@@ -1174,7 +1200,15 @@ mod tests {
         let bundle = dir.path().join("bundle");
         std::fs::create_dir_all(bundle.join("events")).unwrap();
         let id = uuid::Uuid::now_v7().to_string();
+        // The binding is under test, not durable harness state: a harness without a journal to
+        // carry (`restore_harness_state` needs one for `cmux-harness`).
+        {
+            let mut cfg = hub.config.write().await;
+            let profile = cfg.harnesses["cmux-harness"].clone();
+            cfg.harnesses.insert("plain".into(), profile);
+        }
         let mut meta = harness_meta(&id, "agent-setup-token");
+        meta["harness"] = json!("plain");
         meta["cwd"] = json!(dir.path());
         std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
         let binding = format!("claude-token:{}", "a".repeat(64));

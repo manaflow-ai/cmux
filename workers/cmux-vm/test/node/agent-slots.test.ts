@@ -1,5 +1,13 @@
 import { expect, it } from "vitest";
-import { ADMIT_TTL_MS, admitAgentSlot, bindAgentCreation, forgetAgentVm, HELD_TTL_MS, settleAgentSlot } from "../../src/limits/agent-slots.ts";
+import {
+  ADMIT_TTL_MS,
+  admitAgentSlot,
+  bindAgentCreation,
+  forgetAgentVm,
+  HELD_TTL_MS,
+  settleAgentSlot,
+  describeAgentSlots,
+} from "../../src/limits/agent-slots.ts";
 import { creationNeverSent, memoryLedgerStorage } from "../../src/limits/ledger.ts";
 
 const agent = "key:ak_1";
@@ -82,4 +90,14 @@ it("lapses a run-capped key's held slot once the run cap plus grace has passed, 
   expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s3")).toBe(false);
   // Past the cap the run cap has paused and deleted any such VM: the slot holds nothing.
   expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s4", undefined, bound)).toBe(true);
+});
+
+it("the cap refusal names what holds the budget: listed VMs, creates in flight, held creates and their state", async () => {
+  const storage = memoryLedgerStorage();
+  const agent = "key:ak_holders";
+  expect(await admitAgentSlot(storage, agent, 3, ["vm_a"], 0, "inflight-1")).toBe(true);
+  expect(await admitAgentSlot(storage, agent, 3, ["vm_a"], 0, "held-1")).toBe(true);
+  await settleAgentSlot(storage, agent, "held-1", { held: "ck_1", vmId: "vm_h" }, 0);
+  const lines = await describeAgentSlots(storage, agent, ["vm_a"], 60_000, async (_tx, key) => `state of ${key}`);
+  expect(lines).toEqual(["vm_a listed", "vm_h held as may-exist (state of ck_1), 1499 min left", "a create in flight (inflight), 14 min left"]);
 });

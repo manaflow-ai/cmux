@@ -46,6 +46,7 @@ mod join;
 mod keybinding;
 mod launch_times;
 mod live;
+mod mac_screen_replay;
 mod nightly;
 mod open;
 mod open_link;
@@ -218,6 +219,9 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app mac-screen-replay`: `mac_screen.replay`, then `mac_screen.state` until the replay's
+    /// pane has presented its frames (app/mac_screen_replay.rs).
+    MacScreenReplay(mac_screen_replay::Replay),
     /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
     ChatMemory {
         empty: Value,
@@ -387,6 +391,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
+        // A recorded screen share played through a Screen Sharing tab with no host peer
+        // (`mac_screen.replay`, every build), then its Decode and Present once presented.
+        ("app", Some("mac-screen-replay")) => mac_screen_replay::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
             chat_memory::parse(rest)?
         }
@@ -1139,6 +1146,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::MacScreenReplay(replay) => {
+            return Ran::Done(mac_screen_replay::run(global, stream, replay));
+        }
         AppCommand::ChatMemory { empty } => {
             return Ran::Done(chat_memory::run(global, stream, &empty));
         }
@@ -1594,9 +1604,18 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
 /// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
 /// `start-session` waiting on the person) it timed out `action describe` and
 /// `agents dialog list` ("timed out: identify (no reply within 2.0
-/// seconds)"), and the CLI's one retry doubled the wait.
-const NO_DAEMON_STATE: [&str; 5] =
-    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
+/// seconds)"), and the CLI's one retry doubled the wait. `agent.acpmux` names
+/// the app's acpmux socket from its bundle and environment: `cmux agents chat
+/// new` asks it before every start, and on a loaded Mac its barrier held a new
+/// chat for seconds before acpmux was asked to create it (cmux#59876).
+const NO_DAEMON_STATE: [&str; 6] = [
+    "system.ping",
+    "system.capabilities",
+    "action.list",
+    "action.describe",
+    "feed.list",
+    "agent.acpmux",
+];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat

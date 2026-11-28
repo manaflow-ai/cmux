@@ -8,7 +8,10 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
 WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
 python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
-git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE"'
+# The compilation-cache refreshers nightly.yml calls (its refresh-compilation-caches job), read the same way.
+CACHE_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-cache-expanded.XXXXXX")"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" nightly-compilation-cache.yml > "$CACHE_FILE"
+git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE" "$CACHE_FILE"'
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -28,7 +31,8 @@ if ! awk '
   in_universal && (/ARCHS="arm64 x86_64"/ || /archs="arm64 x86_64"/) { saw_universal_archs=1 }
   in_universal && (/ONLY_ACTIVE_ARCH=NO/ || /only_active="NO"/) { saw_universal_only_active_arch=1 }
   in_universal && /-quiet/ { saw_quiet=1 }
-  in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
+  # #62107: the build runs in a retry function whose caching is YES unless a crash retry turns it off.
+  in_universal && (/COMPILATION_CACHE_ENABLE_CACHING=YES/ || /local caching=YES/) { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
@@ -70,15 +74,15 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
-  job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  # The warmer keys by the tip it builds (the head_sha input decide resolves); the app build by the resolved build_sha.
+  job == "refresh" && in_cache && /inputs\.head_sha/ { saw_head_sha[job]=1 }
   job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
            saw_path["build"] && saw_key["build"] && saw_toolchain["build"] && saw_head_sha["build"] && saw_restore["build"])
   }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: cache warming and nightly app builds must both roll the shared Release compilation cache forward by source revision"
   exit 1
 fi
@@ -188,7 +192,8 @@ fi
 # Nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the owned nightly-only pool,
 # or the one nightly mini while vars.CI_NIGHTLY_MINI is set (tests/test_nightly_one_mini.py).
 if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}" '
-  /^  refresh-compilation-cache:/ { in_refresh=1; next }
+  # The schedule gate and runner are on the nightly.yml caller job, the rest on the called refresh-compilation-cache.
+  /^  refresh-compilation-caches?:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   # 90 with one-mini mode off; the mode adds room for the glaeda capacity wait (tests/test_nightly_mini_gate_timeouts.py).
   in_refresh && (/timeout-minutes: 90$/ || /timeout-minutes: \$\{\{ vars\.CI_NIGHTLY_MINI != .* && [0-9]+ \|\| 90 \}\}$/) { saw_cold_build_timeout=1 }
@@ -207,7 +212,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
   END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: the six-hour schedule must allow 90 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
@@ -257,7 +262,7 @@ if ! awk '
   in_bound && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_limit[job]=1 }
   in_bound && /rm -rf "\$cache_path"/ { saw_skip_save[job]=1 }
   END { exit !(saw_limit["refresh"] && saw_skip_save["refresh"] && saw_limit["build"] && saw_skip_save["build"]) }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: cache warming and nightly app builds must retain caches through 5 GiB and skip larger saves"
   exit 1
 fi
@@ -282,7 +287,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'mac-nightly' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -735,7 +740,7 @@ if ! awk '
     }
     exit 0
   }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: nightly cache saves must prune dead CAS generations (non-fatally) before measuring the bound, then save explicitly on a miss from the bound step verdict"
   exit 1
 fi
@@ -1076,7 +1081,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"'
+git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE" "$CACHE_FILE"'
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

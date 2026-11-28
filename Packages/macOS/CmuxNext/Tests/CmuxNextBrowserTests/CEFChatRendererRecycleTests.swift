@@ -6,11 +6,11 @@ import Testing
 @Suite struct CEFChatRendererRecycleTests {
     private let mb = 1 << 20
 
-    @Test func onlyOneTurnsItOn() {
+    @Test func onUnlessZero() {
         #expect(CEFChatRendererRecycle.isEnabled([CEFChatRendererRecycle.environmentKey: "1"]))
         #expect(!CEFChatRendererRecycle.isEnabled([CEFChatRendererRecycle.environmentKey: "0"]))
-        #expect(!CEFChatRendererRecycle.isEnabled([CEFChatRendererRecycle.environmentKey: "true"]))
-        #expect(!CEFChatRendererRecycle.isEnabled([:]))
+        #expect(CEFChatRendererRecycle.isEnabled([CEFChatRendererRecycle.environmentKey: "true"]))
+        #expect(CEFChatRendererRecycle.isEnabled([:]))
     }
 
     @Test func boundIsTwiceTheBaselineAndAtLeastTheFloorMore() {

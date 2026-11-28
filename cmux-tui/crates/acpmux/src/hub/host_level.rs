@@ -232,3 +232,7 @@ impl Hub {
             .insert(session.id.clone());
     }
 }
+
+#[cfg(test)]
+#[path = "creation_priority_tests.rs"]
+mod creation_priority_tests;

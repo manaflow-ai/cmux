@@ -1,4 +1,5 @@
 name: cmux-next web bundle publish
+run-name: cmux-next web bundle publish ${{ inputs.pr && format('#{0}', inputs.pr) || inputs.ref || github.sha }}
 
 # Publishes the built cmux-next web bundles (agent pane, React pages, Agent
 # Activity, webviews app) per source key on files.cmux.com, like
@@ -490,6 +491,7 @@ jobs:
             # cmux-tui's bin crate links the cmux VM CLI by path, and cargo loads every member
             # (tests/test_ci_sparse_cargo_path_deps.py).
             /workers/cmux-vm/cli/
+            /first-party-apps/cloud/server/
             /scripts/cmux-next/
             /.gitmodules
 

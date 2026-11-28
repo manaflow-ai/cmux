@@ -4,13 +4,17 @@
   "name": "Studio",
   "tagline": "Dark and compact, made for long agent chats.",
   "description": "A dark, quiet window for agent chats: a search row and chat cards in the sidebar, finished chats tucked away, and one rounded message box. Includes light and warm versions. Remove it and everything you had comes back.",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux-studio-look",
 
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     "appearance.themeFile": "studio",
+    "appearance.selection": "neutral",
     "appearance.metrics.sidebarWidth": 255,
     "agentPane.display.font.ui": "system-ui",
     "agentPane.display.font.preset": "system",

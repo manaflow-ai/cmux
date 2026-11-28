@@ -91,6 +91,7 @@ jobs:
       transport: ${{ steps.artifact-transport.outputs.transport }}
       artifact: ${{ steps.artifact-name.outputs.name }}
     env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_WEB_BUN_VERSION: "1.4.4"
       CMUX_WEB_NODE_VERSION: "24.22.1"
@@ -121,8 +122,26 @@ jobs:
 
       # Keep the current transport/manifest code at the workspace root when building an older base.
       # The source tree owns the bundler and source-key inputs; it need not contain this newer CI helper.
+      # pr-router.yml's source_ref is github.sha, the commit the root checkout above already holds, so web-source is
+      # a worktree of it (shared objects, no network): the second actions/checkout of the same commit cost 74 runner-min
+      # per 2 h (all web bundle build jobs, 2026-11-28 20-22Z) and was the slow half of 30 cancelled runs (150-312 s).
+      # Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period."
+      # It is added before the live-base merge below, so web-source stays at source_ref while the root moves.
+      - name: The requested bundle source is the root checkout (a worktree, no second fetch)
+        if: inputs.source_ref != '' && inputs.source_ref == github.sha && steps.touched-early.outputs.web != 'false'
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$SOURCE_REF" ]; then
+            echo "::error::the root checkout is $head, not source_ref $SOURCE_REF" >&2
+            exit 1
+          fi
+          git worktree prune
+          git worktree add --force --detach web-source "$SOURCE_REF"
+
       - name: Checkout the requested bundle source
-        if: inputs.source_ref != '' && steps.touched-early.outputs.web != 'false'
+        if: inputs.source_ref != '' && inputs.source_ref != github.sha && steps.touched-early.outputs.web != 'false'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
