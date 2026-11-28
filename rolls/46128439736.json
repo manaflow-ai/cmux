@@ -41,11 +41,11 @@
   "rolled_back": false,
   "production": {
     "commit": "6c189111fcfafa565a0e1a96ac26d80886d9b868",
-    "run": "https://github.com/manaflow-ai/cmux/actions/runs/46130036764",
+    "run": "https://github.com/manaflow-ai/cmux/actions/runs/46130450540",
     "deploy": "skipped",
     "product_smoke": "not-run",
     "boot_image": "",
-    "smoke_done_at": "2026-11-28T09:26:01Z",
+    "smoke_done_at": "2026-11-28T09:31:10Z",
     "green": false,
     "superseded": false
   },
