@@ -6,12 +6,26 @@ use super::*;
 // timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
 const PROBE_BUDGET: Duration = Duration::from_secs(1);
 
+/// How long a command keeps asking a user systemd that does not answer about an installed
+/// `acpmux.service` (each probe bounded by [`PROBE_BUDGET`]) before it fails with an error. A
+/// probe that timed out says nothing about the unit, so it never sends the command to a detached
+/// daemon: on fleet lane VMs under load (2026-11-28) a 1 s probe timing out while the unit
+/// restarted started a detached `--ready-fd` daemon that took the home's lock, then hung, and
+/// left the unit's own daemon waiting on it for hours.
+// timeout: hazard is a wedged user systemd; fallback is an error naming it, never a second daemon.
+#[cfg(target_os = "linux")]
+const UNIT_SILENT_PATIENCE: Duration = Duration::from_secs(60);
+
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
 /// from a session shell) while its daemon is owned by the user systemd unit.
 /// In that case never call [`spawn_detached`]: the unit may use a supervised
 /// state directory while the default home is a symlink, and the private-state
 /// guard must continue to reject that symlink. Ask systemd to start its unit
 /// and wait for the socket instead.
+///
+/// Only a definite answer takes the detached path: no systemctl, a unit that is not loaded or
+/// serves another home or socket, or one systemd marked inactive or failed. A probe that timed out
+/// is asked again for [`UNIT_SILENT_PATIENCE`] when the unit file is installed, then is an error.
 #[cfg(target_os = "linux")]
 pub(super) async fn managed_unit_connect_with<S, T, F, Fut>(
     systemctl: S,
@@ -24,37 +38,71 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    let show = tokio::process::Command::new(systemctl.clone())
-        .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
-        .output();
-    let loaded = match tokio::time::timeout(PROBE_BUDGET, show).await {
-        Ok(Ok(output)) if output.status.success() => output.stdout.trim_ascii() == b"loaded",
-        Ok(Ok(_)) => false,
-        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Ok(Err(error)) => return Err(error.into()),
-        // Health discovery is advisory. A slow systemd must not prevent the
-        // normal detached launch path below from serving the real request.
-        Err(_) => return Ok(None),
+    let installed =
+        dirs::home_dir().is_some_and(|home| crate::cli::daemon_service::unit_path(&home).exists());
+    managed_unit_connect_in(systemctl, installed, UNIT_SILENT_PATIENCE, current_home, path, connect)
+        .await
+}
+
+/// [`managed_unit_connect_with`] with whether the unit file is `installed` and the `patience`
+/// for a systemd that does not answer.
+#[cfg(target_os = "linux")]
+pub(super) async fn managed_unit_connect_in<S, T, F, Fut>(
+    systemctl: S,
+    installed: bool,
+    patience: Duration,
+    current_home: &std::path::Path,
+    path: &std::path::Path,
+    connect: &F,
+) -> Result<Option<T>>
+where
+    S: AsRef<std::ffi::OsStr> + Clone,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let silent = |what: &str| {
+        anyhow!(
+            "systemd did not answer about acpmux.service ({what}) for {}s; not starting a daemon \
+             beside the unit (check `systemctl --user status acpmux.service`)",
+            patience.as_secs()
+        )
+    };
+    let asked = tokio::time::Instant::now();
+    let loaded = loop {
+        match show_property(systemctl.clone(), "LoadState").await {
+            Ok(Some(output)) if output.status.success() => {
+                break output.stdout.trim_ascii() == b"loaded";
+            }
+            Ok(Some(_)) => break false,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            // No unit file: nothing to wait on, the detached launch serves the request.
+            Ok(None) if !installed => return Ok(None),
+            Ok(None) if asked.elapsed() >= patience => return Err(silent("LoadState")),
+            Ok(None) => tokio::time::sleep(HANDOVER_RETRY).await,
+        }
     };
     if !loaded {
         return Ok(None);
     }
 
-    let env = tokio::process::Command::new(systemctl.clone())
-        .args(["--user", "show", "acpmux.service", "-p", "Environment", "--value"])
-        .output();
-    let env = match tokio::time::timeout(PROBE_BUDGET, env).await {
-        Ok(Ok(output)) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).into_owned()
+    let asked = tokio::time::Instant::now();
+    let env = loop {
+        match show_property(systemctl.clone(), "Environment").await {
+            Ok(Some(output)) if output.status.success() => {
+                break String::from_utf8_lossy(&output.stdout).into_owned();
+            }
+            Ok(Some(output)) => {
+                return Err(anyhow!(
+                    "systemd could not read acpmux.service environment: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            Err(error) => return Err(error.into()),
+            // Loaded: the unit exists whatever its file says, so its daemon is waited on.
+            Ok(None) if asked.elapsed() >= patience => return Err(silent("Environment")),
+            Ok(None) => tokio::time::sleep(HANDOVER_RETRY).await,
         }
-        Ok(Ok(output)) => {
-            return Err(anyhow!(
-                "systemd could not read acpmux.service environment: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        Ok(Err(error)) => return Err(error.into()),
-        Err(_) => return Ok(None),
     };
     let unit_home =
         unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
@@ -73,6 +121,7 @@ where
     // A unit start can overlap the old daemon's graceful handover. The socket
     // is the authoritative liveness signal; a slow start command is retried.
     let mut next_start = tokio::time::Instant::now();
+    let mut silent_since: Option<tokio::time::Instant> = None;
     loop {
         if tokio::time::Instant::now() >= next_start {
             let _ = run_systemctl(systemctl.clone(), &["--user", "start", "acpmux.service"]).await;
@@ -90,9 +139,17 @@ where
         // takes the lock from the unit's next daemon (on a fleet lane host a
         // review box's 256-task, 4-CPU scope ran the daemon for 53 minutes and
         // every harness start in it failed with EAGAIN).
+        // A probe that timed out says nothing: the unit is waited on until systemd answers, for
+        // up to the patience in a row.
         match unit_active_state(systemctl.clone()).await {
-            Some(state) if unit_still_live(&state) => {}
-            _ => return Ok(None),
+            Some(state) if unit_still_live(&state) => silent_since = None,
+            Some(_) => return Ok(None),
+            None => {
+                let since = *silent_since.get_or_insert_with(tokio::time::Instant::now);
+                if since.elapsed() >= patience {
+                    return Err(silent("ActiveState"));
+                }
+            }
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
     }
@@ -107,7 +164,7 @@ fn unit_still_live(state: &str) -> bool {
 
 /// `acpmux.service`'s `ActiveState`, or `None` when systemd did not answer in
 /// [`PROBE_BUDGET`] or could not say.
-// timeout: cleanup for a wedged systemctl probe; the caller then takes the detached path.
+// timeout: cleanup for a wedged systemctl probe; the caller asks again, up to its patience.
 #[cfg(target_os = "linux")]
 async fn unit_active_state<S>(systemctl: S) -> Option<String>
 where
@@ -123,6 +180,28 @@ where
             Some(String::from_utf8_lossy(output.stdout.trim_ascii()).into_owned())
         }
         _ => None,
+    }
+}
+
+/// One `systemctl --user show acpmux.service -p PROPERTY --value`; `Ok(None)` when it did not
+/// finish in [`PROBE_BUDGET`] (the child is killed).
+// timeout: cleanup for a wedged systemctl probe; the caller asks again, up to its patience.
+#[cfg(target_os = "linux")]
+async fn show_property<S>(
+    systemctl: S,
+    property: &str,
+) -> std::io::Result<Option<std::process::Output>>
+where
+    S: AsRef<std::ffi::OsStr>,
+{
+    let show = tokio::process::Command::new(systemctl)
+        .args(["--user", "show", "acpmux.service", "-p", property, "--value"])
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(PROBE_BUDGET, show).await {
+        Ok(output) => output.map(Some),
+        Err(_) => Ok(None),
     }
 }
 
