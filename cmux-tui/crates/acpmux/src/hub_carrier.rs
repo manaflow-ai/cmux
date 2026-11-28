@@ -1014,6 +1014,12 @@ impl HubCarrier {
         self.dial_service(daemon, CircuitService::Acpmux).await
     }
 
+    /// Whether a kept circuit to `daemon` on `lane` is open now (relay or direct), so
+    /// [`Self::dial_service_on`] that lane opens a stream on it and asks the relay for nothing.
+    pub fn kept_live(&self, daemon: &str, lane: CircuitLane) -> bool {
+        self.kept.has_live(daemon, lane) || self.direct.kept.has_live(daemon, lane)
+    }
+
     /// [`Self::dial`] to `service` on that machine. A service other than the acpmux listener is
     /// named in the circuit's first record, and the dial returns once the machine answered that
     /// it reached it (or fails with its refusal). A named service rides the machine's kept
@@ -1317,6 +1323,7 @@ impl HubCarrier {
                                 kept.live = Some(mux.clone());
                                 kept.path = Some(path);
                                 kept.reopen_at = None;
+                                kept.saved_since = None;
                             }
                             // The far machine refused the `mux` hello before reading any
                             // stream: early bytes behind it were never read.
@@ -1510,6 +1517,9 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
+        // Machines with nothing kept go first, so the map is only those with something to keep.
+        self.kept.prune();
+        self.direct.kept.prune();
         let slots: Vec<_> =
             self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
         let opened =
@@ -1527,13 +1537,22 @@ impl HubCarrier {
         slot: &tokio::sync::Mutex<mux::Kept>,
     ) -> bool {
         let mut kept = slot.lock().await;
-        let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
+        // The quiet time of what is to open: a circuit that ended under this carrier, or one
+        // from before its restart that did not open at start.
+        let quiet = match kept.live.clone() {
+            Some(old) if old.wants_reopen() => old.quiet_for(),
+            None if kept.saved_waiting() => {
+                kept.saved_since.map_or(Duration::MAX, |at| at.elapsed())
+            }
+            _ => return false,
+        };
         if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
             return false;
         }
         let Some(path) = kept.path else { return false };
-        if old.quiet_for() >= self.timings.kept_idle {
+        if quiet >= self.timings.kept_idle {
             kept.live = None;
+            kept.saved_since = None;
             return false;
         }
         let why = match self.open_kept(daemon, lane, path).await {
@@ -1546,6 +1565,7 @@ impl HubCarrier {
                         mux.hold();
                     }
                     kept.live = Some(mux);
+                    kept.saved_since = None;
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
                     return true;
@@ -1553,6 +1573,7 @@ impl HubCarrier {
                 Ok(Ok(Err(refusal))) => {
                     mux.close().await;
                     kept.live = None;
+                    kept.saved_since = None;
                     kept.no_mux_until = Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
                     tracing::info!(
                         daemon,
@@ -3159,3 +3180,7 @@ mod silent_circuit_tests;
 #[cfg(test)]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_prune_tests.rs"]
+mod kept_prune_tests;
