@@ -193,7 +193,14 @@ on:
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+  # An image roll's push gets a group of its own too. GitHub keeps one pending run per group, so in the shared
+  # push group any later push (even one whose jobs all skip) replaced the roll's waiting run before it deployed:
+  # 8 of the last 20 roll runs were cancelled that way (46011028932, 46001379799, 45982382978, ...), and with
+  # them the settle's pin write. A newer roll still replaces an older waiting one, which is right: its image is
+  # newer. Production deploys still never overlap: deploy-production, migrate-production and smoke-production
+  # serialize through their own job-level groups.
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && '-image-roll' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -206,7 +213,7 @@ env:
 jobs:
   check:
     # A label event re-runs it only for cmux-vm-breaking-change-ok.
-    if: ${{ ((github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ ((github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     # actions: read finds an earlier run's check for an image roll commit (step roll).
@@ -264,6 +271,13 @@ jobs:
             fi
           done <<< "$runs"
           full "no earlier passed check on the same code"
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -389,7 +403,7 @@ jobs:
   cloudflare-preflight:
     environment: cloudflare-ops
     name: cloudflare preflight
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
@@ -430,7 +444,7 @@ jobs:
 
   hyperdrive-ensure:
     name: hyperdrive ensure
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ inputs.environment }}
@@ -456,7 +470,7 @@ jobs:
         run: bash scripts/hyperdrive.sh ensure "$CONFIG_NAME"
 
   deploy-preview:
-    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
@@ -485,6 +499,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -516,7 +537,7 @@ jobs:
 
   deploy-staging:
     # After migrate-staging (feat-cmux-next): the ordering gate below then finds this commit's migrations applied.
-    if: ${{ (!cancelled() && needs.check.result == 'success' && (needs.migrate-staging.result == 'success' || needs.migrate-staging.result == 'skipped') && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) || (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (!cancelled() && needs.check.result == 'success' && (needs.migrate-staging.result == 'success' || needs.migrate-staging.result == 'skipped') && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) || (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: [check, migrate-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
@@ -549,6 +570,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -695,7 +723,7 @@ jobs:
     continue-on-error: true
     # !cancelled(): deploy-staging runs past a skipped migrate-staging (every main push), and GitHub's
     # implicit success() would skip this job there.
-    if: ${{ (!cancelled() && needs.deploy-staging.result == 'success' && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) || (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (!cancelled() && needs.deploy-staging.result == 'success' && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) || (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: deploy-staging
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
@@ -724,6 +752,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -765,7 +800,7 @@ jobs:
     # Every push to feat-cmux-next that touches the Worker, and action deploy-production, once the migrations
     # are applied: no manual step between a landing and production (M2).
     if: >-
-      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.check.result == 'success' && (needs.migrate-production.result == 'success' || (needs.migrate-production.result == 'skipped' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll'))) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.check.result == 'success' && (needs.migrate-production.result == 'success' || (needs.migrate-production.result == 'skipped' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll'))) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production'))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     # Only the code check, not the staging deploy and smoke: NEXT production has no outside users, so a
     # production deploy no longer waits on staging (Leo, 2026-11-04: "why did we have to take so long doing
     # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
@@ -803,6 +838,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -946,7 +988,7 @@ jobs:
   journey-production:
     needs: deploy-production
     # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
-    if: ${{ ((!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ ((!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
     timeout-minutes: 30
@@ -966,6 +1008,13 @@ jobs:
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -991,7 +1040,7 @@ jobs:
   # never meets the deploy jobs' secrets or third-party steps.
   journey-proof-staging:
     needs: deploy-staging
-    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.deploy-staging.outputs.verdict != '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.deploy-staging.outputs.verdict != '') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1013,7 +1062,7 @@ jobs:
 
   journey-proof-production:
     needs: journey-production
-    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.journey-production.outputs.verdict != '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.journey-production.outputs.verdict != '') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1037,7 +1086,7 @@ jobs:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).
     # This is diagnostic only and never blocks the feature branch or nightly.
     continue-on-error: true
-    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') || ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') || ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: deploy-production
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
@@ -1079,6 +1128,13 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.gate.outputs.enabled == 'true'
         shell: bash
@@ -1158,7 +1214,7 @@ jobs:
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
-      ${{ (!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && inputs.image_rollback != ''))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+      ${{ (!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && inputs.image_rollback != ''))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     # The push App key is a repository secret; the environment (feat-cmux-next only) bounds who can reach it.
@@ -1186,6 +1242,13 @@ jobs:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
           fetch-depth: 50
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.deploy-mode.outputs.enabled == 'true'
         shell: bash
@@ -1299,15 +1362,17 @@ jobs:
       # by 327 min on 2026-11-27; cmuxterm-hq goal fix-running-platform-pin, handbook fallback-pin-trails-the-roll.md).
       # cmux-platform's own scripts/platform-pin-follow.ts decides, from the deployed commit's lists, so there is one
       # writer's logic; the App token's push to cmux-platform main starts its ci.yml, which deploys. A miss only warns:
-      # the hourly follower still moves the pin.
+      # platform-pin-follow.yml (every 15 min, after a 60-minute stand) still moves the pin. The cmux bot App, not
+      # pr-autofix: pr-autofix is not installed on cmux-platform (run 45992429531's mint answered 404, as 44852142963's
+      # did for the read token above).
       - name: Mint the cmux-platform pin token
         id: pin-token
         if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.kind == 'roll' && steps.roll.outputs.outcome == 'green'
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
-          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: write
@@ -1452,7 +1517,7 @@ jobs:
     # no headers, bodies or query strings, emails redacted.
     name: tail production
     # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     environment: cmux-vm-production
@@ -1463,6 +1528,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1504,7 +1576,7 @@ jobs:
     # first, then lists again and deletes). The Worker's cron runs the same sweep every 5 minutes; this is the
     # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
     name: sweep orphan VMs (production)
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     environment: cmux-vm-production
@@ -1515,6 +1587,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1554,6 +1633,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1596,7 +1682,7 @@ jobs:
     # only when the live list has it and the rule allows it (paused or failed, or older than 24 h and idle; never a
     # kept or any other machine). Never scheduled. feat-cmux-next only: checked-out code with the staging account.
     name: journey machines (staging agent test account)
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 35 min: at most 5 ids (MAX_DELETE_IDS), each delete bounded at 5 min (180 s of retries, 120 s of read back),
     # plus sign-in, the list and the job log reads.
@@ -1610,6 +1696,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1644,7 +1737,7 @@ jobs:
     # image lock, never a migration, and its deploy waited 1.4 min here for nothing (run 42369188953; goal
     # cloud-fix-to-machine). deploy-production's ordering gate still refuses a commit production lacks a migration for.
     if: >-
-      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-production' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-production' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # A rehearsal restores a branch copy (up to 20 min) and an apply rehearses again, plus the PITR wait.
@@ -1683,6 +1776,13 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1750,7 +1850,7 @@ jobs:
 
   db-connections-staging:
     name: staging database connections
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     environment: cmux-vm-staging
@@ -1758,6 +1858,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1799,7 +1906,7 @@ jobs:
     # The staging database fault switch (src/db/fault.ts). Writes only the staging Worker's CMUX_VM_DB_FAULT; a value
     # the Worker's own parser refuses is never written, so a run either sets a fault that ends at its `until` or `off`.
     name: staging database fault switch
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-fault-staging') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-fault-staging') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     environment: cmux-vm-staging
@@ -1813,6 +1920,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1843,7 +1957,7 @@ jobs:
     # owner's password is never read or changed.
     name: migrate staging (cmux_vm)
     if: >-
-      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-staging' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+      ${{ (!cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-staging' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
@@ -1865,6 +1979,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true

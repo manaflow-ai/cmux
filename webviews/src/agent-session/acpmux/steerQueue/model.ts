@@ -56,18 +56,7 @@ export function steerQueue({ sessions, now, log = [] }: SteerQueueInput): SteerI
     if (session.unsent) continue;
     const reason = steerReason(session, now);
     if (!reason) continue;
-    const last = lastAct.get(session.sessionId);
-    items.push({
-      sessionId: session.sessionId,
-      title: session.displayTitle || sessionTitle(session),
-      reason,
-      ...optional("line", steerLine(session, reason)),
-      ...optional("host", session.hostKind === "cloud" || session.peer ? session.host : undefined),
-      ...optional("harness", session.harness),
-      ...optional("at", activityTime(session)),
-      running: reason === "running" || reason === "stalled",
-      ...(last ? { last } : {}),
-    });
+    items.push(steerItem(session, reason, lastAct.get(session.sessionId)));
   }
   // The longest wait first within a reason, since it has waited the longest; a finished chat
   // newest first, as every list of chats in the pane.
@@ -79,8 +68,35 @@ export function steerQueue({ sessions, now, log = [] }: SteerQueueInput): SteerI
   return items.slice(0, STEER_QUEUE_LIMIT);
 }
 
+/// A queue row of `session`, in the queue for `reason`.
+export function steerItem(session: AcpmuxSessionEntry, reason: SteerReason, last: SteerAct | undefined): SteerItem {
+  return {
+    sessionId: session.sessionId,
+    title: session.displayTitle || sessionTitle(session),
+    reason,
+    ...optional("line", steerLine(session, reason)),
+    ...optional("host", session.hostKind === "cloud" || session.peer ? session.host : undefined),
+    ...optional("harness", session.harness),
+    ...optional("at", activityTime(session)),
+    running: reason === "running" || reason === "stalled",
+    ...(last ? { last } : {}),
+  };
+}
+
+/// `steerReason` before the clock: a working chat is `working`, stalled or running by its age.
+export type SteerBase = Exclude<SteerReason, "stalled" | "running"> | "working";
+
 /// Why a chat needs the person, or undefined when it needs nothing (idle and read, or archived).
 export function steerReason(session: AcpmuxSessionEntry, now: number): SteerReason | undefined {
+  const base = steerBase(session);
+  if (base !== "working") return base;
+  const at = activityTime(session);
+  return at !== undefined && now - at >= STALLED_MS ? "stalled" : "running";
+}
+
+/// `steerReason` but for its clock, which only tells a stalled working chat from a running one
+/// (sessionReaders.ts `SteerQueueReader` keeps the queue by it).
+export function steerBase(session: AcpmuxSessionEntry): SteerBase | undefined {
   // A chat whose machine is unreachable waits on nobody: it is a failure to look at, never an ask.
   if (session.indicator === "lost" || session.lane === "lost") return "failed";
   // As Needs you reads it (sessionIndex.ts `waitsOnPerson`): a local chat acpmux says is not
@@ -93,10 +109,7 @@ export function steerReason(session: AcpmuxSessionEntry, now: number): SteerReas
   )
     return "ask";
   if (session.indicator === "failed" || session.lane === "failed") return "failed";
-  if (session.indicator === "working" || session.status === "running" || session.lane === "working") {
-    const at = activityTime(session);
-    return at !== undefined && now - at >= STALLED_MS ? "stalled" : "running";
-  }
+  if (session.indicator === "working" || session.status === "running" || session.lane === "working") return "working";
   if (session.unread && session.indicator === "done") return "review";
   return undefined;
 }

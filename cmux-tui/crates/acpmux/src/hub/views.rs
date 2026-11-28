@@ -182,18 +182,16 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
+        _ if crate::session_liveness::sandbox_failed(summary) => Some("failed"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
-        // A sub-session below it waits on the person: its run stalls there until someone answers,
-        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
-        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
-        // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
@@ -204,13 +202,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
     "stopReason",
     "errorText",
     "errorSource",
+    "errorCode",
     "detail",
     "errorKind",
     "recovery",
@@ -294,7 +293,7 @@ pub fn lane(summary: &Value) -> Value {
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "failed" => crate::session_liveness::failure_error(summary),
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
@@ -845,6 +844,7 @@ impl Hub {
             }),
             harness_sandbox_failed: m.harness_sandbox.first_at,
             harness_sandbox_failing: m.harness_sandbox.failing,
+            harness_sandbox_error: m.harness_sandbox.error.clone(),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -1092,6 +1092,10 @@ impl Hub {
         // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
         // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
         extras.push(("bgTasksRunning", json!(self.bg_running_count(session))));
+        // Those of them that are re-armable waits (`rearm.rs`, `session-bg-waits-v1`): a move
+        // starts each again at the destination, so rebalance moves a session whose every task
+        // is one.
+        extras.push(("bgWaits", json!(self.bg_waits(session))));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
@@ -1302,6 +1306,8 @@ impl Hub {
             "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
+            "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
             // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
             "evicted": evicted,
@@ -1410,6 +1416,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // How typing wakes of a paused peer's machine ended: sent with their lead, or a
+            // draft never sent (`compose_wake.rs`, RFD 0072's parallel start).
+            "composeWakes": crate::compose_wake::status(),
             // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
             // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
             "fleetHold": self.fleet_hold_shown(),
@@ -1656,6 +1665,7 @@ mod time_breakdown_tests {
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
-#[cfg(test)]
+// Times thread CPU with clock_gettime, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;

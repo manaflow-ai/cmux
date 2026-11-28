@@ -389,6 +389,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/live",
+      "params": {
+        "$ref": "#/types/LiveParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live_list",
+      "params": {
+        "$ref": "#/types/LiveListParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveListResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/rooms",
       "params": {
         "$ref": "#/types/RoomsParams"
@@ -1051,6 +1071,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/bg/rearm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/run_elsewhere/plan",
       "params": true,
       "result": true
@@ -1133,6 +1159,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
@@ -1164,6 +1196,12 @@
     {
       "kind": "request",
       "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/lifecycle",
       "params": true,
       "result": true
     },
@@ -1481,6 +1519,24 @@
     {
       "kind": "request",
       "name": "_acpmux/team/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/navigator",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/pick",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/session_info",
       "params": true,
       "result": true
     },
@@ -2375,6 +2431,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_login/start",
       "params": {
         "$ref": "#/types/AgentLoginStartParams"
@@ -2384,6 +2452,22 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_start",
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_finish",
       "params": {
         "$ref": "#/types/AgentLoginFinishParams"
       },
@@ -2649,6 +2733,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/secret.store",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/secret.delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -2662,6 +2758,48 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/grok.hook",
       "params": true,
       "result": true
     },
@@ -2971,6 +3109,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/consent_remote_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_grantor_trust",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_account_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_trust_refresh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true
@@ -3020,6 +3194,12 @@
     {
       "kind": "request",
       "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_challenge",
       "params": true,
       "result": true
     },
@@ -3323,6 +3503,7 @@
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
+        "abi": true,
         "adopt": true,
         "agentSessionId": true,
         "answeredBy": true,
@@ -3332,6 +3513,7 @@
         "author": true,
         "autoPlace": true,
         "beforePromptId": true,
+        "build": true,
         "callerKind": true,
         "callerProtocol": true,
         "callerSession": true,
@@ -3486,6 +3668,7 @@
         },
         "code": true,
         "loginId": true,
+        "recoverySession": true,
         "sessionId": true
       },
       "type": "object"
@@ -3497,6 +3680,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "recoverySession": true,
+        "reuseExisting": true,
         "sessionId": true
       },
       "type": "object"
@@ -5553,6 +5738,53 @@
         "sequence",
         "source",
         "state"
+      ],
+      "type": "object"
+    },
+    "LiveListParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live_list` takes no params.",
+      "type": "object"
+    },
+    "LiveListResult": {
+      "description": "`_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while\nthe owner is not Live).",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "people": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "people"
+      ],
+      "type": "object"
+    },
+    "LiveParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.",
+      "properties": {
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LiveResult": {
+      "description": "`_acpmux/live`'s answer: Live now.",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live"
       ],
       "type": "object"
     },
@@ -8100,6 +8332,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -9080,6 +9320,14 @@
         },
         "harness": {
           "type": "string"
+        },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "harnessSandboxFailed": {
           "default": null,
