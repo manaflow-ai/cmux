@@ -364,6 +364,8 @@ extension TerminalSurface {
                 return data.isEmpty ? nil : .processOutput(data)
             case .key(let event):
                 return .key(event)
+            case .pastedText(let data):
+                return data.isEmpty ? nil : .pasteText(data)
             }
         }
     }
@@ -378,6 +380,7 @@ extension TerminalSurface {
         var bufferedText = ""
         bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
+        var unterminated = UnterminatedStringControls()
         let scalars = Array(text.unicodeScalars)
 
         func flushBufferedText() {
@@ -408,6 +411,14 @@ extension TerminalSurface {
             }
             guard let data = sequence.data(using: .utf8), !data.isEmpty else { return }
             events.append(.terminalBytes(data))
+        }
+
+        func appendRawBytes(length: Int, from start: Int) {
+            var sequence = ""
+            for offset in start..<(start + length) {
+                sequence.unicodeScalars.append(scalars[offset])
+            }
+            events.append(.rawBytes(Data(sequence.utf8)))
         }
 
         var index = 0
@@ -442,10 +453,26 @@ extension TerminalSurface {
                     flushBufferedText()
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
-                } else if let length = terminalControlSequenceLength(scalars, from: index) {
+                } else if let length = terminalControlSequenceLength(scalars, from: index, unterminated: &unterminated) {
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
                     index += length
+                } else if let length = encodedKeySequenceLength(scalars, from: index) {
+                    // Any other complete CSI sequence was already
+                    // encoded for the program's keyboard mode (a viewing
+                    // Mac's Kitty `ESC[27u`, modified arrows). Splitting it
+                    // into Escape plus its tail typed the tail as text.
+                    flushBufferedText()
+                    if let paste = bracketedPaste(scalars, from: index, startLength: length) {
+                        // A viewing Mac's paste: the host's paste encoder
+                        // frames the body for the host program's mode, so its
+                        // LF and Tab arrive as in a local paste.
+                        if !paste.body.isEmpty { events.append(.pastedText(paste.body)) }
+                        index += paste.length
+                    } else {
+                        appendRawBytes(length: length, from: index)
+                        index += length
+                    }
                 } else {
                     flushBufferedText()
                     appendKey(UInt32(kVK_Escape), label: "escape")
@@ -458,7 +485,7 @@ extension TerminalSurface {
                 previousWasCR = false
                 index += 1
             default:
-                if let length = terminalControlSequenceLength(scalars, from: index) {
+                if let length = terminalControlSequenceLength(scalars, from: index, unterminated: &unterminated) {
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
                     index += length
@@ -476,7 +503,8 @@ extension TerminalSurface {
     /// Returns the byte-like scalar length for a complete terminal string control sequence.
     private static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
-        from start: Int
+        from start: Int,
+        unterminated: inout UnterminatedStringControls
     ) -> Int? {
         guard start < scalars.count else { return nil }
 
@@ -489,11 +517,11 @@ extension TerminalSurface {
             ).csiSequenceLength()
         }
         if value == 0x9D {
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+            return unterminated.length(scalars, from: start, terminatesWithBEL: true)
         }
         switch value {
         case 0x90, 0x98, 0x9E, 0x9F:
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+            return unterminated.length(scalars, from: start, terminatesWithBEL: false)
         default:
             break
         }
@@ -503,11 +531,90 @@ extension TerminalSurface {
         case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
             return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+            return unterminated.length(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x58, 0x5E, 0x5F: // DCS / SOS / PM / APC: ESC P/X/^/_ ... ST
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+            return unterminated.length(scalars, from: start, terminatesWithBEL: false)
         default:
             return nil
+        }
+    }
+
+    /// Length of a complete 7-bit CSI (`ESC [ params intermediates final`)
+    /// at `start`, or nil for a bare or partial escape. SS3 stays out: Kitty
+    /// encodes keys as CSI, and `ESC O` followed by text is Escape then `O`.
+    private static func encodedKeySequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        guard start + 2 < scalars.count, scalars[start].value == 0x1B,
+              scalars[start + 1].value == 0x5B else { return nil }
+        // X10/UTF-8 mouse report: `ESC [ M` then button, column, row. Those
+        // three can be any character, including 0x7F (column 95).
+        if scalars[start + 2].value == 0x4D {
+            return start + 5 < scalars.count ? 6 : nil
+        }
+        var cursor = start + 2
+        while cursor < scalars.count {
+            let value = scalars[cursor].value
+            if (0x40...0x7E).contains(value) { return cursor - start + 1 }
+            guard (0x20...0x3F).contains(value) else { return nil }
+            cursor += 1
+        }
+        return nil
+    }
+
+    private static let bracketedPasteStart = Array("\u{1B}[200~".unicodeScalars)
+    private static let bracketedPasteEnd = Array("\u{1B}[201~".unicodeScalars)
+
+    /// When `ESC [ 200 ~` starts at `start`, the paste body without its
+    /// markers and the scalar length through `ESC [ 201 ~`, or through the end
+    /// of the text when the paste has no end marker.
+    private static func bracketedPaste(
+        _ scalars: [Unicode.Scalar],
+        from start: Int,
+        startLength: Int
+    ) -> (body: Data, length: Int)? {
+        guard scalars[start..<(start + startLength)].elementsEqual(bracketedPasteStart) else { return nil }
+        let bodyStart = start + startLength
+        var bodyEnd = scalars.count
+        var end = scalars.count
+        var cursor = bodyStart
+        while cursor + bracketedPasteEnd.count <= scalars.count {
+            if scalars[cursor..<(cursor + bracketedPasteEnd.count)].elementsEqual(bracketedPasteEnd) {
+                bodyEnd = cursor
+                end = cursor + bracketedPasteEnd.count
+                break
+            }
+            cursor += 1
+        }
+        var body = String.UnicodeScalarView()
+        body.append(contentsOf: scalars[bodyStart..<bodyEnd])
+        return (Data(String(body).utf8), end - start)
+    }
+
+    /// Set once a string control finds no terminator in the rest of the text,
+    /// so later string controls skip a scan that cannot succeed. OSC also
+    /// ends at BEL, so only its failure rules out every string control.
+    private struct UnterminatedStringControls {
+        var noStringTerminator = false
+        var noStringTerminatorOrBEL = false
+
+        mutating func length(
+            _ scalars: [Unicode.Scalar],
+            from start: Int,
+            terminatesWithBEL: Bool
+        ) -> Int? {
+            if terminatesWithBEL ? noStringTerminatorOrBEL : noStringTerminator { return nil }
+            let length = TerminalSurface.stringControlSequenceLength(
+                scalars,
+                from: start,
+                terminatesWithBEL: terminatesWithBEL
+            )
+            if length == nil {
+                noStringTerminator = true
+                if terminatesWithBEL { noStringTerminatorOrBEL = true }
+            }
+            return length
         }
     }
 
