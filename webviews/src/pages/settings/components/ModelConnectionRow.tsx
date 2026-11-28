@@ -193,7 +193,7 @@ export function ModelConnectionRow({
         status={status}
         warning={warning}
         loading={connecting || checking}
-        loadingLabel={t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")}
+        checking={checking}
       >
         {cloud && apiKey && !connection.enabled && (
           <Button
@@ -398,7 +398,7 @@ export function ModelRow({
   status,
   warning,
   loading,
-  loadingLabel,
+  checking,
   children,
 }: {
   mark: CatalogProvider["mark"];
@@ -409,11 +409,12 @@ export function ModelRow({
   status?: string;
   warning?: string;
   loading?: boolean;
-  /// What the spinner says while `loading`: the row that starts the connect names it, next to its buttons.
-  loadingLabel?: string;
+  checking?: boolean;
   children?: ReactNode;
 }) {
-  const iconLabel = loading ? loadingLabel : warning;
+  const iconLabel = loading
+    ? t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")
+    : warning;
   return (
     <div className="row-main">
       <ModelProviderMark mark={mark} />
