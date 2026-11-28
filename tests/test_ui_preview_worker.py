@@ -39,13 +39,34 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(p["web"])
         self.assertEqual(p["needs_build"], [])
 
-    def test_the_design_system_shoots_every_scene(self):
+    def test_the_design_system_shoots_every_leaf_scene(self):
+        # Every leaf scene, never a heavy host: a design change must not wait on the app library's build.
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/X.swift"])["swift"],
-                         list(w.ALL_SWIFT_SCENES))
+                         list(w.SHELL_SCENES))
+
+    def test_a_heavy_module_shoots_its_own_hosts_scene(self):
+        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift"])
+        self.assertEqual(p["swift"], ["chief-teleport"])
+        self.assertEqual(p["needs_build"], [])
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiHomeHost/UiHomeHostMain.swift"])["swift"],
+                         ["chief-teleport"])
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        self.assertEqual(w.plan([app])["needs_build"], [app])
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiShellShootKit/UiShellShootKit.swift"])["swift"],
+                         list(w.SHELL_SCENES))
+
+    def test_every_heavy_scene_has_a_host_and_a_module(self):
+        drawn = {s for scenes in w.SWIFT_SCENES.values() for s in scenes}
+        self.assertEqual(set(w.HEAVY_SCENES) - drawn, set())
+        manifest = (ROOT / w.SHELL_PACKAGE / "Package.swift").read_text()
+        for product in set(w.HEAVY_SCENES.values()) | {w.SHELL_PRODUCT}:
+            self.assertIn(f'"{product}"', manifest)
+        for target in w.HEAVY_HOST_SOURCES:
+            self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target).is_dir(), target)
 
     def test_swift_outside_the_shell_needs_a_build(self):
-        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"])
-        self.assertEqual(p["needs_build"], ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"])
+        f = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift"
+        self.assertEqual(w.plan([f])["needs_build"], [f])
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Package.swift"])["needs_build"],
                          ["Packages/macOS/CmuxNext/Package.swift"])
 
@@ -140,6 +161,46 @@ class FakeWorker(w.Worker):
         return {s: f"{s}.png" for s in scenes}
 
 
+class HeavyHostTests(unittest.TestCase):
+    def test_scenes_shoot_by_their_host_and_only_heavy_hosts_build_here(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            built, shot = [], []
+            worker.build_shell = lambda cold=False, product=w.SHELL_PRODUCT: built.append(product)
+
+            def shoot_product(product, scenes, out):
+                shot.append((product, scenes))
+                out.mkdir(parents=True)
+                for s in scenes:
+                    (out / f"{s}.png").write_bytes(b"png")
+                return {s: f"{s}.png" for s in scenes}
+            worker.shoot_product = shoot_product
+            out = Path(tmp) / "out"
+            got = worker.shoot_shell(["tabs", "chief-teleport"], out)
+            self.assertEqual(got, {"tabs": "tabs.png", "chief-teleport": "chief-teleport.png"})
+            self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(got.values()))
+            self.assertEqual(built, ["cmux-ui-home"])  # the leaf shell is the caller's build
+            self.assertEqual(shot, [("cmux-ui-layer", ["tabs"]), ("cmux-ui-home", ["chief-teleport"])])
+
+    def test_a_failed_heavy_host_keeps_the_other_scenes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+
+            def build(cold=False, product=w.SHELL_PRODUCT):
+                raise w.LookError(f"{product} failed")
+            worker.build_shell = build
+
+            def shoot_product(product, scenes, out):
+                out.mkdir(parents=True)
+                for s in scenes:
+                    (out / f"{s}.png").write_bytes(b"png")
+                return {s: f"{s}.png" for s in scenes}
+            worker.shoot_product = shoot_product
+            self.assertEqual(worker.shoot_shell(["tabs", "chief-teleport"], Path(tmp) / "o"), {"tabs": "tabs.png"})
+            with self.assertRaisesRegex(w.LookError, "cmux-ui-home failed"):
+                worker.shoot_shell(["chief-teleport"], Path(tmp) / "o2")
+
+
 class LookTests(unittest.TestCase):
     def test_a_swift_look_posts_and_caches_the_before_by_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,7 +238,7 @@ class LookTests(unittest.TestCase):
     def test_a_needs_build_change_says_so_and_builds_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
-            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
@@ -507,7 +568,7 @@ class SpeedTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
             jobs = w.queue.Queue()
             web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
-            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]),
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]),
                        seq=43)
             tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
             _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
@@ -525,7 +586,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
-                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
             self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
             self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
             self.assertIn("needs an app build", receipt["error"])
