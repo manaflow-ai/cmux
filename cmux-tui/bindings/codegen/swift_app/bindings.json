@@ -2914,7 +2914,7 @@
       }
     },
     "Tree": {
-      "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. Workspace, LivePane, Tree and WorkspaceGroup stay hand-written until the schema has keep_awake, dead, saved_tab_groups and the group profile fields.",
+      "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. LivePane, Tree and WorkspaceGroup stay hand-written until the schema has dead, saved_tab_groups and the group profile fields.",
       "objects": {
         "TabSnapshot": {
           "type": "Tab",
@@ -3327,6 +3327,156 @@
               "type": "LayoutNode",
               "doc": [
                 "The split tree inside the row."
+              ]
+            }
+          }
+        },
+        "WorkspaceSnapshot": {
+          "type": "Workspace",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One workspace as `list-workspaces` reports it (server.rs workspace_json). Everything but `id` decodes",
+            "leniently, so a newer daemon never breaks an older app. `displayName` and `isHome` are in",
+            "WorkspaceSnapshot+Display.swift."
+          ],
+          "order": [
+            "id",
+            "key",
+            "resource_id",
+            "short_id",
+            "name",
+            "name_source",
+            "name_revision",
+            "active",
+            "screens",
+            "group",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "unread_count",
+            "keep_awake",
+            "kind",
+            "app",
+            "recovered",
+            "screen_groups"
+          ],
+          "fields": {
+            "id": {
+              "type": "WorkspaceHandle"
+            },
+            "key": {
+              "type": "WorkspaceKey",
+              "doc": [
+                "Durable identity. Nil only on servers without `workspace-registry-v1`."
+              ]
+            },
+            "resource_id": {
+              "type": "ResourceID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "name_source": {
+              "type": "WorkspaceNameSource",
+              "default": ".user",
+              "doc": [
+                "Who supplied `name`; missing on older daemons and conservatively user-owned."
+              ]
+            },
+            "name_revision": {
+              "type": "UInt64",
+              "default": "0",
+              "decode": "(try? container.decode(String.self, forKey: .nameRevision)).map { UInt64($0) ?? 0 } ?? (try? container.decode(UInt64.self, forKey: .nameRevision)) ?? 0",
+              "doc": [
+                "The workspace-local name revision, a decimal string on the wire (a number from older daemons); missing reads zero."
+              ]
+            },
+            "active": {
+              "default": "false",
+              "doc": [
+                "Shared compatibility default, not user focus. Keep focus client-local."
+              ]
+            },
+            "screens": {
+              "default": "[]"
+            },
+            "group": {
+              "type": "WorkspaceGroupID",
+              "doc": [
+                "Group membership (`workspace-groups-v1`); nil = ungrouped."
+              ]
+            },
+            "color": {
+              "doc": [
+                "Palette token or `#RRGGBB[AA]` (`workspace-metadata-v1`)."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "SF Symbol name (`workspace-metadata-v1`)."
+              ]
+            },
+            "title": {
+              "doc": [
+                "Custom sidebar title that overrides `name` for display (`workspace-metadata-v1`)."
+              ]
+            },
+            "pinned": {
+              "default": "false",
+              "doc": [
+                "Listed in the sidebar's Pinned section (`workspace-pin-v1`)."
+              ]
+            },
+            "marked_unread": {
+              "default": "false",
+              "doc": [
+                "Marked unread by hand (`notification-mark-unread-v1`)."
+              ]
+            },
+            "unread_count": {
+              "type": "Int",
+              "doc": [
+                "Tabs with an unread marker (`notification-ack-v1`); nil on older daemons."
+              ]
+            },
+            "keep_awake": {
+              "default": "false",
+              "doc": [
+                "Kept awake from a Mac (`workspace-keep-awake-v1`); false on older daemons."
+              ]
+            },
+            "kind": {
+              "type": "String",
+              "doc": [
+                "`home` for the store's home workspace (`workspace-kind-v1`), `app` for an app workspace, else",
+                "`normal`; nil on older daemons."
+              ]
+            },
+            "app": {
+              "lenient": true,
+              "when": "kind == \"app\"",
+              "doc": [
+                "The app of an app workspace (`kind` `app`, `app-screens-v1`): one screen with one app tab; nil",
+                "for every other workspace."
+              ]
+            },
+            "recovered": {
+              "doc": [
+                "The daemon's recovery workspace (`workspace-recovered-v1`): its tabs are all terminals the daemon",
+                "recovered from orphaned hosts, so it is not a workspace the person made. Nil on daemons without it."
+              ]
+            },
+            "screen_groups": {
+              "type": "[ScreenGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Contiguous screen group runs in screen order (`screen-groups-v1`)."
               ]
             }
           }
