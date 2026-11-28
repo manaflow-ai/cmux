@@ -73,16 +73,20 @@ import Testing
         do {
             _ = try CookieBackupKeyRules.readFound(errSecAuthFailed, length: nil)
             Issue.record("a refused read did not throw")
-        } catch {
+        } catch let error as CookieBackupError {
             #expect(error.message == "the cookie backup key could not be read from the Keychain (status \(errSecAuthFailed))")
+        } catch {
+            Issue.record("not a CookieBackupError: \(error)")
         }
         #expect(try CookieBackupKeyRules.addStep(errSecSuccess) == "useFresh")
         #expect(try CookieBackupKeyRules.addStep(errSecDuplicateItem) == "readExisting")
         do {
             _ = try CookieBackupKeyRules.addStep(errSecAuthFailed)
             Issue.record("a refused add did not throw")
-        } catch {
+        } catch let error as CookieBackupError {
             #expect(error.message == "the cookie backup key could not be stored in the Keychain (status \(errSecAuthFailed))")
+        } catch {
+            Issue.record("not a CookieBackupError: \(error)")
         }
         #expect(CookieBackupKeyRules.fileUsable(length: 32))
         #expect(!CookieBackupKeyRules.fileUsable(length: 0))
