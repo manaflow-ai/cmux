@@ -43,6 +43,8 @@ export type JourneyFixture = {
   pool?: string;
   /** What the login preflight (POST /v1/messages) answers per login: an HTTP status, and a unified reset (epoch s) on 429. Unset: 200. */
   loginAnswers?: Record<string, { status: number; reset?: number }>;
+  /** CMUX_JOURNEY_TEAM_FALLBACK ("0" keeps the all-spent failure instead of team mode). */
+  teamFallback?: string;
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
@@ -225,6 +227,7 @@ process.exit(await main(${JSON.stringify(args)}));
         CMUX_JOURNEY_SEND_TRACE_SETTLE_MS: "0",
         ...(fixture.login ? { CLAUDE_CODE_OAUTH_TOKEN: fixture.login } : {}),
         ...(fixture.pool ? { CMUX_JOURNEY_CLAUDE_OAUTH_POOL: fixture.pool } : {}),
+        ...(fixture.teamFallback !== undefined ? { CMUX_JOURNEY_TEAM_FALLBACK: fixture.teamFallback } : {}),
         ...(fixture.github?.sandbox ? { CMUX_JOURNEY_GITHUB_REPO: fixture.github.sandbox } : {}),
       },
     });

@@ -162,6 +162,17 @@ class TestProgressParserTests(unittest.TestCase):
             "while running -[BonsplitTests.BonsplitTests testHangs]",
         )
 
+    def test_xcodebuild_simulator_case_lines_are_progress(self) -> None:
+        # xcodebuild's own line per Swift Testing test on a simulator (not -quiet), lower-case "case".
+        progress = watchdog.TestProgress(clock=lambda: 0.0)
+        progress.feed("Testing started")
+        self.assertFalse(progress.testing)
+        progress.feed("Test case 'LinkRecoveryTests/resume()' passed on 'iPhone 17 Pro - CmuxMobileKit-Package (4121)' (0.2 seconds)")
+        progress.feed("Test case 'PairingRetryTests/retries()' failed on 'iPhone 17 Pro' (1.5 seconds)")
+        self.assertTrue(progress.testing)
+        self.assertEqual(progress.events, 2)
+        self.assertEqual(progress.in_flight().xctest_cases, [])
+
     def test_nothing_in_flight_names_the_last_output(self) -> None:
         state = progress_after("""
             [882/884] Compiling CmuxMobileShell Shell.swift

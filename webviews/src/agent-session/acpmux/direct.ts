@@ -10216,7 +10216,7 @@ export class AcpmuxDirectClient {
   }
 
   /// A single permission card, answered, leaves a one-line receipt where it was answered: "Allowed:
-  /// Run npm test", or Denied, Always allowed, Not answered. The grouped panel keeps its own.
+  /// Run npm test", or Denied, Always allowed, Not answered.
   private recordPermission(event: EventRecord, msg: any): void {
     const id = msg.permissionId ? String(msg.permissionId) : undefined;
     const asked = id ? this.askedPermissions.get(id) : undefined;

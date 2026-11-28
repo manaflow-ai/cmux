@@ -4,29 +4,24 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { useAutoRetry } from "../autoRetry";
 import { permissionDiffs } from "../permissionMessage";
 import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { groupsHoldStack } from "./askRows";
 import { permissionKeyAction } from "./prompt";
+import { permissionReading, usePermissionUpkeep } from "./upkeep";
 import { ProposedEdits } from "./ProposedEdits";
 import { focusRoute } from "../../../ui/focusRoute";
-import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./HoldButton";
+import { HoldRing } from "./HoldButton";
+import { holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./useHoldToApprove";
 import { holdApplies, holdSettings } from "./holdToApprove";
 import type { HoldScope } from "./holdToApprove.experiment";
 
 /// Each answer's letter, as the single card's (prompt.ts PERMISSION_LETTERS).
 const LETTERS: Record<PermissionDecision, string> = { allow_once: "y", allow_chat: "a", deny: "n" };
-
-/// What a receipt says was answered.
-const choices: Record<PermissionDecision, StringKey> = {
-  allow_once: "permission.allowOnce",
-  allow_chat: "permission.allowChat",
-  deny: "permission.deny",
-};
 
 /// The answers at the end of a waiting ask's row, short, in this order (Leo 2026-10-14).
 const answers: [PermissionDecision, StringKey][] = [
@@ -48,8 +43,6 @@ const verbs: Partial<Record<string, StringKey>> = {
 
 type Props = {
   state: PermissionClientState;
-  /// The chat's turn is running: an answered group's receipt shows only until its turn ends.
-  working: boolean;
   onRespond(groupId: string, revision: number, decision: PermissionDecision): void;
   onRetry(): void;
   onRevoke(): void;
@@ -57,6 +50,10 @@ type Props = {
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts).
   /// The pane passes none; the gallery and tests do.
   hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
+  /// Whether a failed read has lasted past the deadline, from the pane's `usePermissionUpkeep`,
+  /// which also runs the app's Check and retry, Revoke and Refresh while the panel draws nothing.
+  /// Absent (the gallery, tests), the panel runs that work itself.
+  still?: boolean;
 };
 
 const record = (value: unknown) =>
@@ -254,7 +251,7 @@ function AskRow({
   );
 }
 
-export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
+export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh, hold, still: paneStill }: Props) {
   const t = useT();
   // Hold to approve (HoldButton.tsx, off unless its experiment is on), read once per panel.
   const [experimentHold] = useState(holdSettings);
@@ -285,9 +282,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       ["permissionAllowOnce", () => respondToPending("allow_once")],
       ["permissionAllowChat", () => respondToPending("allow_chat")],
       ["permissionDeny", () => respondToPending("deny")],
-      ["permissionRetry", runRetry],
-      ["permissionRevoke", runRevoke],
-      ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
     /// The pending group `decision` would answer now, if any.
@@ -325,55 +319,24 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       event.stopPropagation();
     };
     document.addEventListener("keydown", onKey, true);
-    function runRetry() {
-      const current = stateRef.current;
-      if (current.supported && current.uncertain && !current.busy && !current.loading) callbacks.current.onRetry();
-    }
-    function runRevoke() {
-      const current = stateRef.current;
-      if (
-        current.supported &&
-        current.chatAllowance &&
-        current.ready !== false &&
-        !current.busy &&
-        !current.loading &&
-        !current.uncertain
-      )
-        callbacks.current.onRevoke();
-    }
-    function runRefresh() {
-      const current = stateRef.current;
-      if (current.supported && !!current.error && !current.busy && !current.loading) callbacks.current.onRefresh();
-    }
     for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
     return () => {
       document.removeEventListener("keydown", onKey, true);
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
     };
   }, []);
-  // The answered group whose turn has ended: its receipt left the chat with that turn, and a later
-  // turn that asks nothing does not bring it back (cx-1lq0s).
-  const last = state.groups.at(-1);
-  const answered = last && last.state !== "pending" && last.state !== "collecting" ? last.groupId : undefined;
-  const [ended, setEnded] = useState<string>();
-  useEffect(() => {
-    if (!working && answered) setEnded(answered);
-  }, [working, answered]);
   // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
-  // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
-  // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
-  // the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
+  // again on its own (upkeep.ts, autoRetry.ts), never behind a Refresh button, since a read has no
+  // cost (Leo, 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first;
+  // past the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
   // and an answer in doubt keeps Check and retry, which sends the person's decision again.
-  const reading = state.supported && !state.ready && !state.uncertain && (!!state.error || state.loading);
-  const readFailed = reading && !!state.error;
-  const { stillTrying } = useAutoRetry(readFailed ? state.error : undefined, onRefresh, {
-    busy: state.loading || state.busy,
-  });
-  if (!state.supported) return null;
+  const ownStill = usePermissionUpkeep(state, { onRetry, onRevoke, onRefresh }, paneStill === undefined);
+  const still = paneStill ?? ownStill;
+  const reading = permissionReading(state).reading;
+  // An answered group leaves the panel at once: its answer reads in the transcript, on the call it
+  // approved or as a one-line receipt where it was answered, never again over the composer.
+  if (!groupsHoldStack(state, still)) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
-  const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  const still = reading && stillTrying;
-  if (!pending.length && !receipt && !still && (!state.error || readFailed)) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   // The group the keys answer (respondToPending): the first one waiting, whose answers list the
   // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
@@ -451,20 +414,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           </fieldset>
         );
       })}
-      {receipt && (
-        <details className="acpmux-permission-receipt">
-          <summary>
-            {receipt.state === "cancelled"
-              ? t("permission.cancelled")
-              : receipt.decision
-                ? t(choices[receipt.decision])
-                : t("permission.answered")}
-          </summary>
-          {receipt.items.map((item) => (
-            <AskRow key={item.permissionId} item={item} expandSignal={expandSignal} />
-          ))}
-        </details>
-      )}
       {reading
         ? still && (
             <p className="acpmux-permission-coverage" data-still-trying="">

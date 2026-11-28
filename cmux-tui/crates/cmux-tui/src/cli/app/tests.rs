@@ -727,6 +727,8 @@ fn catalog_and_dialog_reads_do_not_wait_for_the_daemon() {
     assert_eq!(with_read_barrier("action.describe", describe.clone()), describe);
     let dialogs = json!({ "pending_only": false });
     assert_eq!(with_read_barrier("feed.list", dialogs.clone()), dialogs);
+    // `cmux agents chat new` asks where the app's acpmux listens before every start (cmux#59876).
+    assert_eq!(with_read_barrier("agent.acpmux", json!({})), json!({}));
     // A dialog answer changes the app: it keeps the barrier.
     assert_eq!(with_read_barrier("feed.permission.reply", json!({})), json!({ "after": "sync" }));
 }

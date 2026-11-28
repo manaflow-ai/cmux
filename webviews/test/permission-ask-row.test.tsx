@@ -159,7 +159,6 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
         />
         <PermissionPanel
           state={state}
-          working
           onRespond={(_group, _revision, decision) => responses.push(decision)}
           onRetry={() => {}}
           onRevoke={() => {}}
@@ -209,7 +208,6 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
     root.render(
       <PermissionPanel
         state={permissions("resolved")}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -253,7 +251,6 @@ test("a subagent's ask reads as what it does and opens to its command without ac
     root.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -286,7 +283,6 @@ test("a grouped ACP subject command keeps its command and scope visible", async 
     root.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -312,7 +308,6 @@ test("a minimal ACP tool subject uses the request title in the grouped row", asy
     root.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -338,7 +333,6 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
     root.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={(_group, _revision, decision) => responses.push(decision)}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -386,7 +380,6 @@ for (const envelope of ["toolCall", "subjectTool", "subjectCommand"] as const) {
         root.render(
           <PermissionPanel
             state={state}
-            working
             onRespond={() => {}}
             onRetry={() => {}}
             onRevoke={() => {}}

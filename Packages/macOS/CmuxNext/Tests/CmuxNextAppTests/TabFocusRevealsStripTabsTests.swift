@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextTestSupport
