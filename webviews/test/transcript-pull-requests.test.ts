@@ -176,8 +176,10 @@ test("a row is read once, whether or not replies are read", () => {
   // reader with replies too.
   view.tool!.command = "gh pr view 4 -R acme/a";
   expect(transcriptPullRequests(rows, { replies: true }).map((pr) => pr.number)).toEqual([3]);
-  // A new row object is read again.
-  expect(refs([{ ...rows[0]! }])).toEqual(["acme/a#4"]);
+  // A new row object reads each call it holds by the call object: a kept call keeps its reading
+  // (calls are never changed in place), a new call object is read.
+  expect(refs([{ ...rows[0]! }])).toEqual(["acme/a#3"]);
+  expect(refs([{ ...rows[0]!, items: [{ ...view, tool: { ...view.tool! } }] }])).toEqual(["acme/a#4"]);
 });
 
 test("the summary card leaves out the pull requests the agent only named; Session Info keeps them", () => {
@@ -973,4 +975,35 @@ test("escaped whitespace keeps the whole title payload out of Sources", () => {
   );
   expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+test("a running turn's row written again with one more call parses only the new call, and finds the same", () => {
+  // Each streamed event writes the turn's activity row anew (`OrderedRows.set`), which compares PR
+  // fingerprints of the old and new row. The kept calls are the same objects, so their commands are
+  // read once, not once per event (O(calls²) per turn).
+  let reads = 0;
+  const counted = (command: string) => {
+    const item = shell(command, "https://github.com/manaflow-ai/cmux/pull/7");
+    const fields = item.tool!;
+    item.tool = {
+      ...fields,
+      get command() {
+        reads += 1;
+        return fields.command;
+      },
+    };
+    return item;
+  };
+  const items = Array.from({ length: 20 }, (_, n) => counted(`gh pr view manaflow-ai/cmux#${n + 1}`));
+  const rows = new OrderedRows();
+  for (let n = 1; n <= items.length; n += 1) rows.set("turn", activity(items.slice(0, n), 1));
+  // 20 writes over 1..20 calls: each call is parsed on its first write only.
+  const perCall = reads / items.length;
+  expect(perCall).toBeLessThanOrEqual(4);
+  const fresh = activity(
+    items.map((item) => shell(item.tool!.command!, item.tool!.output)),
+    1,
+  );
+  expect(refs([rows.get("turn")!])).toEqual(refs([fresh]));
+  expect(refs([fresh])).toHaveLength(20);
 });
