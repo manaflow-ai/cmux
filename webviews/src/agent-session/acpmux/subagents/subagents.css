@@ -1287,7 +1287,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__tail:hover .acpmux-running-tray__terminal,
 .acpmux-running-tray__tail:has([data-popup-open]) .acpmux-running-tray__terminal,
-.acpmux-running-tray__tail:is(:has([data-popup-open]), :focus-within) .acpmux-running-tray__terminal {
+.acpmux-running-tray__tail:is(:has([data-popup-open]), :has(:focus-visible)) .acpmux-running-tray__terminal {
   opacity: 1;
 }
 .acpmux-running-tray__tail-foot a:hover,

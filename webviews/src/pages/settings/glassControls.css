@@ -30,6 +30,7 @@
     var(--elevation-1);
   /* What the knob does to the track under it: a small blur and a lift in color and light, the
      lens feel, on the knob's few pixels only. */
+  /* glass-raw-blur-allow: a lens over the knob's few pixels of track, not a glass surface's frost */
   --glass-knob-lens: blur(1px) saturate(1.8) brightness(1.06) contrast(1.06);
   /* How much a held knob grows. */
   --glass-knob-grow: 1.18;
@@ -88,4 +89,13 @@
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-glass-controls] .ui-switch .ui-switch-thumb,
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
   transition: none;
+}
+
+/* Reduce Transparency: the knob is its fill alone, no lens over the track. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch .ui-switch-thumb,
+  :root[data-settings-look="refined"] .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }

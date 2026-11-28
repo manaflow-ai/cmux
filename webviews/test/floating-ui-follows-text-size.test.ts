@@ -174,7 +174,6 @@ const FLOATING: Array<{ file: string; selector: string; properties: string[] }> 
     selector: ".acpmux-needs-you",
     properties: ["width", "max-height"],
   },
-  { file: "agent-session/acpmux/quickModelColumns.css", selector: ".acpmux-cols-card", properties: ["width"] },
   {
     file: "agent-session/acpmux/header/header.css",
     selector: ".acpmux-header-preview.ui-card",

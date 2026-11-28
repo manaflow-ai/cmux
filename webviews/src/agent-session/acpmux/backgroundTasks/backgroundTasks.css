@@ -401,7 +401,7 @@
 }
 .acpmux-bg__section-bar:hover .acpmux-bg__clear.ui-btn,
 .acpmux-bg__section-bar:has([data-popup-open]) .acpmux-bg__clear.ui-btn,
-.acpmux-bg__section-bar:is(:has([data-popup-open]), :focus-within) .acpmux-bg__clear.ui-btn,
+.acpmux-bg__section-bar:is(:has([data-popup-open]), :has(:focus-visible)) .acpmux-bg__clear.ui-btn,
 .acpmux-bg__clear.ui-btn:focus-visible {
   opacity: 1;
 }

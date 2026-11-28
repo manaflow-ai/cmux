@@ -3,7 +3,6 @@
   max-height: calc(100dvh - var(--ds-space-6));
   overflow: auto;
   padding: 0;
-  background: var(--surface-popup);
   color: var(--text);
   border-radius: calc(var(--ds-radius-control) + var(--ds-space-6));
 }

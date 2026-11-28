@@ -21,7 +21,7 @@
 .acpmux-topright-ghost{position:fixed;z-index:var(--layer-dropdown,50);pointer-events:none;color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 
 /* A count of open panes: a crisp circle on the control's corner. */
-.acpmux-topright-count{--acpmux-topright-badge:12px;position:absolute;inset-block-start:0;inset-inline-end:0;display:inline-flex;align-items:center;justify-content:center;width:var(--acpmux-topright-badge);height:var(--acpmux-topright-badge);border-radius:50%;background:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)));color:var(--agent-page-bg,Canvas);font-size:var(--text-caption);font-weight:600;line-height:1;font-variant-numeric:tabular-nums;pointer-events:none}
+.acpmux-topright-count{--acpmux-topright-badge:12px;position:absolute;inset-block-start:0;inset-inline-end:0;display:inline-flex;align-items:center;justify-content:center;width:var(--acpmux-topright-badge);height:var(--acpmux-topright-badge);border-radius:50%;background:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)));color:var(--acpmux-base,Canvas);font-size:var(--text-caption);font-weight:600;line-height:1;font-variant-numeric:tabular-nums;pointer-events:none}
 
 /* Tab strip: once a pane is open, its icons are tabs at the trailing edge, after the chat menu, standing on
    the header's bottom edge with Chrome's concave feet so their fill reads as the right pane's strip. */

@@ -356,8 +356,11 @@
 }
 
 .acpmux-inspector-perf-label {
-  max-width: 240px;
+  /* The label column takes the table's spare width and cuts only when the row is full. */
+  width: 100%;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
 }

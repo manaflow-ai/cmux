@@ -945,7 +945,7 @@ body[data-status-only="true"] #files-motion-curtain {
 /* The filter field: a search icon and the input in one rounded box. */
 #files-filter {
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised);
   flex: 0 0 auto;
   display: flex;
   align-items: center;

@@ -1652,6 +1652,7 @@ img.onb-make-tile-image {
     transparent
   );
   /* one-material-allow: a pane of the Make cmux Yours step's drawn miniature window (a picture of NEXT's panes), not a floating surface */
+  /* glass-raw-blur-allow: the miniature's pane is a picture of glass at the miniature's scale, not a glass surface */
   backdrop-filter: blur(4px);
 }
 /* The sidebar sits on the window's glass, as NEXT's does: the painting shows through it. */

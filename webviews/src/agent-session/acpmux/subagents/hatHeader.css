@@ -232,7 +232,7 @@
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 .acpmux-running-tray:hover > .acpmux-hat-hide-bar > svg,
-.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > svg,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > svg[data-icon],
 .acpmux-hat-hide-bar:focus-visible > svg {
   opacity: 1;
   transition: opacity var(--cv-actions-in, 80ms) var(--cv-actions-in-ease, ease-out);

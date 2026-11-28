@@ -100,7 +100,7 @@ export function focusWithinReveals(css: string): string[] {
   const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const found: string[] = [];
   for (const [, prelude, body] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!/opacity\s*:\s*1(?![\d.])|visibility\s*:\s*visible/.test(body!)) continue;
+    if (!/(?<![\w-])opacity\s*:\s*1(?![\d.])|(?<![\w-])visibility\s*:\s*visible/.test(body!)) continue;
     for (const selector of selectors(prelude!)) if (selector.includes(":focus-within")) found.push(selector);
   }
   return found;
@@ -114,6 +114,8 @@ test("the scanner finds a reveal held by :focus-within and leaves the keyboard's
   expect(focusWithinReveals(".row:is(:hover, :has(:focus-visible)) .act { opacity: 1; }")).toEqual([]);
   // A focus rim or a partial fade is no reveal.
   expect(focusWithinReveals(".box:focus-within { border-color: red; opacity: 0.6; }")).toEqual([]);
+  // content-visibility and fill-opacity are not a reveal (terminal-history/styles.css draws a focused turn whole).
+  expect(focusWithinReveals(".t:focus-within { content-visibility: visible; fill-opacity: 1; }")).toEqual([]);
   expect(focusWithinReveals("/* .a:focus-within { opacity: 1 } */")).toEqual([]);
 });
 
