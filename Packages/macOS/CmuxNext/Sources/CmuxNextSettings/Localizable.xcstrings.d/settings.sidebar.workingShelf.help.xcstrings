@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.workingShelf.help" : {
+      "comment" : "Settings toggle help for Working Shelf.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats waiting on background tasks, subagents or watches fold into one Working row at the end of their list and come back when they need you."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُطوى المحادثات التي تنتظر مهام الخلفية أو الوكلاء الفرعيين أو المراقبات في صف \"قيد العمل\" واحد في نهاية قائمتها، وتعود عندما تحتاج إليك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Razgovori koji čekaju pozadinske zadatke, podagente ili praćenja sklapaju se u jedan red U radu na kraju liste i vraćaju se kada vas trebaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats, der venter på baggrundsopgaver, underagenter eller overvågninger, foldes ind i én Arbejder-række i slutningen af listen og kommer tilbage, når de har brug for dig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats, die auf Hintergrundaufgaben, Subagenten oder Beobachtungen warten, werden am Ende ihrer Liste in eine Zeile „Arbeitet“ eingeklappt und kehren zurück, wenn sie dich brauchen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los chats que esperan tareas en segundo plano, subagentes o vigilancias se pliegan en una fila En curso al final de su lista y vuelven cuando te necesitan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les discussions qui attendent des tâches en arrière-plan, des sous-agents ou des surveillances se replient dans une ligne En cours à la fin de leur liste et reviennent quand elles ont besoin de vous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le chat in attesa di attività in background, subagenti o monitoraggi si raccolgono in un'unica riga In corso alla fine dell'elenco e tornano quando hanno bisogno di te."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックグラウンドタスク、サブエージェント、監視を待っているチャットは、リストの末尾の「作業中」行にまとめられ、あなたが必要になると戻ってきます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែកដែលកំពុងរង់ចាំកិច្ចការផ្ទៃខាងក្រោយ ភ្នាក់ងាររង ឬការតាមដាន នឹងបត់ចូលទៅក្នុងជួរ កំពុងធ្វើការ មួយនៅចុងបញ្ជី ហើយត្រឡប់មកវិញនៅពេលវាត្រូវការអ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "백그라운드 작업, 하위 에이전트 또는 감시를 기다리는 채팅은 목록 끝의 작업 중 행 하나로 접히고, 사용자가 필요할 때 다시 나타납니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chatter som venter på bakgrunnsoppgaver, underagenter eller overvåkinger, brettes inn i én Arbeider-rad på slutten av listen og kommer tilbake når de trenger deg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Czaty czekające na zadania w tle, podagentów lub obserwacje zwijają się do jednego wiersza W toku na końcu listy i wracają, gdy cię potrzebują."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats que aguardam tarefas em segundo plano, subagentes ou observações são recolhidos em uma linha Em andamento no fim da lista e voltam quando precisam de você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чаты, ожидающие фоновых задач, субагентов или наблюдений, сворачиваются в одну строку «В работе» в конце списка и возвращаются, когда нужны вам."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชทที่รองานเบื้องหลัง เอเจนต์ย่อย หรือการเฝ้าดู จะถูกพับรวมเป็นแถว กำลังทำงาน แถวเดียวที่ท้ายรายการ และกลับมาเมื่อต้องการคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arka plan görevlerini, alt ajanları veya izlemeleri bekleyen sohbetler listenin sonunda tek bir Çalışıyor satırına katlanır ve size ihtiyaç duyduklarında geri gelir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чати, що чекають на фонові завдання, субагентів або спостереження, згортаються в один рядок «У роботі» в кінці списку й повертаються, коли потрібні вам."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các cuộc trò chuyện đang chờ tác vụ nền, tác tử con hoặc theo dõi sẽ được gộp vào một hàng Đang làm việc ở cuối danh sách và quay lại khi cần bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待后台任务、子代理或监视的聊天会折叠到列表末尾的一个“工作中”行中，并在需要你时回来。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待背景工作、子代理或監看的聊天會收合到清單末尾的一個「工作中」列中，並在需要你時回來。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

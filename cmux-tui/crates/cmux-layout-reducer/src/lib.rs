@@ -984,6 +984,7 @@ pub mod pane_focus;
 mod proofs;
 pub mod scroll;
 pub mod settle;
+pub mod shelf;
 pub mod shown_resize;
 pub mod sidebar_bridge;
 pub mod sidebar_caps;

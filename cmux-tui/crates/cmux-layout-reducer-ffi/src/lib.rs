@@ -177,6 +177,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&settle::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_shelf_plan" => {
+                use cmux_layout_reducer::shelf;
+                let request: shelf::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&shelf::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"keep_awake_plan" => {
                 use cmux_layout_reducer::keep_awake;
                 let request: keep_awake::Request =

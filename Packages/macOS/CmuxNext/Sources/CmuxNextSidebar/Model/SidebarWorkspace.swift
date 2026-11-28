@@ -85,6 +85,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
     /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
     public var agentStep: String?
+    /// What its agent chats wait on that wakes them by themselves (acpmux's summary `backgroundWaits`: background tasks
+    /// that notify, watches, background subagents, working sub-sessions), summed: the working shelf reads it.
+    public var backgroundWaits = 0
     /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?

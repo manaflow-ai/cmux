@@ -7,6 +7,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         /// Workspaces marked Done: the "Done (N)" row.
         case done
+        /// Chats waiting on background work (`sidebar.workingShelf`, ``SidebarLayoutOptions/shelved``): the
+        /// "Working (N)" row, before the Settled row.
+        case working
         /// Settled chats (`sidebar.settleFinished`, ``SidebarLayoutOptions/settled``): the "Settled (N)" row, before the
         /// Done row.
         case settled
@@ -46,10 +49,18 @@ nonisolated extension SidebarLayoutOptions {
             && (sessionTree == nil || sessionTree?.hidesStarted == true)
     }
 
-    /// Clears every fold a drag or an external drop unfolds: Done, Archived and Settled. Archived rows stay
+    /// Whether `ws` draws behind its list's "Working (N)" row: a chat on the working shelf (``shelved``), not the active
+    /// one, and not while a filter shows matches where they are or the session tree nests rows.
+    func shelves(_ ws: SidebarWorkspace) -> Bool {
+        !shelved.isEmpty && shelved.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil
+            && (sessionTree == nil || sessionTree?.hidesStarted == true)
+    }
+
+    /// Clears every fold a drag or an external drop unfolds: Done, Archived, Working and Settled. Archived rows stay
     /// out of the sidebar (``archiveSection``): a drag never draws them back (cmux#51635).
     mutating func unfoldsAll() {
         (foldsDone, foldsArchived) = (false, false)
+        shelved = []
         settled = []
     }
 }
@@ -68,6 +79,8 @@ nonisolated extension SidebarLayout {
     static let archivedFoldIndex = -3
     /// The index `foldingDone` gives the "Settled (N)" row's entry (its depth is the fold's count).
     static let settledFoldIndex = -4
+    /// The index `foldingDone` gives the "Working (N)" row's entry (its depth is the fold's count).
+    static let workingFoldIndex = -6
 
     /// `drawn` with the workspaces marked Done moved behind one fold entry (`doneFoldIndex`) at the end, and after it
     /// when the person opened the fold; then, past `rowLimit`, the rest behind a "Show N more" entry (`limiting`).
@@ -81,6 +94,7 @@ nonisolated extension SidebarLayout {
         var shown: [[(index: Int, depth: Int)]] = []
         var done: [[(index: Int, depth: Int)]] = []
         var settled: [[(index: Int, depth: Int)]] = []
+        var working: [[(index: Int, depth: Int)]] = []
         var archived: [[(index: Int, depth: Int)]] = []
         for run in runs(drawn) {
             let holdsActive = run.contains { workspace($0.index)?.id == o.activeWorkspaceID }
@@ -89,6 +103,8 @@ nonisolated extension SidebarLayout {
                 archived.append(run)
             } else if o.foldsDone, let ws, ws.taskStatus == .done, !holdsActive {
                 done.append(run)
+            } else if let ws, o.shelves(ws), !holdsActive {
+                working.append(run)
             } else if let ws, o.settles(ws), !holdsActive {
                 settled.append(run)
             } else {
@@ -96,6 +112,11 @@ nonisolated extension SidebarLayout {
             }
         }
         var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
+        // Chats waiting on background work close the list's working rows first: they come back when they need you.
+        if !working.isEmpty {
+            let folded = Array(working.joined())
+            listed += [(workingFoldIndex, folded.count)] + (o.openDoneFolds.contains(id.of(.working)) ? folded : [])
+        }
         // Settled chats close the list's working rows: their own row first, then the Done and Archived rows.
         if !settled.isEmpty {
             let folded = Array(settled.joined())
@@ -158,10 +179,10 @@ nonisolated extension SidebarLayout {
     /// before drags kept the folds, never with a moved row.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], workspace: (WorkspaceID) -> SidebarWorkspace? = { _ in nil },
                             options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.settled.isEmpty, o.filterMatches == nil else { return false }
+        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.shelved.isEmpty || !o.settled.isEmpty, o.filterMatches == nil else { return false }
         let folds: (SidebarWorkspace) -> Bool = {
             $0.id != o.activeWorkspaceID
-                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived) || o.settles($0))
+                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived) || o.shelves($0) || o.settles($0))
         }
         if dragged.contains(where: folds) { return true }
         guard let parents = o.sessionTree?.parents, !parents.isEmpty else { return false }
@@ -203,12 +224,13 @@ nonisolated extension SidebarLayout {
         return drawn.first { $0.index < 0 || ($0.depth == 0 && $0.index >= gap.index) }?.index ?? gapAtEnd
     }
 
-    /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `settledFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one
-    /// line, as a document item's row.
+    /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `workingFoldIndex`, `settledFoldIndex`, `archivedFoldIndex` or
+    /// `showMoreIndex`) at `y`: one line, as a document item's row.
     static func appendFold(_ entry: Int, _ list: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
                            options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
         let more = entry == showMoreIndex
-        let id = list.of(entry == archivedFoldIndex ? .archived : entry == settledFoldIndex ? .settled : .done)
+        let id = list.of(entry == archivedFoldIndex ? .archived : entry == settledFoldIndex ? .settled
+            : entry == workingFoldIndex ? .working : .done)
         let open = more ? o.openShowMore.contains(id) : o.openDoneFolds.contains(id)
         let content = WorkspaceRowContent()
         let h = m.height(for: content)

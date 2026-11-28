@@ -42,6 +42,8 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
                 if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
+                // What its chats wait on (the working shelf, `sidebar.workingShelf`), whatever the lane toggles say.
+                row.backgroundWaits = local.reduce(0) { $0 + $1.backgroundWaits }
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,

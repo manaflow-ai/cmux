@@ -1259,6 +1259,31 @@
           }
         },
         {
+          "key": "sidebar.workingShelf",
+          "note": "Chats waiting on background work (background tasks, subagents, watches) fold behind a Working (N) row at the end of their list and come back when they need the person. Off by default.",
+          "title": {
+            "key": "settings.sidebar.workingShelf",
+            "text": "Working Shelf"
+          },
+          "help": {
+            "key": "settings.sidebar.workingShelf.help",
+            "text": "Chats waiting on background tasks, subagents or watches fold into one Working row at the end of their list and come back when they need you."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "shelf",
+            "waiting",
+            "background",
+            "fold",
+            "working"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showAgentSessions",
           "note": "Leo 2026-11-25 about the nested helper sessions: \"idk who asked for those in teh sidebar. it's weird\". Off by default: a workspace whose session another session's agent started (acpmux spawnedBy, a peer daemon's parents, AgentSessionParents) draws no row, except one waiting on the person (a permission or a question) and the selected one, which draw under their parents (SidebarSessionTreeState.hidesStarted). On nests them under their parents (the lineage nesting that was Debug's sidebar.lineageNesting).",
           "title": {

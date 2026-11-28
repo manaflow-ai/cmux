@@ -2891,6 +2891,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watchdog_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/heap_profile",
       "params": true,
       "result": true

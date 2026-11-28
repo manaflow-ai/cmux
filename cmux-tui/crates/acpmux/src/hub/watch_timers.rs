@@ -96,7 +96,7 @@ impl Watches {
         let fired = if due.is_empty() {
             Vec::new()
         } else {
-            self.change(|s| {
+            let (fired, moved) = self.save(|s| {
                 let mut fired = Vec::new();
                 for (at, id) in &due {
                     let Some(w) = s.watches.get_mut(id) else { continue };
@@ -118,7 +118,9 @@ impl Watches {
                     fired.push(pid);
                 }
                 fired
-            })?
+            })?;
+            self.recount.lock().unwrap_or_else(|e| e.into_inner()).extend(moved);
+            fired
         };
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let earliest = wake_at(&queue(inner.saved.watches.values()));

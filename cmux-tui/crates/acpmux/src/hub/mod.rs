@@ -43,6 +43,7 @@ pub(crate) mod auto_evacuate;
 mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
+// What a chat waits on that wakes it by itself (the working shelf's count).
 pub(crate) mod auto_resume;
 // Chats settle on their own: a merged or closed pull request, or idle days.
 pub(crate) mod auto_settle;
@@ -51,6 +52,7 @@ mod background_cause;
 pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
+mod background_waits;
 mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
@@ -2645,6 +2647,8 @@ impl Hub {
             work_below_since: StdMutex::new(0),
             loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
+            background_waits: StdMutex::new(0),
+            bg_notifying: std::sync::atomic::AtomicU32::new(0),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -3502,6 +3506,7 @@ impl Hub {
                 | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
+                | background_waits::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"

@@ -818,6 +818,7 @@ sidebar.steppingWraps
 sidebar.style
 sidebar.textSize
 sidebar.topBandMaxShare
+sidebar.workingShelf
 sidebar.workspaceIcons
 sidebar.workspaceListApp
 sidebar.workspaceRow.agent.agentStatus

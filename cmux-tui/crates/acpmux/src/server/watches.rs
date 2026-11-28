@@ -74,7 +74,7 @@ pub(super) async fn handle(
             let id = params["id"]
                 .as_str()
                 .ok_or_else(|| RpcError::invalid_params("watch id is required"))?;
-            match hub.watches.remove(id)? {
+            match hub.watches.remove(hub, id)? {
                 Some(owed) => Ok(json!({"removed": id, "owed": owed})),
                 None => Err(RpcError::not_found(format!("no watch {id:?}; call _acpmux/watch_ls"))),
             }
@@ -137,23 +137,26 @@ pub(super) async fn handle(
                 Some((due, every, end, prompt)) => (Some(due), every, end, Some(prompt)),
                 None => (None, None, None, None),
             };
-            hub.watches.add(Watch {
-                id: uuid::Uuid::now_v7().to_string(),
-                to,
-                sessions,
-                until: a.until,
-                match_text: a.match_text,
-                match_in: a.match_in.unwrap_or_default(),
-                once: a.once.unwrap_or(true) && every_ms.is_none(),
-                caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
-                active: true,
-                cursors,
-                offline: Default::default(),
-                due_ms,
-                every_ms,
-                end_ms,
-                prompt,
-            })
+            hub.watches.add(
+                hub,
+                Watch {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    to,
+                    sessions,
+                    until: a.until,
+                    match_text: a.match_text,
+                    match_in: a.match_in.unwrap_or_default(),
+                    once: a.once.unwrap_or(true) && every_ms.is_none(),
+                    caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+                    active: true,
+                    cursors,
+                    offline: Default::default(),
+                    due_ms,
+                    every_ms,
+                    end_ms,
+                    prompt,
+                },
+            )
         }
     }
 }

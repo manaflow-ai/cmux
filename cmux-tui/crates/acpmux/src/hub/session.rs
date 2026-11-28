@@ -254,6 +254,12 @@ pub struct Session {
     /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
     /// while none does (`asks_below.rs`).
     pub(super) asks_below: StdMutex<(u32, u64)>,
+    /// How many things it waits on that wake it by themselves, as last counted: the summary's
+    /// `backgroundWaits` (`background_waits.rs`).
+    pub(super) background_waits: StdMutex<u32>,
+    /// Its running background tasks that bring their end to it, as last read from its task
+    /// folder (`background_waits.rs`): a summary never reads the folder.
+    pub(super) bg_notifying: std::sync::atomic::AtomicU32,
     /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
     /// (manaflow-ai/cmux#25563, `work_below.rs`).
     pub(super) unread_after_work: AtomicBool,

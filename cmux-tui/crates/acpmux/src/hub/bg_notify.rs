@@ -75,11 +75,15 @@ impl Hub {
         watcher().watch(lock, owner, record.session_id.clone(), alive, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
+                    // It ended: one wait fewer (`background_waits.rs`), before the end is sent.
+                    hub.refresh_background_tasks_of(&session);
                     hub.bg_ended(&dir, &session, &id);
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });
         });
+        // It runs: the chat waits on it (`background_waits.rs`).
+        self.refresh_background_tasks_of(&record.session_id);
     }
 
     /// Stops watching the tasks of chat `session_id` (it is purged): their ends go nowhere, and

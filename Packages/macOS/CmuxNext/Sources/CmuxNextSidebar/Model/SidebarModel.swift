@@ -46,6 +46,8 @@ public final class SidebarModel {
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
     @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
+    /// The shelved chats of `contentRevision` (`shelvedChats()`): one Rust call per change of the rows.
+    @ObservationIgnored var shelfCache: (revision: UInt64, shelved: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
@@ -279,6 +281,8 @@ public final class SidebarModel {
     public var relativeTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
+    /// Chats waiting on background work fold behind a "Working (N)" row (`sidebar.workingShelf`, off by default).
+    public var shelvesWaiting = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
@@ -855,6 +859,7 @@ public final class SidebarModel {
         detailedStatus = preferences.detailedStatusIcons
         (showsTimestamps, relativeTimestamps) = (preferences.showTimestamps, preferences.relativeTimestamps)
         settlesFinished = preferences.settleFinished
+        shelvesWaiting = preferences.workingShelf
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
@@ -912,6 +917,7 @@ public final class SidebarModel {
         if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
+        if shelvesWaiting { o.shelved = shelvedChats() }
         if settlesFinished { o.settled = settledChats() }
         return o
     }

@@ -153,6 +153,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// helper sessions: "idk who asked for those in teh sidebar. it's weird"), except one that waits on the person
     /// (a permission or a question) and one the person opened (selected); the parent chat lists them all.
     public var showAgentSessions = false
+    /// `sidebar.workingShelf`: an agent chat waiting on background work (a background task, a subagent, a watch) folds
+    /// into one "Working (N)" row at the end of its list and comes back when it needs the person. Off by default.
+    public var workingShelf = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

@@ -1125,6 +1125,12 @@ impl Hub {
             }
         }
         extras.push(("commandsRunning", json!(work.commands)));
+        // What it waits on that wakes it by itself (`background_waits.rs`), the working shelf:
+        // a cached count, absent at 0.
+        let waits = self.background_waits(session);
+        if waits > 0 {
+            extras.push(("backgroundWaits", json!(waits)));
+        }
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);

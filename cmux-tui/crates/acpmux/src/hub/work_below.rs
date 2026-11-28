@@ -54,6 +54,8 @@ impl Hub {
     /// taken after the child's is let go, so the order is always parent before child (sub-session
     /// links form a tree).
     pub(super) fn refresh_work_below(&self, session: &Session) {
+        // The same changes move its background waits (`background_waits.rs`).
+        self.refresh_background_waits(session);
         {
             let mut mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
             let works = self.works_below(session);
@@ -154,9 +156,13 @@ impl Hub {
 
     /// Whether a background subagent of `session` runs, or one of its open sub-sessions works.
     fn works_below(&self, session: &Session) -> bool {
-        if session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0 {
-            return true;
-        }
+        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            || self.subsessions_working(session) > 0
+    }
+
+    /// How many open sub-sessions of `session` run a turn, wait on the person, or have work of
+    /// their own below theirs (`background_waits.rs` counts each).
+    pub(super) fn subsessions_working(&self, session: &Session) -> usize {
         let children: Vec<Arc<Session>> = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             self.subsessions
@@ -165,10 +171,13 @@ impl Hub {
                 .filter_map(|id| sessions.get(id).cloned())
                 .collect()
         };
-        children.iter().any(|child| {
-            matches!(child.status(), SessionStatus::Running | SessionStatus::Waiting)
-                || self.work_below_since(child).is_some()
-        })
+        children
+            .iter()
+            .filter(|child| {
+                matches!(child.status(), SessionStatus::Running | SessionStatus::Waiting)
+                    || self.work_below_since(child).is_some()
+            })
+            .count()
     }
 
     /// The session that started `session` as its sub-session, if it is one and is here.

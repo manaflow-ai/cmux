@@ -553,19 +553,22 @@ async fn a_hub_only_sandbox_refusal_reaches_the_starters_chat() {
     assert_eq!(crate::hub::watches::resolve(&a, &key).unwrap(), key);
     let mut events = a.subscribe();
     a.watches
-        .add(crate::hub::watches::Watch {
-            id: "hub-failure-report".into(),
-            to: parent.clone(),
-            sessions: vec![key.clone()],
-            until: vec!["blocked".into()],
-            match_text: None,
-            once: true,
-            caller: None,
-            active: true,
-            cursors: [(key, Default::default())].into_iter().collect(),
-            offline: Default::default(),
-            ..Default::default()
-        })
+        .add(
+            &a,
+            crate::hub::watches::Watch {
+                id: "hub-failure-report".into(),
+                to: parent.clone(),
+                sessions: vec![key.clone()],
+                until: vec!["blocked".into()],
+                match_text: None,
+                once: true,
+                caller: None,
+                active: true,
+                cursors: [(key, Default::default())].into_iter().collect(),
+                offline: Default::default(),
+                ..Default::default()
+            },
+        )
         .unwrap();
     let remote = b.resolve(&child).unwrap();
     b.append(
