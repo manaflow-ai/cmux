@@ -10,6 +10,9 @@
   ],
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     // The whole look (examples/looks/studio-app/whole), which already unions the sidebar, display,
     // composer, archive, project-picker, open-in-editor and model-picker feature looks.
     "appearance.themeFile": "studio-app-workspace",
@@ -17,7 +20,10 @@
     "sidebar.side": "left",
     "sidebar.style": "standard",
     "sidebar.density": "expanded",
-    "sidebar.groupBy": "none",
+    // Threads sit under their project's header, as the app's sidebar groups them (parity table, sidebar);
+    // a thread with no folder stays in the plain list instead of a "No Folder" header.
+    "sidebar.groupBy": "folder",
+    "sidebar.folderlessUngrouped": true,
     "sidebar.showChats": true,
     "sidebar.showProjects": true,
     "sidebar.showSearchButton": true,
@@ -50,7 +56,8 @@
     "agentPane.editedFiles.scope": "turn",
     "sidebar.settleFinished": true,
     "sidebar.showNewWorkspaceChooser": true,
-    "agentPane.showDictation": true,
+    // The app's composer has no mic button (parity table, composer); dictation stays on Shift-Command-D.
+    "agentPane.showDictation": false,
     "agentPane.attachmentView": "strip",
 
     // The feature set beyond the look.
@@ -72,6 +79,9 @@
     "appearance.selection": "neutral",
     // Sidebar right-click and more menus are drawn by cmux, so the look's menu style reaches them.
     "sidebar.drawnMenus": true,
+    // The profile button opens an account menu to switch accounts and teams, not the cmux app menu
+    // (parity table, account_switching).
+    "sidebar.profileMenu.style": "account",
     // The app keeps a timeline minimap beside the thread.
     "agentPane.display.minimap": "compact",
 
