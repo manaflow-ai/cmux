@@ -43,7 +43,11 @@ const seed = async (storage: DurableObjectStorage, n: number, now: number) => {
 
 const ITERATIONS = 15;
 
-it("bounds the ledger's per-call storage work at 100 and 1,000 slots (old vs new, one harness)", async () => {
+// This bench runs in cmux-vm.yml's deploy-gating `check` step, so a workerd fault in it holds a Cloud deploy back:
+// run 46095847624 (feat-cmux-next @eb534854) went red only on `Error: internal error; reference = g0a8hkb3ouu9qftqd71c2k70`
+// thrown by the seed's `storage.put`, before any budget ran. Its budgets count storage calls, which are deterministic,
+// so a retry cannot pass a real regression: a too-many-calls build fails every attempt. Fresh DO ids per attempt.
+it("bounds the ledger's per-call storage work at 100 and 1,000 slots (old vs new, one harness)", { retry: 2, timeout: 180_000 }, async () => {
   const report: Record<string, { p50: number; p95: number; calls: Calls }> = {};
   for (const n of [100, 1_000]) {
     const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(`ledger-scan-bench-${n}-${crypto.randomUUID()}`));
@@ -113,4 +117,4 @@ it("bounds the ledger's per-call storage work at 100 and 1,000 slots (old vs new
     expect(report[`retainedCreations/${n}/new`]!.calls.get).toBeLessThanOrEqual(Math.ceil(n / 128));
     expect(report[`reserveExpiry/${n}/new`]!.calls.delete).toBeLessThanOrEqual(Math.ceil(n / 128));
   }
-}, 180_000);
+});

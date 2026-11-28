@@ -122,10 +122,11 @@ import sys
 import uuid
 import threading
 
-# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
-# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
-    GUIDANCE_SOURCES = frozenset(json.load(_f))
+# The hidden cmux blocks' sources: `context_inventory::RULE_SOURCES`, whose test
+# (`the_fakes_strip_every_hidden_block_the_product_sends`) fails when this line drifts from it.
+# Inline, not a sibling file: probes check out this one file alone and run it.
+# Each goes out as `<SOURCE-context>`.
+GUIDANCE_SOURCES = frozenset({"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"})
 GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
@@ -1586,6 +1587,11 @@ while True:
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}
+        # "own-turn-after-fail: FIFO :: TEXT": this turn fails (a 400, which nothing retries), then
+        # once the test writes FIFO the chat's own turn says TEXT and succeeds.
+        if said.strip().startswith(("own-turn-after-fail:", "own-turn-fail-after-fail:")):
+            result.update({"is_error": True, "result": 'API Error: 400 {"type":"error","error":'
+                           '{"type":"invalid_request_error","message":"boom"}}'})
         send(result)
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             agent_failed(said.strip())
@@ -1603,11 +1609,12 @@ while True:
         # shell ends and Claude Code runs a turn of its own for its task notification that says
         # TEXT (acpmux hub/background_turn.rs). "own-turn-fail: FIFO :: ERROR": that turn fails
         # with ERROR as its result (a 429's "API Error: ...", `is_error`).
-        own = next((p for p in ("own-turn:", "own-turn-fail:") if said.strip().startswith(p)), None)
+        own = next((p for p in ("own-turn:", "own-turn-fail:", "own-turn-after-fail:", "own-turn-fail-after-fail:")
+                    if said.strip().startswith(p)), None)
         if own:
             gate, text = said.strip()[len(own):].split(" :: ", 1)
             gate = gate.strip()
-            failed = own == "own-turn-fail:"
+            failed = own in ("own-turn-fail:", "own-turn-fail-after-fail:")
 
             def own_turn():
                 with open(gate) as g:

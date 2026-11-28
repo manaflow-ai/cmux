@@ -562,6 +562,7 @@ class ClientInfo:
     is_self: bool = field(metadata={'wire_name': 'self'})
     sizes: List[ClientSize]
     transport: ClientTransport
+    capabilities: Union[List[str], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -836,6 +837,16 @@ class ExportedPane:
     __cmux_schema_path__: ClassVar[str] = 'types/ExportedPane'
     pane: Id
     surfaces: List[Id]
+
+
+@dataclass(frozen=True)
+class FloatingPane:
+    __cmux_schema_path__: ClassVar[str] = 'types/FloatingPane'
+    pane: Id
+    h: float
+    w: float
+    x: float
+    y: float
 
 
 @dataclass(frozen=True)
@@ -1617,7 +1628,7 @@ class Screen:
     zoomed_pane: Union[Id, None]
     color: Union[str, None, MissingType] = field(default=MISSING)
     columns: Union[List[LayoutColumnNode], MissingType] = field(default=MISSING)
-    floating: Union[JsonValue, MissingType] = field(default=MISSING)
+    floating: Union[List[FloatingPane], MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     hidden_dividers: Union[List[Id], MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
@@ -7076,6 +7087,7 @@ __all__ = [
     'EmptyResult',
     'ExportLayoutResult',
     'ExportedPane',
+    'FloatingPane',
     'FocusDirectionResult',
     'FrontendJournalEventFocus',
     'FrontendJournalEventResize',
