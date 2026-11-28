@@ -1,0 +1,146 @@
+/* Mission control (MissionControl.tsx): a header with the state counts over a scroller of tiles. The
+   stage is as tall as every row; only the mounted tiles sit in it, each placed by transform. */
+.mc-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.mc-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.mc-heading {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.mc-counts {
+  display: flex;
+  gap: var(--ds-space-3);
+}
+
+.mc-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ds-space-4);
+}
+
+.mc-stage {
+  position: relative;
+}
+
+.mc-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--page-elevated);
+  color: inherit;
+  text-align: start;
+  overflow: hidden;
+  cursor: pointer;
+  contain: strict;
+}
+
+.mc-tile:hover {
+  background: var(--page-hover);
+}
+
+.mc-tile-waiting {
+  border-color: var(--cmux-status-waiting, var(--page-selection));
+}
+
+.mc-thumb {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mc-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+.mc-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+}
+
+.mc-thumb .mc-badge {
+  position: absolute;
+  top: var(--ds-space-2);
+  right: var(--ds-space-2);
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--page-elevated);
+}
+
+.mc-caption {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+}
+
+.mc-caption .mc-badge {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.mc-caption .mc-badge .mc-badge-text {
+  display: none;
+}
+
+.mc-title,
+.mc-meta {
+  grid-column: 2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mc-caption > .mc-title:first-child,
+.mc-caption > .mc-title:first-child + .mc-meta {
+  grid-column: 1 / span 2;
+}
+
+.mc-meta {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+}
+
+.mc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+.mc-empty {
+  color: var(--page-text-3);
+  text-align: center;
+}
