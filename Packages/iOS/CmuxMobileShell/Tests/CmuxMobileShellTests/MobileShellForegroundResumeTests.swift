@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import Foundation
@@ -405,6 +406,119 @@ struct MobileShellForegroundConnectionRecoveryTests {
     #expect(!redialed)
     #expect(store.connectionRequiresReauth)
     #expect(store.connectionState == .disconnected)
+}
+
+@MainActor
+@Test func foregroundProbeBlocksSecondaryAggregationUntilItSettles() async throws {
+    let router = LivenessHostRouter()
+    await router.setHostIdentity(
+        deviceID: "selected-mac",
+        instanceTag: "default",
+        displayName: "Selected Mac"
+    )
+    let selectedRoute = try CmxAttachRoute(
+        id: "iroh-selected",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            pathHints: []
+        ),
+        priority: -10_000
+    )
+    let secondaryRoute = try CmxAttachRoute(
+        id: "iroh-secondary",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "b", count: 64)
+            ),
+            pathHints: []
+        ),
+        priority: -10_000
+    )
+    let secondaryRouter = LivenessHostRouter()
+    await secondaryRouter.setHostIdentity(
+        deviceID: "secondary-mac",
+        instanceTag: "default",
+        displayName: "Secondary Mac"
+    )
+    let (pairedStore, directory) = try ReconnectRouteSelectionTests()
+        .makePairedMacStore()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let clock = TestClock()
+    try await pairedStore.upsert(
+        macDeviceID: "selected-mac",
+        displayName: "Selected Mac",
+        routes: [selectedRoute],
+        instanceTag: "default",
+        markActive: true,
+        stackUserID: "user-1",
+        teamID: nil,
+        now: clock.now
+    )
+    let factory = ForegroundSelectionRouteFactory(
+        router: router,
+        failingRouteIDs: [],
+        routeRouters: [secondaryRoute.id: secondaryRouter]
+    )
+    let aggregationDefaults = UserDefaults(
+        suiteName: "foreground-probe-aggregation-\(UUID().uuidString)"
+    )!
+    aggregationDefaults.set(false, forKey: "multiMacAggregation")
+    let store = MobileShellComposite(
+        runtime: LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh]
+        ),
+        isSignedIn: true,
+        pairedMacStore: pairedStore,
+        identityProvider: StaticIdentityProvider(userID: "user-1"),
+        reachability: AlwaysOnlineReachability(),
+        pairingHintDefaults: UserDefaults(
+            suiteName: "foreground-probe-hint-\(UUID().uuidString)"
+        )!,
+        multiMacAggregationDefaults: aggregationDefaults
+    )
+    #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+    #expect(factory.attemptedRouteIDs() == [selectedRoute.id])
+    // Add the secondary after the initial restore. The restore intentionally
+    // discovers live peers even when the fan-out preference is off; keeping it
+    // out of the initial snapshot isolates the foreground lifecycle race.
+    try await pairedStore.upsert(
+        macDeviceID: "secondary-mac",
+        displayName: "Secondary Mac",
+        routes: [secondaryRoute],
+        instanceTag: "default",
+        markActive: false,
+        stackUserID: "user-1",
+        teamID: nil,
+        now: clock.now.addingTimeInterval(1)
+    )
+    aggregationDefaults.set(true, forKey: "multiMacAggregation")
+
+    await router.holdNextWorkspaceListRequests()
+    let probeCount = await router.count(of: "mobile.workspace.list")
+    store.suspendForegroundRefresh()
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 1
+    ))
+    let secondaryDialed = try await pollUntil(attempts: 20) {
+        factory.attemptedRouteIDs().contains(secondaryRoute.id)
+    }
+    #expect(!secondaryDialed)
+    #expect(factory.attemptedRouteIDs() == [selectedRoute.id])
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil {
+        store.connectionRecoveryOwner.phase == .idle
+    })
+    await store.remoteClient?.disconnect()
 }
 }
 

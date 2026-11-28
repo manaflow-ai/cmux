@@ -167,6 +167,36 @@ actor HeldFailingConnectTransport: CmxByteTransport {
     func close() async {}
 }
 
+final class ForegroundSelectionRouteFactory: CmxByteTransportFactory, @unchecked Sendable {
+    private let router: LivenessHostRouter
+    private let routeRouters: [String: LivenessHostRouter]
+    private let failingRouteIDs: Set<String>
+    private let lock = NSLock()
+    private var attempts: [String] = []
+
+    init(
+        router: LivenessHostRouter,
+        failingRouteIDs: Set<String>,
+        routeRouters: [String: LivenessHostRouter] = [:]
+    ) {
+        self.router = router
+        self.routeRouters = routeRouters
+        self.failingRouteIDs = failingRouteIDs
+    }
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        lock.withLock { attempts.append(route.id) }
+        if failingRouteIDs.contains(route.id) {
+            throw RouteRecordingTransportError.routeFailed
+        }
+        return LivenessTransport(router: routeRouters[route.id] ?? router)
+    }
+
+    func attemptedRouteIDs() -> [String] {
+        lock.withLock { attempts }
+    }
+}
+
 final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
