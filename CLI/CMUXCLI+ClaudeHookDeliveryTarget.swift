@@ -23,6 +23,7 @@
 // app without the resolver method degrades to the legacy chain unchanged.
 
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     struct AgentHookDeliveryTarget {
@@ -44,6 +45,12 @@ extension CMUXCLI {
         let preferCallerTTYRouting: Bool
         let callerTerminalBinding: (() -> CallerTerminalBinding?)?
         let agentPid: Int?
+        /// The environment's route snapshot came from a matched viewer lease,
+        /// not merely a PID probe. Only this marker bypasses a lagging record.
+        var viewerSnapshot: Bool = false
+        /// A viewer target validated by `liveClaudeViewerTarget` during this
+        /// invocation. It is authoritative over the mapped session record.
+        var trustedViewerTarget: CallerTerminalBinding? = nil
         /// Frequent events (per-tool PreToolUse) skip the pid/tty scan and
         /// rely on records healed by the turn-level hooks. This does NOT gate
         /// the cheap `{surface_id}` re-home probe: that probe only fires when
@@ -66,6 +73,14 @@ extension CMUXCLI {
         routing: ClaudeHookRoutingContext,
         client: SocketClient
     ) throws -> AgentHookDeliveryTarget? {
+        if let trusted = routing.trustedViewerTarget,
+           isUUID(trusted.workspaceId), isUUID(trusted.surfaceId) {
+            return AgentHookDeliveryTarget(
+                workspaceId: trusted.workspaceId,
+                surfaceId: trusted.surfaceId,
+                isAuthoritative: true
+            )
+        }
         let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
         let rehomeAllowed = routing.preferCallerTTYRouting
         if pidProbeAllowed {
@@ -102,12 +117,26 @@ extension CMUXCLI {
             let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
             guard let invocationSurfaceId else { return nil }
             if let recordedSurfaceId, recordedSurfaceId != invocationSurfaceId {
-                guard let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId),
-                      !claudeHookSurfaceIsListed(
-                          recordedSurfaceId,
-                          workspaceId: recordedWorkspaceId,
-                          client: client
-                      ) else { return nil }
+                let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId)
+                let listed = recordedWorkspaceId.map {
+                    claudeHookSurfaceIsListed(
+                        recordedSurfaceId,
+                        workspaceId: $0,
+                        client: client
+                    )
+                } ?? false
+                // Admission already matched this invocation to a live viewer
+                // lease and the app-resolved pane. A record rewritten by an
+                // older queued event (the launch pane) must not veto it; when
+                // no such snapshot exists, keep the original fail-closed rule,
+                // including a record without a workspace claim.
+                let vetoesRecorded = AgentHookDeliveryPolicy().recordedSurfaceVetoes(
+                    invocationSurfaceId: invocationSurfaceId,
+                    recordedSurfaceId: recordedSurfaceId,
+                    recordedSurfaceIsListed: listed,
+                    viewerSnapshot: routing.viewerSnapshot
+                ) || (!routing.viewerSnapshot && recordedWorkspaceId == nil)
+                guard !vetoesRecorded else { return nil }
             }
             switch liveAgentSurfaceDeliveryTarget(
                 surfaceId: invocationSurfaceId,

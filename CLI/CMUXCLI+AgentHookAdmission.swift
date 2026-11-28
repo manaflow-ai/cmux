@@ -254,7 +254,8 @@ extension CMUXCLI {
         environment: [String: String],
         client: SocketClient
     ) -> CallerTerminalBinding? {
-        guard environment[Self.agentHookRouteSnapshotEnvironmentKey] == "1",
+        let snapshotValue = environment[Self.agentHookRouteSnapshotEnvironmentKey]
+        guard snapshotValue == "1" || AgentHookDeliveryPolicy.isViewerSnapshot(snapshotValue),
               let surfaceID = normalizedHandleValue(
                   environment["CMUX_SURFACE_ID"]
               ),
@@ -396,7 +397,7 @@ extension CMUXCLI {
         resolvesProcessRoute: Bool = true,
         runsInHookProcess: Bool = true
     ) throws {
-        let environment = agentHookOrderingEnvironment(
+        var environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
@@ -404,6 +405,20 @@ extension CMUXCLI {
             resolvesProcessRoute: resolvesProcessRoute,
             runsInHookProcess: runsInHookProcess
         )
+        // Resolve acknowledged native viewers at admission, while worker PID
+        // identity is still live. Replay keeps this immutable pane snapshot.
+        if agent == "claude", resolvesProcessRoute, !client.isRelayBacked,
+           processEnvironment[agentHookRelayOriginEnvironmentKey] != "1",
+           let workerPID = environment["CMUX_CLAUDE_PID"].flatMap(Int.init),
+           let sessionID = parseClaudeHookInput(rawInput: rawPayload).sessionId,
+           let viewer = try? liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
+            environment["CMUX_WORKSPACE_ID"] = viewer.workspaceId
+            environment["CMUX_SURFACE_ID"] = viewer.surfaceId
+            // A viewer-sourced snapshot is the only value that may outrank a
+            // lagging session record. A PID-derived route keeps "1".
+            environment[Self.agentHookRouteSnapshotEnvironmentKey] =
+                AgentHookDeliveryPolicy.viewerSnapshotValue
+        }
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,
@@ -878,6 +893,7 @@ extension CMUXCLI {
             "CMUX_SURFACE_ID", "CMUX_STABLE_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
             AgentHookDeliveryPolicy.invokerPIDEnvironmentKey,
+            AgentHookDeliveryPolicy.invokerStartEnvironmentKey,
         ] + routedLaunchKeys
     }
 
