@@ -46,6 +46,12 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+# The build identity (daemon skew, SSH re-bootstrap). Only the binaries read
+# it and install it into the library (src/build_identity.rs), so an edit
+# recompiles neither cmux-remote nor the library (cmux-build-identity docs).
+# Every target: the Windows binary and the windows-thin-exe build read it too
+# (src/bin/cmux-tui.rs, src/build_identity.rs compiled_in).
+cmux-build-identity.workspace = true
 cmux-tui-lib = { path = "../cmux-tui-lib" }
 tempfile = "3"
 ignore.workspace = true
@@ -233,10 +239,6 @@ cmux-host.workspace = true
 cmux-signed-bundle.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
-# The build identity (daemon skew, SSH re-bootstrap). Only the binaries read
-# it and install it into the library (src/build_identity.rs), so an edit
-# recompiles neither cmux-remote nor the library (cmux-build-identity docs).
-cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
 cmux-proxy.workspace = true
 cmux-remote.workspace = true
