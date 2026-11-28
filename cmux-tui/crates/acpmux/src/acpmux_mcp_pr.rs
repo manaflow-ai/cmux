@@ -45,8 +45,16 @@ const FIELDS: &str = "number,url,state,headRefOid,baseRefName,mergeable,mergedAt
 labels,body,comments,statusCheckRollup";
 /// How long gh may take: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 const GH_TIMEOUT: Duration = Duration::from_secs(45);
-/// Failing check names the first line lists before `+N more`.
+/// Check names the first line lists before `+N more`.
 const NAMES_SHOWN: usize = 3;
+
+fn cut(names: &[String]) -> String {
+    let mut shown = names.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
+    if names.len() > NAMES_SHOWN {
+        shown.push(format!("+{} more", names.len().saturating_sub(NAMES_SHOWN)));
+    }
+    shown.join(", ")
+}
 
 pub(super) fn tool() -> Value {
     json!({
@@ -503,6 +511,8 @@ pub(crate) struct Checks {
     pub failing: Vec<String>,
     /// Names whose newest run was cancelled, with no newer run: no verdict, and none coming.
     pub cancelled: Vec<String>,
+    /// Names whose newest run gave no verdict: skipped or cancelled.
+    pub no_verdict: Vec<String>,
     pub pending: usize,
     pub passed: usize,
 }
@@ -526,14 +536,18 @@ fn checks(rollup: &[Value]) -> Checks {
             continue;
         }
         match up("conclusion").as_str() {
-            "CANCELLED" => out.cancelled.push(name),
+            "SKIPPED" => out.no_verdict.push(name),
+            "CANCELLED" => {
+                out.cancelled.push(name.clone());
+                out.no_verdict.push(name);
+            }
             "FAILURE" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
                 out.failing.push(name)
             }
             _ => out.passed = out.passed.saturating_add(1),
         }
     }
-    for names in [&mut out.failing, &mut out.cancelled] {
+    for names in [&mut out.failing, &mut out.cancelled, &mut out.no_verdict] {
         names.sort();
         names.dedup();
     }
@@ -574,7 +588,7 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     let state = s("state").to_ascii_uppercase();
     let repo = parse_url(s("url")).map(|(r, _)| r);
     let rollup = field(pr, "statusCheckRollup").as_array().map(Vec::as_slice).unwrap_or_default();
-    let Checks { failing, cancelled, pending, passed } = checks(rollup);
+    let Checks { failing, cancelled, no_verdict, pending, passed } = checks(rollup);
     let comments = field(pr, "comments").as_array().map(Vec::as_slice).unwrap_or_default();
     let review = newest_receipt(comments);
     let at_head = |r: &Receipt| !head.is_empty() && head.starts_with(&r.sha);
@@ -596,25 +610,21 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
         "CLOSED" => (format!("#{number} closed unmerged at {}", short(&head)), "ok"),
         _ => {
             let checks_part = if !failing.is_empty() {
-                let mut names = failing.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if failing.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", failing.len().saturating_sub(NAMES_SHOWN)));
-                }
-                format!("{} ({})", plural(failing.len(), "failing check"), names.join(", "))
+                format!("{} ({})", plural(failing.len(), "failing check"), cut(&failing))
             } else if pending > 0 {
                 format!("{} pending", plural(pending, "check"))
             } else if !cancelled.is_empty() {
-                let mut names = cancelled.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if cancelled.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", cancelled.len().saturating_sub(NAMES_SHOWN)));
-                }
                 format!(
                     "{} with no newer run ({})",
                     plural(cancelled.len(), "cancelled check"),
-                    names.join(", ")
+                    cut(&cancelled)
                 )
-            } else if passed > 0 {
+            } else if passed > 0 && no_verdict.is_empty() {
                 "checks green".to_owned()
+            } else if passed > 0 {
+                format!("checks green, {} gave no verdict", no_verdict.len())
+            } else if !no_verdict.is_empty() {
+                format!("no check gave a verdict ({})", cut(&no_verdict))
             } else {
                 "no checks".to_owned()
             };
@@ -650,7 +660,10 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     if !cancelled.is_empty() {
         check_line.push_str(&format!(", {} cancelled ({})", cancelled.len(), cancelled.join(", ")));
     }
-    check_line.push_str(&format!(", {pending} pending"));
+    check_line.push_str(&format!(", {pending} pending, {} no verdict", no_verdict.len()));
+    if !no_verdict.is_empty() {
+        check_line.push_str(&format!(" ({})", cut(&no_verdict)));
+    }
     lines.push(check_line);
     lines.push(match &review {
         None => "review: none".to_owned(),
@@ -676,6 +689,7 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
         "mergeCommit": (!merge_commit.is_empty()).then_some(merge_commit),
         "failingChecks": failing,
         "cancelledChecks": cancelled,
+        "noVerdictChecks": no_verdict,
         "pendingChecks": pending,
         "passedChecks": passed,
         "review": review.as_ref().map(|(r, by)| json!({

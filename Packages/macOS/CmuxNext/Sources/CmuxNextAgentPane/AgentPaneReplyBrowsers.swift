@@ -36,8 +36,19 @@ public import Foundation
         FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
     }
 
+    /// Each app's icon PNG, by path. The "Open in" menu asked for up to 16 icons on every open,
+    /// each a draw and a PNG encode on the main actor. No stat to notice an app update (that is
+    /// disk I/O on the main actor): an updated browser shows its old icon until the pane reopens.
+    private var icons: [String: Data?] = [:]
+
     public func iconPNG(of app: URL) -> Data? {
-        let icon = workspace.icon(forFile: app.path)
+        if let cached = icons[app.path] { return cached }
+        let png = Self.render(workspace.icon(forFile: app.path))
+        icons[app.path] = png
+        return png
+    }
+
+    private static func render(_ icon: NSImage) -> Data? {
         let side = 32
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,

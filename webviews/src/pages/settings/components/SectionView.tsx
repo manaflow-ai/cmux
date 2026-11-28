@@ -24,6 +24,7 @@ import {
   useSeveralSpaces,
   SELECTION_KEY,
   DOCTOR_NOTICE_KEY,
+  APPEARANCE_MODE_KEY,
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
@@ -54,7 +55,7 @@ export function SectionView({
   const absent = useLinkLanding(target, targetRequired);
   const unmatched = missing ?? (absent && target ? linkName(target) : null);
   const category = categoryById(section);
-  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
+  // The theme studio draws appearance.mode, appearance.theme, appearance.appTheme, appearance.accent,
   // appearance.selection, appearance.highlightColor, appearance.rotateFavoriteThemes,
   // appearance.themeFile and customize.doctorNotice itself; the schema's group for them would draw each a second time (a second
   // "App Theme" card).
@@ -70,6 +71,7 @@ export function SectionView({
           ROTATE_FAVORITES_KEY,
           THEME_FILE_KEY,
           DOCTOR_NOTICE_KEY,
+          APPEARANCE_MODE_KEY,
         ]
       : [],
   );
