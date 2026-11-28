@@ -71,6 +71,8 @@
 //!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`naming`]: the names a workspace takes (from a moved tab, its front
+//!   tab while no one named it, Name from Activity's prompt and reply).
 //! - [`onboarding_steps`]: the onboarding window's Computer Use step (which
 //!   permission is next, what Allow does, when the step is done) and its
 //!   Agents step (which agents list, sign-in and install marks).
@@ -101,6 +103,7 @@ pub mod history;
 pub mod keybind_route;
 pub mod launch;
 pub mod launch_recovery;
+pub mod naming;
 pub mod notification_notices;
 pub mod notification_policy;
 pub mod notification_rings;
