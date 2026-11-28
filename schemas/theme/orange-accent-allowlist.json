@@ -1,10 +1,24 @@
 {
-  "$comment": "Themes whose own accent may be orange: the person picked an orange theme, so the 'the accent is never orange' invariant (webviews/test/accent-glass-invariants.test.ts, CmuxNextDesignTests/SystemAccentOrangeTests.swift) skips its orange-hue rule for them. The system-accent and opaque-glass rules still hold. Remove an entry to make that theme fail the rule too.",
+  "$comment": "Themes (and golden looks, `looks`: each a looks.golden variant id in webviews/src/gallery/golden/looks.json) whose own accent may be orange: the person picked an orange theme or look, so the 'the accent is never orange' invariant (webviews/test/accent-glass-invariants.test.ts, CmuxNextDesignTests/SystemAccentOrangeTests.swift) skips its orange-hue rule for them. The system-accent and opaque-glass rules still hold. Remove an entry to make that theme fail the rule too.",
   "allowed": [
     {
       "name": "Clay Orange",
       "themes": ["Clay Orange", "Clay Orange Light"],
       "why": "cmux's own warm theme with a clay accent (#d87657); allowed for now, coord-deputy 2026-10-21, pending Leo"
+    }
+  ],
+  "looks": [
+    {
+      "id": "claude",
+      "why": "the built-in Claude look (looks.json): its theme's accent is Claude's own clay (#d97757), as Clay Orange's is; the golden screen draws it so looks compare side by side"
+    },
+    {
+      "id": "tandem-addon",
+      "why": "the Tandem example add-on look (examples/looks/tandem), drawn from captured references with an orange accent"
+    },
+    {
+      "id": "plush-clay-addon",
+      "why": "the Plush example add-on's Clay tint (examples/looks/plush, #49936): its themes' accent is coral #ff8d5e by design (plush-clay*.json); accent-glass part 12 flagged its golden stage once a gallery entry moved it into that part (#53707, job 139810744349)"
     }
   ]
 }

@@ -15,11 +15,17 @@ export type ChatRow = {
   /// Seconds since the epoch.
   at: number;
   open: boolean;
+  /// Where the row is in its life (acpmux-book/src/row.rs `Phase`): `entering` on the line that
+  /// bore it, `live` while open, `settled` once closed, `leaving` when taken back (the leave op).
+  /// Absent from a daemon older than the field.
+  phase?: ChatRowPhase;
   body: unknown;
   /// Lines, for the height estimate.
   est: number;
   blob?: { bytes: number; preview: string };
 };
+
+export type ChatRowPhase = "entering" | "live" | "settled" | "leaving";
 
 /// An open row as a window carries it; `bodyLen` when its body was left out (read by `blob`).
 export type ChatOpenRow = { row: ChatRow; bodyLen?: number };

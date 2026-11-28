@@ -5,6 +5,17 @@ public import CmuxNextSidebar
 /// `move-workspace`.
 public struct WorkspaceOrdering {
     public static let shared = Self()
+    /// Map a slot in a window's filtered sidebar to the shared daemon order after removing the moved rows.
+    package func globalRootIndex(for position: DropPosition, moving ids: [SidebarWorkspaceID],
+                                 in sections: [SidebarRowSection], global order: @autoclosure () -> [String]) -> Int? {
+        let scoped = sections.filter { $0.id == position.section }
+        guard let local = rootIndex(for: position, moving: ids, in: scoped) else { return nil }
+        let moved = Set(ids.map(\.rawValue))
+        let localOrder = scoped.flatMap(\.workspaces).map(\.id.rawValue).filter { !moved.contains($0) }
+        let global = order().filter { !moved.contains($0) }
+        return SidebarRowSection.globalIndex(localIndex: local, local: localOrder, global: global)
+    }
+
     /// Root index the first moved workspace should land at, counted in the
     /// daemon order after the moved workspaces are removed. Nil when the
     /// position names a container that does not exist.

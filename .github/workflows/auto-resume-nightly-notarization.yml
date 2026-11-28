@@ -28,6 +28,8 @@ permissions:
   {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
 
 jobs:
@@ -36,7 +38,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -165,7 +168,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -187,7 +190,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -316,13 +319,18 @@ jobs:
             "OUTER_LOG=$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log" >> "$GITHUB_ENV"
 
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - name: Set up Node for recovered DMG packaging
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -499,7 +507,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -518,7 +526,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -574,7 +582,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -612,6 +620,12 @@ jobs:
           else
             echo "OUTER_STAPLED_APP=false" >> "$GITHUB_ENV"
           fi
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: env.OUTER_STAPLED_APP != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - name: Set up Node for the stapled-app DMG
         if: env.OUTER_STAPLED_APP != 'true'
@@ -771,7 +785,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -790,7 +804,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -846,7 +860,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -956,7 +970,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1010,7 +1024,8 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
+    timeout-minutes: 45
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
       cancel-in-progress: false
@@ -1025,7 +1040,7 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1041,7 +1056,7 @@ jobs:
           merge-multiple: false
 
       - name: Download verified digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-verified-*-${{ needs.preflight.outputs.short_sha }}
           path: tested
@@ -1108,24 +1123,35 @@ jobs:
           import os
           import re
           import sys
-          from urllib.error import HTTPError
-          from urllib.request import Request, urlopen
+          import subprocess
+          import time
 
           repository, tag, source_sha, build = sys.argv[1:]
-          url = f"https://api.github.com/repos/{repository}/releases/tags/{tag}"
-          request = Request(url, headers={
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-          })
-          try:
-              with urlopen(request, timeout=30) as response:
-                  release = json.load(response)
-          except HTTPError as error:
-              if error.code == 404:
+          # gh api, not a bare urllib call: gh sends its own User-Agent and token,
+          # and a refusal prints its body (run 45868119309 died on a bare
+          # "HTTP Error 403: Forbidden" with no reason). Retry 403/429/5xx.
+          release = None
+          for attempt in range(4):
+              try:
+                  # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
+                  result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
+                                          capture_output=True, text=True, timeout=240)
+              except subprocess.TimeoutExpired as expired:
+                  # Keep what gh printed before it stalled (a rate-limit refusal), then retry.
+                  seen = expired.stderr or expired.stdout or b""
+                  seen = seen.decode(errors="replace") if isinstance(seen, bytes) else seen
+                  result = subprocess.CompletedProcess([], 1, "", f"{seen.strip()} gh api timed out (HTTP 504)".strip())
+              if result.returncode == 0:
+                  release = json.loads(result.stdout)
+                  break
+              detail = (result.stderr or result.stdout).strip()
+              if "HTTP 404" in detail:
                   print("release_missing=true")
                   raise SystemExit(0)
-              raise
+              print(f"::warning::release read attempt {attempt + 1} failed: {detail[:300]}", file=sys.stderr)
+              if attempt == 3 or not re.search(r"HTTP (403|429|5\d\d)", detail):
+                  raise SystemExit(f"release read failed: {detail[:300]}")
+              time.sleep(10 * (attempt + 1))
           body = release.get("body") or ""
           sha = re.search(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", body, re.I)
           published_build = re.search(r"<!--\s*cmux-published-build:\s*([0-9]+)\s*-->", body, re.I)
@@ -1361,7 +1387,7 @@ jobs:
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
     steps:
       - name: Checkout trusted delta tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1439,7 +1465,8 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
     environment: release
     env:
       GH_TOKEN: ${{ github.token }}
@@ -1450,7 +1477,7 @@ jobs:
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main

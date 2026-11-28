@@ -49,8 +49,6 @@ final class HistoryService {
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
-        // Folders of closed workspaces deleted while the app was not running (the CLI, another app).
-        DaemonClosedHistory.emptyAgentHomeTrash()
     }
 
     /// Launch: keeps each daemon's command recording and closed-history
@@ -100,16 +98,16 @@ final class HistoryService {
     /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     /// `limit`: only the newest that many are named (the titlebar list).
     func closedEntries(limit: Int? = nil) -> [HistoryEntry] {
-        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
+        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { DaemonClosedItem.isWorthReopening($0.item) }
         let once = DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }
         return once.prefix(limit ?? once.count).map { entry in
-            let item = entry.item, tab = Self.shownTab(item)
-            let kind = Self.closedKind(item)
+            let item = entry.item, tab = DaemonClosedItem.shownTab(item)
+            let kind = DaemonClosedItem.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
-                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil,
-                                                    agentSession: Self.closedAgentSession(item))
+                                                    url: tab?.page == nil ? DaemonClosedItem.realText(tab?.url) : nil,
+                                                    agentSession: DaemonClosedItem.closedAgentSession(item))
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
@@ -118,60 +116,18 @@ final class HistoryService {
         }
     }
 
-    static func closedKind(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.Kind {
-        switch item.kind {
-        case .tab:
-            switch shownTab(item)?.kind {
-            case "conversation": .conversationTab
-            case "browser": .browserTab
-            default: .terminalTab
-            }
-        case .screen: .screen
-        case .workspace, .window: .workspace
-        }
-    }
-
-    /// A closed tab can be an agent chat. A screen or workspace remains its container kind,
-    /// even when the first tab it would reopen is an agent chat.
-    static func closedAgentSession(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.AgentSession? {
-        guard item.kind == .tab, let agent = shownTab(item)?.agentSession else { return nil }
-        return .init(sessionID: agent.session, harness: agent.harness)
-    }
-
-    /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
-    /// "workspace-35 about:blank" rows). A group or a window always does; a tab, screen or
-    /// workspace only with a tab that is not ``isBlank(_:)``.
-    static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool {
-        item.group != nil || item.kind == .window || item.tabs.contains { !isBlank($0) }
-    }
-
-    /// An untouched New Tab page or a browser on `about:blank`, as the daemon marks it (`empty`).
-    /// A closed chat with no title yet or a remote terminal looks the same otherwise, and reopens.
-    static func isBlank(_ tab: CmuxNextDaemon.ClosedItem.Tab) -> Bool { tab.empty }
-
-    /// A closed name or address worth showing: a chat or New Tab page is kept as a browser tab on
-    /// `about:blank` (a tab item carries that as its name too), never a name or an address.
-    static func realText(_ text: String?) -> String? {
-        text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 }
-    }
-
-    /// The tab an item is named by: its first real one, past any New Tab page beside it.
-    static func shownTab(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextDaemon.ClosedItem.Tab? {
-        item.tabs.first { !isBlank($0) } ?? item.tabs.first
-    }
-
     /// A daemon closed item's title and detail line. A page tab (a diff,
     /// Settings) is named by its page and has no address to show: its
     /// `url` is the `about:blank` placeholder (cx-h7y9).
     static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
-        let tab = shownTab(item)
+        let tab = DaemonClosedItem.shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
-        let url = realText(tab?.url)
+        let real = DaemonClosedItem.realText, url = real(tab?.url)
         // The closed record deliberately omits the agent's host. Without trustworthy source
         // identity, a local daemon tree is not proof that its chat belongs to this app's acpmux.
-        let agentTitle = closedAgentSession(item) == nil ? nil : AgentPaneModel.tabTitle
+        let agentTitle = DaemonClosedItem.closedAgentSession(item) == nil ? nil : AgentPaneModel.tabTitle
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+            ?? real(item.name) ?? real(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 

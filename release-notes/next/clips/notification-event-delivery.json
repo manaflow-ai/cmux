@@ -1,0 +1,71 @@
+{
+  "caption": "Choose banners for permission requests, badges for questions, and turn task-complete alerts off.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Open delivery settings",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "openSettings",
+          "arguments": {
+            "setting": "notifications.delivery.permissionRequest"
+          },
+          "focus": true
+        }
+      },
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Show question badges",
+      "cmux": [
+        "settings",
+        "set",
+        "notifications.delivery.question",
+        "badge"
+      ],
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Turn task-complete alerts off",
+      "cmux": [
+        "settings",
+        "set",
+        "notifications.delivery.taskComplete",
+        "off"
+      ],
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Restore question default",
+      "cmux": [
+        "settings",
+        "reset",
+        "notifications.delivery.question"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "Restore task-complete default",
+      "cmux": [
+        "settings",
+        "reset",
+        "notifications.delivery.taskComplete"
+      ],
+      "wait": 0.5
+    }
+  ],
+  "crop": [
+    0.25,
+    0,
+    0.75,
+    0.8
+  ]
+}

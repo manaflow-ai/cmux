@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the remote desktop pane (Resources/Localizable.xcstrings).
 nonisolated enum RemoteViewStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var modeView: String { t("rd.mode.view", "View") }
@@ -73,6 +73,7 @@ nonisolated enum RemoteViewStrings {
     }
 
     static var controlAnyway: String { t("rd.action.controlAnyway", "Control Anyway") }
+    // retry-prompt-ok: shown only after a deliberate end (the host stopped or disconnected the session, the viewer pressed Stop, consent denied, a host-side failure); a lost connection reconnects by itself
     static var reconnect: String { t("rd.action.reconnect", "Reconnect") }
     static var signIn: String { t("rd.action.signIn", "Sign In…") }
     static func signInTitle(_ host: String) -> String { String(format: t("rd.state.signIn.title", "Sign in to %@"), host) }

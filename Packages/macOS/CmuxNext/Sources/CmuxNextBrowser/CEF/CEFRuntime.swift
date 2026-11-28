@@ -62,7 +62,19 @@ final class CEFRuntime {
     private(set) var pageSpareWindow: CEFSpareWindow?
     /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
     /// browser, once the shim is loaded.
-    private(set) lazy var drawOnInput = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+    ///
+    /// Kept only once the shim is there: it binds the fork's calls at init, so one built before the library loaded
+    /// would hold no call and, cached, would leave the mode inert for the whole process however the setting reads —
+    /// the trap this PR is about. A read before then (an early `debug.cef`, which the typing bench does make) gets an
+    /// unbound one that is not kept, so the real one is still built when CEF starts.
+    var drawOnInput: CEFDrawOnInput {
+        if let made = madeDrawOnInput { return made }
+        let made = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+        if shim != nil { madeDrawOnInput = made }
+        return made
+    }
+
+    private var madeDrawOnInput: CEFDrawOnInput?
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in
@@ -83,6 +95,10 @@ final class CEFRuntime {
             self?.tabsByBrowser.values.filter { !$0.isClosed && $0.isContentHidden && CEFPageRendererGC.isCmuxPage($0.state.url) } ?? []
         },
         notify: { await CEFHiddenPageTrim.notice($0) })
+    /// The focused agent chat's own renderer (`CEFOwnChatRenderer`).
+    private(set) lazy var ownChatRenderer = CEFOwnChatRenderer(name: { [weak self] browser in
+        self?.shim?.pageOwnRenderer?(browser)
+    })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
@@ -140,6 +156,9 @@ final class CEFRuntime {
     /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
     /// browser closes or quit begins (the caller then gets `closed`).
     var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
+    /// The DevTools sends whose shim call held the main thread past ``CEFRuntime/slowDevToolsSend`` (newest last, at
+    /// most ``CEFRuntime/slowDevToolsSendLimit``).
+    var slowDevToolsSends: [CEFDevToolsSlowSend] = []
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
@@ -195,6 +214,8 @@ final class CEFRuntime {
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
     private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
+    /// What the keychain step found, read when Chromium's switches are made (``applyNoKeychain(_:to:)``).
+    private var keychainOutcome: CEFKeychainMigration.Outcome?
     /// Whether the running Chromium keeps its key in the mock keychain (a public constant): set when it starts,
     /// after the keychain item step, so it says what Chromium uses, not what the bundle suggests. Nil before.
     private(set) var chromiumUsesMockKeychain: Bool?
@@ -244,7 +265,10 @@ final class CEFRuntime {
     /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
     /// committed (``initializeAfter``; at once when no gate is set), so the main thread's start does none of it
     /// and nothing of it competes with the window's build: a profiled A/B with this prep running during the build
-    /// put the first frame 17 ms later. ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
+    /// put the first frame 17 ms later. Once the gate opens it runs at user-initiated priority: every Chromium start
+    /// awaits it, and at utility priority its file reads were throttled behind the framework's map, which put
+    /// `cef.initialize_start` ~1.4 s after the first frame in Leo's NIGHTLY (~230 ms before #45010).
+    /// ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
     /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
     /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
     /// reads and parses each profile's preference files), and so is the built-in one's manifest (``CEFLaunchPrep``).
@@ -256,7 +280,7 @@ final class CEFRuntime {
         let storage = storage
         let gate = initializeAfter
         let resources = Bundle.main.resourceURL
-        let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
+        let task = Task.detached(priority: .userInitiated) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
             return CEFLaunchPrep(preparing: storage, resources: resources)
         }
@@ -359,8 +383,13 @@ final class CEFRuntime {
         case .shutDown: "shutDown"
         }
         return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
-                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch,
+                              launchSwitches: launchSwitches)
     }
+
+    /// The setting-decided switches this process passed Chromium, recorded where they were built
+    /// (`startCEF`), so `debug.cef` reports what the launch used and not a later store read.
+    private(set) var launchSwitches: [String] = []
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -392,13 +421,20 @@ final class CEFRuntime {
             task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
+        CEFStartSteps.shared.point("start_called")
         let keychain = keychainTask ?? beginKeychainStep(environment: environment)
         let prep = beginLaunchPrep()
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
-        if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
+        CEFStartSteps.shared.point("map_done")
+        if let outcome = await keychain.value {
+            keychainOutcome = outcome
+            logger.notice("keychain item: \(String(describing: outcome), privacy: .public)")
+        }
+        CEFStartSteps.shared.point("keychain_done")
         let read = await prep.value
+        CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
@@ -557,7 +593,10 @@ final class CEFRuntime {
         CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        // Downloaded Chromium paks (CMUX-570) are listed with them, and Chromium reads that folder first.
+        let downloaded = Bundle.main.bundleIdentifier.map { ChromiumLocalePaks.directory(bundleID: $0) }
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory, downloadedDirectory: downloaded)
+        if let downloaded { downloaded.path.withCString { shim.setLocalesDir($0) } }
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
@@ -587,6 +626,15 @@ final class CEFRuntime {
             && set.map { set in item.service.withCString { service in item.account.withCString { set(service, $0) } } } == 1
         if !accepted { switches.useMockKeychain = true }
         return accepted
+    }
+
+    /// Turns `switches` to the mock keychain when the keychain step found no keychain (``CEFKeychainMigration/Outcome/noKeychain``)
+    /// and returns whether it did. Chromium's first `SecItemAdd` there shows "Keychain Not Found" (Cancel, Help, Reset To
+    /// Defaults) and waits for a person: on a fleet Mac running a throwaway copy in a fresh `HOME`, nobody ever answers.
+    nonisolated static func applyNoKeychain(_ outcome: CEFKeychainMigration.Outcome?, to switches: inout CEFSwitches) -> Bool {
+        guard outcome == .noKeychain, !switches.useMockKeychain else { return false }
+        switches.useMockKeychain = true
+        return true
     }
 
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
@@ -623,10 +671,19 @@ final class CEFRuntime {
         )
         // Chromium's key in cmux's own keychain item, never the shared "Chromium Safe Storage" one (CEFKeychainItem).
         let keychainItem = CEFKeychainItem.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+        if Self.applyNoKeychain(keychainOutcome, to: &switchSet) {
+            logger.error("no default keychain: Chromium uses the mock keychain, so nothing asks; cookies are not kept in the keychain")
+        }
         if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
             logger.error("keychain item refused")
         }
         chromiumUsesMockKeychain = switchSet.useMockKeychain
+        // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
+        launchSwitches = (switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : [])
+            + (switchSet.forcesRendererAccessibility ? [CEFSwitches.forceRendererAccessibility] : [])
+        if switchSet.forcesRendererAccessibility {
+            logger.notice("page accessibility forced on from launch (\(AssistiveClientRequests.environmentKey, privacy: .public)=1)")
+        }
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

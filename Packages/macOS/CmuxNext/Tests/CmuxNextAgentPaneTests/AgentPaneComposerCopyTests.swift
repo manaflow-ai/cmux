@@ -56,7 +56,7 @@ struct AgentPaneComposerCopyTests {
 
     // MARK: The contract
 
-    @Test func theRequestTakesTextAndOneToSixtyFourItemsOfOnePayloadEach() throws {
+    @Test func theRequestTakesTextAndAnyNumberOfItemsOfOnePayloadEach() throws {
         let png = ["name": "chart.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]
         let request = try #require(AgentPaneReplyRequest(method: "composer.copy", params: [
             "text": "see these",
@@ -71,13 +71,13 @@ struct AgentPaneComposerCopyTests {
         #expect(!request.isPassive)
         // The text may be empty: a selection of attachments only.
         #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": [png]]) != nil)
+        #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": Array(repeating: png, count: 128)]) != nil)
 
         let refused: [[String: Any]] = [
             [:],
             ["text": "x"],
             ["items": [png]],
             ["text": "x", "items": []],
-            ["text": "x", "items": Array(repeating: png, count: 65)],
             ["text": "x", "items": [png], "extra": 1],
             ["text": 1, "items": [png]],
             ["text": "a\u{0}b", "items": [png]],
@@ -136,6 +136,9 @@ struct AgentPaneComposerCopyTests {
         #expect(try Data(contentsOf: image) == Self.png)
         #expect(items[1].data(forType: .png) == Self.png)
         #expect(items[1].data(forType: .tiff).flatMap(NSImage.init(data:)) != nil)
+        // Issue 59851: beside copied text a file item carries no name as text, which apps that join
+        // every item's text pasted as part of the prompt.
+        #expect(items[1].string(forType: .string) == nil)
         // The text item: a .txt file holding exactly its text.
         let text = try #require(Self.fileURL(items[2]))
         #expect(text.lastPathComponent == "Pasted text.txt")
@@ -148,6 +151,48 @@ struct AgentPaneComposerCopyTests {
             #expect(hex)
             #expect(place.deletingLastPathComponent().lastPathComponent == "Composer Copies")
         }
+    }
+
+    // Issue 59851: Cmd+C on a draft with an image and text pasted only one of them into rich text
+    // apps. The text's item also holds both as one RTFD document: the image, then the text.
+    @Test func textWithAnImageIsAlsoOneRichDocumentHoldingBoth() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, effects) = Self.model(folder)
+
+        let reply = await Self.ask(model, [
+            "text": "line one\nline two",
+            "items": [["name": "shot.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]],
+        ])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        let items = try #require(effects.copied.first)
+        #expect(items.count == 2)
+        #expect(items[0].string(forType: .string) == "line one\nline two")
+        let rtfd = try #require(items[0].data(forType: .rtfd))
+        let document = try #require(NSAttributedString(rtfd: rtfd, documentAttributes: nil))
+        #expect(document.string == "\u{FFFC}\nline one\nline two")
+        var pictures: [Data] = []
+        document.enumerateAttribute(.attachment, in: NSRange(location: 0, length: document.length)) { value, _, _ in
+            if let data = (value as? NSTextAttachment)?.fileWrapper?.regularFileContents { pictures.append(data) }
+        }
+        #expect(pictures == [Self.png])
+        #expect(items[1].data(forType: .png) == Self.png)
+    }
+
+    @Test func anImageCopiedAloneKeepsItsNameAsTextAndNoRichDocument() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, effects) = Self.model(folder)
+
+        let reply = await Self.ask(model, [
+            "text": "",
+            "items": [["name": "shot.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]],
+        ])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        let items = try #require(effects.copied.first)
+        #expect(items.count == 1)
+        #expect(items[0].string(forType: .string) == "shot.png")
+        #expect(items[0].data(forType: .rtfd) == nil)
     }
 
     @Test func copiedHTMLKeepsPromptMarkupAsText() async throws {

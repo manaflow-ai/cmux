@@ -83,9 +83,9 @@ extension ProfileBarView {
 
 /// One pressable dot for VoiceOver.
 nonisolated final class ProfileDotElement: NSAccessibilityElement {
-    private let onPress: @MainActor @Sendable () -> Void
+    private let onPress: @MainActor @Sendable () -> Bool
 
-    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Void) {
+    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Bool) {
         self.onPress = onPress
         super.init()
         setAccessibilityRole(.button)
@@ -97,6 +97,11 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
     /// Faults from a press that arrives off the main thread.
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.accessibility")
 
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
+
     override func accessibilityPerformPress() -> Bool {
         // AppKit calls accessibility actions on the main thread; anywhere else, refuse.
         guard Thread.isMainThread else {
@@ -104,8 +109,7 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
             return false
         }
         let onPress = onPress
-        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
-        return true
+        return MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
     }
 }
 

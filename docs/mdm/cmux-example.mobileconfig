@@ -17,10 +17,12 @@
 			<string>5B0C4E42-7D8A-4C55-9C3E-2D6F4A1B9E01</string>
 			<key>PayloadVersion</key>
 			<integer>1</integer>
+			<key>app.language</key>
+			<string>system</string>
 			<key>history.terminalCommands</key>
 			<false/>
-			<key>navigation.history.scope</key>
-			<string>workspaces</string>
+			<key>labs.appStore</key>
+			<false/>
 			<key>navigation.historyScope</key>
 			<string>workspace</string>
 		</dict>

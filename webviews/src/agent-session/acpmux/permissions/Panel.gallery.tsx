@@ -72,6 +72,37 @@ const baseState: PermissionClientState = {
   busy: false,
 };
 
+// A subagent's shell ask as acpmux sends it: the command carries acpmux's caller line, and the item
+// carries the call's description (`summary`) and the command without that line (`command`).
+const subagentBare = "cmux agent last desktop-helper --json";
+const subagentState = (summary?: string): PermissionClientState => ({
+  ...baseState,
+  groups: [
+    {
+      ...pendingGroup,
+      items: [
+        {
+          permissionId: "permission-gallery-subagent",
+          state: "pending",
+          ...(summary ? { summary } : {}),
+          command: subagentBare,
+          request: {
+            toolCall: {
+              title: subagentBare,
+              kind: "execute",
+              rawInput: {
+                command: `export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2c3\n${subagentBare}`,
+                ...(summary ? { description: summary } : {}),
+                cwd: "/Users/you/src/cmux",
+              },
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
+
 const resolvedState: PermissionClientState = {
   ...baseState,
   groups: [
@@ -95,8 +126,20 @@ const allowanceState: PermissionClientState = {
   chatAllowance: true,
 };
 
+// retry-prompt-ok: an answer that failed while the chat's requests read fine keeps Refresh: the
+// person looks again before answering again.
 const refreshErrorState: PermissionClientState = {
   ...baseState,
+  groups: [],
+  error: "Permission service is temporarily unavailable.",
+};
+
+// The chat's requests could not be read: they are read again on their own (autoRetry.ts), with
+// one quiet line past the deadline and no button (Leo, 2026-11-22: "vacuous decisions like that
+// should be just done"). The stage shows the line at once.
+const readFailedState: PermissionClientState = {
+  ...baseState,
+  ready: false,
   groups: [],
   error: "Permission service is temporarily unavailable.",
 };
@@ -184,6 +227,12 @@ const refreshError: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="refresh"]'));
 };
 
+const readFailed: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-still-trying]"));
+  if (ctx.document.querySelector(".acpmux-permission-error button")) throw new Error("A failed read drew a button");
+};
+
+// retry-prompt-ok: Check and retry sends the person's permission decision again.
 const retryUncertain: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Check and retry" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="retry"]'));
@@ -297,6 +346,19 @@ export default componentEntry<Props>({
       },
       play: expandDetails,
     },
+    "subagent-described": {
+      note: "Leo 2026-11-23: a subagent's ask says what the call does, in plain text, not acpmux's caller line in code.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+    },
+    "subagent-described-expanded": {
+      note: "Opened: the command as the agent wrote it, without the export line acpmux put before it.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+      play: expandDetails,
+    },
+    "subagent-undescribed": {
+      note: "A subagent's ask with no description: the verb and the command, without acpmux's caller line.",
+      props: { state: subagentState(), ...callbacks },
+    },
     "allow-once": {
       note: "Allow records the selected decision while the host owns the eventual state update.",
       props: { state: baseState, ...callbacks },
@@ -321,12 +383,17 @@ export default componentEntry<Props>({
       play: revokeAllowance,
     },
     error: {
-      note: "A refreshable permission error keeps recovery beside the failure message.",
+      note: "A failed answer (the chat's requests read fine) keeps Refresh beside its message (retry-prompt-ok: the person looks again before answering again).",
       props: { state: refreshErrorState, ...callbacks },
       play: refreshError,
     },
+    "read-still-trying": {
+      note: "Requests that could not be read are read again on their own: nothing at first, then one quiet line, no button.",
+      props: { state: readFailedState, ...callbacks },
+      play: readFailed,
+    },
     uncertain: {
-      note: "An indeterminate response uses Check and retry so the host can reconcile before another action.",
+      note: "An indeterminate response uses Check and retry (retry-prompt-ok: it sends the decision again) so the host can reconcile before another action.",
       props: { state: uncertainState, ...callbacks },
       play: retryUncertain,
     },

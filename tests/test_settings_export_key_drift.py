@@ -96,9 +96,13 @@ class GitRange(unittest.TestCase):
                                "--base", base or self.base, "--head", head],
                               env=self.env, capture_output=True, text=True)
 
-    def gate(self, head):
+    def gate(self, head, base=None):
         gate = load("cmux_next_prepush_gate_settings_keys", SOURCE / "scripts/cmux-next/prepush-gate.py")
-        return dict(gate.gate(self.repo, self.base, head, {"settings-export-keys"}, False))
+        return dict(gate.gate(self.repo, base or self.base, head, {"settings-export-keys"}, False))
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, check=True, capture_output=True,
+                              text=True).stdout.strip()
 
     def test_exports_from_an_older_tree_that_drop_a_declared_key_are_refused(self):
         # #43027: every export lost tabs.newTabApp; source/tabs.json still declares it.
@@ -154,6 +158,23 @@ class GitRange(unittest.TestCase):
         result = self.run_check(self.commit("browser-only row leaves the MDM exports"))
         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
+    def test_a_hidden_row_leaving_a_stale_reference_passes(self):
+        # cmux#51125: the base (a branch tip) already hid tabs.newTabApp from the Settings page, but its docs
+        # reference was stale and still listed it. The reference regenerated at the head leaves the hidden row out
+        # (export-next-docs.ts), which is right, not drift; the other exports must still keep it.
+        self.write("schemas/settings/source/tabs.json", json.dumps({"lists": [{"name": "rows", "rows": [
+            {"key": "tabs.newTabApp", "page_hidden": "cmux.json only"}, {"key": "tabs.position"}]}]}))
+        base = self.commit("hide a row; reference not yet regenerated")
+        reference = "web/data/next-docs/settings-reference.generated.json"
+        self.write(reference, exports("tabs.position")[reference])
+        result = self.run_check(self.commit("regenerated reference"), base=base)
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+        self.write_exports("tabs.position")
+        result = self.run_check(self.commit("every export drops the hidden row"), base=base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn(reference, result.stdout)
+        self.assertEqual(len(result.stdout.splitlines()), 4, result.stdout)
+
     def test_a_source_with_an_unexpected_shape_is_an_error_not_a_crash(self):
         self.write("schemas/settings/source/odd.json", json.dumps({"lists": ["not a list entry"]}))
         result = self.run_check(self.commit("odd source"))
@@ -176,6 +197,27 @@ class GitRange(unittest.TestCase):
                       self.gate(stale)[CHECK])
         self.write_exports("tabs.newTabApp", "tabs.position")
         self.assertEqual(self.gate(self.commit("regenerated at the head")), {})
+
+    def test_a_base_merge_taking_the_bases_exports_passes(self):
+        # cmux#55721: the branch removed a setting and its export rows, then merged feat-cmux-next and took the base's
+        # exports (CI's generated-drift check demands that copy). Against the branch's previous push those exports
+        # "add" the removed key; against the merge base with feat-cmux-next they are the base's, so no drift.
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
+        self.git("checkout", "-qb", "lane")
+        self.write("schemas/settings/source/tabs.json", source("tabs.position"))
+        self.write_exports("tabs.position")
+        pushed = self.commit("remove tabs.newTabApp")
+        self.git("checkout", "-q", self.base)
+        self.write("schemas/settings/source/other.json", source("other.fresh"))
+        self.write_exports("tabs.newTabApp", "tabs.position", "other.fresh")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.commit("base adds other.fresh"))
+        self.git("checkout", "-q", "lane")
+        self.git("merge", "-q", "--no-edit", "-X", "theirs", "refs/remotes/origin/feat-cmux-next")
+        merged = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.gate(merged, base=pushed), {})
+        # A push with no base merge still compares with its own base: an export adding an undeclared key is refused.
+        self.write_exports("tabs.position", "other.fresh", "nowhere.made.up")
+        self.assertIn("adds nowhere.made.up", "\n".join(self.gate(self.commit("stray key"), base=merged)[CHECK]))
 
 
 if __name__ == "__main__":

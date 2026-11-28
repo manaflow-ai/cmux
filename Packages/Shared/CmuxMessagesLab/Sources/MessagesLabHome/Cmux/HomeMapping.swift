@@ -235,11 +235,16 @@ enum HomeMapping {
         // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
         if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
-        func text(_ piece: String) -> [Part] {
+        func tabled(_ piece: String) -> [Part] {
             if markdown, let split = tableParts(piece, media: media, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
                 return split
             }
             return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
+        }
+        // Its pictures alone on a line (the Chief's screenshots) are picture bubbles, between its text.
+        func text(_ piece: String) -> [Part] {
+            if markdown, let split = pictureParts(piece, media: media, tabled) { return split }
+            return tabled(piece)
         }
         if case .text(let whole, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
            let split = diagramParts(whole, diagrams: diagrams, text) {
@@ -286,6 +291,70 @@ enum HomeMapping {
         }
         flush()
         return out
+    }
+
+    /// The id prefix of a picture bubble an agent's Markdown names (`cmux-picture:<source>`), not an attachment.
+    static let pictureIDPrefix = "cmux-picture:"
+
+    /// The source of a picture bubble ``pictureParts(_:media:_:)`` made, from its id; nil for an attachment's id.
+    static func pictureSource(_ id: ID) -> String? {
+        id.hasPrefix(pictureIDPrefix) ? String(id.dropFirst(pictureIDPrefix.count)) : nil
+    }
+
+    /// `text` cut at its lines that hold only pictures (`![alt](source)`: the Chief puts a screenshot on a line of its
+    /// own) whose file this Mac can show (a local path, `file:` or `https` URL, through `media`, ``HomeTablePictures``):
+    /// each is a picture bubble in its place (its alt text as its name, still loading at its own size), the text before
+    /// and after by `textParts`. nil when no line does, or the text holds a code fence: the text then maps as it always
+    /// did, each picture as its alt text (HomeMarkdown). A `cmux-attachment:` picture is the message's attachment,
+    /// which shows as one already.
+    static func pictureParts(_ text: String, media: Media, _ textParts: (String) -> [Part]) -> [Part]? {
+        guard text.contains("!["), !text.contains("```"), !text.contains("~~~") else { return nil }
+        var out: [Part] = []
+        var pending: [Substring] = []
+        var drew = false
+        func flush() {
+            let piece = pending.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            pending = []
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard let pictures = pictureLine(line, media: media) else {
+                pending.append(line)
+                continue
+            }
+            flush()
+            out += pictures.map { .attachment($0) }
+            drew = true
+        }
+        flush()
+        return drew ? out : nil
+    }
+
+    /// `line`'s pictures as picture bubbles when it holds only pictures and `media` has a file (or a loading mark)
+    /// for each; nil otherwise.
+    private static func pictureLine(_ line: Substring, media: Media) -> [Attachment]? {
+        guard line.contains("![") else { return nil }
+        let cell = HomeTableCell(markdown: String(line))
+        guard !cell.images.isEmpty, cell.text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        var out: [Attachment] = []
+        for image in cell.images {
+            guard HomeTablePictures.handles(image.source), let asset = media(image.source) else { return nil }
+            let loading = asset.hasPrefix(HomeTablePictures.loadingPrefix)
+            // While loading, the original's pixel size holds its place; once made, the thumbnail's own size (same aspect).
+            let size = loading ? asset.dropFirst(HomeTablePictures.loadingPrefix.count).split(separator: "x").compactMap { Int($0, radix: 10) } : []
+            let known = size.count == 2 && size.allSatisfy { $0 > 0 }
+            let alt = image.alt.trimmingCharacters(in: .whitespaces)
+            let name = alt.isEmpty ? (HomeTablePictures.original(image.source)?.lastPathComponent ?? image.source) : alt
+            out.append(Attachment(id: pictureIDPrefix + image.source, kind: "image", fileName: name, mimeType: "image/png", byteSize: 0,
+                                  asset: loading ? nil : fileAsset(asset), poster: nil,
+                                  width: known ? size.first : nil, height: known ? size.last : nil, durationSeconds: nil, transfer: .done))
+        }
+        return out
+    }
+
+    /// A thumbnail path as the `file:` URL string MessagesLab's picture bubbles read (``HomeMedia``'s form).
+    static func fileAsset(_ asset: String) -> String {
+        asset.hasPrefix("/") ? URL(fileURLWithPath: asset).absoluteString : asset
     }
 
     /// The scheme of a table picture that is one of the message's attachments (`cmux-attachment:<hash>`).
@@ -521,10 +590,15 @@ enum HomeMapping {
     /// `items`: the shown messages; each agent that sent one through my CLI is a participant too (HomeAgentSender).
     static func participants(_ summary: ConversationSummary?, me: ParticipantID,
                              avatars: [String: Participant.Avatar] = [:], items: [TranscriptItem] = []) -> [Participant] {
-        var out = (summary?.participants ?? []).map {
+        // A Chief alone with me: only agents' messages make this transcript name senders, so the Chief itself is
+        // never named, and before the host's avatars come it draws nothing, never its name's letter.
+        let namesPeople = summary?.showsSenderNames(me: me) == true
+        var out = (summary?.participants ?? []).map { person -> Participant in
+            let ownChief = person.isChief && !namesPeople
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
-                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
+            return Participant(id: person.id.rawValue, displayName: person.visibleName, isMe: person.id == me,
+                               avatar: avatars[person.id.rawValue] ?? (ownChief ? nil : .monogram(person.initials)),
+                               cmuxUnnamed: ownChief ? true : nil)
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         out += HomeAgentSender.all(in: items, me: me).map(\.participant)

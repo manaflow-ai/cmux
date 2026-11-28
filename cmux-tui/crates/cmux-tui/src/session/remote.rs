@@ -754,8 +754,8 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         fresh.vt_write(pending_sequence);
-        if let Some(rows_from_viewport_top_to_end) = scrolled_back_anchor(&term) {
-            restore_scrolled_back_anchor(&mut fresh, rows_from_viewport_top_to_end);
+        if let Some(anchor) = scrolled_back_anchor(&mut term) {
+            restore_scrolled_back_anchor(&mut fresh, &anchor);
         }
         *term = fresh;
         if daemon_replay {
@@ -990,31 +990,69 @@ enum RemoteGeometryTestStep {
     CellPixelCommitBoundary,
 }
 
-/// Rows from the top of a scrolled-back viewport to the end of the screen,
-/// or `None` when the viewport follows the live bottom.
+/// Where a scrolled-back viewport is, for a rebuilt mirror: the rows from its
+/// top to the end of the screen, and the text of the rows it shows.
+#[derive(Debug)]
+pub(crate) struct ScrolledBackAnchor {
+    pub(crate) rows_from_end: u64,
+    rows: Vec<String>,
+}
+
+/// The anchor of a scrolled-back viewport, or `None` when the viewport
+/// follows the live bottom.
 ///
 /// A rebuilt mirror keeps the same trailing content as the old one (the
 /// replay ends at the live screen) while its oldest history may differ, so
-/// the distance from the end is the stable anchor for the row being read.
-fn scrolled_back_anchor(term: &Terminal) -> Option<u64> {
+/// the distance from the end places the row being read, unless output
+/// arrived between the old state and the replay: every new row pushes the
+/// reader's rows further from the end. The rows' text finds them again.
+pub(crate) fn scrolled_back_anchor(term: &mut Terminal) -> Option<ScrolledBackAnchor> {
     let scrollbar = term.scrollbar()?;
-    scrollbar.scrolled_back().then(|| scrollbar.total.saturating_sub(scrollbar.offset))
+    if !scrollbar.scrolled_back() {
+        return None;
+    }
+    let rows = term
+        .viewport_text()
+        .map(|text| text.lines().map(str::to_owned).collect())
+        .unwrap_or_default();
+    Some(ScrolledBackAnchor {
+        rows_from_end: scrollbar.total.saturating_sub(scrollbar.offset),
+        rows,
+    })
 }
 
-/// Scroll a freshly rebuilt mirror so the viewport top sits the same number
-/// of rows from the end as before, clamped to the retained history.
-fn restore_scrolled_back_anchor(term: &mut Terminal, rows_from_viewport_top_to_end: u64) {
+/// Scroll a freshly rebuilt mirror back to the rows the anchor was taken on:
+/// the nearest place at or above the same distance from the end whose rows
+/// read the same, else that distance, clamped to the retained history.
+pub(crate) fn restore_scrolled_back_anchor(term: &mut Terminal, anchor: &ScrolledBackAnchor) {
     let Some(scrollbar) = term.scrollbar() else {
         return;
     };
     let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
-    let target = scrollbar.total.saturating_sub(rows_from_viewport_top_to_end).min(live_offset);
+    let by_end = scrollbar.total.saturating_sub(anchor.rows_from_end).min(live_offset);
+    let target = offset_showing(term, &anchor.rows, by_end).unwrap_or(by_end);
     let delta = i128::from(target) - i128::from(scrollbar.offset);
     if let Ok(delta) = isize::try_from(delta)
         && delta != 0
     {
         term.scroll_delta(delta);
     }
+}
+
+/// The highest viewport offset at or below `from` whose rows read `rows`
+/// (blank rows alone match anywhere, so they find nothing). One row read per
+/// offset tried, past the first mismatch; it runs once per resync.
+fn offset_showing(term: &mut Terminal, rows: &[String], from: u64) -> Option<u64> {
+    if rows.iter().all(|row| row.trim().is_empty()) {
+        return None;
+    }
+    let last_col = term.cols().saturating_sub(1);
+    (0..=from).rev().find(|&top| {
+        rows.iter().zip(top..).all(|(want, row)| {
+            let have = term.selection_text_absolute((0, row), (last_col, row)).unwrap_or_default();
+            have.trim_end() == want.trim_end()
+        })
+    })
 }
 
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
@@ -1244,6 +1282,7 @@ mod connect;
 #[path = "remote_disconnect.rs"]
 mod disconnect;
 mod events;
+mod held_tree;
 mod interactive_writer;
 #[cfg(test)]
 use interactive_writer::InteractiveWriteMetrics;
@@ -1297,6 +1336,8 @@ pub struct RemoteSession {
     #[cfg(test)]
     retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
+    /// The tree the last refresh read, sent back as `known` (held_tree.rs).
+    held_tree: Mutex<held_tree::HeldTrees>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
@@ -1496,7 +1537,22 @@ impl RemoteSession {
             let cache = self.tree.lock().unwrap();
             (cache.title_generation(), cache.agent_generation())
         };
-        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+        // A tree held with no tree event since it was read goes as `known`: an unchanged tree
+        // is then an O(1) answer and no parse (held_tree.rs).
+        let known_capable = self
+            .capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(held_tree::LIST_WORKSPACES_KNOWN_CAPABILITY);
+        let (held_at, held) = {
+            let held_trees = self.held_trees();
+            (held_trees.stamp(), if known_capable { held_trees.fresh() } else { None })
+        };
+        let request = match &held {
+            Some(held) => json!({"cmd": "list-workspaces", "known": held.known}),
+            None => json!({"cmd": "list-workspaces"}),
+        };
+        let data = match self.request(request) {
             Ok(data) => data,
             Err(e) => {
                 if identity_refresh {
@@ -1506,6 +1562,13 @@ impl RemoteSession {
                 return Err(e);
             }
         };
+        let held = held.filter(|held| held_tree::confirms(&data, &held.known));
+        if held.is_none() && held_tree::is_unchanged(&data) {
+            // `unchanged` for a tree this client does not hold: never draw its empty list.
+            self.held_trees().forget();
+            self.tree_stale.store(true, Ordering::Release);
+            anyhow::bail!("remote daemon answered unchanged for a tree this client does not hold");
+        }
         let agents = self
             .request(json!({"cmd": "list-agents"}))
             .ok()
@@ -1515,15 +1578,32 @@ impl RemoteSession {
                     .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
             })
             .unwrap_or_default();
-        let capabilities = self.capabilities.lock().unwrap();
-        let tree = parse_tree_with_capabilities(
-            &data,
-            TreeCapabilities {
-                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
-                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
-            },
-        );
-        drop(capabilities);
+        let tree = match held {
+            Some(held) => {
+                let tree = held.tree.clone();
+                self.held_trees().hold(held, held_at);
+                tree
+            }
+            None => {
+                let capabilities = self.capabilities.lock().unwrap();
+                let tree = parse_tree_with_capabilities(
+                    &data,
+                    TreeCapabilities {
+                        viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                        viewport_column_resize: capabilities
+                            .contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+                    },
+                );
+                drop(capabilities);
+                let mut held_trees = self.held_trees();
+                match held_tree::known_of(&data).filter(|_| known_capable) {
+                    Some(known) => held_trees
+                        .hold(Arc::new(held_tree::HeldTree { known, tree: tree.clone() }), held_at),
+                    None => held_trees.forget(),
+                }
+                tree
+            }
+        };
         let raw_surface_ids = tree
             .workspaces()
             .iter()
@@ -1590,7 +1670,25 @@ impl RemoteSession {
     }
 
     pub fn invalidate_tree(&self) {
+        self.mark_tree_stale();
+    }
+
+    /// The held tree. A panic while it was locked left a whole entry or none (each write is one
+    /// call), so a poisoned lock is still a good cache.
+    fn held_trees(&self) -> std::sync::MutexGuard<'_, held_tree::HeldTrees> {
+        self.held_tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The tree changed: the next refresh reads it whole, and the held tree is stale.
+    pub(super) fn mark_tree_stale(&self) {
+        self.held_trees().invalidate();
         self.tree_stale.store(true, Ordering::Release);
+    }
+
+    /// Whether a tree is held for `known`, and whether it is fresh (held_tree.rs).
+    #[cfg(test)]
+    pub(super) fn held_tree_state(&self) -> Option<bool> {
+        self.held_trees().lookup()
     }
 
     pub fn take_tree_stale(&self) -> bool {
@@ -1961,6 +2059,7 @@ fn test_session_with_writer(
         retired_surfaces: Mutex::new(HashSet::new()),
         retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
+        held_tree: Mutex::new(held_tree::HeldTrees::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),

@@ -59,8 +59,13 @@ final class MarkerView: NSView {
     func bump(_ what: String) {
         counter &+= 1
         if verbose { log("\(what) -> \(counter)") }
-        // Draw now, not at the next run-loop pass, so the change reaches the screen first.
+        // Draw now, not at the next run-loop pass, and hand the layer tree to the window server
+        // now too, so the change reaches the screen first.
         display()
+        CATransaction.flush()
+        // When the draw was committed, on the protocol clock (CLOCK_MONOTONIC, µs): the eval's rd
+        // split measures input to commit and commit to the display time from it.
+        if verbose { log("commit \(counter) \(clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1000)") }
     }
 
     override func keyDown(with event: NSEvent) { bump("key") }
@@ -143,9 +148,16 @@ final class KeyWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+log("marker: starting pid \(getpid())")
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
-let screen = NSScreen.main!
+// No `NSScreen.main!`: in an -O build a nil force-unwrap traps without a word, which the rig read
+// as an empty marker.log. A session with no display (display asleep, no monitor, no window-server
+// login) says so and exits 3.
+guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+    log("marker: no display (NSScreen.screens is empty: display asleep, no monitor, or no window-server session)")
+    exit(3)
+}
 let frame = screen.frame
 
 var motion: MotionView?
@@ -192,6 +204,7 @@ if let motion {
 }
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
+log("refresh-hz \(screen.maximumFramesPerSecond)")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above every app window, so test clicks land only on the marker.

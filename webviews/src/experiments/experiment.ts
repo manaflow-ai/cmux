@@ -9,10 +9,14 @@
 // The chosen arm comes from one place, in this order:
 //   1. an override the host installs before the page loads (`globalThis.cmuxExperiments`: the
 //      gallery's stage frame sets it from its `arm` query key);
-//   2. the debug key `cmux.experiments` in localStorage, a JSON object `{ "<id>": "<arm>" }`
+//   2. a Settings switch that is on (Settings > Advanced > Experiments, `experiments.*`;
+//      hostSettings.ts maps each to its experiment's arm; useExperimentArm follows a change live);
+//   3. the debug key `cmux.experiments` in localStorage, a JSON object `{ "<id>": "<arm>" }`
 //      (for dogfood in the app: set it in the web inspector and reload the pane);
-//   3. the experiment's `defaultArm`.
+//   4. the experiment's `defaultArm`.
 // An unknown arm id anywhere falls through to the next source, so a stale key never breaks a page.
+
+import { settingArms } from "./hostSettings";
 
 export type ExperimentArm = {
   /** Short name for the gallery cell header (English: the gallery is a developer tool). */
@@ -49,15 +53,28 @@ declare global {
   var cmuxExperiments: ArmOverrides | undefined;
 }
 
-function storedOverrides(): ArmOverrides {
+// The debug key's parse, kept against its raw text: a lookup on a render path reads the key on
+// every call, and parsing it each time cost a chat switch milliseconds. A changed value re-parses.
+let stored: { text: string | null | undefined; overrides: Readonly<ArmOverrides> } | undefined;
+
+function storedOverrides(): Readonly<ArmOverrides> {
+  let text: string | null | undefined;
   try {
-    const text = globalThis.localStorage?.getItem(EXPERIMENTS_STORAGE_KEY);
-    const parsed: unknown = text ? JSON.parse(text) : undefined;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ArmOverrides) : {};
+    text = globalThis.localStorage?.getItem(EXPERIMENTS_STORAGE_KEY);
   } catch {
-    // No storage (a sandboxed page) or a malformed value: no override.
+    // No storage (a sandboxed page): no override.
     return {};
   }
+  if (stored !== undefined && stored.text === text) return stored.overrides;
+  let overrides: ArmOverrides = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : undefined;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) overrides = parsed as ArmOverrides;
+  } catch {
+    // A malformed value: no override.
+  }
+  stored = { text, overrides: Object.freeze(overrides) };
+  return stored.overrides;
 }
 
 /** The arm ids of an experiment, in definition order. */
@@ -69,13 +86,15 @@ export function isArm<Arm extends string>(experiment: Experiment<Arm>, id: unkno
   return typeof id === "string" && Object.hasOwn(experiment.arms, id);
 }
 
-/** The arm to run: the host override, else the debug key, else the default. */
+/** The arm to run: the host override, else a Settings switch, else the debug key, else the default. */
 export function experimentArm<Arm extends string>(
   experiment: Experiment<Arm>,
-  sources: { overrides?: ArmOverrides; stored?: ArmOverrides } = {},
+  sources: { overrides?: ArmOverrides; settings?: ArmOverrides; stored?: ArmOverrides } = {},
 ): Arm {
   const overrides = sources.overrides ?? globalThis.cmuxExperiments ?? {};
   if (isArm(experiment, overrides[experiment.id])) return overrides[experiment.id] as Arm;
+  const settings = sources.settings ?? settingArms();
+  if (isArm(experiment, settings[experiment.id])) return settings[experiment.id] as Arm;
   const stored = sources.stored ?? storedOverrides();
   if (isArm(experiment, stored[experiment.id])) return stored[experiment.id] as Arm;
   return experiment.defaultArm;

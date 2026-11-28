@@ -1,68 +1,106 @@
-// Cloud first use (cmux-tui/docs/model-connections.md, "Cloud first use"; Capy's Models onboarding):
-// a Cloud chat whose picked model no connection serves shows this card in the chat, under the
-// message, instead of a failure. Each button is one of Settings > Models' ways in, run on this Mac
-// (`cloud.setUp`, cloudSetup.ts): Continue with ChatGPT and Sign in to Claude add the subscription as a
-// connection here, Add an API key and Open Settings open Settings > Models. Once a connection serving
-// the model appears, the chat starts by itself with the same prompt. Nothing is recorded before then.
 import { useId } from "react";
 import { useT } from "../i18n";
-import { cloudSetupActions, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
+import { cloudSetupAction, cloudSetupName, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
+import type { ConnectProgress } from "../claudeConnect";
+import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
+import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
 import { Spinner } from "./icons";
-
-const LABELS = {
-  connectChatGPT: "cloudSetup.chatgpt",
-  setUpClaude: "cloudSetup.claude",
-  addKey: "cloudSetup.apiKey",
-  openSettings: "cloudSetup.settings",
-} as const satisfies Record<CloudSetupAction, string>;
 
 export function CloudSetupCard({
   need,
   waiting = false,
+  steps,
+  look = "card",
+  progress,
   onSetUp,
+  onCancel,
+  onApiKey,
+  onRunHere,
+  runHereLabel,
   onDismiss,
 }: {
   need: CloudSetupNeed;
-  /// A button's way in is out: the card says it waits, and the buttons rest until it ends.
   waiting?: boolean;
+  steps?: CloudSetupStepsLook;
+  look?: ConnectCardLook;
+  progress?: ConnectProgress;
   onSetUp?: (action: CloudSetupAction) => void;
-  /// Not now: leaves the card; the prompt stays in the composer.
+  onCancel?: () => void;
+  onApiKey?: (key: string) => Promise<void>;
+  onRunHere?: () => void;
+  runHereLabel?: string;
   onDismiss?: () => void;
 }) {
   const t = useT();
-  const actions = cloudSetupActions(need);
+  const action = cloudSetupAction(need);
+  const name = cloudSetupName(need.family);
   const titleId = useId();
+  const family =
+    action === "setUpClaude" || action === "connectChatGPT"
+      ? action === "setUpClaude"
+        ? "claude"
+        : "codex"
+      : undefined;
+  const shown = progress ?? { phase: waiting ? "signing_in" : null, error: null };
+  const pending = waiting || shown.phase !== null;
   return (
-    <section className="acpmux-cloud-setup" aria-labelledby={titleId} data-waiting={waiting || undefined}>
+    <section className="acpmux-cloud-setup" aria-labelledby={titleId} data-waiting={pending || undefined}>
+      {steps && <CloudSetupSteps current="model" look={steps} />}
       <strong className="acpmux-cloud-setup__title" id={titleId}>
-        {t("cloudSetup.title")}
+        {t("cloudSetup.familyTitle", { name })}
       </strong>
-      <p className="acpmux-cloud-setup__body">
-        {t("cloudSetup.body")}
-        {need.model && <> {t("cloudSetup.model", { model: need.model })}</>}
-      </p>
-      {waiting ? (
+      {!pending && (
+        <p className="acpmux-cloud-setup__body">
+          {need.timedOut ? (
+            t("cloudSetup.timedOut")
+          ) : (
+            <>
+              {t("cloudSetup.body", { name })}
+              {need.model && <> {t("cloudSetup.model", { model: need.model })}</>}
+            </>
+          )}
+        </p>
+      )}
+      {family || onApiKey ? (
+        <ConnectCard
+          family={family}
+          look={look}
+          progress={shown}
+          {...(family && onSetUp ? { onBegin: () => onSetUp(action) } : {})}
+          {...(onCancel ? { onCancel } : {})}
+          {...(onApiKey ? { onApiKey } : {})}
+        />
+      ) : pending ? (
         <output className="acpmux-cloud-start__status" aria-busy="true">
           <Spinner size={14} loading />
           <span>{t("cloudSetup.waiting")}</span>
         </output>
       ) : null}
       <span className="acpmux-cloud-ask__actions acpmux-cloud-setup__actions">
-        {actions.map((action, index) => (
+        {!family && !onApiKey && !pending && (
           <button
-            key={action}
             type="button"
             className="acpmux-cloud-ask__button"
-            data-role={index === 0 ? "default" : undefined}
+            data-role="default"
             data-action={action}
-            disabled={waiting || !onSetUp}
+            disabled={!onSetUp}
             onClick={() => onSetUp?.(action)}
           >
-            {t(LABELS[action])}
+            {t("picker.cloud.connectFamily", { name })}
           </button>
-        ))}
-        {onDismiss && (
-          <button type="button" className="acpmux-cloud-ask__button" data-action="dismiss" onClick={() => onDismiss()}>
+        )}
+        {!family && !onApiKey && pending && onCancel && (
+          <button type="button" className="acpmux-cloud-ask__button" data-action="cancel" onClick={onCancel}>
+            {t("picker.setup.cancel")}
+          </button>
+        )}
+        {!pending && onRunHere && (
+          <button type="button" className="acpmux-cloud-ask__button" data-action="run-here" onClick={onRunHere}>
+            {runHereLabel}
+          </button>
+        )}
+        {!pending && onDismiss && (
+          <button type="button" className="acpmux-cloud-ask__button" data-action="dismiss" onClick={onDismiss}>
             {t("harness.notNow")}
           </button>
         )}

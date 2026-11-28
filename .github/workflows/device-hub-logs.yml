@@ -1,0 +1,64 @@
+name: device-hub entitlement logs
+
+# Did the device hub give that caller STUN/TURN? workers/device-hub/src/billing.ts logs one
+# `relay entitlement: <paid|free|error>[ (<reason>)]` line per relay lookup, and only `paid` gets relays. A share
+# that dies on a 10 s handshake timeout because neither side got relays starts here. This reads one UTC window
+# (at most 60 minutes) of cmux-device-hub's persisted Workers Logs and prints each such line with its time,
+# request path, outcome and colo. The lines carry no user, device, token or address, and the reader prints only
+# lines that match that exact shape.
+# Dispatch only, from feat-cmux-next. Existing credentials only: the Cloudflare read token (the same one
+# cmux-mobile-link-stats.yml uses; the device hub lives in that account).
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "prod or dev"
+        required: false
+        default: "prod"
+      start:
+        description: "UTC window start, e.g. 2026-11-22T08:40:00Z (empty: --minutes ago)"
+        required: false
+        default: ""
+      minutes:
+        description: "window length in minutes (1-60)"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-hub-logs-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  read:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds the Cloudflare API token; keeps the ephemeral_only linux_4 pool
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: |
+            scripts/cmux-next/device-hub-logs.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Query the window
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ENV_NAME: ${{ inputs.env }}
+          FROM: ${{ inputs.start }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          case "${ENV_NAME:-prod}" in prod|dev) ;; *) echo "env must be prod or dev" >&2; exit 2 ;; esac
+          case "${MINUTES:-30}" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 2 ;; esac
+          args=(--env "${ENV_NAME:-prod}" --minutes "${MINUTES:-30}")
+          if [ -n "${FROM:-}" ]; then
+            [[ "$FROM" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "start must be YYYY-MM-DDTHH:MM:SSZ" >&2; exit 2; }
+            args+=(--from "$FROM")
+          fi
+          printf '%s\n' "$CLOUDFLARE_API_TOKEN" | python3 -I scripts/cmux-next/device-hub-logs.py "${args[@]}" | tee "$RUNNER_TEMP/device-hub-logs.md"
+          { echo '```json'; head -1 "$RUNNER_TEMP/device-hub-logs.md"; echo '```'; tail -n +2 "$RUNNER_TEMP/device-hub-logs.md"; } >> "$GITHUB_STEP_SUMMARY"

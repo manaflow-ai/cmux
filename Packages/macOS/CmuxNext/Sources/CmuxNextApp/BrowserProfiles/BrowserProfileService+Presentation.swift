@@ -3,8 +3,8 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 
-/// How tabs and omnibars show their browser profile (data-model.md 5): the
-/// omnibar names every tab's profile once more than one exists; a tab whose
+/// How tabs and browser toolbars show their browser profile (data-model.md 5): the
+/// toolbar's profile button draws every tab's profile; a tab whose
 /// profile differs from its workspace's shows a dot.
 extension BrowserProfileService {
     /// The tab strip dot of `tab`, nil when its profile is the one its
@@ -30,24 +30,24 @@ extension BrowserProfileService {
         return TabProfileBadge(name: record?.name ?? displayName(id), color: record?.color.flatMap(GroupColor.init(rawValue:)))
     }
 
-    /// The omnibar avatar of tab `key`: nil while one profile exists, and
-    /// for incognito tabs (their window says incognito).
-    func omnibarBadge(forTab key: String) -> BrowserProfileBadge? {
-        guard BrowserProfileCascade.showsOmnibarBadge(profileCount: ordered.count),
-              !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
+    /// The avatar the toolbar's profile button draws for tab `key`, with one profile too (the button is
+    /// where a second one is made); an incognito tab's is the incognito disc (cmuxterm-hq RFD 0125, D1),
+    /// never the plain glyph.
+    func toolbarBadge(forTab key: String) -> BrowserProfileBadge {
+        guard !services.cache.browserTabs.isIncognitoTab(key) else { return .incognito(name: WindowStrings.incognitoBadge) }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let record = record(id)
         return BrowserProfileBadge(monogram: record?.monogram ?? "?", color: record?.color.flatMap(GroupColor.init(rawValue:)),
                                    name: record?.name ?? displayName(id))
     }
 
-    /// Re-renders every omnibar after a profile or a default changed. Tab strips follow by
+    /// Re-renders every browser toolbar after a profile or a default changed. Tab strips follow by
     /// themselves: a pane snapshot reads `tabBadge` (observed: the book, the home records), so
     /// only the strips whose badge changed map again. Pushing every strip here re-ran every pane
     /// snapshot twice at each launch, with nothing changed (cx-8w027.23, I2).
     func refreshPresentation() {
         for (key, entry) in services.cache.browsers {
-            entry.state.profileBadge = omnibarBadge(forTab: key)
+            entry.state.profileBadge = toolbarBadge(forTab: key)
             entry.state.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)
         }
     }

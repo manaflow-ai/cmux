@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// The centered card over the pane: connecting, waiting for consent, and
 /// the ended states (disconnected by a person, host stopped sharing,
-/// connection lost, stopped, not allowed). Liquid Glass with the opaque
+/// stopped, not allowed). A lost path asks nothing: the pane reconnects by
+/// itself (`RemoteDesktopPane.apply`), so its card has only Close. Liquid Glass with the opaque
 /// fallback under Reduce Transparency (`Glass.makeOverlayPanel`).
 final class RemoteStateCard: NSView {
     var onReconnect: (() -> Void)?
@@ -52,18 +53,25 @@ final class RemoteStateCard: NSView {
             image.contentTintColor = spec.symbolIsAttention ? colors.attention : colors.textSecondary
             return image
         }()
-        let title = RemoteChrome.label(spec.title, size: 15, weight: .semibold)
-        title.textColor = colors.textPrimary
+        let label = RemoteChrome.label(spec.title, size: 15, weight: .semibold)
+        label.textColor = colors.textPrimary
+        // What the card would explain past its title shows on hover over an info circle beside it, never as lines
+        // of caveats under it (Leo: "SCREEN SHARE IS SCREEN SHARE ... STOP PUTTING SO MANY DISCLAIMERS").
+        let title: NSView = spec.info.map { info in
+            let circle = RemoteChrome.symbol("info.circle", size: 13)
+            circle.contentTintColor = colors.textSecondary
+            circle.themedToolTip = info
+            circle.setAccessibilityElement(true)
+            circle.setAccessibilityRole(.image)
+            circle.setAccessibilityLabel(info)
+            circle.identifier = NSUserInterfaceItemIdentifier("remote.stateCard.info")
+            return RemoteChrome.row([label, circle], spacing: 6, insets: NSEdgeInsets())
+        } ?? label
         var views: [NSView] = [icon, title]
         if let text = spec.detail {
             let detail = RemoteChrome.wrapping(text, size: 12.5, width: 330)
             detail.textColor = colors.textSecondary
             views.append(detail)
-        }
-        if let note = spec.note {
-            let label = RemoteChrome.wrapping(note, size: 11, width: 330)
-            label.textColor = colors.attention
-            views.append(label)
         }
         let buttons = spec.buttons.map { kind -> RemoteChromeButton in
             let button = RemoteChromeButton(title: kind.title)
@@ -81,7 +89,7 @@ final class RemoteStateCard: NSView {
 
     private func press(_ kind: ButtonKind) {
         switch kind {
-        case .reconnect, .signIn: onReconnect?()
+        case .reconnect, .signIn: onReconnect?() // retry-prompt-ok: only the ends someone chose (see `spec`) and sign-in.
         case .cancel: onCancel?()
         case .close: onClose?()
         }
@@ -105,11 +113,13 @@ final class RemoteStateCard: NSView {
         var symbolIsAttention = false
         var spinner = false
         var title: String
-        /// One line the title does not already say; nil when it says everything.
+        /// One line the title does not already say and the person must read to act (a failure's reason, a
+        /// rejected sign-in); nil when the title says everything.
         var detail: String?
         var buttons: [ButtonKind]
-        /// The phase-1 trust gap, shown where a connection is made.
-        var note: String?
+        /// What the person may want to know but need not read: on hover over the title's info circle (who must
+        /// allow the session, the phase-1 trust gap where a connection is made).
+        var info: String?
     }
 
     /// `viaCloudTunnel`: a Cloud desktop over the app's own tunnel, which the phase-1 trust gap
@@ -126,31 +136,38 @@ final class RemoteStateCard: NSView {
             return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
                         detail: nil, buttons: [.cancel])
         case .waitingForConsent:
-            return Spec(symbol: "hand.raised", title: RemoteViewStrings.consentTitle(host),
-                        detail: RemoteViewStrings.consentDetail(host), buttons: [.cancel],
-                        note: RemoteViewStrings.developmentOnly)
+            return Spec(symbol: "hand.raised", title: RemoteViewStrings.consentTitle(host), detail: nil, buttons: [.cancel],
+                        info: [RemoteViewStrings.consentDetail(host), RemoteViewStrings.developmentOnly].joined(separator: "\n"))
         case let .ended(.disconnectedBy(name)):
             return Spec(symbol: "person.crop.circle.badge.xmark", title: RemoteViewStrings.kickedTitle(name),
+                        // retry-prompt-ok: a person at the host ended this session on purpose; reconnecting overrides their choice.
                         detail: nil, buttons: [.reconnect, .close])
         case .ended(.hostStoppedSharing):
             return Spec(symbol: "rectangle.on.rectangle.slash", title: RemoteViewStrings.stoppedTitle,
+                        // retry-prompt-ok: the host turned sharing off on purpose; reconnecting asks it again.
                         detail: nil, buttons: [.reconnect, .close])
         case let .ended(.hostFailed(reason)):
             return Spec(symbol: "exclamationmark.triangle", symbolIsAttention: true, title: RemoteViewStrings.hostFailedTitle,
+                        // retry-prompt-ok: the host named a failure on that machine (capture, encoder, display); a retry
+                        // fails the same way until someone fixes it there, so the press says "fixed, try now".
                         detail: RemoteViewStrings.hostFailedDetail(host, reason), buttons: [.reconnect, .close])
         case .ended(.stoppedByViewer):
             return Spec(symbol: "stop.circle", title: RemoteViewStrings.viewerStoppedTitle,
+                        // retry-prompt-ok: the person pressed Stop; Reconnect is their choice to resume.
                         detail: nil, buttons: [.reconnect, .close])
         case .ended(.connectionLost):
+            // The pane turns a lost path into a reconnect before it renders (`RemoteDesktopPane.apply`),
+            // so no live pane shows this; it asks nothing anyway.
             return Spec(symbol: "wifi.exclamationmark", symbolIsAttention: true, title: RemoteViewStrings.lostTitle,
-                        detail: nil, buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.close])
         case .ended(.consentDenied):
-            return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle,
-                        detail: RemoteViewStrings.deniedDetail(host), buttons: [.reconnect, .close])
+            return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle, detail: nil,
+                        // retry-prompt-ok: the host declined or did not answer; reconnecting prompts the person there again.
+                        buttons: [.reconnect, .close], info: RemoteViewStrings.deniedDetail(host))
         case let .ended(.signInRequired(rejected)):
             return Spec(symbol: "lock", symbolIsAttention: rejected, title: RemoteViewStrings.signInTitle(host),
-                        detail: rejected ? RemoteViewStrings.signInRejectedDetail(host) : RemoteViewStrings.signInDetail(host),
-                        buttons: [.signIn, .close])
+                        detail: rejected ? RemoteViewStrings.signInRejectedDetail(host) : nil,
+                        buttons: [.signIn, .close], info: rejected ? nil : RemoteViewStrings.signInDetail(host))
         }
     }
 

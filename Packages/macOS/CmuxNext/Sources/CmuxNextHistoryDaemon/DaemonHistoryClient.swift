@@ -20,7 +20,8 @@ public struct DaemonHistoryClient: Sendable {
         relay = ResourceRelayClient(connection: connection)
     }
 
-    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?) async throws -> DaemonHistoryList {
+    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?,
+                     actor: HistoryActorFilter = .mine) async throws -> DaemonHistoryList {
         var params: [String: JSONValue] = [
             "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
             "range": .string(range.rawValue),
@@ -28,6 +29,8 @@ public struct DaemonHistoryClient: Sendable {
         ]
         if !text.isEmpty { params["text"] = .string(text) }
         if let limit { params["limit"] = .number(Double(min(max(limit, 1), 5_000))) }
+        // Mine is the daemon's default; only the other filters are sent.
+        if actor != .mine { params["actor"] = .string(actor.rawValue) }
         let result = try await relay.send(operation: "history.entries.list", params: params, idempotencyKey: nil)
         return try await Self.decode(DaemonHistoryList.self, from: result)
     }
@@ -104,9 +107,11 @@ public struct DaemonHistoryClient: Sendable {
         return params
     }
 
-    public func recordVisit(profile: String, url: String, title: String?, tab: String?, at date: Date, key: String = DaemonHistoryClient.key()) async throws {
+    public func recordVisit(profile: String, url: String, title: String?, tab: String?, actor: String? = nil, sessionID: String? = nil, at date: Date, key: String = DaemonHistoryClient.key()) async throws {
         var params: [String: JSONValue] = ["profile": .string(profile), "url": .string(url), "at_ms": Self.decimal(date)]
         if let tab { params["tab"] = .string(tab) }
+        if let actor { params["actor"] = .string(actor) }
+        if let sessionID { params["session_id"] = .string(sessionID) }
         if let title, !title.isEmpty { params["title"] = .string(title) }
         _ = try await relay.send(operation: "history.visit.record", params: params, idempotencyKey: key)
     }

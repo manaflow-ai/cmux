@@ -209,6 +209,36 @@ import Testing
         #expect(feed.item(id: "ask-perm-m1") != nil)
     }
 
+    /// Leo 2026-11-21: "i keep seeing "the mac didnt answer in time" i dont want to see that".
+    /// A read that stalls or loses its channel asks the hub's `onStall`, which the coordinator
+    /// answers with a fresh channel on the same link: no redial, no prompt, ready again.
+    @Test func aStalledChannelIsRebuiltOnTheSameLinkWithoutARedial() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: Self.acpmux(Answers()))
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: dialer)
+        defer { end(live) }
+        live.showing(macIDs: ["m1"])
+        await settle { live.sessions["m1"]?.acpmux.isReady == true }
+        let session = try #require(live.sessions["m1"])
+        let link = try #require(session.currentLink)
+        let dials = dialer.dialCount("m1")
+        let channel = try await link.openChannel(service: "acpmux", args: [:])
+        await session.acpmux.bind(channel)
+        await channel.close(code: "eof", reason: "remote closed")
+        await settle { !session.acpmux.isReady }
+        #expect(!session.acpmux.isReady)
+
+        let onStall = try #require(session.acpmux.onStall, "the coordinator wires the hub's recovery")
+        await onStall()
+
+        #expect(session.currentLink === link)
+        #expect(dialer.dialCount("m1") == dials)
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+    }
+
     /// The user's report: the second Mac's agent asks, the first Mac is the
     /// chosen one, and both are connected. Deny reaches the second Mac only.
     @Test func anAskFromTheOtherMacIsAnsweredOnThatMac() async throws {
@@ -291,6 +321,42 @@ import Testing
         #expect(answers.of("m2") == ["sess-m2 perm-m2 deny"])
         #expect(dialer.dialCount("m2") == 2)
         #expect(answers.of("m1").isEmpty)
+    }
+
+    /// A failed chats bind on a link that stays up binds again by itself, on the coordinator's
+    /// clock (no-hangs 2026-11-24: before, the chats stayed down until the Feed's Retry or a new link).
+    @Test func aFailedChatsBindOnAHealthyLinkBindsAgainByItself() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let inits = Answers()
+        let normal = Self.acpmux(Answers())
+        let acpmux: @Sendable (String, Data) -> [Data] = { mac, data in
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               object["method"] as? String == "initialize", mac == "m1" {
+                inits.append(mac, "initialize")
+                if inits.of(mac).count == 1 {
+                    let id = object["id"].map { "\($0)" } ?? "null"
+                    return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"busy"}}"#.utf8)]
+                }
+            }
+            return normal(mac, data)
+        }
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: acpmux)
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: dialer)
+        defer { end(live) }
+        live.showing(macIDs: ["m1"])
+        await settle { live.sessions["m1"]?.chatsError != nil }
+        let session = try #require(live.sessions["m1"])
+        #expect(!session.acpmux.isReady)
+        let rebind = clock.now.advanced(by: .seconds(1))
+        await settle { clock.isSleeping(until: rebind) }
+        clock.advance(by: .seconds(1))
+        await settle { session.acpmux.isReady }
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+        #expect(inits.of("m1").count == 2)
+        #expect(dialer.dialCount("m1") == 1)
     }
 }
 #endif

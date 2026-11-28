@@ -37,16 +37,26 @@
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
-    { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
+    { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" },
+    { "name": "full", "px": 999, "tailwind": false, "for": "a capsule at any height: the 999px the app's round tracks and badges draw; Tailwind's own rounded-full stays as it is" }
   ],
   "glass": [
-    { "name": "chrome", "kind": "level", "tint": 60, "blur": "blur(20px) saturate(1.4)", "for": "chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap" },
-    { "name": "popover", "kind": "level", "tint": 70, "artTint": 50, "blur": "blur(24px) saturate(1.25)", "for": "floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window)" },
-    { "name": "menu", "kind": "level", "tint": 78, "veil": 40, "blur": "blur(32px) saturate(1.6)", "for": "every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers)" },
-    { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks" },
+    { "name": "chrome", "kind": "level", "tint": 62, "darkTint": 62, "blur": "blur(20px) saturate(1.6)", "for": "chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1)" },
+    { "name": "popover", "kind": "level", "tint": 72, "darkTint": 72, "artTint": 50, "blur": "blur(24px) saturate(1.6)", "for": "glass in the page that floats but is not a popup: the composer, Session Info, the running tray, side tabs and viewers (artTint over art or a see-through window)" },
+    { "name": "menu", "kind": "level", "tint": 80, "darkTint": 72, "veil": 40, "blur": "blur(32px) saturate(1.6)", "for": "every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers)" },
+    { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's contrast-fitted --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks; the blur and the floor are the native tooltip's (TooltipSurface.blurRadius, minimumTintAlpha)" },
     { "name": "lens", "kind": "mode", "tint": 40, "blur": "blur(6px) saturate(1.3)", "for": "a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost" },
     { "name": "fisheye", "kind": "mode", "tint": 50, "blur": "blur(2.5px) saturate(1.15)", "blurName": "frost", "for": "a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it" }
   ],
+  "glassSaturation": { "value": 1.6, "for": "the one saturation every glass level frosts with (design/glass-system.md, rule 3); the lens and fisheye modes keep their own" },
+  "glassEdge": {
+    "for": "the one edge of plain glass (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card rim) plus a lit top hairline, the light's share of --cmux-tone-light on each side",
+    "topLight": 60,
+    "topDark": 24
+  },
+  "glassContent": { "tint": 88, "darkTint": 86, "for": "a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2)" },
+  "glassInk": { "secondary": 68, "darkSecondary": 68, "status": 65, "darkStatus": 55, "chipStatus": 35, "keycap": 84, "for": "the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page); chipStatus is that hue share inside a tooltip (a link, a diff count), whose tint the host fits so the text sits at 4.5:1, which leaves a status word no room for more hue; keycap is the ink share of a tooltip's shortcut hint (the keycap on its 10% plate), a step under the text and above the secondary ink so it keeps 3:1 on the fitted tint" },
+  "glassUnderlay": { "value": 40, "darkValue": 57, "for": "the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93%; in dark the menu's 72% over 57% covers the same 88%, since at 40% it covered 83% and the chat's text read through the Model menu (design/glass-system.md, rule 6)" },
   "glassMaterial": {
     "for": "the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart",
     "neutralLight": 0.99,
@@ -64,7 +74,8 @@
     "lightRimBottom": 0.1,
     "hostVeil": 0.4,
     "nativeTintStrength": 1.25,
-    "webTint": 78,
+    "webTint": 80,
+    "webTintDark": 72,
     "webBlur": 32,
     "webSaturation": 1.6
   },

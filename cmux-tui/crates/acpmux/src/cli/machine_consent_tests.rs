@@ -248,3 +248,111 @@ fn a_switch_to_another_account_reads_signed_in_machines_as_unasked() {
     assert_eq!(other["consent"]["screen"], "granted");
     assert_eq!(other["lastRefusal"]["surface"], "control");
 }
+
+/// Joining is the Control consent for the person's own machines (Leo, 2026-11-22: "who's gonna
+/// walk over and click allow on a headless mac mini"); their Off here still wins, and anyone
+/// else still needs a grant.
+mod own_machines {
+    use super::*;
+    use crate::machine_record::{Requester, joined_consent_allows};
+
+    #[test]
+    fn own_machine_with_no_consent_row_is_allowed() {
+        let (_dir, a, _b) = fixture();
+        a.enroll().unwrap();
+        let status = a.status();
+        assert_eq!(status["consentRequired"], true);
+        assert!(joined_consent_allows(&status, "control", Requester::OwnMachine));
+        assert!(joined_consent_allows(&status, "screen", Requester::OwnMachine));
+    }
+
+    #[test]
+    fn own_machine_with_an_explicit_revoke_is_refused() {
+        let (_dir, a, b) = fixture();
+        a.enroll().unwrap();
+        a.set("control", false).unwrap();
+        // Shared across tags: the Off made through one is read by every other.
+        let status = b.status();
+        assert_eq!(status["consent"]["controlLocal"], false);
+        assert!(!joined_consent_allows(&status, "control", Requester::OwnMachine));
+        // Only Control was turned off.
+        assert!(joined_consent_allows(&status, "screen", Requester::OwnMachine));
+        // Turned on again, it is a grant.
+        a.set("control", true).unwrap();
+        assert!(joined_consent_allows(&b.status(), "control", Requester::OwnMachine));
+    }
+
+    #[test]
+    fn another_account_is_refused_without_a_grant() {
+        let (_dir, a, _b) = fixture();
+        a.enroll().unwrap();
+        assert!(!joined_consent_allows(&a.status(), "control", Requester::Other));
+        // A grant for another surface is no Control grant.
+        a.set("screen", true).unwrap();
+        assert!(!joined_consent_allows(&a.status(), "control", Requester::Other));
+        a.set("control", true).unwrap();
+        assert!(joined_consent_allows(&a.status(), "control", Requester::Other));
+    }
+
+    #[test]
+    fn a_file_an_older_build_wrote_reads_as_never_set() {
+        let (_dir, a, _b) = fixture();
+        a.enroll().unwrap();
+        a.prepare().unwrap();
+        std::fs::write(
+            a.root.join("consent.json"),
+            b"{\"screen\":\"granted\",\"control\":\"none\"}",
+        )
+        .unwrap();
+        let status = a.status();
+        assert!(joined_consent_allows(&status, "control", Requester::OwnMachine));
+        assert!(!joined_consent_allows(&status, "control", Requester::Other));
+    }
+
+    #[test]
+    fn a_machine_never_joined_requires_nothing() {
+        let (_dir, a, _b) = fixture();
+        assert!(joined_consent_allows(&a.status(), "control", Requester::Other));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_supervised_home_is_accepted_at_its_real_path() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let real = account.join(".acpmux-supervised/hb");
+    std::fs::create_dir_all(&real).unwrap();
+    symlink(&real, account.join(".acpmux")).unwrap();
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, std::fs::canonicalize(&real).unwrap());
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    authority.enroll().unwrap();
+    // The consent lives where ~/.acpmux/machine-consent reaches.
+    assert!(account.join(".acpmux/machine-consent/enrolled.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_outside_the_supervised_home_stays_refused() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let foreign = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(&foreign).unwrap();
+    symlink(&foreign, account.join(".acpmux")).unwrap();
+    // Not under .acpmux-supervised: left unresolved, and the consent check refuses it.
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, account.join(".acpmux"));
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    assert!(authority.enroll().is_err());
+    // A link to a sibling of the supervised folder, or a nested one, is foreign too.
+    std::fs::create_dir_all(account.join(".acpmux-supervised/hb/inner")).unwrap();
+    std::fs::remove_file(account.join(".acpmux")).unwrap();
+    symlink(account.join(".acpmux-supervised/hb/inner"), account.join(".acpmux")).unwrap();
+    assert_eq!(crate::config::resolve_supervised_home(&account), account.join(".acpmux"));
+}

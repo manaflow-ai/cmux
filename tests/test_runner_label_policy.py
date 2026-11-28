@@ -221,7 +221,7 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         self.assertEqual(
             missing,
             set(),
-            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
+            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} when it "
             "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it is not a label",
         )
 
@@ -275,6 +275,44 @@ class RunnerPoolsVariable(unittest.TestCase):
                     [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
                     ["RUNNER_POOLS"],
                 )
+
+    def test_the_expected_wait_verdict_is_metadata(self) -> None:
+        # scripts/ci/expected_wait.py's `_admission` (label -> counts) and `hosted_saturated` (cmuxterm-hq#16113).
+        value = json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404", "hosted_saturated": True,
+                            "_admission": {"at": "2026-11-20T18:00:00Z", "target_s": 300,
+                                           "pools": {"ubuntu-24.04": {"queued": 400, "running": 20, "slots": 20,
+                                                                      "p50_s": 240, "wait_s": 5040,
+                                                                      "saturated": True}}}})
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+
+    def test_hosted_saturated_is_true_false_or_a_time(self) -> None:
+        # The deployed spill writes the time it marked hosted saturated; expected_wait.py writes true or false.
+        for flag in ("true", "false", '"2026-11-21T00:02:24Z"'):
+            with self.subTest(flag=flag):
+                value = '{"linux":"blacksmith-4vcpu-ubuntu-2404","hosted_saturated":' + flag + "}"
+                self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        for flag in ('"yes"', "1", "null", '"ubuntu-24.04"', '"2026-11-21T00:02:24"'):
+            with self.subTest(flag=flag):
+                value = '{"linux":"blacksmith-4vcpu-ubuntu-2404","hosted_saturated":' + flag + "}"
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
+
+    def test_spill_updated_and_raw_home_are_metadata_with_their_labels_checked(self) -> None:
+        # linux_pool_spill.py's `_spill` keeps an integer `running`; main's `_raw_home` holds {home, to} labels.
+        value = json.dumps({
+            "linux": "blacksmith-16vcpu-ubuntu-2404", "_updated": "2026-11-21T00:02:24Z",
+            "_spill": {"linux": {"from": "blacksmith-4vcpu-ubuntu-2404", "to": "blacksmith-16vcpu-ubuntu-2404",
+                                 "since": "2026-11-21T00:00:00Z", "running": 12}},
+            "_raw_home": {"LINUX_RUNNER": {"home": "blacksmith-4vcpu-ubuntu-2404",
+                                           "to": "blacksmith-16vcpu-ubuntu-2404"}}})
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        for bad in ({"_spill": {"linux": {"from": "blacksmith-4vcpu-ubuntu-2404", "to": "macos-15", "running": 1}}},
+                    {"_raw_home": {"LINUX_RUNNER": {"home": "macos-15", "to": "blacksmith-4vcpu-ubuntu-2404"}}},
+                    {"_spill": ["blacksmith-4vcpu-ubuntu-2404"]}, {"_spill": {"linux": 3}}):
+            with self.subTest(bad=bad):
+                value = json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404", **bad})
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
 
     def test_invalid_pool_json_fails_closed(self) -> None:
         self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": "not-json"})],
@@ -403,7 +441,7 @@ class TrustedPoolVariable(unittest.TestCase):
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-trusted-std-xcode-26.6"}))
 
     def test_the_reports_check_it(self) -> None:
-        for workflow in ("ci-health-report.yml", "ci-repo-variables.yml"):
+        for workflow in ("ci-health-report.yml",):
             text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}", text, workflow)
             self.assertIn("CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}", text, workflow)

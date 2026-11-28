@@ -18,6 +18,7 @@ export const BACKGROUND_NOTICE_TEXT: Record<BackgroundNotice, StringKey> = {
   nothing: "tools.backgroundNothing",
   refused: "tools.backgroundRefused",
   timedOut: "tools.backgroundTimedOut",
+  // retry-prompt-ok: Ctrl-B moves running work, a change the person makes; once the link is back it may be done.
   disconnected: "tools.backgroundDisconnected",
 };
 

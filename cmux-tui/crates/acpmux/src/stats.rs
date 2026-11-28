@@ -32,6 +32,7 @@
 mod attention;
 mod branches;
 
+pub(crate) use branches::turn_usage;
 pub use branches::{BranchStats, MAX_BRANCHES};
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store, TurnUsage};
@@ -114,6 +115,11 @@ pub struct StatsSummary {
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
+    /// Wall-clock time with at least one agent working: the union of every
+    /// working interval. `working_ms / busy_ms` is how many hours of agent
+    /// work each hour of the person's clock bought (the Stats page's
+    /// "parallel payoff"); 0 when nothing worked.
+    pub busy_ms: u64,
     /// Time agents spent waiting on a permission answer.
     pub waiting_ms: u64,
     pub peak_parallel: u64,
@@ -306,6 +312,8 @@ impl SessionFold {
             self.attention.record(record, self.in_range(at));
         }
         match record.kind.as_str() {
+            // A line the harness wrote into a turn is the turn's work, not a message.
+            "user_message" if crate::adopt_replay::harness_row(&record.msg) => {}
             "user_message" => {
                 let steer = record.msg.get("steer").and_then(Value::as_bool) == Some(true);
                 let prompt_id =
@@ -656,8 +664,15 @@ impl Fold {
         // are not parallel.
         self.edges.sort_by_key(|&(at, delta)| (at, delta));
         let mut live: i64 = 0;
+        let mut busy_since = 0;
         for (at, delta) in &self.edges {
+            if live == 0 && *delta > 0 {
+                busy_since = *at;
+            }
             live += i64::from(*delta);
+            if live == 0 {
+                self.summary.busy_ms += at - busy_since;
+            }
             if live > 0 && live as u64 > self.summary.peak_parallel {
                 self.summary.peak_parallel = live as u64;
                 self.summary.peak_parallel_at = Some(*at);

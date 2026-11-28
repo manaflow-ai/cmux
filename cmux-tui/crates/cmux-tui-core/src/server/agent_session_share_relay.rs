@@ -2,7 +2,7 @@
 //! whose browser is in the room, the bridge opens a same-user connection to this daemon, served by
 //! the real connection path, binds it with `agent-session-proxy-bind {link_guest}` on its first
 //! line, and attaches. So every frame is the bound guest's and passes the daemon's per-frame
-//! checks (its share and guest live, the guest verbs only, every prompt held for the owner), and
+//! checks (its share and guest live, the guest verbs only, with Talk prompts held for the owner), and
 //! revoke, kick and expiry end the connection at the daemon first.
 //!
 //! What the relay sends the room names this guest only: a `snapshot` first (the newest records
@@ -52,7 +52,7 @@ const MAX_EARLY_BYTES: usize = 4 * 1024 * 1024;
 
 /// The prompt states that never change again.
 fn decided(state: &str) -> bool {
-    matches!(state, "approved" | "declined" | "removed")
+    matches!(state, "sent" | "approved" | "declined" | "removed")
 }
 
 /// Whether a prompt's state may go from `from` to `to`: forward only. A decision is final;
@@ -206,6 +206,7 @@ fn lock(held: &Held) -> MutexGuard<'_, Ledger> {
 /// What the room asked of one guest.
 pub(super) enum Ask {
     Prompt { client_id: String, text: String },
+    Cancel,
     Typing(bool),
     Older(u64),
     Status(Vec<String>),
@@ -224,7 +225,7 @@ pub(super) fn refuse(held: &Held, ids: (&str, &str), ask: Ask, reason: &str) -> 
             ledger.frame(ids.1, &prompt)
         }
         Ask::Older(_) => Some(bounded(json!({"v": 1, "t": "page", "to": ids.1}), Vec::new(), true)),
-        Ask::Prompt { .. } | Ask::Typing(_) | Ask::Status(_) => None,
+        Ask::Prompt { .. } | Ask::Cancel | Ask::Typing(_) | Ask::Status(_) => None,
     }
 }
 
@@ -333,6 +334,7 @@ enum Pending {
     Page,
     /// A prompt sent: its id.
     Prompt(String),
+    Cancel,
     Ignore,
 }
 
@@ -343,7 +345,8 @@ struct Link {
     out: mpsc::UnboundedSender<Out>,
     write: OwnedWriteHalf,
     next_id: u64,
-    /// The calls awaiting the daemon's answer (at most [`MAX_PENDING`] the room's asks made).
+    /// The calls awaiting the daemon's answer (room asks are bounded by [`MAX_PENDING`],
+    /// plus one cancellation).
     pending: HashMap<u64, Pending>,
     /// The attachment answered: the room's asks go to the daemon.
     attached: bool,
@@ -478,9 +481,10 @@ impl Link {
                 self.busy(Ask::Older(0));
                 true
             }
-            // Held unless acpmux's records said otherwise first (a retried prompt it ran).
+            // Follow acpmux's actual acceptance, including an older peer that still holds Drive.
             Pending::Prompt(prompt) if ok => {
-                self.note(&prompt, "held", None);
+                let unheld = frame.pointer("/data/awaiting_owner") == Some(&Value::Bool(false));
+                self.note(&prompt, if unheld { "sent" } else { "held" }, None);
                 true
             }
             Pending::Prompt(prompt) => {
@@ -492,7 +496,7 @@ impl Link {
                 self.note(&prompt, "refused", Some(reason));
                 true
             }
-            Pending::Ignore => true,
+            Pending::Cancel | Pending::Ignore => true,
         }
     }
 
@@ -546,6 +550,14 @@ impl Link {
                     None => true,
                 }
             }
+            // Keep one cancellation in flight even when other asks fill the relay.
+            Ask::Cancel if self.pending.values().any(|call| matches!(call, Pending::Cancel)) => {
+                true
+            }
+            Ask::Cancel => {
+                let frame = json!({"cmd": "agent-session-cancel", "surface": 0});
+                self.call(frame, Pending::Cancel).await
+            }
             // Dropped when the daemon is behind: the next one says the same.
             Ask::Typing(_) if full => true,
             Ask::Typing(on) => {
@@ -594,7 +606,9 @@ impl Link {
         let watermark =
             records.iter().filter_map(|r| r.get("seq").and_then(Value::as_u64)).max().unwrap_or(0);
         let session = data.get("session").unwrap_or(&Value::Null);
-        let chat = json!({"title": session.get("title").or_else(|| session.get("name")),
+        let text =
+            |key: &'static str| session.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+        let chat = json!({"title": text("title").or_else(|| text("name")),
             "harness": session.get("harness"), "status": session.get("status")});
         let snapshot = json!({"v": 1, "t": "snapshot", "to": self.guest_id, "chat": chat,
             "watermark": watermark, "prompts": prompts});

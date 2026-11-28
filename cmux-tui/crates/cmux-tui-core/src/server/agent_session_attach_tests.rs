@@ -8,7 +8,7 @@
 //! with a bound session, carry no command-bearing or session params, prompts
 //! are one text block, and permission answers name only a request acpmux
 //! announced on the attachment.
-use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
+use super::agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 use super::*;
 use serde_json::{Value, json};
 use std::collections::{HashSet, VecDeque};
@@ -31,7 +31,10 @@ pub(super) struct FakeAcpmux {
     pub(super) socket: PathBuf,
     pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
+    attachment_ready: Receiver<()>,
     current: Option<UnixStream>,
+    /// Every connection taken so far ([`FakeAcpmux::streams`]).
+    all: Vec<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -53,6 +56,7 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let (attachment_ready_tx, attachment_ready) = channel();
         let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
         let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
@@ -60,12 +64,24 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
+                let attachment_ready_tx = attachment_ready_tx.clone();
                 let fixture = fixture.clone();
                 let transfers = shared_transfers.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
+                std::thread::spawn(move || {
+                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx);
+                });
             }
         });
-        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+        Self {
+            directory,
+            socket,
+            frames,
+            connections,
+            attachment_ready,
+            current: None,
+            all: Vec::new(),
+            transfer_blocked,
+        }
     }
 
     /// Models an acpmux watcher abort, independently of any cmux transfer request.
@@ -109,6 +125,14 @@ impl FakeAcpmux {
         self.frames.recv_timeout(timeout).ok()
     }
 
+    /// A guest relay emits its snapshot before asking acpmux to mark its session visible. The
+    /// view response is the fake's true attach-ready signal, after which a pushed event cannot
+    /// race the relay's setup. Real acpmux subscribes before the attach answer and serializes
+    /// writes on its connection, so this barrier models readiness rather than adding a delay.
+    pub(super) fn wait_for_attachment(&self) {
+        self.attachment_ready.recv_timeout(WAIT).expect("a guest attachment to become ready");
+    }
+
     pub(super) fn no_frame(&self) {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -129,9 +153,32 @@ impl FakeAcpmux {
 
     fn connection(&mut self) -> &mut UnixStream {
         if self.current.is_none() {
-            self.current = Some(self.connections.recv_timeout(WAIT).expect("a connection"));
+            let stream = self.connections.recv_timeout(WAIT).expect("a connection");
+            self.all.push(stream.try_clone().unwrap());
+            self.current = Some(stream);
         }
         self.current.as_mut().unwrap()
+    }
+
+    /// A handle on every connection the daemon opened to this fake so far, for a writer that may
+    /// run on another thread. acpmux sends a session's records to each of its attachments, and
+    /// each guest relay of a share is one ([`FakeAcpmux::notify`] reaches only the first).
+    pub(super) fn streams(&mut self) -> Vec<UnixStream> {
+        while let Ok(stream) = self.connections.try_recv() {
+            if self.current.is_none() {
+                self.current = stream.try_clone().ok();
+            }
+            self.all.push(stream);
+        }
+        self.all.iter().filter_map(|stream| stream.try_clone().ok()).collect()
+    }
+
+    /// [`FakeAcpmux::notify`] on every connection so far (one the daemon closed is skipped).
+    pub(super) fn notify_all(&mut self, method: &str, params: Value) {
+        let line = format!("{}\n", json!({"jsonrpc":"2.0","method":method,"params":params}));
+        for mut stream in self.streams() {
+            let _ = stream.write_all(line.as_bytes());
+        }
     }
 
     pub(super) fn notify(&mut self, method: &str, params: Value) {
@@ -156,6 +203,8 @@ impl Drop for FakeAcpmux {
 /// own, and sessions after the watch answer's own.
 #[derive(Clone, Default)]
 pub(super) struct Fixture {
+    /// The fake acpmux handles the chat-scoped Claude sign-in methods.
+    pub(super) scoped_claude_login: bool,
     /// Enable the first-chat catalog/new-session fixture, with this trust decision.
     pub(super) start_folder_trusted: Option<bool>,
     pub(super) page: Vec<Value>,
@@ -268,6 +317,7 @@ fn serve(
     frames: Sender<Value>,
     fixture: &Fixture,
     transfers: &Mutex<HashSet<String>>,
+    attachment_ready: &Sender<()>,
 ) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
@@ -278,6 +328,19 @@ fn serve(
         let _ = frames.send(frame.clone());
         let id = frame["id"].clone();
         let params = &frame["params"];
+        if !fixture.scoped_claude_login
+            && matches!(
+                frame["method"].as_str(),
+                Some("_acpmux/agent_login/recover_start" | "_acpmux/agent_login/recover_finish")
+            )
+        {
+            let reply = json!({"jsonrpc":"2.0","id":id,"error":{
+                "code":-32601,"message":"method not found"
+            }});
+            writeln!(writer, "{reply}").unwrap();
+            continue;
+        }
+        let view = frame["method"] == json!("_acpmux/view");
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" => {
                 let mut capabilities = vec!["acpmux-v1"];
@@ -511,12 +574,16 @@ fn serve(
                 Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
                     "userCode": "WDJB-MJHT", "needsCode": false}))
             }
-            "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
-                "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
+            "_acpmux/agent_login/start" | "_acpmux/agent_login/recover_start" => {
+                Some(json!({"loginId": "login_1",
+                "url": "https://claude.ai/oauth/authorize", "needsCode": true}))
+            }
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
                 Some(json!({FAKE_ERROR: "bad code", FAKE_ERROR_DATA: {"reason": "bad_code"}}))
             }
-            "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
+            "_acpmux/agent_login/finish" | "_acpmux/agent_login/recover_finish" => {
+                Some(json!({"signedIn": true, "restarted": true}))
+            }
             "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
             "_acpmux/agent_login/cancel" => Some(json!({})),
             // The owner's refreshed credential (agent_session_credentials_tests.rs).
@@ -557,9 +624,12 @@ fn serve(
                 if let Some(delay) = fixture.accept_after {
                     std::thread::sleep(delay);
                 }
+                let provenance =
+                    acpmux::author::of_prompt(params).unwrap().map(|author| author.provenance());
+                let held = acpmux::author::awaits_owner(provenance.as_ref());
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                    "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
-                    "turnId": "turn_1", "queued": false}});
+                    "sessionId": params.get("sessionId"), "promptId": params.pointer("/_meta/acpmux/promptId"),
+                    "turnId": "turn_1", "queued": held, "awaitingOwner": held}});
                 writeln!(writer, "{accepted}").unwrap();
                 None
             }
@@ -584,6 +654,9 @@ fn serve(
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
+            if view {
+                let _ = attachment_ready.send(());
+            }
         }
     }
 }
@@ -628,6 +701,44 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
             json!({"sessionId": "acp_moved", "cwd": params["cwd"]})
         }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        // A begin that carries a token is answered as an acpmux that keeps one: the frozen
+        // move's own token, `tok_frozen`.
+        "_acpmux/transfer_begin"
+            if params["sessionId"] == json!(MOVING_CHAT) && params.get("beginToken").is_some() =>
+        {
+            json!({
+                FAKE_ERROR: "transfer.moving: this chat is already being moved",
+                FAKE_ERROR_DATA: {"transferId": "xfer_frozen", "beginToken": "tok_frozen"},
+            })
+        }
+        // Tail first (`agent_transfer/history_later.rs`).
+        "_acpmux/transfer_prepare" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_1", "afterSeq": 7,
+            "token": "tok", "sessionId": params["sessionId"], "historyLater": true,
+            "files": [{"path": "events/0.ndjson", "size": 3}],
+        }),
+        "_acpmux/transfer_stage" => {
+            json!({"receiveId": "stg_1", "stageId": "stg_1",
+                   "sessionId": params["manifest"]["sessionId"]})
+        }
+        "_acpmux/transfer_stage_finish" => json!({"afterSeq": 7, "records": 2}),
+        "_acpmux/transfer_history_have" => json!({"have": 0}),
+        "_acpmux/transfer_history_export" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_h", "throughSeq": 7,
+            "sessionId": params["sessionId"],
+            "files": [{"path": "events/history.cspb", "size": 3}],
+        }),
+        "_acpmux/transfer_history" => {
+            json!({"sessionId": params["sessionId"], "throughSeq": 7, "records": 5})
+        }
+        "_acpmux/transfer_begin" if params["prepareId"] == json!("pre_1") => json!({
+            "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
+            "sessionId": params["sessionId"], "prefix": {"afterSeq": params["afterSeq"]},
+            "files": [{"path": "events/1.ndjson", "size": 3},
+                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()},
+                      {"path": "session.json", "size": BUNDLE_SESSION.len()}],
+            "session": {"sessionId": params["sessionId"], "harness": "claude"},
+        }),
         "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
             FAKE_ERROR: "transfer.moving: this chat is already being moved",
             FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
@@ -1011,7 +1122,6 @@ fn verbs_refuse_session_cwd_and_command_params() {
         json!({"command":"rm -rf /"}),
         json!({"initial_command":"x"}),
         json!({"mcpServers":[]}),
-        json!({"agent":"codex"}),
     ] {
         let mut frame = json!({"cmd":"agent-session-attach","surface":surface});
         for (key, value) in extra.as_object().unwrap() {
@@ -1318,7 +1428,6 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
         json!({"prompt_id":"p 2","text":"x"}),
         json!({"prompt_id":"p2","text":"   "}),
         json!({"prompt_id":"p2","text":"x".repeat(agent_session_attach::MAX_PROMPT_BYTES + 1)}),
-        json!({"prompt_id":"p2","text":"x","prompt":[{"type":"resource_link","uri":"file:///etc"}]}),
     ] {
         let mut frame = json!({"cmd":"agent-session-prompt","surface":surface});
         for (key, value) in bad.as_object().unwrap() {
@@ -1530,6 +1639,14 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
                    "userCode": "WDJB-MJHT", "needsCode": false}),
         ),
+        // Every agent acpmux signs in passes, with no list of them here (OpenCode's key).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"opencode","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "opencode", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1547,7 +1664,8 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     }
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"../codex"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),
@@ -1559,6 +1677,68 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
     fake.no_frame();
+}
+
+#[test]
+fn owner_cloud_chat_login_forwards_non_claude_providers() {
+    let fake = FakeAcpmux::start("owner-card");
+    let mux = mux_with(&fake, "asa-owner-card");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    let peer = crate::remote_relay_state::LinkPeer {
+        install: "inst_owner_card".into(),
+        user: "42".into(),
+        team: "team_a".into(),
+    };
+    mux.record_remote_check(&peer.install).unwrap();
+    mux.bind_remote_peer_checked(client, &peer, true).unwrap();
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().native_vm_kind =
+        Some(Some(cmux_link::token::VmKind::Owner));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let send = |id: u64, mut request: Value| {
+        request["id"] = json!(id);
+        assert_eq!(
+            native_owner::try_handle(&mux, client, &request.to_string(), &writer),
+            Some(true)
+        );
+        let deadline = Instant::now() + WAIT;
+        loop {
+            while let Some(line) = outbound.try_pop() {
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["id"] == id {
+                    return reply;
+                }
+            }
+            assert!(Instant::now() < deadline, "no reply for request {id}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let reply = send(
+        1,
+        json!({"cmd":"agent-session-attach","surface":surface,"limit":400,"kinds":["transcript"]}),
+    );
+    assert_eq!(reply["ok"], true, "{reply}");
+    let _ = fake.frame();
+    for (id, op, agent, key) in [
+        (2, "start", "codex", None),
+        (3, "api_key", "gemini", Some("gemini-fixture")),
+        (4, "api_key", "opencode", Some("opencode-fixture")),
+    ] {
+        let mut request =
+            json!({"cmd":"agent-session-login","surface":surface,"op":op,"agent":agent});
+        if let Some(key) = key {
+            request["key"] = json!(key);
+        }
+        let reply = send(id, request);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], format!("_acpmux/agent_login/{op}"));
+        assert_eq!(sent["params"]["sessionId"], SESSION);
+        assert_eq!(sent["params"]["agent"], agent);
+        assert_eq!(sent["params"]["key"], json!(key));
+    }
 }
 
 /// An unbound agent tab of this store (a new chat whose start has not made a session, or whose
@@ -1639,9 +1819,8 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
         assert_eq!(sent["params"], params, "no session: the sign-in is this machine's own");
     }
     for bad in [
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
-               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Open Code"}),
+        // An unknown param (`sessionId`) is ignored, not refused (cmux#49712): no row here.
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
@@ -1656,6 +1835,104 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
             "agent_session.not_attached",
         );
     }
+    fake.no_frame();
+}
+
+#[test]
+fn settings_claude_login_routes_only_to_owner_cloud() {
+    let fake = FakeAcpmux::start_with(
+        "settings-claude",
+        Fixture { scoped_claude_login: true, ..Default::default() },
+    );
+    let mux = mux_with(&fake, "asa-settings-claude");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut owner = Client::connect(&mux, "settings-claude");
+    let start = json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                       "agent":"claude", "vm_kind":"owner"});
+    for (frame, method, params) in [
+        (
+            start.clone(),
+            "_acpmux/agent_login/start",
+            json!({"agent":"claude","reuseExisting":true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                "agent":"claude","vm_kind":"owner","reauthenticate":true}),
+            "_acpmux/agent_login/start",
+            json!({"agent":"claude","reuseExisting":false}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"finish",
+                "login_id":"login_1","vm_kind":"owner"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId":"login_1"}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_start",
+                "agent":"claude","vm_kind":"owner","recovery_session":"chat-b"}),
+            "_acpmux/agent_login/recover_start",
+            json!({"agent":"claude","reuseExisting":true,"recoverySession":"chat-b"}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_finish",
+                "login_id":"login_1","vm_kind":"owner","recovery_session":"chat-b"}),
+            "_acpmux/agent_login/recover_finish",
+            json!({"loginId":"login_1","recoverySession":"chat-b"}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"cancel",
+                "login_id":"login_1","vm_kind":"owner"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId":"login_1"}),
+        ),
+    ] {
+        let reply = owner.request(frame);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], method);
+        assert_eq!(sent["params"], params);
+    }
+    let mut no_owner = start.clone();
+    no_owner.as_object_mut().unwrap().remove("vm_kind");
+    assert_eq!(owner.request(no_owner)["data"]["refused"]["reason"], "shared_machine");
+    let mut other_agent = start.clone();
+    other_agent["agent"] = json!("codex");
+    assert_code(&owner.request(other_agent), "agent_session.bad_request");
+    let mut phone = Client::connect(&mux, "settings-claude-phone");
+    assert_eq!(
+        phone.request(json!({"cmd":"set-client-info","kind":"ios","capabilities":[agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY]}))["ok"],
+        true
+    );
+    // A paired phone never reaches the handler: the remote relay denies this command by default.
+    assert_code(&phone.request(start.clone()), "remote_denied");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
+    assert_eq!(owner.request(start)["data"]["refused"]["reason"], "shared_machine");
+    fake.no_frame();
+}
+
+#[test]
+fn settings_claude_recovery_refuses_an_older_acpmux() {
+    let fake = FakeAcpmux::start("old-claude");
+    let mux = mux_with(&fake, "asa-old-claude");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut owner = Client::connect(&mux, "old-claude");
+    let mut request = json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                             "agent":"claude","vm_kind":"owner"});
+    let ordinary = owner.request(request.clone());
+    assert_eq!(ordinary["data"]["loginId"], "login_1");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/start");
+
+    request["op"] = json!("recover_start");
+    request["recovery_session"] = json!("chat-b");
+    let start = owner.request(request);
+    assert_eq!(start["data"]["refused"]["reason"], "unsupported", "{start}");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/recover_start");
+
+    let finish = owner.request(json!({"cmd":"agent-session-login-settings","surface":0,
+        "op":"recover_finish","login_id":"login_1","vm_kind":"owner","recovery_session":"chat-b"
+    }));
+    assert_eq!(finish["data"]["refused"]["reason"], "unsupported", "{finish}");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/recover_finish");
     fake.no_frame();
 }
 
@@ -1758,8 +2035,6 @@ fn a_side_question_goes_inline_to_the_pinned_session() {
         json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
                "_meta":{"acpmux":{"via":"app"}}}),
     ] {
@@ -2066,16 +2341,15 @@ fn detach_and_disconnect_close_the_acpmux_link() {
 }
 
 #[test]
-fn attachments_per_connection_are_bounded() {
+fn attachments_past_the_old_caps_of_8_per_connection_and_64_in_all_attach() {
     let fake = FakeAcpmux::start("limit");
     let mux = mux_with(&fake, "asa-limit");
     let mut client = Client::connect(&mux, "limit");
-    for _ in 0..MAX_ATTACHMENTS_PER_CLIENT {
+    for _ in 0..72 {
         let surface = agent_tab(&mux, Some(SESSION));
         assert_eq!(attach(&mut client, surface)["ok"], json!(true));
     }
-    let surface = agent_tab(&mux, Some(SESSION));
-    assert_code(&attach(&mut client, surface), "agent_session.limit");
+    assert_eq!(mux.control_clients.agent_sessions.attachment_count(), 72);
 }
 
 #[test]
@@ -2141,7 +2415,6 @@ fn every_verb_refuses_session_cwd_command_and_meta_params() {
         json!({"cwd":"/"}),
         json!({"command":"x"}),
         json!({"_meta":{"acpmux":{"steer":true}}}),
-        json!({"prompt":[{"type":"text","text":"x"}]}),
     ] {
         for mut frame in every_verb(surface).into_iter().skip(1).take(4) {
             frame.as_object_mut().unwrap().remove("id");

@@ -44,6 +44,7 @@ final class CreationInputCoordinator {
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
+    private var markedFirstKey = false // the process's first key-down marked what the hold read of it (``holdReading(in:)``)
     init(router: KeyRouter, replay: @escaping HeldKeyReplay) { (self.router, self.replay) = (router, replay) }
 
     /// Holds `controller`'s keys for the person's new workspace's terminal under a new intent, and claims its keyboard;
@@ -215,6 +216,7 @@ final class CreationInputCoordinator {
 
     /// Takes `event` while a creation in its window is pending.
     func capture(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if !markedFirstKey { markedFirstKey = true; DebugTimings.markLaunch("terminal.first_key.\(holdReading(in: window))") } // hq#22681
         guard let router, let window else { return false }
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
@@ -223,8 +225,8 @@ final class CreationInputCoordinator {
         if let replaying { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
         if asking[shell.windowNumber] != nil { return false } // a close's question is up: a key typed now is its own, the held keys wait for its answer
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
-        // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
-        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil || $0.personLeftEveryCreation }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+        // cold, a launch's restored window under a selection's hold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4, hq#22681); a second one gets its own lane.
+        if buffers[shell.windowNumber]?.mayAwaitFocusedContent ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
            let awaited = Self.awaitedContent(controller), buffers[shell.windowNumber]?.awaitedTab != awaited.tab, awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitContent(awaited, machine: controller.content?.daemon.machineID)
         }
@@ -403,13 +405,24 @@ final class CreationInputCoordinator {
 extension CreationInputCoordinator {
     /// The focused content a key typed now would miss (``AwaitedContent``): a terminal whose surface is not shown in its pane yet, a browser tab whose
     /// page is not made yet (a restored Chromium tab starts after the window shows), or an agent chat or page tab whose view is not shown yet.
-    static func awaitedContent(_ controller: WindowController) -> AwaitedContent? {
+    static func awaitedContent(_ controller: WindowController, reading: ((String) -> Void)? = nil) -> AwaitedContent? {
         let state = controller.focus.currentState()
-        guard case let (pane, tab, isPage)? = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
+        guard case let (pane, tab, isPage)? = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { reading?("focus_not_content"); return nil }
         let shown = content.paneController(key: pane).map { shown in
             AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .conversation = $0 { nil } else { .browser } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: AwaitedContent.Pane.pageReady(browser: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } }, pageWindow: shown.currentContent?.childWindowTab?.pageReady))
         }
-        return AwaitedContent.awaited(isPage ? .browser : .terminal, tab: tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == pane })
+        let (kind, inTopology): (AwaitedContent.Kind, Bool) = (isPage ? .browser : .terminal, state.topology.panes.contains { $0.id == pane })
+        reading?("\(isPage ? "page" : "terminal")_\(AwaitedContent.reading(kind, tab: tab, pane: shown, paneInTopology: inTopology))")
+        return AwaitedContent.awaited(kind, tab: tab, pane: shown, paneInTopology: inTopology)
+    }
+
+    /// hq#22681: what the hold reads of a key typed into `window` now, the first condition of ``capture(_:in:)`` that fails.
+    private func holdReading(in window: NSWindow?) -> String {
+        guard let router, let window, case let (controller?, .content) = router.focus(for: window) else { return "not_content" }
+        if isHolding(in: controller.window ?? window) { return "hold_open" }
+        var reading = "view_change_refused"
+        if ActionRunScope.viewChangeAllowed() { _ = Self.awaitedContent(controller) { reading = $0 } }
+        return reading
     }
 
     /// False while focus names a terminal whose view does not have the keyboard and the window's

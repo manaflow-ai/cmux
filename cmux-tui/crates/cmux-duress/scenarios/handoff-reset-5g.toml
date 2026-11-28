@@ -1,0 +1,51 @@
+name = "handoff-reset-5g"
+summary = "a 5G handoff resets the path every 30-60 s while streaming: recovery stays bounded and nothing is left unfinished"
+sources = [
+  "turn-path-reset.toml: a path reset's stall is 1.0-2.8 s on a dual-homed Mac (cmux#50916)",
+  "the 30-60 s cadence and the recovery bound are initial goals, not measured baselines; tighten from the first CI run",
+]
+spec = "duress,stream_seconds=120,chat_records=0"
+headless = true
+
+# A 5G-like link whose address changes at each reset; the stall is the reset's.
+[link]
+name = "handoff-5g"
+version = 1
+down_kbit = 30000
+up_kbit = 8000
+rtt_ms = 30
+jitter_ms = 6
+disruption = { kind = "address_change", stall_ms = [800, 2000] }
+source = "initial goal profile: a 5G handoff, not a measured link"
+
+[[event]]
+kind = "path_reset"
+every_ms = [30000, 60000]
+
+[[event]]
+kind = "echo"
+every_ms = 500
+
+[[check]]
+metric = "reset_count"
+min = 2
+
+[[check]]
+metric = "reset_recovery_ms"
+max = 3500
+
+[[check]]
+metric = "reset_catch_up_frames"
+max = 6
+
+[[check]]
+metric = "unfinished_marks"
+max = 0
+
+[[check]]
+metric = "dropped_frames"
+max = 0
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's socket resume after an address change; the sim does not model the 30-60 s reset cadence, which only this headless run replays"

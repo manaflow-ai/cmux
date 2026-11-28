@@ -9,7 +9,7 @@ import { userIdFor } from "../src/domains/user.ts"
 import { signState } from "../src/integrations/state.ts"
 import type { Env } from "../src/env.ts"
 import { apiUserId, DEVELOPMENT_STATE_ISSUER, integrationStateSignedBy } from "../../dashboard/src/lib/integration-callback.ts"
-import { CALLBACK_ORIGIN, createPage, DEVELOPMENT_API_ORIGIN, isLocalHost, LOCAL_PORT, manifest, secretsFromConversion } from "../scripts/dev-github-app.ts"
+import { CALLBACK_ORIGIN, createPage, DEVELOPMENT_API_ORIGIN, isLocalHost, LOCAL_PORT, manifest, secretsFromConversion, UNLOCK_THEN_POST_JS } from "../scripts/dev-github-app.ts"
 
 /** JSONC to JSON: drops comments outside strings (wrangler.jsonc has no trailing commas). */
 const stripComments = (text: string): string => {
@@ -60,6 +60,15 @@ describe("the cmux-cloud-dev App manifest", () => {
     expect(page).toContain('action="https://github.com/organizations/manaflow-ai/settings/apps/new?state=abc"')
     expect(page).not.toContain('"name":')
     expect(page).toContain("&quot;name&quot;:&quot;cmux-cloud-dev&quot;")
+  })
+
+  it("unlocks GitHub by GET before it posts the manifest", () => {
+    // Leo, 2026-11-27: "i saw Unable to load App Manifest, please try again." GitHub's sudo page eats the POST body.
+    const page = createPage("abc")
+    expect(page).toContain('<a id="c" target="_blank" href="https://github.com/organizations/manaflow-ai/settings/apps/new">')
+    expect(page.indexOf("1. Unlock GitHub")).toBeLessThan(page.indexOf("2. Create cmux-cloud-dev on GitHub"))
+    expect(page).toContain(UNLOCK_THEN_POST_JS)
+    expect(page).not.toContain(".submit();")
   })
 
   it("answers only requests addressed to its own local address", () => {

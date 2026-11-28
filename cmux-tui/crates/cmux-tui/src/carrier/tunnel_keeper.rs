@@ -75,6 +75,10 @@ pub(crate) enum KeeperEvent {
     Started,
     /// Its tunnel is up: the hub serves the socket.
     Ready,
+    /// Its supervisor is retrying, and why: written once per reason, so a
+    /// tunnel that never comes up names its cause in link.log (the failover
+    /// probe reads it there) before its attempts run out.
+    Retrying(String),
     /// It ended by itself, with its final status and the team it asked for
     /// (a "no mesh" is that team's answer).
     Ended(TunnelStatus, String),
@@ -170,15 +174,25 @@ impl Keeper {
             return;
         }
         let mut restarts = 0u32;
+        // The last sign-in refusal written: the keeper asks every `check_every`, so it writes a
+        // refusal once and again only when its reason or team changes (a link whose tunnel never
+        // starts names why in link.log, where the failover probe reads it).
+        let mut refused: Option<String> = None;
         loop {
             let Some(joined) = self.joined_now() else {
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             };
-            if self.ask(&joined).await.is_err() {
+            if let Err(why) = self.ask(&joined).await {
+                let why = format!("no sign-in for team {}: {why}", joined.team);
+                if refused.as_deref() != Some(why.as_str()) {
+                    self.emit(KeeperEvent::Unstarted(why.clone()));
+                    refused = Some(why);
+                }
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             }
+            refused = None;
             let plan = match self.plan(&joined) {
                 Ok(plan) => plan,
                 Err(why) => {
@@ -317,6 +331,7 @@ impl Keeper {
     async fn watch(&self, handle: tunnel::TunnelHandle, joined: &Joined) -> Run {
         let mut status = handle.status();
         let mut ready = false;
+        let mut retrying: Option<String> = None;
         let start = tokio::time::Instant::now();
         let mut check = tokio::time::interval_at(
             start + self.timing.check_every,
@@ -338,7 +353,14 @@ impl Keeper {
                     }
                     if matches!(now, TunnelStatus::Ready { .. }) && !ready {
                         ready = true;
+                        retrying = None;
                         self.emit(KeeperEvent::Ready);
+                    }
+                    if let TunnelStatus::Retrying(why) = now
+                        && retrying.as_deref() != Some(why.as_str())
+                    {
+                        self.emit(KeeperEvent::Retrying(why.clone()));
+                        retrying = Some(why);
                     }
                 }
                 _ = check.tick() => {

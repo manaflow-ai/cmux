@@ -59,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -76,6 +77,9 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// That row's text when it is not Add harness…: with Cloud picked it opens Settings > Cloud
+  /// (cloudPickerEntries.ts), "Set up more for Cloud…".
+  addAgentLabel?: string;
   /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
   /// composer installs it in place, signs it in and then starts the chat on the model
   /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their
@@ -124,6 +128,8 @@ export type ModelPickerProps = {
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
@@ -162,10 +168,35 @@ export const CHAT_COLUMN = ".acpmux-main";
 export function pickerHeightBounds(
   room: unknown,
   opened: number | undefined,
+  floor = 0,
 ): { maxHeight: number; minHeight: number } {
   const maxHeight = typeof room === "number" && Number.isFinite(room) ? Math.max(0, room) : MODEL_PICKER_INITIAL_HEIGHT;
-  const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
+  const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0, floor));
   return { maxHeight, minHeight };
+}
+
+const LOCAL_HEIGHT_KEY = "cmux.acpmux.localPickerHeight";
+
+/// The height the This Mac picker last opened at. The Cloud picker opens at least this tall, so a
+/// family that shows only its Connect row keeps the local picker's default height; before any local
+/// open it uses MODEL_PICKER_INITIAL_HEIGHT. Both stay inside the anchor's room (pickerHeightBounds).
+export function cloudPickerFloor(): number {
+  try {
+    const saved = Number(localStorage.getItem(LOCAL_HEIGHT_KEY));
+    return Number.isFinite(saved) && saved >= MODEL_PICKER_MIN_HEIGHT ? saved : MODEL_PICKER_INITIAL_HEIGHT;
+  } catch {
+    return MODEL_PICKER_INITIAL_HEIGHT;
+  }
+}
+
+/// Records the This Mac picker's opened height for cloudPickerFloor.
+export function rememberLocalPickerHeight(height: number): void {
+  if (!Number.isFinite(height) || height < MODEL_PICKER_MIN_HEIGHT) return;
+  try {
+    localStorage.setItem(LOCAL_HEIGHT_KEY, String(Math.round(height)));
+  } catch {
+    // Blocked storage: the Cloud picker uses the initial height.
+  }
 }
 
 /// A pick ``ModelPickerProps.onSetUpPick`` gets: the model and its harness, whether the harness is

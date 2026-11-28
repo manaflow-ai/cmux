@@ -6,7 +6,7 @@
 // on the warm gray scale, chips and the prompt on the text at 6%, dividers at 9%.
 {
   "name": "Folio",
-  "description": "A document workspace, Light: a warm off-white page, warm ink, a quiet tree sidebar, blue links.",
+  "description": "Light: a warm off-white page, a quiet sidebar, blue links.",
 
   // The terminal follows the page; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Light",
@@ -83,7 +83,7 @@
   // The sidebar: a shade under the page, opaque, with the hairline at its edge and plain section
   // headings ("Private", "Shared") in small gray type.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f3f2ee",
+  "appearance.surfaces.sidebar.color": "#faf9f5",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,
@@ -94,11 +94,11 @@
   // docks in the sidebar's tone so the active tab reads as the page it opens.
   "appearance.surfaces.agentPane.color": "#fbfaf8",
   "appearance.surfaces.agentPane.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#f3f2ee",
+  "appearance.surfaces.tabBar.color": "#faf9f5",
   "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#f3f2ee",
+  "appearance.surfaces.browserChrome.color": "#faf9f5",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#f3f2ee",
+  "appearance.surfaces.docks.color": "#faf9f5",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.editor.color": "#fbfaf8",
   "appearance.surfaces.editor.opacity": 1,

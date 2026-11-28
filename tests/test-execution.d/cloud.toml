@@ -4,36 +4,47 @@
 [[test]]
 path = "tests/test_cloud_capture_provision.py"
 lane = "manual"
-reason = "Run by hand before changing the Cloud capture provision scripts; no new CI tests (CLAUDE.md, Verification)."
+reason = "Run by hand before changing the Cloud capture provision scripts; kept off CI under the 2026-10-23 no-new-CI rule, since lifted."
 
 [[test]]
 path = "tests/test_cloud_carrier_os_log.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Run python3 tests/test_cloud_carrier_os_log.py yourself after changing the Cloud carrier's logging (CmuxNextCloud/Link/CloudCarrierResolver.swift, cmux-tui carrier/supervise*.rs): it refuses an info, debug or #if DEBUG carrier log line, which a release build drops (under 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Run python3 tests/test_cloud_carrier_os_log.py yourself after changing the Cloud carrier's logging (CmuxNextCloud/Link/CloudCarrierResolver.swift, cmux-tui carrier/supervise*.rs): it refuses an info, debug or #if DEBUG carrier log line, which a release build drops (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_cloud_chat_proof.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes, as its failure-evidence sibling is: python3 tests/test_cloud_chat_proof.py (mocked launcher, auth and Cloud API; no app, no machine)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_composer_journey.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_display_catalog.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cloud_first_byte.py"
+lane = "manual"
+reason = "cmux-ci test -- python3 -m unittest -v tests/test_cloud_first_byte.py; subprocess stream, deadline, Git overlap and parallel duress fixtures, no model or app needed."
+
+[[test]]
 path = "tests/test_cloud_golden_path_receipt.py"
 lane = "manual"
-reason = "Run by hand when scripts/cmux-next/cloud_golden_path_receipt.py changes: TMPDIR=/dev/shm python3 -m unittest tests/test_cloud_golden_path_receipt.py (fixtures only, no app, no machine; under 1 s). No new CI tests (CLAUDE.md, Verification)."
+reason = "Run by hand when scripts/cmux-next/cloud_golden_path_receipt.py changes: TMPDIR=/dev/shm python3 -m unittest tests/test_cloud_golden_path_receipt.py (fixtures only, no app, no machine; under 1 s). Kept manual under the 2026-10-23 no-new-CI rule, since lifted."
+
+[[test]]
+path = "tests/test_cloud_login_action.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_pair_proof.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Guardrails of scripts/ci/cmux_next_cloud_pair_proof.py, the fleet Cloud chat proof (#30473); run python3 tests/test_cloud_pair_proof.py yourself after changing that script (under 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Guardrails of scripts/ci/cmux_next_cloud_pair_proof.py, the fleet Cloud chat proof (#30473); run python3 tests/test_cloud_pair_proof.py yourself after changing that script (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_cloud_vm_attach_retry_script.py"

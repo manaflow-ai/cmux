@@ -13,7 +13,6 @@ use super::close_tabs_command;
 use super::column_anchor;
 use super::conversation_tabs_wire;
 use super::frontend_browser_history;
-use super::get_surface;
 use super::optional_surface_size;
 use super::pane_tab_group_json;
 use super::resolve_tab_refs;
@@ -23,6 +22,7 @@ use super::tab_create_wire;
 use super::tab_drag_outcome_json;
 use super::tab_group_outcome_json;
 use super::validate_client_transaction;
+use super::{get_surface, get_surface_without_start};
 use crate::Actor;
 use crate::Mux;
 use crate::PaneId;
@@ -140,8 +140,10 @@ pub(super) fn move_tab_to_new_workspace(
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
+    let source_key = mux.placed_workspace_key(surface);
     let workspace =
         mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
+    mux.inherit_room_pin(source_key, mux.workspace_key_by_id(workspace));
     mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
     let (key, workspace_index) = mux
         .with_state(|state| {
@@ -344,12 +346,19 @@ pub(super) fn move_tab_group_to_new_workspace(
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
+    let source_key = mux
+        .tab_group_outcome(&group)
+        .members
+        .first()
+        .and_then(|surface| mux.placed_workspace_key(*surface));
     let outcome = mux.move_tab_group_as(
         &actor,
         &group,
         crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
         transaction.as_deref(),
     )?;
+    let moved_key = outcome.workspace.and_then(|workspace| mux.workspace_key_by_id(workspace));
+    mux.inherit_room_pin(source_key, moved_key);
     Ok(tab_group_outcome_json(&outcome))
 }
 
@@ -460,7 +469,8 @@ pub(super) fn close_surface(
 ) -> anyhow::Result<Value> {
     // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
     // runtime surface after a restart but is still a placed tab.
-    if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
+    if get_surface_without_start(mux, surface).is_err() && !surface_has_view_placement(mux, surface)
+    {
         anyhow::bail!("unknown surface {surface}");
     }
     if !mux.close_surface_as(&actor, surface)? {

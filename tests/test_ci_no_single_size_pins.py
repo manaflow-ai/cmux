@@ -50,19 +50,23 @@ OWNER = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*$")
 LIST_OPEN = re.compile(r"fromJSON\('\[[^\]']*$")
 COMPARED = re.compile(r"(?:[!=]=|,|\w\()\s*$")  # a comparison or a function argument, never a bare group
 # The text before a literal that keeps it on purpose -> why. Nothing else may.
-EXCEPTIONS = {
+EXCEPTIONS: dict[re.Pattern[str], str] = {
     re.compile(r"vars\.CI_TRUSTED_RUNNER\) && vars\.CI_TRUSTED_RUNNER \|\|\s*$"): (
         "runner trust policy: a trusted-token job (pull_request_target, comment events, CLA) takes CI_TRUSTED_RUNNER "
         "only from the allowlist written into its own expression, else one fixed ephemeral label. A RUNNER_POOLS "
-        "read would let whoever writes that variable route the token; scripts/ci/validate-cla-policy.rb allows the "
+        "read would let whoever writes that variable route the token; main's scripts/ci/validate-cla-policy.rb allows the "
         "CLA job's runs-on as one exact string"
     ),
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
+    ("relay-tls.yml", "jobs.system-keychain.runs-on"): (
+        "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
+        "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
+    ),
+    ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
+        "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
+        "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules
@@ -70,8 +74,22 @@ SELECTIONS_KEPT_LITERAL = {
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
 import workflow_jobs  # noqa: E402
+# A job whose runs-on line says `# frozen-label: <why>` (or ephemeral-required, owned-pool-unfit) was frozen by
+# scripts/ci/one_linux_label.py to the one label it resolved to: a credentialed, provenance or signing job that a
+# shared pool must not run. The literal is its trust rule, like a signing job's; scripts/ci/check_runs_on_pools.py
+# reads the same comment and allows only a Blacksmith label there.
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from check_runs_on_pools import EPHEMERAL_MARK, marked_jobs  # noqa: E402
 # A fork branch whose operand reads any repository variable, directly or through fromJSON.
 VARS_READ = re.compile(r"\bvars\.")
+# The one Linux label's fork operand (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you shouldn't have to think
+# about sizing your CI"): an operator's fork-only variable that ends in GitHub-hosted Ubuntu. A fork run that cannot
+# read the variable still gets the quoted hosted label, so it reads as that label.
+FORK_HOSTED_DEFAULT = "'ubuntu-24.04'"
+
+
+def without_fork_hosted_default(value: str) -> str:
+    return value.replace(FORK_HOSTED_DEFAULT, "'ubuntu-24.04'")
 FORK_READS_POOLS = re.compile(FORK.pattern.rstrip("$") + r"(?:fromJSON\()?vars\.")
 
 
@@ -141,11 +159,15 @@ def violations(directory: Path = WORKFLOWS) -> list[str]:
     for workflow in sorted(directory.glob("*.y*ml")):
         document = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
         jobs = document.get("jobs", {})
+        frozen = marked_jobs(workflow.read_text(encoding="utf-8"), EPHEMERAL_MARK)
         for path, value in selections(jobs, ("jobs",)):
             if (workflow.name, ".".join(path)) in SELECTIONS_KEPT_LITERAL:
                 continue
             if holds_signing_material(jobs.get(path[1])):
                 continue
+            if path[1] in frozen and path[2:] == ("runs-on",):
+                continue
+            value = without_fork_hosted_default(value)
             if FORK_READS_POOLS.search(value) or any(
                     VARS_READ.search(value[span.start:span.stop]) for span in fork_operands(value)):
                 found.append(f"{workflow.name}: {'.'.join(path)} gives fork pull requests a repository variable, "
@@ -202,12 +224,34 @@ class NoSingleSizePins(unittest.TestCase):
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
 
+    def test_a_frozen_exception_job_keeps_its_literal_and_an_unmarked_one_does_not(self) -> None:
+        import tempfile
+        line = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text(
+                "jobs:\n"
+                f"  deploy:\n    runs-on: {line} # frozen-label: credentialed job\n    steps: []\n"
+                f"  plain:\n    runs-on: {line}\n    steps: []\n", encoding="utf-8")
+            found = violations(Path(tmp))
+        self.assertEqual([f.split(" routes")[0] for f in found], ["w.yml: jobs.plain.runs-on"])
+
     def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","
                    "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                    "'blacksmith-4vcpu-ubuntu-2404' }}")
         self.assertEqual(pins_in(trusted), [])
         self.assertTrue(pins_in("${{ vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+
+    def test_the_one_label_fork_operand_reads_as_its_hosted_default(self) -> None:
+        one = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+               "github.event.pull_request.head.repo.full_name != github.repository && " + FORK_HOSTED_DEFAULT
+               + " || 'cmux-linux' }}")
+        value = without_fork_hosted_default(one)
+        self.assertFalse(FORK_READS_POOLS.search(value))
+        self.assertFalse(any(VARS_READ.search(value[s.start:s.stop]) for s in fork_operands(value)))
+        self.assertEqual(pins_in(value), [])
+        other = one.replace("github.repository && 'ubuntu-24.04'", "github.repository && (vars.LINUX_RUNNER || 'ubuntu-24.04')")
+        self.assertTrue(any(VARS_READ.search(other[s.start:s.stop]) for s in fork_operands(other)))
 
     def test_a_fork_branch_that_reads_a_variable_is_flagged(self) -> None:
         value = ("${{ github.event.pull_request.head.repo.full_name != github.repository && "

@@ -43,7 +43,7 @@ fn local(answer: &Value) -> SocketAddr {
 #[test]
 fn a_link_exit_reaches_the_host_with_no_op_after_it() {
     let mut host = Host::start(FIXTURES);
-    let carrier = host.op("1", "cloud.machine.connect", json!({"machine": "vm-alpha01"}), "c-1");
+    let carrier = host.op("1", "cloud.machine.connect", json!({"machine": "vm_alpha01"}), "c-1");
     assert_eq!(carrier["state"], "up");
     // Read the op's own lines up to its `up` line, however late they come.
     // The loop pumps the link before it sends that line and never after it
@@ -54,11 +54,11 @@ fn a_link_exit_reaches_the_host_with_no_op_after_it() {
             break;
         }
     }
-    host.spawner.exit("vm-alpha01", 1);
+    host.spawner.exit("vm_alpha01", 1);
     let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
     assert!(link_changed(&line), "{line}");
     let data = payload(&line);
-    assert_eq!(data["machine"], "vm-alpha01");
+    assert_eq!(data["machine"], "vm_alpha01");
     assert_eq!(data["state"], "down");
     assert_eq!(data["generation"], 1);
     assert_eq!(data["retryable"], true);
@@ -68,11 +68,11 @@ fn a_link_exit_reaches_the_host_with_no_op_after_it() {
 fn a_forward_on_a_dead_link_closes_with_no_op_after_the_death() {
     let mut host = Host::start(FIXTURES);
     let forward =
-        host.op("1", "cloud.port.forward", json!({"machine": "vm-alpha01", "port": 3000}), "f-1");
+        host.op("1", "cloud.port.forward", json!({"machine": "vm_alpha01", "port": 3000}), "f-1");
     let addr = local(&forward);
     TcpStream::connect(addr).expect("the forward listens while the link is up");
 
-    host.spawner.exit("vm-alpha01", 1);
+    host.spawner.exit("vm_alpha01", 1);
     // The loop closes the listener (and joins its accept thread) before it
     // sends the line, so one connect after the line is a deterministic check.
     let mut lines = Vec::new();
@@ -87,21 +87,23 @@ fn a_forward_on_a_dead_link_closes_with_no_op_after_the_death() {
     };
     assert!(TcpStream::connect(addr).is_err(), "the listener of a dead link is closed");
     let down = payload(&down);
-    assert_eq!(down["machine"], "vm-alpha01");
+    assert_eq!(down["machine"], "vm_alpha01");
     assert_eq!(down["port"], 3000);
     assert_eq!(down["localPort"], forward["localPort"]);
     assert_eq!(down["state"], "down");
+    assert_eq!(down["scheme"], forward["scheme"]);
+    assert_eq!(down["url"], forward["url"]);
 }
 
 #[test]
 fn the_events_of_one_link_death_keep_their_order() {
     let mut host = Host::start(FIXTURES);
     let first =
-        host.op("1", "cloud.port.forward", json!({"machine": "vm-alpha01", "port": 3000}), "f-1");
+        host.op("1", "cloud.port.forward", json!({"machine": "vm_alpha01", "port": 3000}), "f-1");
     let second =
-        host.op("2", "cloud.port.forward", json!({"machine": "vm-alpha01", "port": 5173}), "f-2");
+        host.op("2", "cloud.port.forward", json!({"machine": "vm_alpha01", "port": 5173}), "f-2");
 
-    host.spawner.exit("vm-alpha01", 1);
+    host.spawner.exit("vm_alpha01", 1);
     let mut lines = Vec::new();
     while lines.len() < 3 {
         let line = host.next().unwrap_or_else(|| panic!("three lines with no op: {lines:?}"));
@@ -116,4 +118,25 @@ fn the_events_of_one_link_death_keep_their_order() {
     // Each change goes out once: an op after it repeats none of them.
     let lines = host.answer_of("3", "cloud.port.list", json!({}));
     assert!(lines.iter().all(|l| !link_changed(l) && !port_changed(l)), "{lines:?}");
+}
+
+#[test]
+fn a_browser_route_down_event_has_no_preview_metadata() {
+    let mut host = Host::start(FIXTURES);
+    let browser =
+        host.op("1", "cloud.browser.open", json!({"machine": "vm_alpha01", "port": 3000}), "b-1");
+    host.spawner.exit("vm_alpha01", 1);
+    let down = loop {
+        let line = host.next().expect("the browser route down event");
+        if port_changed(&line) {
+            break line;
+        }
+    };
+    let down = payload(&down);
+    assert_eq!(down["kind"], "browser");
+    assert_eq!(down["state"], "down");
+    assert_eq!(down["localPort"], browser["proxy"]["port"]);
+    for field in ["port", "scheme", "url"] {
+        assert!(down.get(field).is_none(), "browser event must omit {field}: {down}");
+    }
 }

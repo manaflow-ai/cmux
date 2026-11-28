@@ -4,7 +4,8 @@
 # with python3; a stub codesign prints the requirement written in the helper's fake-requirement file,
 # as `codesign -d -r-` prints it. Covers: NIGHTLY's helper as it ships (passes), an ad-hoc helper
 # (cdhash), a helper id that moved, another team, NIGHTLY under another team, an ad-hoc app, no
-# helper, two helpers, cmux Computer Use.app beside the helper, and another signer's own build.
+# helper, two helpers, a legacy "Screen Sharing.app" helper (alone or beside one), another bundle ending
+# in " Helper.app", cmux Computer Use.app beside the helper, and another signer's own build.
 # Runs on Linux and macOS (python3).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -37,11 +38,12 @@ info() { # <bundle> <id>
   mkdir -p "$1/Contents"
   python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleIdentifier": sys.argv[2]}, open(sys.argv[1], "wb"))' "$1/Contents/Info.plist" "$2"
 }
-app() { # <case> <app id> -> $APP, with one helper "<case> Screen Sharing.app" signed Developer ID
+app() { # <case> <app id> -> $APP, with one helper "cmux NIGHTLY Helper.app" signed Developer ID
   APP="$TMP/$1/cmux NIGHTLY.app"
-  HELPER="$APP/Contents/Library/cmux NIGHTLY Screen Sharing.app"
+  HELPER="$APP/Contents/Library/cmux NIGHTLY Helper.app"
   info "$APP" "$2"
   info "$HELPER" "$2.screen-sharing"
+  mkdir -p "$HELPER/Contents/MacOS"; : > "$HELPER/Contents/MacOS/cmux-screen-sharing"
   developer_id "$2.screen-sharing" > "$HELPER/fake-requirement"
 }
 run() {
@@ -81,9 +83,47 @@ app none com.cmuxterm.app.nightly
 rm -rf "$HELPER"
 expect_fail "no helper" "holds 0 Screen Sharing helpers"
 
+app nightly_no_helper com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+set +e
+out=$(NIGHTLY_COMPONENT_GATES= CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" /bin/bash "$SCRIPT" "$APP" 2>&1)
+rc=$?
+set -e
+[[ $rc == 0 ]] || fail "nightly without helper: exit $rc" "$out"
+[[ "$out" == *"::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"* ]] \
+  || fail "nightly without helper: missing warning" "$out"
+
+app nightly_blocked_no_helper com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+set +e
+out=$(NIGHTLY_COMPONENT_GATES=block CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" /bin/bash "$SCRIPT" "$APP" 2>&1)
+rc=$?
+set -e
+[[ $rc != 0 ]] || fail "blocked nightly without helper: passed" "$out"
+[[ "$out" == *"holds 0 Screen Sharing helpers"* ]] || fail "blocked nightly without helper: wrong error" "$out"
+
+app nightly_no_helper_with_cua com.cmuxterm.app.nightly
+rm -rf "$HELPER"
+info "$APP/Contents/Library/cmux Computer Use.app" com.cmuxterm.cua
+run
+[[ $rc != 0 ]] || fail "nightly without helper and CUA: passed" "$out"
+[[ "$out" == *"a second Screen Recording holder"* ]] || fail "nightly without helper and CUA: wrong error" "$out"
+
 app two com.cmuxterm.app.nightly
-cp -R "$HELPER" "$APP/Contents/Library/cmux NEXT Screen Sharing.app"
+cp -R "$HELPER" "$APP/Contents/Library/cmux NEXT Helper.app"
 expect_fail "two helpers" "holds 2 Screen Sharing helpers"
+
+app newandlegacy com.cmuxterm.app.nightly
+cp -R "$HELPER" "$APP/Contents/Library/cmux NIGHTLY Screen Sharing.app"
+expect_fail "a helper and a legacy-named one" "holds 2 Screen Sharing helpers"
+
+app legacy com.cmuxterm.app.nightly
+mv "$HELPER" "$APP/Contents/Library/cmux NIGHTLY Screen Sharing.app"
+expect_fail "only a legacy-named helper" "the name from before the rename"
+
+app otherhelper com.cmuxterm.app.nightly
+info "$APP/Contents/Library/Other Helper.app" com.example.other
+expect_pass "another bundle ending in Helper.app"
 
 app cua com.cmuxterm.app.nightly
 info "$APP/Contents/Library/cmux Computer Use.app" com.cmuxterm.cua

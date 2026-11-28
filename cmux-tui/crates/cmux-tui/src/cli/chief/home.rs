@@ -156,7 +156,12 @@ impl ChiefHome {
         {
             let base = crate::app_identity::darwin_user_temp_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"));
-            cmux_tui_core::server::try_default_socket_path_in_base(&self.session(), &base)
+            let scope = crate::app_identity::app_runtime_scope();
+            cmux_tui_core::server::try_default_socket_path_in_base_scoped(
+                &self.session(),
+                &base,
+                scope.as_deref(),
+            )
         }
         #[cfg(not(target_os = "macos"))]
         {

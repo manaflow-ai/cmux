@@ -590,42 +590,6 @@
         scope: "codemirror:write",
         class: "mutation"
       },
-      "coderouter.accounts.list": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.app.connect_account": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.create_key": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.open": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.run_test": {
-        scope: "coderouter:execute",
-        class: "mutation"
-      },
-      "coderouter.app.start_onboarding": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.detect": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.status": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.usage.get": {
-        scope: "coderouter:read",
-        class: "read"
-      },
       "column.update": {
         scope: "column:write",
         class: "mutation"
@@ -2213,13 +2177,18 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_clone_token",
+      "cloud.owner.github_complete",
       "cloud.owner.github_connect",
+      "cloud.owner.github_list",
       "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
       "cloud.owner.handoffs",
       "cloud.owner.harness_login_copy",
+      "cloud.owner.slack",
+      "cloud.owner.slack_awake",
       "cloud.owner.turn_checkpoint",
       "cloud.owner.turn_rewind",
       "cloud.owner.turns",
@@ -2380,6 +2349,23 @@
       "workspace.close",
       "workspace.open_url"
     ]
+  };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
   };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;

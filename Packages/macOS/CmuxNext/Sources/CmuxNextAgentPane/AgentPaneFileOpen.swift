@@ -2,10 +2,11 @@ public import AppKit
 public import Foundation
 import UniformTypeIdentifiers
 
-/// Where the page asks to open a file: a tab beside the agent, or the editor.
+/// Where the page asks to open a file: a tab beside the agent, the editor, or Finder (the file revealed, not run).
 public nonisolated enum AgentPaneFileTarget: String, Equatable, Sendable {
     case tab
     case editor
+    case finder
 }
 
 /// Opening a file the page names. The path comes from an agent's tool calls,
@@ -55,6 +56,20 @@ public nonisolated enum AgentPaneFileOpen {
         if type.conforms(to: .audiovisualContent) { return mediaExtensions.contains(ext) }
         let shown: [UTType] = [.plainText, .sourceCode, .image, .pdf]
         return shown.contains { type.conforms(to: $0) }
+    }
+
+    /// The Experiments switch (`experiments.writtenHTMLOpenBeside`, off by default) that lets a person's
+    /// click open a written HTML file in a tab: the written-file card's Open beside
+    /// (docs/design/next-rich-output.md, plan item 5).
+    static let writtenHTMLOpenBesideSwitch = "writtenHTMLOpenBeside"
+
+    /// HTML files a person's own click may open in a tab as the rendered page. The host opens them in the
+    /// sandboxed browser tab `cmux file open` and MCP `open` already use (u18051), never by the file's handler.
+    static let clickedPageExtensions: Set<String> = ["html", "htm"]
+
+    /// Whether a person's click may open the file at `url` in a tab as the rendered page.
+    static func opensAsPageOnClick(_ url: URL) -> Bool {
+        clickedPageExtensions.contains(url.pathExtension.lowercased())
     }
 
     /// The app that edits text: the default for source code, else for plain text.

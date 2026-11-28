@@ -23,12 +23,54 @@ pub const ALLOWED_HOSTS: &[&str] = &[
 /// Claude, Codex or Grok sign-in never offers one of these, nor Cursor's one of [`ALLOWED_HOSTS`].
 pub const CURSOR_HOSTS: &[&str] = &["cursor.com"];
 
+/// The host GitHub's device sign-in link may point at (`gh auth login --web`), and only GitHub's.
+pub const GITHUB_HOSTS: &[&str] = &["github.com"];
+
 /// The hosts `agent`'s sign-in link may point at.
 pub fn hosts(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Cursor => CURSOR_HOSTS,
-        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok => ALLOWED_HOSTS,
+        Agent::Github => GITHUB_HOSTS,
+        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok | Agent::OpenCode => {
+            ALLOWED_HOSTS
+        }
     }
+}
+
+/// The hosts `agent`'s sign-in page is still that sign-in's page on, for the app that opened it
+/// in a tab of its own: the offered link's host first, then every host the provider's sign-in
+/// moves through on the way to its last page (Claude's link on claude.com signs in on claude.ai
+/// and ends on platform.claude.com). Once the sign-in ended (finished, cancelled, expired) the
+/// app closes that tab only while it shows one of these hosts; a tab the person took anywhere
+/// else is theirs and stays. A link that is not an allowed one for `agent` answers no host, so
+/// nothing is closed for it.
+pub fn page_hosts(agent: Agent, url: &str) -> Vec<String> {
+    let Some(url) = allowed_url_on(hosts(agent), url) else {
+        return Vec::new();
+    };
+    let own: &[&str] = match agent {
+        Agent::Claude => &[
+            "claude.com",
+            "claude.ai",
+            "platform.claude.com",
+            "console.anthropic.com",
+            "auth.anthropic.com",
+        ],
+        Agent::Codex => &["auth.openai.com"],
+        Agent::Grok => &["accounts.x.ai", "auth.x.ai"],
+        Agent::Cursor => CURSOR_HOSTS,
+        Agent::Github => GITHUB_HOSTS,
+        Agent::Gemini | Agent::OpenCode => &[],
+    };
+    let rest = url.strip_prefix("https://").unwrap_or(&url);
+    let first = rest.split(['/', '?', '#']).next().unwrap_or(rest).to_ascii_lowercase();
+    let mut out = vec![first];
+    for host in own {
+        if !out.iter().any(|h| h == host) {
+            out.push((*host).to_owned());
+        }
+    }
+    out
 }
 
 /// The longest link accepted.
@@ -212,6 +254,12 @@ pub fn grok_code(plain: &str) -> Option<String> {
     None
 }
 
+/// gh's one-time code: `! First copy your one-time code: XXXX-XXXX` (the line names the "code",
+/// the code is shaped like one), read as [`grok_code`] reads Grok's.
+pub fn github_code(plain: &str) -> Option<String> {
+    grok_code(plain)
+}
+
 /// What `agent`'s sign-in output offers so far, once it is complete: Claude's
 /// link; Codex's and Grok's link and code; Cursor's link. Gemini signs in with a key only.
 pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
@@ -221,7 +269,8 @@ pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
         Agent::Claude | Agent::Cursor => Some(Offer { url, user_code: None }),
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
         Agent::Grok => Some(Offer { url, user_code: Some(grok_code(&plain)?) }),
-        Agent::Gemini => None,
+        Agent::Github => Some(Offer { url, user_code: Some(github_code(&plain)?) }),
+        Agent::Gemini | Agent::OpenCode => None,
     }
 }
 

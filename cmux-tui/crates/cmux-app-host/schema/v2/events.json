@@ -14,6 +14,10 @@
       "docs": "A pane was split, closed, resized or focused.",
       "reads": "pane.list"
     },
+    "system_calendar.changed": {
+      "docs": "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+      "reads": "system_calendar.events"
+    },
     "tab.changed": {
       "docs": "A tab was opened, closed, moved or selected.",
       "reads": "tab.list"
@@ -25,6 +29,10 @@
     "agent.changed": {
       "docs": "An agent's state changed (working, blocked, idle, done).",
       "reads": "agent.list"
+    },
+    "media.changed": {
+      "docs": "What plays changed: another track, play or pause, a seek, or new artwork.",
+      "reads": "media.get"
     },
     "agent_chat.changed": {
       "docs": "An agent chat was added, closed, renamed, read or changed state.",
@@ -43,6 +51,10 @@
       "reads": "integration.request",
       "readsParams": { "provider": "github", "method": "GET" },
       "scope": "integration:github:read"
+    },
+    "app.storage.changed": {
+      "docs": "Another of the person's devices changed this app's synced storage (an app granted storage:synced). The body is {\"keys\": [...]}, the keys that changed here; read them again with cmux.storage.get or cmux.storage.keys. An app with only storage:local never hears it.",
+      "reads": "app.storage.get"
     },
     "theme.changed": {
       "docs": "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",

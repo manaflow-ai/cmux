@@ -1,5 +1,8 @@
 import CmuxAgentQuestion
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// A Feed row's own UI state: what the person did to this row on this
 /// screen, which changes its layout (the event itself lives in the store).
@@ -21,6 +24,78 @@ struct FeedRowState: Hashable, Sendable {
     var question: AgentQuestionCardState?
     /// A body only the web renderer draws (math): its measured height at this width.
     var webHeight: Double?
+    /// The row is a stack's fold line ("3 earlier updates"), not an event (`FeedStacks`).
+    var fold: FeedFold?
+}
+
+/// A stack's fold line: how many older events of the chat it stands for, and whether they show under it.
+struct FeedFold: Hashable, Sendable {
+    var count: Int
+    var expanded: Bool
+
+    /// "3 earlier updates".
+    var title: String { count == 1 ? "1 earlier update" : "\(count) earlier updates" }
+}
+
+/// The Feed's rows with each chat's run folded. When one chat (one Mac's workspace and tab) posts several
+/// events in a row, with no other chat's event between them, the newest shows as the full row and
+/// the older ones fold into one line under it; a tap on the line shows them in place (the iOS
+/// Notification Center's stack per thread). One busy agent takes one row and a line, so the other
+/// agents stay on screen. A row that needs the person is never folded and never leads a stack, nor
+/// is one with an answer on its way or a refused answer; a row with an open reply is never folded.
+struct FeedStacks: Equatable {
+    /// The rows the list shows, in order: events, and after each stack's newest event its fold line
+    /// (an event that carries only the fold's id and its chat), then its older events when expanded.
+    var rows: [FeedItem] = []
+    /// Each fold line, by its row id.
+    var folds: [String: FeedFold] = [:]
+    /// The newest event of each stack (its row and its fold line read as one).
+    var heads: Set<String> = []
+    /// The events folded away, in order.
+    var hidden: [String] = []
+
+    static let foldPrefix = "feed.fold."
+    static func foldID(head: String) -> String { foldPrefix + head }
+    static func isFold(_ id: String) -> Bool { id.hasPrefix(foldPrefix) }
+    /// The newest event of the stack whose fold line is `id`.
+    static func head(ofFold id: String) -> String? { isFold(id) ? String(id.dropFirst(foldPrefix.count)) : nil }
+
+    /// Whether an event may be part of a stack.
+    static func stacks(_ item: FeedItem) -> Bool {
+        !item.needsYou && item.pending == nil && item.error == nil
+    }
+
+    /// `expanded`: the stacks shown open, by their newest event's id. A stack that gets a newer
+    /// event stays open (its key moves to the new newest event), and keys of stacks that are gone
+    /// are dropped. `open`: rows that never fold (a reply being written under them); one may still lead a stack.
+    #if os(iOS)
+    /// The rules are in Rust (`feed_stacking`, cmux-mobile-link-ffi); this maps the events in and the rows out.
+    init(_ items: [FeedItem], expanded: inout Set<String>, open: Set<String> = []) {
+        let plan = feedStacking(
+            items: items.map {
+                FeedStackItem(id: $0.id, macId: $0.macID, workspaceId: $0.workspaceID, tabId: $0.tabID, keepsOwnRow: !Self.stacks($0))
+            },
+            expanded: Array(expanded), open: Array(open)
+        )
+        rows.reserveCapacity(plan.rows.count)
+        for row in plan.rows {
+            switch row {
+            case .event(let index):
+                rows.append(items[Int(index)])
+            case .fold(let index, let count, let isExpanded):
+                let head = items[Int(index)]
+                let foldID = Self.foldID(head: head.id)
+                folds[foldID] = FeedFold(count: Int(count), expanded: isExpanded)
+                rows.append(FeedItem(id: foldID, kind: .response, workspaceID: head.workspaceID, tabID: head.tabID, agentName: head.agentName,
+                                     harness: "", workspaceTitle: "", markdown: "", quote: nil, createdAt: .distantPast))
+            }
+        }
+        heads = Set(plan.heads)
+        hidden = plan.hidden
+        let live = Set(plan.expanded)
+        if expanded != live { expanded = live }
+    }
+    #endif
 }
 
 /// What a row's layout depends on: the event, the row's state, the column
@@ -129,19 +204,91 @@ struct FeedSnapshotEdit: Equatable {
         var ids: [String]
     }
 
+    #if os(iOS)
+    /// The rules are in Rust (`feed_snapshot_edit`).
     init?(old: [String], new: [String]) {
-        let newSet = Set(new), oldSet = Set(old)
-        guard old.filter(newSet.contains) == new.filter(oldSet.contains) else { return nil }
-        removed = old.filter { !newSet.contains($0) }
-        groups = []
-        var buffer: [String] = []
-        for id in new {
-            if oldSet.contains(id) {
-                if !buffer.isEmpty { groups.append(Group(before: id, ids: buffer)); buffer = [] }
-            } else {
-                buffer.append(id)
-            }
-        }
-        tail = buffer
+        guard let edit = feedSnapshotEdit(old: old, new: new) else { return nil }
+        removed = edit.removed
+        groups = edit.groups.map { Group(before: $0.before, ids: $0.ids) }
+        tail = edit.tail
     }
+    #endif
+}
+
+/// How live events enter the top of the Feed (hq docs/design/ios-feed.md item K; Threads and X): while the
+/// reader is at the top, the new rows drop in on a spring and the rows below slide down with them, with one
+/// soft tap. A first load, a filter switch that brings in older rows, or a burst too big to read as
+/// "something just arrived" shows at once, as before.
+struct FeedArrival {
+    /// More fresh rows than this at once is a load, not an arrival.
+    static let maxRows = 4
+    /// The soft tap plays at most once per this many seconds, so a busy agent never buzzes the phone.
+    static let hapticGap: TimeInterval = 4
+
+    /// Whether FRESH (rows never shown this session) spring in: the list already showed rows (HAD_ROWS),
+    /// the reader is at the top and no jump is animating (AT_TOP), and the fresh rows are the top rows of
+    /// ORDER (a live arrival; a filter switch puts unseen older rows further down).
+    static func springs(fresh: Set<String>, order: [String], hadRows: Bool, atTop: Bool) -> Bool {
+        guard hadRows, atTop, !fresh.isEmpty, fresh.count <= maxRows else { return false }
+        return Set(order.prefix(fresh.count)) == fresh
+    }
+
+    /// Whether an arrival at NOW plays the soft tap, given the last one at LAST (nil: none yet).
+    static func taps(now: TimeInterval, last: TimeInterval?) -> Bool {
+        guard let last else { return true }
+        return now - last >= hapticGap
+    }
+}
+
+/// The pinned group at the top of the whole Feed: the asks still waiting on the person, which
+/// `FeedStore.pinningNeedsYou` puts before every other event. An ask that leaves the group (or
+/// joins it again) moves its row, so the list follows it by eye.
+enum FeedPinnedGroup {
+    /// How many rows of `items` (in list order) are the pinned group. Only the whole Feed has
+    /// one: a filtered Feed is a single list in time order, and its chip already names it.
+    static func count(_ items: [FeedItem], filter: FeedFilter) -> Int {
+        guard filter == .all else { return 0 }
+        return items.prefix(while: \.needsYou).count
+    }
+}
+
+/// One row order turned into another by moving a few rows (`movers`: an ask that was answered
+/// leaves the pinned group for its place in time, one that opened again goes back), with
+/// inserts and removals beside them; nil when any other row changes place too (a re-sort) or
+/// too many move at once to follow by eye. The list applies the steps to its snapshot and
+/// animates them, so the answered ask travels to its place instead of the list being rebuilt.
+struct FeedMoveEdit: Equatable {
+    enum Step: Equatable {
+        /// Put a shown row before `before` (nil: after the last row).
+        case move(String, before: String?)
+        /// Put a new row before `before` (nil: after the last row).
+        case insert(String, before: String?)
+    }
+
+    var removed: [String]
+    /// From the last row to the first: each step's `before` row is already in its place.
+    var steps: [Step]
+
+    #if os(iOS)
+    /// The rules are in Rust (`feed_move_edit`, `feed_move_edit_applied`).
+    init?(old: [String], new: [String], movers: Set<String>, limit: Int = 4) {
+        guard let edit = feedMoveEdit(old: old, new: new, movers: Array(movers), limit: UInt32(clamping: max(0, limit))) else { return nil }
+        removed = edit.removed
+        steps = edit.steps.map { $0.moved ? .move($0.id, before: $0.before) : .insert($0.id, before: $0.before) }
+    }
+
+    /// The steps applied to `old` (what the list does to its snapshot).
+    func applied(to old: [String]) -> [String] {
+        let plan = FeedMovePlan(
+            removed: removed,
+            steps: steps.map {
+                switch $0 {
+                case .move(let id, let before): FeedMoveStep(id: id, before: before, moved: true)
+                case .insert(let id, let before): FeedMoveStep(id: id, before: before, moved: false)
+                }
+            }
+        )
+        return feedMoveEditApplied(edit: plan, old: old)
+    }
+    #endif
 }

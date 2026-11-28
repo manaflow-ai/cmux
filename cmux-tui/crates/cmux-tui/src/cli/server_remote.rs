@@ -6,8 +6,8 @@
 //! `--yes` (without a terminal to ask on, `--yes` is required):
 //!
 //! 1. the cmux installer there, sent on ssh's stdin (the same script as
-//!    `curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server`, built
-//!    into this binary so nothing is fetched from a moving URL): it installs
+//!    README.md's pinned install command with `--server`, built into this
+//!    binary so nothing is fetched from a moving URL): it installs
 //!    this build's commit (checksum-verified, no sudo) and runs `cmux server
 //!    install` there, which keeps the session running as a service;
 //! 2. a check that the session answers there;
@@ -299,8 +299,9 @@ fn shown(argv: &[String]) -> String {
 /// Runs `argv`; its stdout goes to our stderr under --json. `stdin`: bytes to
 /// send. Returns the exit code (`None`: killed or not started).
 fn run(argv: &[String], stdin: Option<&str>, json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
-    cmd.args(&argv[1..]);
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
     if json {
         cmd.stdout(to_stderr()?);
     }
@@ -353,15 +354,20 @@ pub(crate) fn run_request(request: &Request) -> i32 {
 fn install(request: &Request, steps: &mut Steps) -> i32 {
     let ep = &request.endpoint;
     let batch = !steps.interactive;
-    let commit =
-        if request.nightly { None } else { install_commit(cmux_build_identity::BUILD_IDENTITY) };
+    // cmux-build-identity is a Unix-only dependency (Cargo.toml); a Windows
+    // build has no stamped commit, so it installs the current NIGHTLY build.
+    #[cfg(unix)]
+    let own = cmux_build_identity::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let own = "";
+    let commit = if request.nightly { None } else { install_commit(own) };
     let target = match (request.stable, commit) {
         (true, _) => Build::Stable,
         (false, Some(commit)) => Build::Commit(commit),
         (false, None) => Build::Nightly,
     };
     let build = match target {
-        Build::Commit(commit) => format!("cmux {}", &commit[..12]),
+        Build::Commit(commit) => format!("cmux {}", commit.get(..12).unwrap_or(commit)),
         Build::Nightly => "the current cmux NIGHTLY build".to_owned(),
         Build::Stable => "the latest stable cmux build".to_owned(),
     };
@@ -423,7 +429,7 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
         .unwrap_or_else(|_| "cmux".to_owned());
     let mut cmd_argv = vec![program];
     cmd_argv.extend(connect_action(ep, request.label.as_deref()));
-    let code = run_cmux_surface(&cmd_argv, steps.json);
+    let code = run_as_cmux_cli(&cmd_argv, steps.json);
     steps.record("connect", &shown(&argv), code);
     if code == Some(0) {
         steps.say(&format!("cmux server: {} is set up and open in cmux", ep.destination));
@@ -437,11 +443,12 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
     0
 }
 
-/// Runs this binary as `cmux` (its surface comes from argv[0]).
-fn run_cmux_surface(argv: &[String], json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
+/// Runs this binary as `cmux` (argv[0] picks which command line it answers as).
+fn run_as_cmux_cli(argv: &[String], json: bool) -> Option<i32> {
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
     cmd.arg0("cmux");
-    cmd.args(&argv[1..]).stdin(Stdio::null());
+    cmd.args(args).stdin(Stdio::null());
     if json {
         cmd.stdout(to_stderr()?);
     }

@@ -37,7 +37,7 @@ public final class RemoteVNCSession {
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
         endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
-        if host == demoHost { demo = VNCDemoServer() }
+        if host == demoHost { demo = VNCDemoServer(configuration: .init(rules: RemoteVNCRules.rules)) }
     }
 
     /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`.
@@ -215,7 +215,7 @@ public final class RemoteVNCSession {
 @MainActor
 struct RemoteVNCStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .module)
+        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .localizedModule)
     }
 
     static func signInTitle(_ host: String) -> String {

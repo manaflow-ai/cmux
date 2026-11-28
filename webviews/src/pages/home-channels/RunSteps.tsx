@@ -1,6 +1,8 @@
 // Shared by the run sheet and the full inline transcript; every stored step stays in order.
 import { memo, useMemo } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
+import { UrlChip } from "../../agent-session/acpmux/chips/LinkChips";
+import { detailParts, type ChatDetail } from "../../agent-session/acpmux/chatDetail";
 import { HomeToolGroup } from "./HomeToolGroup";
 import { useT as usePaneT } from "../../agent-session/acpmux/i18n";
 import { runBlocks } from "./runBlocks";
@@ -11,11 +13,15 @@ export const RunSteps = memo(function RunSteps({
   run,
   steps,
   agentNames,
+  detail,
 }: {
   run: HomeRun;
   steps: readonly HomeRunStep[];
   agentNames: ReadonlyMap<string, string>;
+  /** The inline transcript's ladder level; the run sheet passes none and opens tool groups. */
+  detail?: ChatDetail;
 }) {
+  const parts = detail ? detailParts(detail) : undefined;
   const blocks = useMemo(() => runBlocks(run, steps), [run, steps]);
   const byId = useMemo(() => new Map(steps.map((step) => [step.id, step])), [steps]);
   const stepLinks = (step: HomeRunStep) =>
@@ -24,9 +30,9 @@ export const RunSteps = memo(function RunSteps({
         {step.links
           .filter((link) => safeLink(link.url))
           .map((link, index) => (
-            <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer">
+            <UrlChip key={`${index}-${link.url}`} href={link.url} target="_blank">
               {link.label}
-            </a>
+            </UrlChip>
           ))}
       </p>
     );
@@ -64,14 +70,19 @@ export const RunSteps = memo(function RunSteps({
                 return step ? [step] : [];
               })}
               agentNames={agentNames}
+              collapsed={parts ? !parts.toolsOpen : false}
             />
             {extras(block)}
           </div>
         ) : block.kind === "thought" ? (
-          <Thought key={block.key} text={block.step.text ?? ""} />
+          <Thought key={block.key} text={block.step.text ?? ""} open={parts?.thoughtsOpen ?? false} />
         ) : (
           <div key={block.key} className={`lg-run-block ${block.kind}`}>
-            {block.step.text && <Markdown className="hc-md">{block.step.text}</Markdown>}
+            {block.step.text && (
+              <Markdown className="hc-md" messageAt={block.step.at}>
+                {block.step.text}
+              </Markdown>
+            )}
             {stepLinks(block.step)}
           </div>
         ),
@@ -81,11 +92,11 @@ export const RunSteps = memo(function RunSteps({
 });
 
 /** Thoughts use the same folded disclosure in the sheet and inline transcript. */
-function Thought({ text }: { text: string }) {
+function Thought({ text, open }: { text: string; open: boolean }) {
   const t = usePaneT();
   if (!text.trim()) return null;
   return (
-    <details className="lg-run-block thought">
+    <details className="lg-run-block thought" open={open}>
       <summary>{t("tools.thought")}</summary>
       <p dir="auto">{text.trim()}</p>
     </details>

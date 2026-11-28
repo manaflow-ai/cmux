@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-24",
+  "row": "app_lines",
+  "allow": 30,
+  "why": "https://github.com/manaflow-ai/cmux/pull/53144: the layout cache (Leo: \"it's already loaded\") hooks where the App owns the window lifecycle: WindowRecordSaver's state/geometry notes and its snapshot of live controllers, WindowManager's makeController/adopt/place, the quit and relaunch flushes in AppDelegate, QuitCoordinator and UpdaterService. The model, writer, FFI calls and drift check already live in Design, Control, Layout and Sidebar; moving the window model out of the App is the Windows row of the architecture refactor, not this fix",
+  "author": "claude (Opus 5.5) for Leo",
+  "owner": "lane/already-loaded-launch (removed when the Windows row moves out of the App)",
+  "receipt": "Review (claude general-purpose subagent): SHIP at 81fbc03226081bef93c0623920538232d88cd49e",
+  "expiry": "2027-02-24",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
+}

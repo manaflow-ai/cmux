@@ -8,13 +8,18 @@
 // its turn started has not seen every call; its accumulated usage stays unknown even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
-import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
+import type { WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { ContextCardBody } = await importWithDom(() => import("../src/agent-session/acpmux/ContextCard"));
+const { WorkingFor } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/WorkingFor"));
+const { WorkingCountsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/workingForModel"),
+);
+const { workingTokens } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turnTokensModel"));
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -268,6 +273,12 @@ async function until(ready: () => boolean, what: string) {
 }
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
+/// A line of the agent's reply: a transcript row, which usage records are not.
+const reply = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+];
 
 test("a Claude turn's output tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
@@ -430,7 +441,17 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // The attach page starts after the turn's first calls; an older page brings the start, but
   // pages carry no usage, so a count from it would leave those calls out. Each later rebuild of
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
-  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
+  // The page draws a line of the reply: an open whose page draws nothing reads the older page
+  // itself before its first snapshot (#45859), and then no older history is left to page in.
+  const history = record([
+    prompt("fix the build"),
+    started,
+    call(41_200),
+    call(43_800),
+    call(46_000),
+    reply("Reading the build log."),
+    call(9_000),
+  ]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
   daemon.holdIndex();
   const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
@@ -472,7 +493,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
-    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {
@@ -630,12 +651,6 @@ test("a usage record's reported setup reaches the context summary while the tool
 // The line under the work (`below`); "Working for" over the work says only the turn's time.
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -654,8 +669,8 @@ test("the line keeps elapsed time and background work counts without token amoun
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // Background work counts remain even when usage data is present.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2 subagents");
+  // Usage data adds nothing to the line: the tray counts the background work, never the line.
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
   // Over the work, as the Codex app's "Working for 32s": the time alone.
   expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });

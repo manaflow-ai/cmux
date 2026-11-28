@@ -47,6 +47,12 @@ public nonisolated struct AgentPaneClosedItem: Hashable, Sendable {
 }
 
 extension AgentPaneClosedItem {
+    /// Owes `view`'s page its recently closed items: once per turn, only while the pane is seen, and
+    /// only to a New Tab page, the one screen that draws them (``AgentPaneShownPushes``).
+    @MainActor static func owe(to view: AgentPaneView) {
+        view.shownPushes.push("recentlyClosed", to: view, newTabOnly: true) { push($0.recentlyClosed, to: $0) }
+    }
+
     /// Pushes `list` to `view`'s page, already encoded (not an AgentPaneView extension: that type is at its size limit).
     @MainActor static func push(_ list: AgentPaneClosedList, to view: AgentPaneView) {
         view.deliver([list.event], scripts: [list.script])

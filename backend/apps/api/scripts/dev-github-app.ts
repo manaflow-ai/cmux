@@ -32,6 +32,7 @@ export const SECRETS_FILE = join(homedir(), ".secrets", "cmux-next-integrations-
  * - Chief comments (providers.ts github.issue.comment): issues write.
  * - The org admin check at link time (providers.ts requireOrgAdmin): members read.
  * - metadata read: every App has it.
+ * - merge_queues read: GitHub sends merge_group (a merge queue's checks) only with it.
  * The staging App (cmux-cloud-staging) grants contents read and no checks, actions, statuses or workflows,
  * so a write token for `gh` or `git push` is refused there; development grants what the code asks.
  */
@@ -41,14 +42,34 @@ export const PERMISSIONS = {
   contents: "write",
   issues: "write",
   members: "read",
+  // The merge_group event (merge queue checks) is delivered only with this permission.
+  merge_queues: "read",
   metadata: "read",
   pull_requests: "write",
   statuses: "read",
   workflows: "write"
 } as const
 
-/** The staging App's events, plus what github-push.ts GITHUB_PUSH_EVENTS turns into live list updates. */
-export const EVENTS = ["check_run", "check_suite", "issue_comment", "issues", "pull_request", "pull_request_review", "pull_request_review_thread", "push", "status"] as const
+/**
+ * Every event a receiver handles (scripts/github-app-drift.ts RECEIVER_EVENTS checks it): the staging App's events,
+ * what github-push.ts GITHUB_PUSH_EVENTS turns into live list updates, Chief jobs' workflow_run, and the
+ * cmux-platform feed and triggers (workflow_run, workflow_job, pull_request_review_comment, merge_group).
+ */
+export const EVENTS = [
+  "check_run",
+  "check_suite",
+  "issue_comment",
+  "issues",
+  "merge_group",
+  "pull_request",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "pull_request_review_thread",
+  "push",
+  "status",
+  "workflow_job",
+  "workflow_run"
+] as const
 
 /** The App manifest (https://docs.github.com/apps/sharing-github-apps/registering-a-github-app-from-a-manifest). */
 export const manifest = (redirectUrl = `http://127.0.0.1:${LOCAL_PORT}/created`) => ({
@@ -90,12 +111,23 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
 /** Whether a request's Host header names this script's own address, the only one the page and GitHub's redirect use. */
 export const isLocalHost = (host: string | undefined): boolean => host === `127.0.0.1:${LOCAL_PORT}`
 
-/** The one-button page: a form that posts the manifest to the org's new-App page. */
+/**
+ * GitHub's "Confirm access" (sudo) page intercepts a manifest POST and, after the passkey, re-GETs
+ * the form without its body: "Unable to load App Manifest, please try again." (Leo, 2026-11-27). So the page
+ * opens the same settings page by GET first, where sudo is asked with nothing to lose, and posts the manifest
+ * when this tab has focus again.
+ */
+export const UNLOCK_THEN_POST_JS = "<script>var f=document.getElementById('f'),armed=false;document.getElementById('c').addEventListener('click',function(){armed=true});function back(){if(armed&&!document.hidden){armed=false;f.submit()}}window.addEventListener('focus',back);document.addEventListener('visibilitychange',back)</script>"
+
+/** The create page: "1. Unlock GitHub" (a GET of the org's new-App page), then the form that posts the manifest there. */
 export const createPage = (state: string) => `<!doctype html><meta charset="utf-8"><title>Create ${APP_NAME}</title>
-<form method="post" action="https://github.com/organizations/${ORG}/settings/apps/new?state=${encodeURIComponent(state)}">
-<input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest()))}">
 <p>Creates the GitHub App <b>${APP_NAME}</b> under ${ORG} for the development Cloud backend.</p>
-<button type="submit">Create ${APP_NAME} on GitHub</button></form>`
+<p><a id="c" target="_blank" href="https://github.com/organizations/${ORG}/settings/apps/new"><button type="button">1. Unlock GitHub</button></a></p>
+<p>If GitHub asks for your passkey, tap it, then come back to this tab: it creates the App by itself. Leave GitHub's empty form in that tab alone.</p>
+<form id="f" method="post" action="https://github.com/organizations/${ORG}/settings/apps/new?state=${encodeURIComponent(state)}">
+<input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest()))}">
+<button type="submit">2. Create ${APP_NAME} on GitHub</button></form>
+${UNLOCK_THEN_POST_JS}`
 
 const create = () => {
   if (existsSync(SECRETS_FILE)) {

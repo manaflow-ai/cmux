@@ -169,7 +169,12 @@ class GitHub:
         # sleeps: github_token_polling.py). On 2026-11-14 23:41Z run 43652238618's publish read its markers
         # with a spent github.token, the notify ended in a warning, and cmux#43194's same-tree run was never
         # dispatched.
-        self.spare = spare if spare and spare != token else ""
+        # POOL_TOKEN_CHAIN (ci-min-per-pr-1500): spare may name several tokens, whitespace-separated (the cmux-bot
+        # App's, then CI_POOL_TOKEN_1/_2); each spent one moves the calls to the next. Run 45898765362's same-tree
+        # status job held its runner 15.6 min on 2026-11-26 21:35Z waiting out github.token and the App token both
+        # spent, while the pool tokens had their own hour left.
+        self.spares = [t for i, t in enumerate((spare or "").split()) if t != token and t not in (spare or "").split()[:i]]
+        self.spare = self.spares[0] if self.spares else ""
         self.api_url = api_url.rstrip("/")
         # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
         # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
@@ -189,10 +194,11 @@ class GitHub:
 
     def _request(self, method: str, url: str, body: dict | None = None):
         status, payload, headers = self._send(method, url, body)
-        if self.spare and rate_limited(status, headers, payload):
+        while self.spares and rate_limited(status, headers, payload):
             print(f"::notice title=tree notify token::{method} {url.removeprefix(self.api_url + '/')} was refused "
                   f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
-            self.token, self.spare = self.spare, ""
+            self.token = self.spares.pop(0)
+            self.spare = self.spares[0] if self.spares else ""
             status, payload, headers = self._send(method, url, body)
         self.last = (status, payload, headers)
         return status, payload
@@ -522,7 +528,8 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
            fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
-           quota_only: Callable[[], bool] = lambda: False, unstarted: list | None = None) -> int:
+           quota_only: Callable[[], bool] = lambda: False, compile_error: Callable[[], bool] = lambda: False,
+           unstarted: list | None = None) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many. UNSTARTED, when given, collects the
     runs whose marker was left in place by a GitHub error (not by a decision): the notify must be made again."""
     unstarted = [] if unstarted is None else unstarted
@@ -559,6 +566,11 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     if state == "failed" and quota_only():
         # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
         log(f"tree {key}: the reporting run failed only on GitHub's rate limit or attestation; not taken over")
+    elif state == "failed" and compile_error():
+        # Like the hand-off and cmux-tui-tree-request.yml (#54942): a waiter's re-run builds the same tree key from
+        # the same source and fails on the same compile error, for about 75 runner-min (2026-11-25: run
+        # 45522424589 failed on cmux-wg E0308, and its takeover re-run failed the same way two hours later).
+        log(f"tree {key}: the reporting run failed a build leg on a Rust compile error; not taken over")
     elif state == "failed":
         # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -712,7 +724,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
 # feat-cmux-next push's sweep-pending-tree-notify job reads the artifacts
 # of this one name (sweep_pending), makes the notify again for each key whose tree is published, and deletes the
 # record once it went through. A miss is then at most one feat-cmux-next push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
-# was refused with HTTP 403 and only warned; merge_hold held the pull request for hours).
+# was refused with HTTP 403 and only warned; land-judge held the pull request for hours).
 PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
 # The records a sweep writes again (sweep_pending): a name of its own, because the sweep job runs in an artifacts
 # run that may have uploaded PENDING_ARTIFACT itself, and its upload (overwrite) would replace that record.
@@ -898,28 +910,44 @@ def main(argv: list[str]) -> int:
         own_run = os.environ.get("GITHUB_RUN_ID", "")
         run_id = int(own_run) if own_run.isdigit() else 0
 
-        def quota_only() -> bool:
-            if not run_id:
-                return False
-            import cmux_tui_tree_handoff as handoff  # same directory; needs the gh CLI the artifacts job has
-            jobs = handoff._list(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+        # The reporting run's jobs and failed-job logs, read once for both checks below.
+        read: dict = {}
+        logs: dict = {}
 
-            def log_of(job: dict) -> str | None:
-                result = handoff._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
-                return result.stdout if result.returncode == 0 else None
+        def handoff():
+            import cmux_tui_tree_handoff  # same directory; needs the gh CLI the artifacts job has
+            return cmux_tui_tree_handoff
 
-            return handoff.quota_only_failure(jobs, log_of)
+        def jobs() -> list:
+            if "jobs" not in read:
+                read["jobs"] = handoff()._list(
+                    f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+            return read["jobs"]
 
-        def safe_quota_only() -> bool:
-            try:
-                return quota_only()
-            except Exception as error:  # an unreadable run is no evidence of a quota failure
-                print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
-                return False
+        def log_of(job: dict) -> str | None:
+            if job["id"] not in logs:
+                result = handoff()._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
+                logs[job["id"]] = result.stdout if result.returncode == 0 else None
+            return logs[job["id"]]
+
+        def checked(what: str, check: str) -> Callable[[], bool]:
+            def run() -> bool:
+                if not run_id:
+                    return False
+                try:
+                    return getattr(handoff(), check)(jobs(), log_of)
+                except Exception as error:  # an unreadable run is no evidence of either failure
+                    print(f"::warning::could not read run {run_id}'s jobs for the {what} check: {error}")
+                    return False
+            return run
+
+        safe_quota_only = checked("quota", "quota_only_failure")
+        safe_compile_error = checked("compile-error", "compile_error_failure")
 
         unstarted: list = []
         notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
-               exclude_run=run_id, quota_only=safe_quota_only, unstarted=unstarted)
+               exclude_run=run_id, quota_only=safe_quota_only, compile_error=safe_compile_error,
+               unstarted=unstarted)
         if unstarted:
             pending(f"runs {unstarted} were not started (GitHub refused a read or the dispatch)")
     except (RuntimeError, OSError, ValueError) as error:

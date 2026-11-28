@@ -205,6 +205,41 @@ class SwapBinaryTests(unittest.TestCase):
         self.assertNotIn("removed Contents/Resources/CmuxNext_CmuxNextApp.bundle/agent-pane/index.html", diff)
         self.assertFalse(any("web/" in line or "Info.plist" in line for line in diff))
 
+    def folding_locale(self):
+        """A UTF-8 locale whose bash globs fold case (cmux-symbols.bin before CmuxNext_*), or None."""
+        probe = self.tmp / "collate-probe"
+        probe.mkdir(exist_ok=True)
+        for name in ("CmuxNext_A.bundle", "cmux-symbols.bin"):
+            (probe / name).touch()
+        for loc in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8"):
+            env = {k: v for k, v in os.environ.items() if not k.startswith("LC_")}
+            env.update(LANG=loc, LC_COLLATE=loc)
+            out = subprocess.run(["bash", "-c", 'cd "$1" && echo *', "-", str(probe)], env=env,
+                                 text=True, capture_output=True).stdout.split()
+            if out == ["cmux-symbols.bin", "CmuxNext_A.bundle"]:
+                return loc
+        return None
+
+    # SB-PLACE: in a UTF-8 locale bash's globs fold case, so place met cmux-symbols.bin before
+    # CmuxNext_CmuxNextApp.bundle and listed them out of order. The other place test runs in the runner's
+    # locale (C on CI), where the order holds without the fix, so it passed with the fix removed (run
+    # 44827601922, 2026-11-21). This one forces a folding locale, also through LC_ALL, which overrides a
+    # function's LC_COLLATE: `local LC_COLLATE=C` alone still listed them out of order there.
+    def test_place_lists_in_byte_order_in_a_case_folding_locale(self):
+        loc = self.folding_locale()
+        if loc is None:
+            self.skipTest("no locale on this host folds case in bash globs")
+        base = {k: v for k, v in self.env.items() if not k.startswith("LC_")}
+        app, overlay = self.nightly(), self.overlay()
+        for label, extra in (("LANG/LC_COLLATE", {"LANG": loc, "LC_COLLATE": loc}), ("LC_ALL", {"LC_ALL": loc})):
+            with self.subTest(locale=label):
+                copy = self.tmp / f"copy-{label.replace('/', '-')}/cmux NIGHTLY.app"
+                shutil.copytree(app, copy)
+                self.env = {**base, **extra}
+                r = self.run_tool("place", copy, overlay)
+                self.assertIn("replaced=MacOS/cmux,Resources/CmuxNext_CmuxNextApp.bundle,Resources/cmux-symbols.bin",
+                              r.stdout, f"{label}={loc}")
+
     def test_place_refuses_an_installed_app_and_a_missing_overlay(self):
         r = self.run_tool("place", self.nightly(), self.tmp / "nothing", check=False)
         self.assertNotEqual(r.returncode, 0)
@@ -223,6 +258,15 @@ class SwapBinaryTests(unittest.TestCase):
         signs = self.codesign_log.read_text().splitlines()
         self.assertTrue(any(line.startswith("--force --sign -") and line.endswith(str(copy)) for line in signs), signs)
         self.assertTrue(any(line.startswith("--verify --strict") for line in signs), signs)
+
+    def test_fetches_never_recurse_into_submodules(self):
+        # A fetch of one commit still fetches, per submodule, every pin in the history it brings in; one gone
+        # ghostty pin (51cad05, "not our ref") failed cmux#60058's launch-ready measurement after 17 h queued.
+        import re
+        fetches = [line for line in TOOL.read_text().splitlines() if re.search(r"git (-C \S+ )?fetch ", line)]
+        self.assertTrue(fetches)
+        for line in fetches:
+            self.assertIn("--no-recurse-submodules", line)
 
 
 if __name__ == "__main__":

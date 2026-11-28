@@ -109,9 +109,10 @@ test("choosing another folder in a started chat starts a new chat there, never a
   const calls = await mount();
   await openFolder();
   const site = everywhere().find(
-    // The row names the folder; its path is the tooltip (hq#1957 composer location strip).
+    // The row names the folder (hq#1957 composer location strip); a row whose text shows has no tooltip.
     (element) =>
-      element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
+      element.classList.contains("acpmux-menu-item") &&
+      element.querySelector(".acpmux-menu-label")?.textContent === "site",
   );
   expect(site, "the folder list is missing").toBeTruthy();
   // A real press: the row picks on its mousedown and the click that follows (detail 1) does not
@@ -150,7 +151,8 @@ test("a late folder browse cannot create a chat after a newer folder pick", asyn
   await openFolder();
   const site = everywhere().find(
     (element) =>
-      element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
+      element.classList.contains("acpmux-menu-item") &&
+      element.querySelector(".acpmux-menu-label")?.textContent === "site",
   );
   expect(site, "the folder list is missing").toBeTruthy();
   await act(async () => {

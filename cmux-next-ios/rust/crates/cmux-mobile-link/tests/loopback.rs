@@ -1,5 +1,9 @@
 //! Both dialers carry the same Link through a local fake signaling server.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -30,9 +34,17 @@ fn spawn_echo_mac_with(mac: SignalingClient, mac_options: DialOptions) -> tokio:
             let mac = mac.clone();
             let mac_options = mac_options.clone();
             tokio::spawn(async move {
-                let connected = dial::answer(&mac, first, events, &mac_options, LinkConfig::default())
-                    .await
-                    .expect("answer");
+                // A carrier can drop before its hello (the phone then
+                // reopens its link over the next one): that answer is over.
+                let Ok(connected) =
+                    dial::answer(&mac, first, events, &mac_options, LinkConfig::default()).await
+                else {
+                    return;
+                };
+                if connected.resumed {
+                    // A new carrier under a link already served.
+                    return;
+                }
                 while let Some(mut incoming) = connected.link.accept().await {
                     tokio::spawn(async move {
                         if incoming.service != "echo" {
@@ -79,6 +91,8 @@ async fn exercise(kind: TransportKind, fake: FakeOptions) -> (LinkPath, u64) {
         Some(ChannelEvent::Closed(info)) => assert_eq!(info.code, "unknown_service"),
         other => panic!("unexpected {other:?}"),
     }
+    // On WireGuard the pings ride the tunnel's liveness datagrams.
+    assert_eq!(connected.link.pings_as_datagrams(), kind == TransportKind::WireGuard);
     let rtt = connected.link.ping().await.unwrap();
     assert!(rtt < Duration::from_secs(5));
     let path = *connected.path.borrow();
@@ -314,8 +328,9 @@ fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
-/// and never sends plain UDP, so the link runs through TURN over UDP (UDP
-/// is not blocked, so no TLS connection is ever opened).
+/// and never sends plain UDP, so the link runs through TURN over UDP. The
+/// dial opens its TURN-over-TLS attempt beside UDP from the start (relay
+/// first), so at most that one TLS connection opens, and UDP still wins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_relay_only_uses_turn() {
     let turn = TestTurn::start().await;
@@ -324,7 +339,7 @@ async fn wireguard_relay_only_uses_turn() {
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
-    assert_eq!(turn.stream_connections(), 0, "a TLS connection was opened with UDP working");
+    assert!(turn.stream_connections() <= 1, "more than the dial's one TLS attempt with UDP working");
     assert_eq!(run.binary, 0);
 }
 
@@ -343,6 +358,43 @@ async fn wireguard_with_udp_blocked_rides_turn_over_tls() {
     assert_eq!(run.binary, 0);
 }
 
+/// The same UDP-blocked link through a real eturnal (not `TestTurn`), the relay we deploy
+/// (`backend/deploy/turn`, RFD 0088). `deploy/turn/test-udp-blocked.sh` starts it with only a TLS
+/// listener and passes `CMUX_ETURNAL_URLS`, `_USER`, `_CREDENTIAL` (the HMAC REST credential `/v1/ice`
+/// mints) and `_CA_DER` (its test certificate); run it with `--ignored`. The phone blocks UDP, so the only
+/// way to a link is TURN over TLS: the test asserts both sides report `turn-tls`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a running eturnal: deploy/turn/test-udp-blocked.sh"]
+async fn wireguard_with_udp_blocked_rides_a_real_eturnal_over_tls() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let var = |name: &str| {
+        std::env::var(name).unwrap_or_else(|_| panic!("{name} not set: run deploy/turn/test-udp-blocked.sh"))
+    };
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(std::fs::read(var("CMUX_ETURNAL_CA_DER")).unwrap()))
+        .unwrap();
+    let ice = cmux_mobile_link::api::IceServer {
+        urls: var("CMUX_ETURNAL_URLS").split(',').map(str::to_owned).collect(),
+        username: Some(var("CMUX_ETURNAL_USER")),
+        credential: Some(var("CMUX_ETURNAL_CREDENTIAL")),
+    };
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![ice],
+        turn_tls_roots: Some(std::sync::Arc::new(roots)),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+    println!("udp-blocked path: {}", run.phone.as_str());
+}
+
 /// The fallback order: TURN over UDP is tried first; when it gets no
 /// allocation (UDP to the TURN server is dropped), TLS takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -355,6 +407,48 @@ async fn wireguard_falls_back_from_turn_udp_to_turn_tls() {
     assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
     assert_eq!(turn.stream_connections(), 1);
     eprintln!("UDP-blocked fallback run took {:?}", started.elapsed());
+}
+
+/// A service can advertise more than one stream TURN endpoint at the same
+/// rank. If the preferred listener is unreachable, a UDP-blocked phone tries
+/// the next TLS endpoint within the same stream allocation budget.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_falls_back_to_second_turn_stream_when_preferred_relay_is_unreachable() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let blocked_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let blocked_port = blocked_listener.local_addr().unwrap().port();
+    let blocked_connections = Arc::new(AtomicUsize::new(0));
+    let blocked_connections_task = {
+        let blocked_connections = Arc::clone(&blocked_connections);
+        tokio::spawn(async move {
+            loop {
+                let (socket, _) = blocked_listener.accept().await.unwrap();
+                blocked_connections.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let _socket = socket;
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                });
+            }
+        })
+    };
+    let mut ice = turn.ice.clone();
+    ice.urls.insert(1, format!("turns:127.0.0.1:{blocked_port}?transport=tcp"));
+    let phone = DialOptions {
+        ice_servers: vec![ice],
+        // Drop the phone's direct UDP packets and unsolicited replies at the
+        // test network boundary. The dialer still offers every normal route.
+        drop_outbound_udp: true,
+        restrict_inbound_udp: true,
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert_eq!(blocked_connections.load(Ordering::SeqCst), 1, "the preferred relay was not attempted");
+    assert_eq!(turn.stream_connections(), 1, "the working TLS endpoint should be the only accepted stream");
+    blocked_connections_task.abort();
 }
 
 /// The Mac's network blocks UDP (STUN never answers, here simulated by
@@ -762,4 +856,85 @@ async fn webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline() {
     let waited = started.elapsed();
     assert!(matches!(result, Err(dial::DialError::Timeout)), "expected a timeout, got {:?}", result.err());
     assert!(waited < Duration::from_secs(4), "gave up after {waited:?}");
+}
+
+/// The reliable link over a real dial: with both sides on, a dropped carrier
+/// resumes over a new transport and the channel sees every byte once, in
+/// order; the Mac serves the link once.
+async fn reliable_resume(kind: TransportKind) {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let registry = std::sync::Arc::new(cmux_mobile_link::ResumeRegistry::default());
+    let mac_options = DialOptions { reliable: true, resume_registry: Some(registry.clone()), ..options() };
+    let _mac_task = spawn_echo_mac_with(mac, mac_options);
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { reliable: true, ..options() };
+    let connected =
+        dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
+    assert!(connected.link.reliable_stats().is_some(), "{kind:?}: both sides offered the reliable link");
+    let link = connected.link.clone();
+    let mut channel = link.open("echo", serde_json::json!({})).await.unwrap();
+    let payload: Vec<u8> = (0..400_000u32).map(|i| (i % 251) as u8).collect();
+    let (first, second) = payload.split_at(200_000);
+    channel.send(Bytes::copy_from_slice(first)).await.unwrap();
+    link.drop_carrier("test cut");
+    let resumed = dial::resume(&phone, &mac_id, kind, &phone_options, &link).await.expect("resume");
+    assert!(resumed.resumed);
+    channel.send(Bytes::copy_from_slice(second)).await.unwrap();
+    let mut echoed = Vec::new();
+    while echoed.len() < payload.len() {
+        match tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("echo in time") {
+            Some(ChannelEvent::Data(bytes)) => echoed.extend_from_slice(&bytes),
+            other => panic!("{kind:?}: unexpected {other:?}"),
+        }
+    }
+    assert_eq!(echoed, payload, "{kind:?}: every byte once, in order");
+    assert_eq!(registry.len(), 1, "one link of this phone waits in its registry");
+    link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_reliable_link_resumes_over_a_new_transport() {
+    reliable_resume(TransportKind::WebRtc).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_reliable_link_resumes_over_a_new_transport() {
+    reliable_resume(TransportKind::WireGuard).await;
+}
+
+/// The reliable link stays off when only one side offers it: today's link.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_reliable_link_needs_both_sides() {
+    for (phone_on, mac_on) in [(true, false), (false, true)] {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let _mac_task = spawn_echo_mac_with(mac, DialOptions { reliable: mac_on, ..options() });
+        let phone =
+            SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+        let phone_options = DialOptions { reliable: phone_on, ..options() };
+        let connected =
+            dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
+                .await
+                .expect("dial");
+        assert!(connected.link.reliable_stats().is_none(), "phone {phone_on}, Mac {mac_on}");
+        let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from_static(b"today")).await.unwrap();
+        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("echo") {
+            Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], b"today"),
+            other => panic!("unexpected {other:?}"),
+        }
+        if phone_on {
+            assert!(
+                dial::resume(&phone, &mac_id, TransportKind::WireGuard, &phone_options, &connected.link)
+                    .await
+                    .is_err()
+            );
+        }
+        connected.link.close("done");
+    }
 }

@@ -14,7 +14,10 @@ struct ChannelsPageStateTests {
         let tracks = ChannelTrack.tracks(index: index, verdicts: ["200": "pass"], pulled: [], installedBuild: "200",
                                          keptBuilds: [], followed: .nightly)
         let installed = tracks.lazy.compactMap(\.installed).first
-        return UpdaterService.channelsPage(tracks: tracks, installed: installed, prs: ["300": [42]],
+        return UpdaterService.channelsPage(tracks: tracks, installed: installed, prs: ["300": ChannelPR.list([
+            .init(title: "Fix the dock", pr: 42), .init(title: "Direct commit"), .init(title: "Fix the dock", pr: 42),
+            .init(title: "Faster start", pr: 43, isInternal: true),
+        ])],
                                            installedVersion: "1.0.0-nightly.200")
     }
 
@@ -39,6 +42,12 @@ struct ChannelsPageStateTests {
         let prs = builds[0]["prs"] as? [[String: Any]] ?? []
         #expect(prs.first?["number"] as? Int == 42)
         #expect(prs.first?["url"] as? String == "https://github.com/manaflow-ai/cmux/pull/42")
+        // Every PR once, with its title; a commit with no PR is left out.
+        #expect(prs.compactMap { $0["number"] as? Int } == [42, 43])
+        #expect(prs.compactMap { $0["title"] as? String } == ["Fix the dock", "Faster start"])
+        #expect(builds[0]["prs_label"] as? String == "PRs (2)")
+        // A build whose notes are not loaded shows no count, not "PRs (0)".
+        #expect(builds[1]["prs_label"] is NSNull)
         #expect(builds[0]["compare_url"] as? String == "https://github.com/manaflow-ai/cmux/compare/bbbbbbbb...cccccccc")
         // No verdict: no badge, not "Awaiting Verdict" on every build.
         #expect(builds[0]["health"] as? String == "pending")

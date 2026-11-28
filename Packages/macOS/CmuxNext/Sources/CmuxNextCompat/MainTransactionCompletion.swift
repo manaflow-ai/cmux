@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)
 import QuartzCore
 
 /// Main-actor work set as the current Core Animation transaction's completion: the one
@@ -19,3 +20,4 @@ nonisolated struct MainTransactionCompletion: Sendable {
         }
     }
 }
+#endif

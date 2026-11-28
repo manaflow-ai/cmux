@@ -61,6 +61,14 @@ extension AcpmuxEnvironment {
         AcpmuxHarnessRow.rows(from: try await AcpmuxStatusClient.harnesses(socketPath: socketPath).value)
     }
 
+    /// The daemon's `_acpmux/harnesses` answer as JSON (cmux-cloud-start-core `hybrid_gui` reads
+    /// it); nil when the daemon does not answer within `deadline`.
+    // timeout: a start-path probe; past it the chat starts the plain way (catalog nil), it never fails.
+    public nonisolated func harnessCatalog(deadline: Duration = .seconds(1)) async -> Data? {
+        guard let answer = try? await AcpmuxStatusClient.harnesses(socketPath: socketPath, deadline: deadline) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: answer.value)
+    }
+
     /// The shell line that runs this app's acpmux with `arguments` against this daemon's home
     /// (a build's own `~/.acpmux/builds/<key>`), each word single-quoted: Settings types it
     /// into a terminal tab for `harness login` and `harness registry`. Nil when a word holds a

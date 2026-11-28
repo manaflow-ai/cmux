@@ -27,18 +27,11 @@ enum DebugJoinConsent {
         Task { @MainActor in
             await model.refresh()
             if let requester = params["ask"]?.stringValue {
-                model.debugResetAsk()
+                UserDefaults.standard.removeObject(forKey: JoinConsentServices.askShownKey)  // captures show the sheet again
                 model.refused(JoinConsentRefusal(requester: requester, surface: params["surface"]?.stringValue == "control" ? .control : .screen))
             }
         }
         return .object(["joined": .bool(true)])
-    }
-}
-
-extension JoinConsentModel {
-    /// Captures show the sheet again: forget that it showed.
-    func debugResetAsk() {
-        UserDefaults.standard.removeObject(forKey: JoinConsentServices.askShownKey)
     }
 }
 #endif
