@@ -370,6 +370,7 @@ impl Peer {
             return Err(self.unreachable_error());
         }
         let peer: &Self = self;
+        // retry-prompt-ok: the label of this automatic wait (it reconnects by itself); it asks the person for nothing.
         Patience::new(format!("{} to reconnect", self.name), wait)
             .quiet()
             .spaced(Duration::from_millis(50), Duration::from_millis(500))

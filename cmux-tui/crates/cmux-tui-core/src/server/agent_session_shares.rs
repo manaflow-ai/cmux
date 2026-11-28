@@ -1870,7 +1870,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.chat_moved" => "the surface shows another chat now; name the chat again",
         "share.not_trusted" => "only the owner's own local connection manages shares",
         "share.moving" => {
-            "the chat is moving; retry sharing changes after the move finishes or is cancelled"
+            "the chat is moving; sharing changes wait for the move to finish or be cancelled"
         }
         "share.unsaved" => "the share could not be saved",
         "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",
