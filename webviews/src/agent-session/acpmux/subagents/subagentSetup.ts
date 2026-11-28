@@ -2,8 +2,10 @@
 // card (SubagentPreview.tsx). Leo, 2026-11-22: "so for subagents, actually, are their
 // permissions/model locked right then and there? does it make sense to be able to reveal the fork
 // or whatever switching model behaviour for it?" A harness's own subagent (Claude's Agent call,
-// Codex's spawn) takes its model at spawn and runs its tool calls under its chat's permission mode;
-// nothing switches either afterwards, so the card says them rather than offering a picker.
+// Codex's spawn) takes its model at spawn, and nothing can switch that model. Its tool calls go through
+// its chat's permission gate, so a mode switch in the chat can reach a running subagent; the mode on
+// the card is the chat's mode when the subagent started. A subagent has no picker of its own, so the
+// card says these settings rather than offering one.
 import { harnessFamilyMenu } from "../harnessModes";
 import type { Subagent } from "./subagentFold";
 
