@@ -26,6 +26,9 @@ const page = path.resolve(
   webviews,
   "../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
 );
+/** The most the chat copy's sheet (pane-copy.css) may be: the 196 KB a tenth of the 1.96 MB page sheet meant
+ * when that budget was set. */
+const COPY_SHEET_BUDGET_BYTES = 200_000;
 /** The page's one sheet, linked beside it. */
 const sheet = path.join(path.dirname(page), "pane.css");
 const built = fs.existsSync(page);
@@ -101,7 +104,12 @@ describe.skipIf(!built)("agent pane page", () => {
     const css = fs.readFileSync(sheet, "utf8");
     const copy = fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8");
     expect(copy).toBe(snapshotCss(css));
-    expect(copy.length).toBeLessThan(css.length / 10);
+    // In bytes, not as a share of pane.css: the share was written as a tenth of the 1.96 MB sheet (about 196 KB),
+    // and the sheet then lost its 638 KB of source comments (paneCssComments.mjs) while the minified copy, which
+    // never had any, stayed the same; a tenth of the sheet became 173 KB against a 177 KB copy that had not
+    // grown (cmux#64758's base red). A whole rewritten copy of the sheet, what this guards against, was 1.9 MB.
+    expect(Buffer.byteLength(copy)).toBeLessThan(COPY_SHEET_BUDGET_BYTES);
+    expect(copy.length).toBeLessThan(css.length / 5);
   });
 
   // A WebKit pane reloaded onto other web kept the pane.js it had cached under the same name and ran it under
