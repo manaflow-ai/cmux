@@ -1036,5 +1036,74 @@ class IdNeedleTests(unittest.TestCase):
         self.assertNotIn("needle", without["parameters"])
 
 
+
+class TeamOfTests(unittest.TestCase):
+    """A team read needs the platform's own team id: run 46158958288 read another namespace's team id and scanned 0
+    events (hq#37691) while the machine's own lines named a different team (hq#37638)."""
+
+    def args(self, ident, service=STAGING):
+        return ["--from", "2026-11-28T15:14:00Z", "--minutes", "16", "--service", service, "--id", ident,
+                "--needles", "cloud.machine.test_reaped"]
+
+    def test_reads_the_one_team_the_machines_own_lines_name(self):
+        machine_line = event({"msg": "cloud.create.submit", "team": TEAM, "machine": VM})
+        reaped = event({"event": "cloud.machine.test_reaped", "team": TEAM, "machine": "vm_other"})
+        foreign = event({"event": "cloud.machine.test_reaped", "team": "team_foreign", "machine": "vm_other"})
+        replies = [{"result": {"events": {"events": [machine_line, foreign]}}},
+                   {"result": {"events": {"events": [machine_line, reaped, foreign]}}}]
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", ["logs", *self.args("team_of:" + VM)]), \
+                patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), patch.object(logs.sys, "stdout", output), \
+                patch.object(logs, "query", side_effect=replies) as query, \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", return_value="https://example/issues/9") as up:
+            self.assertEqual(logs.main(), 0)
+        self.assertEqual([c.kwargs.get("needle") for c in query.call_args_list], [VM, TEAM])
+        header, rows = up.call_args.args[1], up.call_args.args[2]
+        self.assertEqual(header["id_kind"], "team")
+        self.assertEqual(header["id"], logs.base.tag(TEAM))
+        self.assertEqual(header["team_of"], logs.base.tag(VM))
+        self.assertEqual(header["events_in_window"], 2)
+        public = output.getvalue()
+        self.assertNotIn(TEAM, public)
+        self.assertNotIn(VM, public)
+        self.assertNotIn(TEAM, json.dumps([header, rows]))
+
+    def test_none_or_several_teams_refuse_before_a_team_query(self):
+        cases = {
+            "none": [event({"msg": LISTED, "machine": VM})],
+            "several": [event({"msg": LISTED, "machine": VM, "team": TEAM}),
+                        event({"msg": LISTED, "machine": VM, "team": "team_foreign"})],
+            "conflicting line": [event({"msg": LISTED, "machine": VM, "team": TEAM, "teamId": "team_foreign"})],
+            "not a team id": [event({"msg": LISTED, "machine": VM, "team": "acme"})],
+        }
+        for name, events in cases.items():
+            with self.subTest(case=name):
+                code, out, query, up = run_main(self.args("team_of:" + VM),
+                                                response={"result": {"events": {"events": events}}})
+                self.assertIsInstance(code, SystemExit)
+                self.assertIn("not one", str(code))
+                self.assertNotIn(VM, str(code))
+                self.assertEqual(query.call_count, 1)
+                up.assert_not_called()
+
+    def test_refuses_on_cmux_vm_and_bad_forms(self):
+        for ident, service in (("team_of:" + VM, VM_STAGING), ("team_of:" + TEAM, STAGING), ("team_of:", STAGING)):
+            with self.subTest(ident=ident, service=service):
+                code, _, query, _ = run_main(self.args(ident, service))
+                self.assertIsInstance(code, SystemExit)
+                query.assert_not_called()
+
+    def test_a_machine_read_names_its_lines_team_tags(self):
+        own = event({"msg": LISTED, "machine": VM, "team": TEAM})
+        head, _ = logs.publish([own, event({"msg": LISTED, "machine": "vm_other", "team": "team_foreign"})], [LISTED], VM)
+        self.assertEqual(head["teams"], [logs.base.tag(TEAM)])
+        head, _ = logs.publish([event({"msg": LISTED, "machine": VM})], [LISTED], VM)
+        self.assertNotIn("teams", head)
+        head, _ = logs.publish([own], [LISTED], TEAM)
+        self.assertNotIn("teams", head)
+
+
 if __name__ == "__main__":
     unittest.main()
