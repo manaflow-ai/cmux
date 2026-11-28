@@ -311,12 +311,13 @@ fn steer_relog_removes_its_own_row_when_two_steers_were_shown_first() {
         ("user_message", prompt("one", "s1", "t2")),
     ]);
     let t = applied(&records, &[(2, "one"), (2, "two")]);
+    // S1 keeps its place, above S2, where it was sent (RFD 0215 rule 4).
     assert_eq!(
         user_rows(&t),
         vec![
             ("go".into(), false, false),
-            ("two".into(), true, false),
-            ("one".into(), false, false)
+            ("one".into(), false, false),
+            ("two".into(), true, false)
         ],
         "{:?}",
         t.items
