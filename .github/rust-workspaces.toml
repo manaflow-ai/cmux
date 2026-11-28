@@ -151,6 +151,10 @@ root = "scripts/cmux-next/rust-change-class"
 run = true
 
 [[workspace]]
+root = "scripts/bench/phone-speed"
+skip = "callgrind instruction-budget detector (cmux-phone-speed); ci/steps.toml step phone-speed-icount builds and runs it on Linux under valgrind, not clippy/cargo test"
+
+[[workspace]]
 root = "scripts/measure/workspace-factory"
 skip = "measure harness (wsfactory, bench workspace-factory): kept out of CI under the 2026-10-23 no-new-CI rule, since lifted; its author runs cargo test through cmux-ci test, and the bench builds it on the measuring Mac"
 
