@@ -595,10 +595,10 @@
 /* Each machine heads its own folders once (Leo 2026-10-20: "we can have them be delineated rather than
    just this is a computer symbol. This is a computer symbol"): its symbol in its own color and its name,
    a quiet caption in the first folder's top margin; a second machine's opens with a hairline. */
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine){position:relative;margin-top:22px}
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider]){margin-top:31px}
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider])::before{content:"";position:absolute;inset-inline:0;top:-25px;border-top:var(--cmux-hairline,0.5px) solid color-mix(in srgb,var(--agent-text) 14%,transparent);pointer-events:none}
-.acpmux-project-machine{position:absolute;top:-19px;left:var(--acpmux-project-menu-edge);right:var(--acpmux-project-menu-edge);display:flex;align-items:center;gap:5px;height:16px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:600;letter-spacing:var(--text-caption--letter-spacing);pointer-events:none}
+.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine){position:relative;margin-top:24px}
+.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider]){margin-top:32px}
+.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider])::before{content:"";position:absolute;inset-inline:0;top:-24px;border-top:var(--cmux-hairline,0.5px) solid color-mix(in srgb,var(--agent-text) 14%,transparent);pointer-events:none}
+.acpmux-project-machine{position:absolute;bottom:100%;margin-bottom:4px;left:var(--acpmux-project-menu-edge);right:var(--acpmux-project-menu-edge);display:flex;align-items:center;gap:4px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:600;letter-spacing:var(--text-caption--letter-spacing);pointer-events:none}
 .acpmux-project-machine>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* One leading column for every row of the project menu (Leo, ":( alignemnt"): Do not work in a
    project, New project, a typed path and each project put their mark in one 16px box with no tile,
