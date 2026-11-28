@@ -78,25 +78,7 @@ struct SidebarAccountButtonPresentation: Equatable {
     }
 }
 
-enum SidebarFooterControl: CaseIterable, Equatable {
-    case account
-    case mobileConnect
-    case help
-    case cloud
-    case shortcutDiscovery
-    case upgrade
-    case extensions
-    case update
-}
-
 enum SidebarFooterPresentationPolicy {
-    static func isVisible(
-        _ control: SidebarFooterControl,
-        presentationMode: WorkspacePresentationModeSettings.Mode
-    ) -> Bool {
-        presentationMode != .minimal || control == .upgrade
-    }
-
     static func isUpgradeVisible(
         isProActive: Bool,
         isProStatusKnown: Bool = true
