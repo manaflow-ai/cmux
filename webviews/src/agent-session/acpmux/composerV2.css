@@ -28,7 +28,8 @@
    layer of every box-shadow the box and its queue ring layer draw, so the halo and the hairline set
    only it; no shadow blurs (the elevation scale owns blur, test/subtle-elevation.test.ts) and no
    border changes the box's size. Increase Contrast keeps the shared focus ring, and a page that is
-   not the key one draws no light (its field can hold focus in the background). */
+   not the key one draws no light (its field can hold focus in the background). Focus is the box's
+   owner-set `data-focused` (focusVisibleMark.ts, #50277), never a bare :focus-within. */
 @media not (prefers-contrast: more) {
   /* hairline: one 1 px accent ring inside the edge. */
   :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="hairline"][data-focused] {
@@ -72,11 +73,11 @@
   pointer-events: none;
 }
 @media not (prefers-contrast: more) {
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"][data-focused]::after {
     opacity: 1;
   }
   /* The light's glint over the top edge: the same ring token, a spread-only band above the line. */
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"][data-focused] {
     --acpmux-card-ring:
       inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge-focus, transparent),
       0 -1px 0 0 color-mix(in srgb, var(--acpmux-v2-accent) 24%, transparent);
@@ -215,7 +216,7 @@
     transition: box-shadow var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
-    .acpmux-composer-box[data-composer-v2]:focus-within {
+    .acpmux-composer-box[data-composer-v2][data-focused] {
     transition-duration: var(--cmux-motion-micro, 120ms);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
@@ -223,7 +224,7 @@
     transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
-    .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after {
+    .acpmux-composer-box[data-composer-v2="rim"][data-focused]::after {
     transition-duration: var(--cmux-motion-micro, 120ms);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])

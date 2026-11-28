@@ -102,12 +102,13 @@ test("inline durations inherit their label colour while separate elapsed times r
   expect(at).toBeGreaterThan(-1);
   const rule = css.slice(at, css.indexOf("}", at));
   expect(rule).toContain("color: var(--cv-text-dim);");
-  expect(rule).toContain("font-variant-numeric: tabular-nums;");
+  // Numerals read the Instrument token, tabular by default (#53716).
+  expect(rule).toContain("font-variant-numeric: var(--instrument-type-numerals, tabular-nums);");
   const labelAt = css.indexOf("\n.cv-worked__label-time {");
   expect(labelAt).toBeGreaterThan(-1);
   const labelRule = css.slice(labelAt, css.indexOf("}", labelAt));
   expect(labelRule).toContain("color: inherit;");
-  expect(labelRule).toContain("font-variant-numeric: tabular-nums;");
+  expect(labelRule).toContain("font-variant-numeric: var(--instrument-type-numerals, tabular-nums);");
 });
 
 // A finished connected turn has one Worked-for line, including its intermediate replies and

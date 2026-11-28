@@ -78,6 +78,13 @@ describe("with no pack keys", () => {
       // New, and unset: replies keep --cv-font (conversation.css falls back to it).
       "--cv-reply-font": null,
       "--cv-reply-tracking": null,
+      // A tool row's type tokens (#46778, transcriptLook.ts): unset, tool rows draw as the chat.
+      "--cv-tool-command-font": null,
+      "--cv-tool-font": null,
+      "--cv-tool-output-font": null,
+      "--cv-tool-output-scale": null,
+      "--cv-tool-text-scale": null,
+      "--cv-tool-weight": null,
       // New, and unset: code keeps its font's ligatures.
       "--cv-code-ligatures": null,
       "--cv-code-features": null,
