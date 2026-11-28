@@ -83,7 +83,7 @@ async fn an_older_client_reads_the_list_written_down_to_its_revision() {
     let row = |list: &Value| {
         list.pointer("/sessions")
             .and_then(Value::as_array)
-            .and_then(|rows| rows.iter().find(|r| r["id"] == json!("abi-down-1")).cloned())
+            .and_then(|rows| rows.iter().find(|r| r["sessionId"] == json!("abi-down-1")).cloned())
             .unwrap_or_else(|| panic!("no row in {list}"))
     };
     let same = crate::client::Client::connect(&path).await.unwrap();
