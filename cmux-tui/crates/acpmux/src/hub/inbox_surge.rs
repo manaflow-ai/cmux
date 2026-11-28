@@ -83,6 +83,8 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || super::super::forum::slash_command(blocks).is_some()
         // The receiver's own batch must reach it. External tool notices have kind "notice".
         || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
+        // The chat's own background task ends (`bg_notify.rs`): its waits must wake it.
+        || provenance.is_some_and(|p| p.get("bgTaskId").is_some())
     {
         return None;
     }
@@ -238,7 +240,11 @@ impl Hub {
         if !session.inbox().surge_rate.arrival(now, period) {
             return Ok(None);
         }
-        self.hold_in_inbox(session, prompt_id, client, blocks, opts, from).map(Some)
+        let receipt = self.hold_in_inbox(session, prompt_id, client, blocks, opts, from)?;
+        // The holder schedules the triage pass (`surge_triage.rs` module doc), so held messages
+        // are sorted as they come, not only after a restart.
+        super::super::surge_triage::resume_after_restore(session);
+        Ok(Some(receipt))
     }
 
     /// Keeps a prompt from `from` whole in `session`'s journal and inbox as a held message: no
