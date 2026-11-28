@@ -347,6 +347,9 @@ extension TerminalSurface {
                 terminalRendererFailedCallback,
                 callbackContext.toOpaque()
             ) else {
+                // No more surface calls follow failed creation. Retire native
+                // routing before destroying the surface and its IO threads.
+                ghostty_surface_request_process_termination(createdSurface)
                 ghostty_surface_free(createdSurface)
                 return (createdSurface: nil, runtimeInitialInput: runtimeInitialInput)
             }
