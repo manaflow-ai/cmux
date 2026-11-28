@@ -195,6 +195,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         return selection
     }()
 
+    /// A permission card's command block shows (tests: a reused cell shows only its own row's parts).
+    var showsCommandBlock: Bool { made.contains("command") && !command.isHidden && command.superview != nil }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
@@ -879,6 +882,8 @@ final class FeedLazyBox<Value: AnyObject> {
 
 /// The iMessage-style quote (QuoteBubble): a caption, the bubble with its tail, a thread line for an agent's ask.
 final class FeedQuoteView: UIView {
+    /// Bubble paths computed, not taken from the cache (tests).
+    static var bubblesMade = 0
     private let caption = UILabel()
     private let bubble = CAShapeLayer()
     private let text = UILabel()
@@ -953,7 +958,29 @@ final class FeedQuoteView: UIView {
 
     /// A 16 pt rounded rect and the tail (BubbleTail) in one path, the tail at the bottom-leading
     /// corner (bottom-trailing for your own message, mirrored).
+    /// A quote's bubble for its size: the union with the tail is a boolean path operation (~1 ms
+    /// on a quoted row's every apply, profile 8a637e86), and a Feed shows a few sizes again and again.
     static func bubblePath(_ rect: CGRect, outgoing: Bool) -> CGPath {
+        let key = BubbleKey(width: Int((rect.width * 4).rounded()), height: Int((rect.height * 4).rounded()), outgoing: outgoing)
+        if rect.origin == .zero, let path = bubbles[key] { return path }
+        let path = makeBubblePath(rect, outgoing: outgoing)
+        guard rect.origin == .zero else { return path }
+        if bubbles.count >= 256 { bubbles.removeAll(keepingCapacity: true) }
+        bubbles[key] = path
+        return path
+    }
+
+    struct BubbleKey: Hashable {
+        var width: Int
+        var height: Int
+        var outgoing: Bool
+    }
+
+    /// Bubbles made, by size (`bubblePath`), and how many were made (tests).
+    private static var bubbles: [BubbleKey: CGPath] = [:]
+
+    static func makeBubblePath(_ rect: CGRect, outgoing: Bool) -> CGPath {
+        bubblesMade += 1
         let body = UIBezierPath(roundedRect: rect, cornerRadius: 16).cgPath
         let box = CGRect(x: -6, y: rect.height - 18 + 1, width: 22, height: 18)
         let w = box.width, h = box.height

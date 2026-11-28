@@ -36,6 +36,16 @@ final class MacSession {
 
     /// The last tree this Mac sent.
     var tree: DaemonTree?
+    /// The acpmux sessions' open asks go to the workspace rows at the next display frame
+    /// (`LiveCoordinator.wire`): one mapping per frame, not per watch event.
+    var pendingSyncScheduled = false
+    /// The chats the next pending sync maps: only the ones a watch event changed, or every chat
+    /// (nil) once a whole list arrived.
+    private var pendingSyncIDs: Set<String>? = []
+    /// Runs the pending sync at the next display frame (tests run it by hand).
+    var nextFrame: @MainActor (@escaping @MainActor () -> Void) -> Void = NextDisplayFrame.schedule
+    /// Pending syncs run (tests: one a frame, however many watch events the frame brought).
+    private(set) var pendingSyncs = 0
     /// The link to this Mac (identity: a newer link replaces it).
     var currentLink: (any MacLink)?
     /// `currentLink` once its `auth` channel opened (at once without pairing keys): what
@@ -98,6 +108,37 @@ final class MacSession {
         acpmux.linkProgress = progress
         feed.terminal = terminalFeed
         creation.attach(acpmux: acpmux)
+    }
+
+    /// Maps the sessions' asks and titles into the workspace rows at the next display frame,
+    /// once however many watch events the frame brought (each one mapped them, on the main
+    /// thread, while a busy Mac's agents streamed). `chats`: the chats the event changed (one
+    /// chat's event updates that chat's entries); nil: every chat (a whole list arrived).
+    func schedulePendingSync(chats ids: Set<String>? = nil) {
+        if let ids {
+            pendingSyncIDs?.formUnion(ids)
+        } else {
+            pendingSyncIDs = nil
+        }
+        guard !pendingSyncScheduled else { return }
+        pendingSyncScheduled = true
+        nextFrame { [weak self] in
+            guard let self else { return }
+            pendingSyncScheduled = false
+            pendingSyncs += 1
+            let ids = pendingSyncIDs
+            pendingSyncIDs = []
+            guard let ids else {
+                workspaces.setPending(acpmux.sessions.mapValues { $0.pendingPermissions > 0 },
+                                      waitingFor: feed.waitingFor,
+                                      chatTitles: acpmux.sessions.compactMapValues(\.title))
+                return
+            }
+            // Each chat as it is now (nil: it went); every other chat's entry stands.
+            var rows: [String: AcpmuxSession?] = [:]
+            for id in ids { rows[id] = .some(acpmux.sessions[id]) }
+            workspaces.setPending(rows: rows, waitingFor: feed.waitingFor)
+        }
     }
 
     /// Where an acpmux session of this Mac lives (workspace and tab).

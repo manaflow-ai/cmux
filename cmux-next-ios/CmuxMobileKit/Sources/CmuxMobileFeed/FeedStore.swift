@@ -185,35 +185,93 @@ public final class FeedStore {
 
     public private(set) var items: [FeedItem] {
         didSet {
-            guard items != oldValue else { return }
-            // Events read before (this launch or an earlier one) stay read when the Mac
-            // reports them again.
-            if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
-                items = items.map { item in
-                    var item = item
-                    if readSet.contains(item.id) { item.isRead = true }
-                    return item
-                }
+            // Inside `batch`: lookups stay right, the derived work waits for the batch's end.
+            if batchDepth > 0 {
+                itemIndexStale = true
                 return
             }
-            // A done event that left the window stays done when the Mac reports it again.
-            if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
-                items = items.map { item in
-                    var item = item
-                    if evictedDoneSet.contains(item.id) { item.isDone = true }
-                    return item
-                }
-                return
-            }
-            reindex()
-            recordReadMarks()
-            refreshDerived()
-            #if DEBUG
-            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
-            #endif
-            if !items.isEmpty { markKnown() }
-            onItemsChange?(items)
+            itemsChanged(from: oldValue)
         }
+    }
+
+    /// Runs `body`'s writes as one change: the comparison, read marks, derived lists and
+    /// `onItemsChange` run once at its end, not once per upsert, remove or resolve. A ledger
+    /// read on a busy Mac writes many items at once, and each write ran all of them.
+    public func batch(_ body: () -> Void) {
+        if batchDepth == 0 { batchStart = items }
+        batchDepth += 1
+        body()
+        batchDepth -= 1
+        guard batchDepth == 0, let start = batchStart else { return }
+        batchStart = nil
+        itemsChanged(from: start)
+    }
+
+    @ObservationIgnored private var batchDepth = 0
+    @ObservationIgnored private var batchStart: [FeedItem]?
+    /// Item changes that ran the derived work (tests: once per batch).
+    @ObservationIgnored public private(set) var derivedRuns = 0
+
+    /// What follows a change of `items` (once per write, or once per `batch`).
+    private func itemsChanged(from oldValue: [FeedItem]) {
+        guard items != oldValue else { return }
+        // Events read before (this launch or an earlier one) stay read when the Mac
+        // reports them again.
+        if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
+            items = items.map { item in
+                var item = item
+                if readSet.contains(item.id) { item.isRead = true }
+                return item
+            }
+            return
+        }
+        // A done event that left the window stays done when the Mac reports it again.
+        if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
+            items = items.map { item in
+                var item = item
+                if evictedDoneSet.contains(item.id) { item.isDone = true }
+                return item
+            }
+            return
+        }
+        reindex()
+        recordReadMarks()
+        #if DEBUG
+        if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
+        #endif
+        scheduleDerived()
+    }
+
+    /// Runs the derived pass later (live mode: at the next display frame), so every Feed write of
+    /// a frame (a ledger read, a tree change, a Needs You set, a notification, an answer) shares
+    /// one pass: the screen shows one state a frame. Nil: at once (tests, previews, mock mode).
+    @ObservationIgnored public var derivedScheduler: (@MainActor (@escaping @MainActor () -> Void) -> Void)?
+    @ObservationIgnored private var derivedScheduled = false
+
+    private func scheduleDerived() {
+        guard let derivedScheduler else {
+            derivedPass()
+            return
+        }
+        guard !derivedScheduled else { return }
+        derivedScheduled = true
+        derivedScheduler { [weak self] in self?.flushDerived() }
+    }
+
+    /// Runs a scheduled derived pass now (the frame came, or a caller reads the lists at once).
+    public func flushDerived() {
+        guard derivedScheduled else { return }
+        derivedScheduled = false
+        derivedPass()
+    }
+
+    /// The filtered list, the counts and `onItemsChange`: once per frame's changes.
+    // perf-hot: 1/frame feed-derived-pass
+    private func derivedPass() {
+        derivedRuns += 1
+        refreshDerived()
+        if !items.isEmpty { markKnown() }
+        onItemsChange?(items)
     }
 
     /// How many events the Feed holds in memory: the newest, plus any open ask
@@ -405,6 +463,8 @@ public final class FeedStore {
         let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone && !self.isOnClosedTab($0) }.map(\.id))
         if open != needsYouIDs { needsYouIDs = open }
         if open.count != needsYouCount { needsYouCount = open.count }
+        let unread = items.contains { !$0.isRead }
+        if unread != hasUnread { hasUnread = unread }
     }
 
     /// Needs you first: the asks still waiting on the person lead the list, newest first among
@@ -448,13 +508,20 @@ public final class FeedStore {
     @ObservationIgnored private var readSet: Set<String> = []
     /// Where each item is in `items`, by id: lookups from the live ledger (one per entry,
     /// per tree update) were linear scans.
-    @ObservationIgnored private var itemIndex: [String: Int] = [:]
+    private var itemIndex: [String: Int] {
+        if itemIndexStale { reindex() }
+        return itemIndexStorage
+    }
+    @ObservationIgnored private var itemIndexStorage: [String: Int] = [:]
+    /// Items were written inside a `batch`: the index is rebuilt at its next read.
+    @ObservationIgnored private var itemIndexStale = false
 
     private func reindex() {
         var index: [String: Int] = [:]
         index.reserveCapacity(items.count)
         for (offset, item) in items.enumerated() where index[item.id] == nil { index[item.id] = offset }
-        itemIndex = index
+        itemIndexStorage = index
+        itemIndexStale = false
     }
 
     private func recordReadMarks() {
@@ -537,6 +604,9 @@ public final class FeedStore {
     public func markKnown() {
         guard !hasKnownData else { return }
         hasKnownData = true
+        // The lists go with the flag: a frame's derived pass still waiting would show the empty
+        // state ("No events") for that frame under a known Feed.
+        flushDerived()
         onKnownData?()
     }
 
@@ -576,6 +646,11 @@ public final class FeedStore {
     public func setRefreshErrorForDemo() {
         refreshError = Self.notConnectedMessage
     }
+
+    /// FeedShiftProbe: the header's error goes again.
+    public func clearRefreshErrorForDemo() {
+        refreshError = nil
+    }
     #endif
 
     public func clearRefreshError() { refreshError = nil }
@@ -589,6 +664,9 @@ public final class FeedStore {
     public private(set) var visibleItems: [FeedItem] = []
 
     public private(set) var needsYouCount = 0
+    /// Some event is unread (Mark All Notifications as Read is enabled): kept with the derived
+    /// lists, so the menu reads a flag that changes rarely instead of scanning every event.
+    public private(set) var hasUnread = false
     /// The ids of the asks still waiting on the person (`needsYou`, not done). It changes only
     /// when an ask opens or closes: the notification sync keys on it, so a re-render or a re-read
     /// of the same asks does nothing.
@@ -678,6 +756,9 @@ public final class FeedStore {
         onItemsChange = nil
         onKnownData = nil
         actions = nil
+        // Signed out: the emptied Feed shows at once, and no frame's pass is left for it.
+        derivedScheduler = nil
+        derivedScheduled = false
         replaceAll([])
         hasKnownData = false
         useSpill(nil)

@@ -46,6 +46,15 @@ final class FeedSwipeActionsUITests: XCTestCase {
         reveal(row, in: list)
         XCTAssertTrue(row.waitForExistence(timeout: 5), "a reply row\n\(app.debugDescription)")
         row.swipeLeft()
+        // Read marks outlive the app on this simulator (Feed/read.json, newest 500): an earlier suite
+        // (the all-UI-states capture's marked-done-undo scene) can leave this row read, so its swipe
+        // offers Unread. Start it unread.
+        let staleUnread = list.buttons["Unread"]
+        if staleUnread.waitForExistence(timeout: 2), !list.buttons["Read"].exists {
+            staleUnread.tap()
+            XCTAssertTrue(waitGone(staleUnread), "the actions close after Unread")
+            row.swipeLeft()
+        }
         let read = list.buttons["Read"]
         XCTAssertTrue(read.waitForExistence(timeout: 5), "Read swipe action\n\(app.debugDescription)")
         XCTAssertTrue(list.buttons["Done"].exists, "Done swipe action")

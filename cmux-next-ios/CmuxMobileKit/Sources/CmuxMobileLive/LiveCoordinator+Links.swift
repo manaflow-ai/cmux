@@ -145,21 +145,19 @@ extension LiveCoordinator {
                 self?.phaseChanged(session)
             }
             session.feed.handle(event, sessions: hub.sessions)
-            // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
-            // event used to rebuild both maps over every chat on the main actor (about 30,000
-            // dictionary operations per event at 10,000 chats, 4 events a second).
+            // One chat's event updates that chat's entries; only a whole list rebuilds them (each
+            // event used to rebuild both maps over every chat on the main actor: about 30,000
+            // dictionary operations per event at 10,000 chats, 4 events a second). The rows are
+            // mapped once a display frame, however many events the frame brought.
             switch event {
             case .sessionsLoaded:
-                session.workspaces.setPending(hub.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
-                                              chatTitles: hub.sessions.compactMapValues(\.title))
+                session.schedulePendingSync()
             case .sessionChanged(let changed, _, _):
-                session.workspaces.setPending(rows: [changed.id: hub.sessions[changed.id]], waitingFor: session.feed.waitingFor)
+                session.schedulePendingSync(chats: [changed.id])
             case .sessionsChanged(let followed):
-                var rows: [String: AcpmuxSession?] = followed.changed.mapValues { hub.sessions[$0.id] }
-                for id in followed.gone { rows[id] = .some(nil) }
-                session.workspaces.setPending(rows: rows, waitingFor: session.feed.waitingFor)
+                session.schedulePendingSync(chats: Set(followed.changed.keys).union(followed.gone))
             case .permissionPending(let id, _, _), .permissionResolved(let id):
-                session.workspaces.setPending(rows: [id: hub.sessions[id]], waitingFor: session.feed.waitingFor)
+                session.schedulePendingSync(chats: [id])
             }
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }

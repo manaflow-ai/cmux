@@ -211,6 +211,16 @@
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
     },
+    "workspace-sync-publish": {
+      "what": "the iPhone app's live workspace publication (cmux-next-ios WorkspaceSync.flushPublication): every Mac event of a display frame published to AppStore, the lists and the terminal Feed once",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=ws-500-live8,ws-200-live4 --arg base=<base sha> (POOLED hitch ms/s, max frame ms, main CPU ms/s and main CPU p99 per frame, base vs head); LiveBurstCoalescingTests (publications per frame)",
+      "owner": "iOS"
+    },
+    "feed-derived-pass": {
+      "what": "the iPhone Feed's derived pass (cmux-next-ios FeedStore.derivedPass): the filtered list, the Needs You and unread counts and onItemsChange, once per display frame however many Feed writes the frame brought",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=feed-ref --arg base=<base sha> (POOLED hitch, max frame, main CPU p99); LiveBurstCoalescingTests (derived runs per frame)",
+      "owner": "iOS"
+    },
     "phone-mirror-change": {
       "what": "one owner frame on the phone's stream mirror (cmux-mobile-ffi ownership.rs OwnershipMirror::mutate): decode, apply, and the listener's view with only the rows the frame wrote, under the iOS workspace, tab and conversation lists",
       "bench": "cd cmux-tui && cargo test -p cmux-mobile-ffi --test list_stress -- --nocapture --test-threads=1 (10/500/5000 workspaces, 100/100k messages: p50/p95 per change; fails when the scale p95 passes 3x the 1x p95)",

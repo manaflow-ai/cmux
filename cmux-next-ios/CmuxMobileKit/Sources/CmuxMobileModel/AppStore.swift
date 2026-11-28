@@ -16,16 +16,81 @@ public final class AppStore {
             return workspaceStorage
         }
         set {
-            guard newValue != workspaceStorage else { return }
+            // One pass: equal lists change nothing; rows changed where they were are noted by
+            // id (`rowsChanged(since:)`), so what reads the list can update those rows alone.
+            var inPlace: Set<String>? = []
+            var attention = 0
+            if newValue.count == workspaceStorage.count {
+                let activeMacIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+                for (new, old) in zip(newValue, workspaceStorage) where new != old {
+                    guard new.id == old.id, new.macID == old.macID else {
+                        inPlace = nil
+                        break
+                    }
+                    inPlace?.insert(new.id)
+                    if new.needsAttention != old.needsAttention, activeMacIDs.contains(new.macID) {
+                        attention += new.needsAttention ? 1 : -1
+                    }
+                }
+                if inPlace?.isEmpty == true { return }
+            } else {
+                inPlace = nil
+            }
             withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
             workspacesRevision &+= 1
-            refreshAttentionCount()
+            noteRowChange(inPlace)
+            if inPlace != nil {
+                // Rows changed where they were: the badge moves by theirs alone.
+                if attention != 0 { attentionCount += attention }
+            } else {
+                refreshAttentionCount()
+            }
         }
+    }
+
+    /// One change of `workspaces` that only changed rows where they were (no row came, went or
+    /// moved): the revision it made and the rows' ids.
+    public struct RowChange: Equatable, Sendable {
+        public var revision: Int
+        public var ids: Set<String>
+    }
+
+    /// The newest in-place changes, oldest first, with consecutive revisions; emptied by any
+    /// other change. A few frames' worth: a reader further behind rebuilds.
+    @ObservationIgnored public private(set) var rowChanges: [RowChange] = []
+
+    private func noteRowChange(_ ids: Set<String>?) {
+        guard let ids else {
+            rowChanges.removeAll()
+            return
+        }
+        rowChanges.append(RowChange(revision: workspacesRevision, ids: ids))
+        if rowChanges.count > 8 { rowChanges.removeFirst(rowChanges.count - 8) }
+    }
+
+    /// The rows changed in place since `revision` (`workspacesRevision` as a reader last saw
+    /// it), or nil when the list changed otherwise since (rows came, went or moved) or the
+    /// changes are older than the few kept.
+    public func rowsChanged(since revision: Int) -> Set<String>? {
+        if revision == workspacesRevision { return [] }
+        guard revision < workspacesRevision, let first = rowChanges.first, first.revision <= revision &+ 1,
+              rowChanges.last?.revision == workspacesRevision else { return nil }
+        var ids: Set<String> = []
+        for change in rowChanges where change.revision > revision { ids.formUnion(change.ids) }
+        return ids
     }
     @ObservationIgnored private var workspaceStorage: [Workspace]
     /// Moves on every change of `workspaces`: what reads them can key a memo
-    /// on it instead of comparing every workspace (read it with `workspaces`).
-    @ObservationIgnored public private(set) var workspacesRevision = 0
+    /// on it instead of comparing every workspace. Observed, so a view or an
+    /// `onChange` can follow the workspaces by this one integer (comparing every
+    /// workspace on each Mac update ran while the person scrolled).
+    public private(set) var workspacesRevision = 0
+    /// Where each workspace is in `workspaces`, by id, as of `workspaceIndexRevision`
+    /// (`updateWorkspaces` finds a changed row without scanning the list).
+    @ObservationIgnored private var workspaceIndex: [String: Int] = [:]
+    @ObservationIgnored private var workspaceIndexRevision = -1
+    /// Row writes by `updateWorkspaces` (tests: O(changed) per publication).
+    @ObservationIgnored public private(set) var rowWrites = 0
     /// The active team's workspaces that need attention (the Workspaces tab
     /// badge). Kept as a value that changes only with the count: the
     /// workspaces change on every Mac tree update while an agent works, and a
@@ -33,8 +98,15 @@ public final class AppStore {
     public private(set) var attentionCount = 0
 
     private func refreshAttentionCount() {
-        let count = activeWorkspaces.count(where: \.needsAttention)
+        let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        var count = 0
+        var any = false
+        for workspace in workspaceStorage where macIDs.contains(workspace.macID) {
+            any = true
+            if workspace.needsAttention { count += 1 }
+        }
         if count != attentionCount { attentionCount = count }
+        if any != hasActiveWorkspaces { hasActiveWorkspaces = any }
     }
     public var feed: [FeedEvent]
     /// The last tab the user had open per workspace on this device,
@@ -221,21 +293,54 @@ public final class AppStore {
 
     /// Reconciles metadata for existing rows without rebuilding or comparing
     /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    /// O(changed rows): each row is found by id (`workspaceIndex`), and every change of one
+    /// publication lands in one write, one notification and one revision, with the attention
+    /// count moved by the changed rows alone. A busy Mac publishes once a display frame
+    /// (`WorkspaceSync`), and each row written on its own copied, compared and recounted the
+    /// whole list per row.
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
+        guard !rows.isEmpty else { return }
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
-        // One write for the whole push: each `workspaces[index] = row` was a copy, a
-        // whole-list compare and a notification of every reader, per row, on main.
-        var next = workspaceStorage
-        var changed = false
+        var changes: [(index: Int, row: Workspace)] = []
         for row in rows {
-            guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = next.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  next[index] != row else { continue }
-            next[index] = row
-            changed = true
+            guard !pendingWorkspaceIDs.contains(row.id), let index = index(ofWorkspace: row.id, macID: macID),
+                  workspaceStorage[index] != row else { continue }
+            changes.append((index, row))
         }
-        if changed { workspaces = next }
+        guard !changes.isEmpty else { return }
+        let activeMacIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        var attention = attentionCount
+        withMutation(keyPath: \.workspaces) {
+            for change in changes {
+                if activeMacIDs.contains(macID) {
+                    attention += (change.row.needsAttention ? 1 : 0) - (workspaceStorage[change.index].needsAttention ? 1 : 0)
+                }
+                workspaceStorage[change.index] = change.row
+            }
+        }
+        rowWrites += changes.count
+        let indexWasCurrent = workspaceIndexRevision == workspacesRevision
+        workspacesRevision &+= 1
+        noteRowChange(Set(changes.map(\.row.id)))
+        // Rows changed in place: every row is still where it was.
+        if indexWasCurrent { workspaceIndexRevision = workspacesRevision }
+        if attention != attentionCount { attentionCount = attention }
+    }
+
+    /// The position of workspace `id` of `macID`, from the id map (rebuilt only after the list
+    /// itself changed shape); a repeated id on another Mac falls back to a scan.
+    private func index(ofWorkspace id: String, macID: String) -> Int? {
+        if workspaceIndexRevision != workspacesRevision {
+            var map: [String: Int] = [:]
+            map.reserveCapacity(workspaceStorage.count)
+            for (offset, workspace) in workspaceStorage.enumerated() where map[workspace.id] == nil { map[workspace.id] = offset }
+            workspaceIndex = map
+            workspaceIndexRevision = workspacesRevision
+        }
+        guard let index = workspaceIndex[id] else { return nil }
+        if workspaceStorage[index].macID == macID { return index }
+        return workspaceStorage.firstIndex { $0.macID == macID && $0.id == id }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's
@@ -282,6 +387,11 @@ public final class AppStore {
     }
 
     /// Workspaces on the active team's Macs.
+    /// Whether the active space has a workspace. Kept with the attention count, so a view that
+    /// asks reads a flag that changes only when the space empties or fills, not the workspaces
+    /// (which change on every Mac update: the Workspaces page re-ran its whole body for each).
+    public private(set) var hasActiveWorkspaces = false
+
     public var activeWorkspaces: [Workspace] {
         let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
         return workspaces.filter { macIDs.contains($0.macID) }

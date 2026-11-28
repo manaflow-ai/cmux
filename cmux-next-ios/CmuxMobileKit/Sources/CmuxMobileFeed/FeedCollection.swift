@@ -4,7 +4,9 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -100,6 +102,13 @@ final class FeedCollectionController: UIViewController {
 
 final class FeedCollectionView: UITableView {
     var onWidthChange: ((CGFloat) -> Void)?
+    /// The list left or joined a window (the spare's timer stops when it leaves).
+    var onWindowChange: ((Bool) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onWindowChange?(window != nil)
+    }
     private var lastWidth: CGFloat = 0
 
     override func layoutSubviews() {
@@ -156,6 +165,14 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     /// The next commit is a fold line's toggle: its rows come and go with the table's own row animation.
     private var animatesNextCommit = false
     private var applyScheduled = false
+    /// FEED-15: rows that arrived while the person dragged or the list decelerated wait for rest
+    /// (one apply then, with the reader's row kept in place): a correction set while UIKit moves the
+    /// offset itself is undone by the gesture or the deceleration, and the row being read jumps.
+    private var heldUntilRest = false
+    /// The held rows the pill counts now (moved into its count by the apply at rest).
+    private var heldCounted = 0
+    /// A header re-measure that came while the list moved off the top: done at rest.
+    private var headerHeld = false
     /// Layouts computed off the main thread, one batch at a time.
     private let queue = DispatchQueue(label: "dev.cmux.mobile.feed-layout", qos: .userInitiated)
     private var batchInFlight = false
@@ -223,8 +240,9 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         view.delegate = self
         view.prefetchDataSource = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
-        view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         view.register(FeedFoldCell.self, forCellReuseIdentifier: FeedFoldCell.reuseID)
+        // Row cells are not registered: the provider takes one from the reuse pool, else the spare
+        // made before the first scroll (`spare`), else a new one.
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -237,6 +255,10 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         catcher.isArmed = { [weak self] in self?.jumpingToTop ?? false }
         view.addGestureRecognizer(catcher)
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
+        view.onWindowChange = { [weak self] inWindow in
+            guard let self else { return }
+            if inWindow { self.scheduleSpare() } else { self.cancelSpareTimer() }
+        }
 
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
             MainActor.assumeIsolated { () -> UITableViewCell in
@@ -254,8 +276,9 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
                     fold.apply(layout)
                     return fold
                 }
-                let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
-                guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
+                let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
+                    ?? self?.takeSpare(for: id, at: indexPath) ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+                guard let self, let layout = self.layout(for: id) else { return row }
                 row.delegate = self
                 self.cellsConfigured += 1
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
@@ -264,6 +287,9 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             }
         }
         collectionView = view
+        #if DEBUG
+        FeedShiftProbe.shared.attach(view)
+        #endif
         scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : 3
         view.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (view: FeedCollectionView, _: UITraitCollection) in
             guard let self else { return }
@@ -310,7 +336,11 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         if signature != headerSignature {
             headerSignature = signature
             headerContent = content
-            measureHeader()
+            if let view = collectionView, holdsForScroll(view) {
+                headerHeld = true
+            } else {
+                measureHeader()
+            }
         } else if content != headerContent {
             // A chip's count changed: the header cell reads its view again, at the same height.
             headerContent = content
@@ -368,10 +398,14 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             reconfigureHeader()
             return
         }
+        // Any re-measure off the top keeps the reader's row (a refresh error, the sync state, the
+        // needs-you chip change the header's height).
+        let anchor = !syncAtTop() && !jumpingToTop ? visibleAnchor() : nil
         headerHeight = height
         reconfigureHeader()
         // The table reads the header's new height.
         UIView.performWithoutAnimation { collectionView?.performBatchUpdates(nil) }
+        if let anchor { restore(anchor) }
     }
 
     private func reconfigureHeader() {
@@ -416,7 +450,14 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         defer { FeedCellTiming.log("applyPending y=\(Int(collectionView?.contentOffset.y ?? 0))", t0) }
         #endif
         applyScheduled = false
-        guard let next = pending, width > 0, collectionView != nil else { return }
+        guard let next = pending, width > 0, let view = collectionView else { return }
+        if holdsForScroll(view) {
+            if !heldUntilRest { trace("held while scrolling at \(Int(view.contentOffset.y))") }
+            heldUntilRest = true
+            countHeld(next)
+            watchForRest()
+            return
+        }
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
         // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {
@@ -516,6 +557,9 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
         #endif
         guard let dataSource, let collectionView else { return }
+        #if DEBUG
+        ListApplyProbe.shared.applied("feed")
+        #endif
         var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
         if let mounted { plan.reconfigure = plan.reconfigure.filter { mounted.contains($0) } }
         for item in next where !unchanged.contains(item.id) { items[item.id] = item }
@@ -593,11 +637,13 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         rowsReconfigured += reconfigure.count
         applyCount += 1
-        if !travelling.isEmpty, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
+        // The row kept in place is never one that travels: the reader stays with the asks still open.
+        if !travelling.isEmpty, anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+        // At the top the answered ask slides to its place; off the top it moves at once with the
+        // reader's row kept (an animated move while the offset is restored is a visible jump, FEED-15).
+        if !travelling.isEmpty, anchor == nil, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
             // The rows show their new state where they are (an answered card, at once), then the
-            // table moves the answered ask to its place in time and closes the gap it left. The row
-            // kept in place is never one that travels: the reader stays with the asks still open.
-            if anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+            // table moves the answered ask to its place in time and closes the gap it left.
             if !reconfigure.isEmpty {
                 var inPlace = dataSource.snapshot()
                 inPlace.reconfigureItems(reconfigure)
@@ -631,6 +677,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             }
         }
         if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp(plan.inserted + plan.reconfigure) }
+        scheduleSpare()
         // Rows that left the list: only when some did (an insert or a move removes none).
         if plan.orderChanged, previousOrder.count + plan.inserted.count != shownOrder.count {
             let present = shownSet
@@ -681,6 +728,233 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     private var warmed: Set<String> = []
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
+
+    // MARK: The first scroll's spare cell
+
+    /// One row cell built before the first scroll, filled with the list's heaviest row (a
+    /// permission card: its command block, quote and option buttons) and parked in the table off
+    /// screen, so its layers are drawn once. The first scroll needs one more cell than the screen
+    /// shows before any cell leaves it for the reuse pool; that cell was a new one, built and drawn
+    /// for the first time inside one frame's commit, the frame the Feed dropped at base and head
+    /// (profiles 4d3840dc/e01a6632: init 2, apply 4, layout 1-2, first draw 3, backing store 2 ms).
+    private var spare: FeedRowCell?
+    private var spareScheduled = false
+    /// Spares built and taken, and row cells the provider had to make itself (tests).
+    private(set) var sparesMade = 0
+    private(set) var sparesTaken = 0
+    private(set) var newCells = 0
+    /// New cells the provider made before the spare was taken (tests: none once it is parked).
+    private(set) var newCellsBeforeSpare = 0
+    /// The spare once a row took it (tests: it shows that row, whatever row it was built with).
+    private(set) weak var spareGiven: FeedRowCell?
+    /// The identifier a parked spare answers to (no row has it).
+    static let parkedSpareID = "feed.spare.parked"
+    #if DEBUG
+    /// The visible-spare mutant (FeedParkedSpareUITests) keeps its spare this long after the plant.
+    static let mutantHold: CFTimeInterval = 4
+    private var mutantHoldUntil: CFTimeInterval = 0
+    /// The visible-spare mutant planted its spare: only then are takes traced with their asker.
+    private var mutantPlanted = false
+    #endif
+
+    /// The parked spare and its holder (tests: hidden from accessibility, off screen, not in the table).
+    var parkedSpare: FeedRowCell? { spare }
+    var parkedHolder: UIView? { parkHolder }
+    /// How long the list must have been still before the spare is built (one idle build).
+    static let spareStillness: CFTimeInterval = 0.5
+
+    private func newRowCell() -> FeedRowCell {
+        newCells += 1
+        if sparesTaken == 0, spare != nil { newCellsBeforeSpare += 1 }
+        return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+    }
+
+    /// The off-screen holder the spare waits in (hidden from accessibility and touches).
+    private var parkHolder: UIView?
+
+    private func sparePark(beside view: UIView) -> UIView {
+        if let parkHolder, parkHolder.superview != nil { return parkHolder }
+        let holder = UIView()
+        holder.isUserInteractionEnabled = false
+        holder.accessibilityElementsHidden = true
+        holder.isAccessibilityElement = false
+        holder.clipsToBounds = false
+        (view.superview ?? view).addSubview(holder)
+        parkHolder = holder
+        return holder
+    }
+
+    private func takeSpare(for id: String, at indexPath: IndexPath) -> FeedRowCell? {
+        guard let cell = spare else { return nil }
+        #if DEBUG
+        // Under the visible-spare mutant only (never on a measured path: a stack's symbols cost
+        // milliseconds on the frame that needs the cell), who asked goes in the trace: the row,
+        // whether it is on screen, whether an accessibility walk asked (spare-ui-4 d0b40ace: the
+        // planted spare went 60 ms after it was made, and the trace could not say to what).
+        var asker: String?
+        if mutantPlanted {
+            let onScreen = collectionView.map { $0.rectForRow(at: indexPath).intersects($0.bounds) } ?? false
+            let axWalk = Thread.callStackSymbols.contains { $0.contains("Accessibility") || $0.contains("AXRuntime") }
+            asker = "row=\(indexPath.row) id=\(id) onScreen=\(onScreen) ax=\(axWalk)"
+            if CACurrentMediaTime() < mutantHoldUntil {
+                trace("spare held (mutant) " + (asker ?? ""))
+                return nil
+            }
+        }
+        #endif
+        spare = nil
+        cell.removeFromSuperview()
+        parkHolder?.removeFromSuperview()
+        parkHolder = nil
+        cell.prepareForReuse()
+        sparesTaken += 1
+        #if DEBUG
+        if let asker { trace("spare taken " + asker) } else { trace("spare taken") }
+        #else
+        trace("spare taken")
+        #endif
+        spareGiven = cell
+        return cell
+    }
+
+    /// Builds the spare once the list has rows and has been still `spareStillness` (never while it
+    /// moves); one build for the Feed's life.
+    private func scheduleSpare() {
+        guard spare == nil, sparesMade == 0, !spareScheduled, !shownOrder.isEmpty else { return }
+        spareScheduled = true
+        // A run-loop timer in the common modes, not a task: code that spins the run loop from
+        // inside a main-queue block (a test host, a modal) never drains the main queue (green-16:
+        // the spare was never built in the unit host).
+        // The stillness still to wait (at least 0.1 s): during a long scroll the timer fires about
+        // once per stillness period, never in a tight loop.
+        let wait = max(0.1, Self.spareStillness - (CACurrentMediaTime() - lastScroll))
+        let timer = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.spareTimerFired() }
+        }
+        spareTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private var spareTimer: Timer?
+
+    /// The Feed left the window, or its controller goes: no spare build is left pending.
+    private func cancelSpareTimer() {
+        spareTimer?.invalidate()
+        spareTimer = nil
+        spareScheduled = false
+    }
+
+    isolated deinit {
+        spareTimer?.invalidate()
+        restTimer?.invalidate()
+    }
+
+    private func spareTimerFired() {
+        spareTimer = nil
+        spareScheduled = false
+        guard let view = collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
+              CACurrentMediaTime() - lastScroll >= Self.spareStillness, !jumpingToTop, !rowAnimating(in: view) else {
+            trace("spare deferred window=\(collectionView?.window != nil) still=\(Int((CACurrentMediaTime() - lastScroll) * 1000)) animating=\(collectionView.map(rowAnimating(in:)) ?? false)")
+            scheduleSpare()
+            return
+        }
+        buildSpare(in: view)
+    }
+
+    /// A row on screen animates from the main thread (a UIKit view animation in flight: a row
+    /// growing, a swipe settling, an insert). The rows' spinners turn in the render server (a
+    /// Core Animation rotation), which main-thread work does not stop, so they do not count.
+    private func rowAnimating(in view: UITableView) -> Bool {
+        func animating(_ layer: CALayer) -> Bool {
+            if let keys = layer.animationKeys(), keys.contains(where: { $0 != CmuxSpinnerLayer.turnKey }) { return true }
+            return layer.sublayers?.contains(where: animating) ?? false
+        }
+        return view.visibleCells.contains { animating($0.layer) }
+    }
+
+    private func buildSpare(in view: UITableView) {
+        // The heaviest row the list holds: a permission card with its command, else the tallest.
+        var best: FeedRowLayout?
+        var question: FeedRowLayout?
+        var permission = false
+        for id in shownOrder.prefix(200) {
+            // A fold line is its own cell (FeedFoldCell), never a row cell's shape.
+            guard let key = shownKeys[id], let layout = layouts.cached(key), layout.fold == nil else { continue }
+            if case .question = key.item.kind, question == nil { question = layout }
+            if case .permission = key.item.kind, !permission {
+                best = layout
+                permission = true
+            } else if !permission, layout.height > (best?.height ?? 0) {
+                best = layout
+            }
+            if permission, question != nil { break }
+        }
+        guard let layout = best else { return }
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        #endif
+        let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+        cell.delegate = self
+        // A question card's parts too (its option rows, field and buttons are built on first use:
+        // profile db0af69e, the first question row cost 12-14 ms of one frame), then the
+        // permission card it is shown with.
+        if let question {
+            cell.frame = CGRect(x: 0, y: 0, width: CGFloat(question.key.width), height: question.height)
+            cell.apply(question, item: items[question.key.item.id], settled: false)
+            cell.layoutIfNeeded()
+        }
+        cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        cell.apply(layout, item: items[layout.key.item.id], settled: false)
+        // Parked beside the table, not in it (a table lays its own subviews out as rows, and they
+        // stay accessibility elements: FeedParkedSpareUITests saw one at y 1419): in a holder off
+        // the window's bounds, hidden from accessibility and touches, its layers drawn at the next
+        // commit as any view in the window.
+        // While parked it answers to its own identifier, which no row has: a UI test that finds it
+        // has found a parked spare (the row that takes it sets its own in `apply`).
+        cell.accessibilityIdentifier = Self.parkedSpareID
+        let holder = sparePark(beside: view)
+        holder.frame = CGRect(x: -CGFloat(layout.key.width) - 1000, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SPARE_MUTANT"] == "visible" {
+            // Red for FeedParkedSpareUITests: the way parking could go wrong, the holder on screen
+            // over the rows with accessibility on.
+            // In the window itself (its table's SwiftUI host may not list a plain subview), so the
+            // UI check's power is measured against the most visible place a spare could end up.
+            if let window = view.window { window.addSubview(holder) }
+            holder.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
+            holder.accessibilityElementsHidden = false
+            // The plant stays planted until the UI test's first screenshot (12 s after launch): a
+            // row cell asked for in its first seconds gets a new cell instead (spare-ui-4: one
+            // asked 60 ms after the plant, so the screenshot showed nothing to catch). The test
+            // checks from the trace that the take came after its screenshot.
+            mutantPlanted = true
+            mutantHoldUntil = CACurrentMediaTime() + Self.mutantHold
+        }
+        #endif
+        holder.addSubview(cell)
+        cell.layoutIfNeeded()
+        spare = cell
+        sparesMade += 1
+        trace("spare made in \(String(describing: type(of: holder.superview!)))")
+        #if DEBUG
+        if FeedStressRig.shared.config.isActive {
+            // The build's time, and the frame intervals right after it (its first draw lands in the
+            // next commit): whether the idle build cost a drawn frame.
+            let ms = (CACurrentMediaTime() - t0) * 1000
+            var last: CFTimeInterval?
+            var intervals: [Double] = []
+            var token: FrameClock.Token?
+            token = FrameClock.shared.subscribe { tick in
+                if let last { intervals.append((tick.timestamp - last) * 1000) }
+                last = tick.timestamp
+                guard intervals.count >= 4, let done = token else { return }
+                FrameClock.shared.unsubscribe(done)
+                Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
+                    "FRAMELOG list-stress feed-spare made=1 ms=\(ms, format: .fixed(precision: 2), privacy: .public) next_frames_ms=\(intervals.map { String(format: "%.1f", $0) }.joined(separator: ","), privacy: .public)")
+            }
+        }
+        #endif
+    }
     private lazy var warmCell: FeedRowCell = {
         let cell = FeedRowCell(style: .default, reuseIdentifier: nil)
         cell.frame = CGRect(x: 0, y: 0, width: max(width, 1), height: 100)
@@ -743,21 +1017,53 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
                     }
                     return
                 }
-                #if DEBUG
-                let t0 = CACurrentMediaTime()
-                defer { FeedCellTiming.log("warm", t0) }
-                #endif
-                let layout = self.warmQueue.removeFirst()
-                let cell = self.warmCell
-                cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
-                cell.overrideUserInterfaceStyle = self.collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
-                cell.apply(layout, item: self.items[layout.key.item.id], settled: false)
-                cell.layoutIfNeeded()
-                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
-                _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
-                self.pumpWarmUp()
+                // A frame's share at most (profile db0af69e: the queue drained back to back, 74 ms of
+                // one frame and 17 of the next, right after the Feed came to rest): items until the
+                // budget is spent, the rest at the next frame.
+                let start = self.warmClock()
+                while !self.warmQueue.isEmpty, self.warmClock() - start < Self.warmBudget {
+                    self.warmOne()
+                    self.warmItemsDone += 1
+                    self.warmItemHook?()
+                }
+                self.warmBatches += 1
+                guard !self.warmQueue.isEmpty else { return }
+                self.warmScheduled = true
+                var token: FrameClock.Token?
+                token = FrameClock.shared.subscribe { [weak self] _ in
+                    if let token { FrameClock.shared.unsubscribe(token) }
+                    token = nil
+                    self?.warmScheduled = false
+                    self?.pumpWarmUp()
+                }
             }
         }
+    }
+
+    /// Main-thread time the warm-up takes per frame (seconds).
+    static let warmBudget: CFTimeInterval = 0.004
+    /// Warm-up passes run, one per frame at most (tests).
+    private(set) var warmBatches = 0
+    /// Warm-up items drawn, the clock the budget reads, and a hook after each item (tests give each
+    /// item a fixed cost on a fake clock).
+    private(set) var warmItemsDone = 0
+    var warmClock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    var warmItemHook: (() -> Void)?
+    var warmQueueCount: Int { warmQueue.count }
+
+    private func warmOne() {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        defer { FeedCellTiming.log("warm", t0) }
+        #endif
+        let layout = warmQueue.removeFirst()
+        let cell = warmCell
+        cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        cell.overrideUserInterfaceStyle = collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
+        cell.apply(layout, item: items[layout.key.item.id], settled: false)
+        cell.layoutIfNeeded()
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+        _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
     }
 
     private static let emptyKey = FeedRowKey(
@@ -942,7 +1248,11 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         let y = min(max(frame.minY - anchor.delta, minY), maxY)
         if abs(y - collectionView.contentOffset.y) > 0.25 {
             trace("restore \(Int(collectionView.contentOffset.y))->\(Int(y)) top=\(control.atTop)")
+            #if DEBUG
+            FeedShiftProbe.shared.correcting { collectionView.contentOffset.y = y }
+            #else
             collectionView.contentOffset.y = y
+            #endif
         }
     }
 
@@ -991,7 +1301,8 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     @discardableResult
     private func syncAtTop() -> Bool {
         guard let collectionView else { return control.atTop }
-        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 60
+        // The true top only (FEED-15): a reader a few points below it keeps their row when rows arrive.
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top <= 0.5
         if top != control.atTop { control.atTop = top }
         if top { reachedTop() }
         return top
@@ -1023,6 +1334,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        defer { releaseHeld() }
         trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop) top=\(control.atTop)")
         defer { syncAtTop() }
         guard jumpingToTop else { return }
@@ -1109,6 +1421,9 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        #if DEBUG
+        FeedShiftProbe.shared.scrolled(scrollView)
+        #endif
         // Back at the top: what scrolling brought back from disk goes back there.
         if syncAtTop(), !scrollView.isTracking { store.restoreWindow() }
         #if DEBUG
@@ -1137,10 +1452,70 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { scrollEnded() }
+        if !decelerate { scrollEnded(); releaseHeld() }
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollEnded() }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollEnded(); releaseHeld() }
+
+    /// While the person drags or the list decelerates away from the top, changes wait (FEED-15).
+    /// Not during a jump to the top (it keeps no anchor) and not before the first snapshot.
+    private func holdsForScroll(_ view: UITableView) -> Bool {
+        guard !releasing, view.isTracking || view.isDecelerating, !jumpingToTop,
+              dataSource?.snapshot().numberOfSections ?? 0 > 0 else { return false }
+        return !syncAtTop()
+    }
+
+    /// The pill counts the held rows that are new (never shown, not a fold line) while they wait.
+    private func countHeld(_ next: [FeedItem]) {
+        let fresh = next.reduce(0) { count, item in
+            count + (shownSet.contains(item.id) || everShown.contains(item.id) || FeedStacks.isFold(item.id) ? 0 : 1)
+        }
+        if fresh != heldCounted {
+            control.newAbove += fresh - heldCounted
+            heldCounted = fresh
+        }
+    }
+
+    /// A held apply's backstop: a tap that stops a deceleration can end it with neither
+    /// `scrollViewDidEndDecelerating` nor `didEndDragging`. Checked every 0.1 s while rows wait; it
+    /// releases only once the list is neither tracked nor decelerating (the end callbacks come first).
+    private var restTimer: Timer?
+    private func watchForRest() {
+        guard restTimer == nil else { return }
+        // The controller's deinit invalidates it (a gone controller leaves nothing to release).
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let view = self.collectionView else { return }
+                guard !view.isTracking, !view.isDecelerating, !self.jumpingToTop else { return }
+                self.trace("released by the rest check")
+                self.releaseHeld()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        restTimer = timer
+    }
+
+    /// At rest: what waited applies in one pass, with the reader's row kept in place.
+    private var releasing = false
+    private func releaseHeld() {
+        restTimer?.invalidate()
+        restTimer = nil
+        if headerHeld {
+            headerHeld = false
+            releasing = true
+            measureHeader()
+            releasing = false
+        }
+        guard heldUntilRest else { return }
+        heldUntilRest = false
+        trace("released at rest")
+        control.newAbove = max(0, control.newAbove - heldCounted)
+        heldCounted = 0
+        releasing = true
+        applyScheduled = true
+        applyPending()
+        releasing = false
+    }
 
     private func scrollEnded() {
         #if DEBUG
@@ -1164,6 +1539,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             self.settleTask = nil
             self.rowsSettled = true
             self.visibleCells.forEach { $0.scrollSettled() }
+            self.scheduleSpare()
         }
     }
 

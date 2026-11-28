@@ -309,6 +309,9 @@ public final class LiveCoordinator {
         feedStore.onKnownData = nil
         feedStore.resetKnownData()
         feedStore.replaceAll([])
+        // Every Feed write of a display frame (ledger reads, tree changes, Needs You sets from
+        // each Mac, answers) shares one derived pass: a busy Mac sends many a frame.
+        feedStore.derivedScheduler = NextDisplayFrame.schedule
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave()
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }
@@ -810,6 +813,9 @@ public final class LiveCoordinator {
     private func activateFeed(for teamID: String) {
         guard feedTeamID != teamID || feedArchive == nil else { return }
         let archive = FeedArchive.forAccount(userID, teamID: teamID)
+        // A frame's Feed writes still waiting on their derived pass save into the team they
+        // were written for, before the archive changes.
+        feedStore.flushDerived()
         flushFeedSave()
         let itemsChange = feedStore.onItemsChange
         let knownData = feedStore.onKnownData
@@ -823,6 +829,8 @@ public final class LiveCoordinator {
         let snapshot = archive.loadIfPresent()
         feedStore.replaceAll(snapshot ?? [])
         if snapshot != nil { feedStore.markKnown() }
+        // The replacement's derived pass runs while the callbacks are still muted.
+        feedStore.flushDerived()
         feedStore.onItemsChange = itemsChange
         feedStore.onKnownData = knownData
     }
