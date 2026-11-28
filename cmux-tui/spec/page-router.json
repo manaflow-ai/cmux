@@ -145,7 +145,7 @@
       ]
     },
     "skills": {
-      "description": "Skills, MCP servers and plugins directory.",
+      "description": "Skills and MCP servers directory.",
       "read": [
         "skills.directory.list",
         "skills.directory.status"

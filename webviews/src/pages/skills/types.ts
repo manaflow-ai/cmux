@@ -1,4 +1,4 @@
-export type SkillKind = "skill" | "mcp" | "plugin";
+export type SkillKind = "skill" | "mcp";
 export type Harness = "claude" | "codex" | "pi" | "opencode";
 
 export interface DirectoryEntry {
