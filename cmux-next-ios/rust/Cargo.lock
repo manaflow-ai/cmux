@@ -916,7 +916,6 @@ dependencies = [
  "tracing-subscriber",
  "unicode-normalization",
  "uniffi",
- "url",
  "uuid",
  "zeroize",
 ]
