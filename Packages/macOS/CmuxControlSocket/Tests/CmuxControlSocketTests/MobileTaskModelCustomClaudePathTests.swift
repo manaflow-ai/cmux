@@ -66,7 +66,7 @@ struct MobileTaskModelCustomClaudePathTests {
     }
 
     enum InvalidExecutable: CaseIterable, Sendable {
-        case missing, directory, nonExecutable
+        case missing, directory, nonExecutable, relative
     }
 
     @Test(arguments: InvalidExecutable.allCases)
@@ -83,11 +83,19 @@ struct MobileTaskModelCustomClaudePathTests {
         case .nonExecutable:
             _ = try fixture.executable(named: custom.lastPathComponent, modelID: "custom-model")
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: custom.path)
+        case .relative:
+            _ = try fixture.executable(named: custom.lastPathComponent, modelID: "custom-model")
         }
+        // A relative path that does name the executable from this process's
+        // working directory: a phone request has no terminal directory, so it
+        // must still fall back.
+        let configuredPath = kind == .relative
+            ? Self.pathRelativeToCurrentDirectory(custom.path)
+            : custom.path
         let discovery = MobileTaskModelDiscovery.live(
             homeDirectory: fixture.directory,
             shellPath: fixture.shell.path,
-            customClaudePath: { custom.path }
+            customClaudePath: { configuredPath }
         )
 
         let result = await discovery.models(for: .claude)
@@ -97,6 +105,12 @@ struct MobileTaskModelCustomClaudePathTests {
         #expect(result.error == nil)
         #expect(FileManager.default.fileExists(atPath: fixture.defaultExecutable.path + ".request"))
         #expect(!FileManager.default.fileExists(atPath: custom.path + ".request"))
+    }
+
+    private static func pathRelativeToCurrentDirectory(_ absolutePath: String) -> String {
+        let depth = FileManager.default.currentDirectoryPath
+            .split(separator: "/").count
+        return String(repeating: "../", count: max(depth, 1)) + absolutePath.dropFirst()
     }
 
     @Test func removedCustomExecutableFallsBackBeforeReturningCachedCatalog() async throws {
