@@ -1242,6 +1242,7 @@ jobs:
             .gitmodules
             # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
             workers/cmux-vm/cli/
+            first-party-apps/cloud/server/
           sparse-checkout-cone-mode: false
       - name: Fetch the legs' stills
         continue-on-error: true

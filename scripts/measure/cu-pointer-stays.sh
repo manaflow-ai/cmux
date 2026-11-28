@@ -180,7 +180,9 @@ guest_n 'bash ~/cps/tcc-grant.sh /bin/bash ~/cps/cpsprobe ~/cps/cmux-rd' >"$out/
 # macOS 15+ asks again before a non-bundled process records the screen ("bash is requesting to
 # bypass the system private window picker"), past the TCC grant; that prompt covered the target and
 # left cps.mov empty. replayd reads its answers from ScreenCaptureApprovals.plist: pre-answer it for
-# the recorder's processes, in this throwaway guest only.
+# the recorder's processes, in this throwaway guest only. macOS 26.5 still asked past this seed (step
+# 8b5c1c82), so cps.py also presses the alert's Allow through Accessibility before the movie and
+# saves what replayd stored (guest/capture-approvals.txt).
 guest_n '/usr/bin/python3 -I -c "
 import os, plistlib, datetime
 d = os.path.expanduser(\"~/Library/Group Containers/group.com.apple.replayd\")

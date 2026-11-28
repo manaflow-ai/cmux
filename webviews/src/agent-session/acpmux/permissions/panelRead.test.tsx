@@ -84,9 +84,7 @@ async function render(state: PermissionClientState): Promise<HTMLElement> {
   root = createRoot(host);
   const none = () => undefined;
   await act(async () => {
-    root!.render(
-      <PermissionPanel state={state} working onRespond={none} onRetry={none} onRevoke={none} onRefresh={none} />,
-    );
+    root!.render(<PermissionPanel state={state} onRespond={none} onRetry={none} onRevoke={none} onRefresh={none} />);
   });
   return host;
 }

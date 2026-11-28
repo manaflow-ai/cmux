@@ -1115,9 +1115,8 @@ impl HubCarrier {
         self.dial_service_report_early(daemon, service, lane, &[], report).await
     }
 
-    /// [`Self::dial_service_report`] whose stream starts with `early` (at most
-    /// [`mux::EARLY_BYTES`]): behind the OPEN on a kept circuit, else written once answered.
-    async fn dial_service_report_early(
+    /// One try of [`Self::dial_service_report_early`]: its answer, a capacity refusal included.
+    async fn dial_service_once(
         &self,
         daemon: &str,
         service: CircuitService,
@@ -3201,6 +3200,10 @@ mod rehome;
 
 #[path = "hub_carrier_refusals.rs"]
 mod refusals;
+
+#[path = "hub_carrier_capacity.rs"]
+mod capacity;
+pub(crate) use capacity::*;
 pub(crate) use refusals::{
     carrier_not_serving, carrier_off, not_a_teammate_machine, relay_refusal, ticket_refusal,
 };

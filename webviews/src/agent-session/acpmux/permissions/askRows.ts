@@ -1,5 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import type { PermissionClientState } from "./protocol";
+import { permissionReading } from "./upkeep";
 
 /// The transcript without the tool calls a permission ask waits on (`groupAskedCalls`): while it
 /// waits, the ask's row names the call, so the command is drawn once (Leo 2026-10-14: the chat
@@ -40,4 +41,14 @@ export function groupAskedCalls(groups: PermissionClientState | undefined): Set<
         if (item.state === "pending" && typeof id === "string" && id) calls.add(id);
       }
   return calls;
+}
+
+/// The grouped panel draws, and so holds a place in the asks stack over the composer: a group
+/// still waits, a failed read has lasted past the deadline (`still`, upkeep.ts), or a failed answer
+/// has its line. An answered group draws nothing, so counting it left an empty stack over the
+/// composer and kept the composer's ⌘↩ from acting.
+export function groupsHoldStack(groups: PermissionClientState | undefined, still = false): boolean {
+  if (!groups?.supported) return false;
+  if (groups.groups.some((group) => group.state === "pending" || group.state === "collecting")) return true;
+  return still || (!!groups.error && !permissionReading(groups).failed);
 }

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
 import { MessageScopeContext } from "../src/agent-session/acpmux/chips/messageScope";
 import { TranscriptReadOnly } from "../src/agent-session/acpmux/conversation/readOnly";
-import { TourStartContext } from "../src/agent-session/acpmux/repoTour/TourBlock";
+import { TourStartContext } from "../src/agent-session/acpmux/repoTour/tourBlockModel";
 import { TourCard } from "../src/agent-session/acpmux/repoTour/TourCard";
 import {
   chipPath,

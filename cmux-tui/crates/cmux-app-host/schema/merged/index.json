@@ -131,6 +131,7 @@
     "agentPane.archiveChat",
     "agentPane.continueAfterError",
     "agentPane.copyCwdPath",
+    "agentPane.deliverSecrets",
     "agentPane.editInstructions",
     "agentPane.markUnread",
     "agentPane.moveToFloatingChat",
