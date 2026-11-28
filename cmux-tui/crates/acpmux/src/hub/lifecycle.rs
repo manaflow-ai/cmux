@@ -1062,6 +1062,18 @@ impl Hub {
             self.save_meta(session);
         }
         *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
+        // A start after a move or a fork's first that lacks env its first start had (a key this
+        // machine has none of): logged by name, never value (`session_manifest.rs`).
+        let missing = session.read_meta(|m| {
+            crate::session_manifest::check_env(
+                m.manifest.as_ref(),
+                std::path::Path::new(&m.cwd),
+                &profile.env,
+            )
+        });
+        if !missing.is_empty() {
+            tracing::warn!(session = %session.id, ?missing, "manifest-env: start lacks env");
+        }
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
