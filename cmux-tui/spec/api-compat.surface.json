@@ -4517,6 +4517,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
+      },
       "/workspace": {
         "ty": "uint64",
         "required": true
