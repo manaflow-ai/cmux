@@ -234,36 +234,6 @@ mod tests {
         assert!(missing.is_empty(), "harness-magic switches with no FEATURES row: {missing:?}");
     }
 
-    /// Every `agents.harnessMagic.<name>.enabled` switch in this crate's sources is a row of
-    /// [`FEATURES`], so no feature runs without the stamp saying so (RFD 0159 read-back).
-    #[test]
-    fn every_harness_magic_switch_is_a_registered_feature() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let re = regex::Regex::new(r#""agents\.harnessMagic\.([A-Za-z0-9_-]+)\.enabled""#).unwrap();
-        let mut stack = vec![src];
-        let mut seen = std::collections::BTreeSet::new();
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "rs")
-                    && !path.to_string_lossy().ends_with("_tests.rs")
-                    && !path.ends_with("harness_magic.rs")
-                {
-                    let text = std::fs::read_to_string(&path).unwrap_or_default();
-                    for c in re.captures_iter(&text) {
-                        seen.insert(c[1].to_owned());
-                    }
-                }
-            }
-        }
-        assert!(seen.contains("verify"), "the scan found no switches: {seen:?}");
-        let names: Vec<&str> = FEATURES.iter().map(|f| f.name).collect();
-        let missing: Vec<&String> = seen.iter().filter(|n| !names.contains(&n.as_str())).collect();
-        assert!(missing.is_empty(), "harness-magic switches with no FEATURES row: {missing:?}");
-    }
-
     #[test]
     fn prefetch_is_stamped_by_its_own_switch() {
         // The scorecard's byFeature splits only on what is stamped; prefetch's row asks its own

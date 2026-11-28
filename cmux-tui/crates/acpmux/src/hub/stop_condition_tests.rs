@@ -107,10 +107,7 @@ fn continue_sends_a_moving_turn_on_and_ends_a_spinning_one() {
     assert_eq!(spun["continue"], false, "{spun}");
     assert!(spun["stopReason"].as_str().unwrap().starts_with("No file or commit changed"));
     let counts = c.turn_ended();
-    assert_eq!(
-        counts,
-        ContinueCounters { continued: 2, spin_stopped: 1, ..Default::default() }
-    );
+    assert_eq!(counts, ContinueCounters { continued: 2, spin_stopped: 1, ..Default::default() });
     assert_eq!(
         counts.to_json(),
         json!({"continued": 2, "spinStopped": 1, "budgetStopped": 0, "unreadStopped": 0})
