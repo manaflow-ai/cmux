@@ -182,6 +182,10 @@ env:
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
   # Why: docs/ci/nightly-workflow-notes.md#note-35
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
+  # Why: docs/ci/nightly-workflow-notes/2026-11-28-cargo-net-retry.md
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   # Why: docs/ci/nightly-workflow-notes.md#note-29
@@ -199,11 +203,7 @@ jobs:
         env:
           FETCH_TOKEN: ${{ github.token }}
         run: |
-          # The Macs get 403 from github.com on anonymous requests. Every checkout here sets
-          # persist-credentials: false, so actions/checkout's clean of a reused partial clone (a lazy
-          # promisor fetch, before it sets up auth) and every later git fetch went out with no credential.
-          # One header job-wide: the empty entry clears any header in .git/config (two make GitHub answer
-          # 400); a step that sets its own GIT_CONFIG_COUNT still sends only its own.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-mac-git-token-header.md
           set -euo pipefail
           [ -n "${FETCH_TOKEN:-}" ] || exit 0
           header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
@@ -217,8 +217,27 @@ jobs:
             echo "GIT_CONFIG_VALUE_$((n+1))=AUTHORIZATION: basic $header"
             echo "GIT_CONFIG_COUNT=$((n+2))"
           } >> "$GITHUB_ENV"
-      - name: Check out the preflight
+      # Leo's checkout-429 order, 0 github.com git fetches a nightly: the mirror, else the contents API (no git).
+      - name: Read the preflight without a git fetch
+        id: preflight-src
         if: github.repository == 'manaflow-ai/cmux'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files=(scripts/ci/nightly_runner_preflight.py scripts/ci/deadline_http.py .gitmodules)
+          m="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if [ -f "$m/glaeda-verified" ] && [ ! -e "$m/glaeda-repair-pending" ] && git --git-dir="$m" cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null; then
+            git --git-dir="$m" archive "$GITHUB_SHA" "${files[@]}" | tar -x -C "$GITHUB_WORKSPACE"; from="the host's git mirror"
+          else
+            for f in "${files[@]}"; do mkdir -p "$(dirname "$f")"; curl -fsS --retry 2 --max-time 20 -o "$f" -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github.raw' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/contents/$f?ref=$GITHUB_SHA"; done; from="the contents API"
+          fi
+          echo "github.com git fetches this job: 0 (preflight from $from)"; echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: Check out the preflight
+        if: github.repository == 'manaflow-ai/cmux' && steps.preflight-src.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3058,6 +3077,23 @@ jobs:
           overwrite: true
           retention-days: 1
           compression-level: 0
+      # This workflow commit's scripts/ci, for retry-nightly-next and report-nightly-failure: 0 github.com fetches.
+      - name: Pack this workflow commit's scripts
+        id: scripts-pack
+        continue-on-error: true
+        timeout-minutes: 2
+        run: mkdir -p "$RUNNER_TEMP/nightly-scripts" && GIT_NO_LAZY_FETCH=1 git archive -o "$RUNNER_TEMP/nightly-scripts/scripts-ci.tar" "$GITHUB_SHA" scripts/ci
+      - name: Upload this workflow commit's scripts
+        if: steps.scripts-pack.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-scripts-${{ github.sha }}
+          path: ${{ runner.temp }}/nightly-scripts
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
       # The selected build source can differ from this workflow's control SHA.
       - name: Record pending tree dependency
         id: tree-source
@@ -8170,10 +8206,26 @@ jobs:
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
       - *github-token-for-git
+      - &nightly-scripts-download
+        name: Download this run's scripts/ci (resolve-nightly-cmux-tui-client packed it)
+        id: run-scripts-get
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-scripts-${{ github.sha }}
+          path: ${{ runner.temp }}/nightly-scripts
+      - name: Unpack this run's scripts/ci
+        id: run-scripts
+        if: steps.run-scripts-get.outcome == 'success'
+        continue-on-error: true
+        run: &nightly-scripts-unpack |
+          d="$GITHUB_WORKSPACE/${SCRIPTS_DIR:-}" && mkdir -p "$d" && tar -xf "$RUNNER_TEMP/nightly-scripts/scripts-ci.tar" -C "$d"
+          echo "github.com git fetches this job: 0 (scripts/ci from this run's artifact)"; echo "ok=true" >> "$GITHUB_OUTPUT"
       # Why: docs/ci/nightly-workflow-notes/2026-11-27-retry-nightly-next-1.md
       - name: Read scripts/ci from the host's git mirror
         id: mirror-scripts
-        if: runner.environment == 'self-hosted'
+        if: runner.environment == 'self-hosted' && steps.run-scripts.outputs.ok != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -8187,7 +8239,7 @@ jobs:
           git --git-dir="$mirror" archive "$SHA" scripts/ci | tar -x -C "$GITHUB_WORKSPACE"
           echo "github.com git fetches: 0 (scripts/ci of $SHA from $mirror)"
           echo "ok=true" >> "$GITHUB_OUTPUT"
-      - if: steps.mirror-scripts.outputs.ok != 'true'
+      - if: steps.mirror-scripts.outputs.ok != 'true' && steps.run-scripts.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -8230,7 +8282,16 @@ jobs:
       actions: read
     steps:
       - *github-token-for-git
+      - *nightly-scripts-download
+      - name: Unpack this run's scripts/ci
+        id: run-scripts
+        if: steps.run-scripts-get.outcome == 'success'
+        continue-on-error: true
+        env:
+          SCRIPTS_DIR: .publish-tooling
+        run: *nightly-scripts-unpack
       - name: Checkout failure reporter at the workflow commit
+        if: steps.run-scripts.outputs.ok != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
