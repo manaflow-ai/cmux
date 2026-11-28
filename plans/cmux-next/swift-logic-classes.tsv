@@ -1117,7 +1117,7 @@ CmuxNextAgentPane	extension	AcpmuxEnvironment	0	PLATFORM	0	0	Packages/macOS/Cmux
 CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Answers.swift	Answers rule for permission_respond: hand copy of answers.rs
 CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+GestureTicket.swift	Gesture-ticket method table copy
 CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift	Per-method param schema: hand copy of params.rs
-CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+ReplyShapes.swift	Reply field filters: hand copy of reply.rs
+CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneReplyFilter.swift	FFI call into Rust reply.rs filter_reply; shapes generated from policy.json
 CmuxNextAgentPane	extension	AcpmuxPaneMethods	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Uploads.swift	Upload method table copy
 CmuxNextAgentPane	extension	AcpmuxPaneSocket	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneSocket+PageWaits.swift	Socket wait helpers
 CmuxNextAgentPane	extension	AcpmuxPaneWire	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneWire.swift	Thin socket call site or concurrency seam for acpmux IO; no product rule
