@@ -1557,6 +1557,42 @@ fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
     );
 }
 
+/// A repeat attach whose hosted mirror already has the requested grid does
+/// not need to send a duplicate resize barrier before replay.
+#[cfg(unix)]
+#[test]
+fn a_settled_viewer_size_skips_the_duplicate_barrier() {
+    let (_mux, surface, mut host) =
+        hosted_surface_with("hosted-settle-already-at-grid", true, |attachment| {
+            attachment.viewer_size_acks = true;
+        });
+    let pty = surface.as_pty().expect("a terminal");
+    surface.resize(80, 24).expect("the initial viewer size was sent");
+    host.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let initial = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    )
+    .expect("read the initial viewer size")
+    .expect("the hosted connection remains open");
+    assert_eq!(initial.kind, MessageKind::ViewerSize);
+    let started = Instant::now();
+    assert!(surface.settle_hosted_viewer_size(Instant::now() + Duration::from_millis(200)));
+    assert!(
+        started.elapsed() < Duration::from_millis(100),
+        "an already-settled viewer size waited for a duplicate barrier"
+    );
+    assert!(
+        crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .is_err(),
+        "settling an already-sized mirror sent a duplicate host frame"
+    );
+    assert_eq!(pty.geometry.lock().unwrap().cols, 80);
+}
+
 /// R-DAEMON-STATE S1.6d (#35413 review; DESIGN 2.6.1): the input port's writer carries the person's keys from the
 /// daemon to the host, so once it takes one it runs at user-interactive QoS, as the connection threads that carried
 /// the key do (server/input_qos.rs, TYPING FIX 2 F7). Under full CPU a default-QoS thread waits for a CPU. A port
