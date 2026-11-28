@@ -92,7 +92,7 @@ describe("cloud-journey-prod's Claude login", () => {
     const prod = Bun.YAML.parse(readFileSync(join(root, ".github/workflows/cloud-journey-prod.yml"), "utf8")) as any
     const step = (prod.jobs.journey.steps as any[]).find((s) => s.id === "journey")
     expect(step.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(
-      "${{ matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}",
+      "${{ matrix.agent == 'claude' && matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}",
     )
   })
 })

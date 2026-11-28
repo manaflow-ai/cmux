@@ -105,6 +105,9 @@ jobs:
           if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then BASE=origin/feat-cmux-next; fi
           git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot resolve the base $BASE; refusing to lint without it"; exit 1; }
           bun lint.ts --base "$BASE"
+      - name: Fetch the cmux-old spec tag (the one-commit checkout has no tags)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git fetch --quiet --no-tags --depth=1 origin +refs/tags/v0.65.1:refs/tags/v0.65.1
       - name: Rails tests (scratch Postgres, fake PlanetScale, fake wrangler, fake image provider)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
