@@ -582,6 +582,11 @@ async fn explicit_gather_fyi_keeps_the_readers_background_hold() {
         }))
     });
     let (hub, session) = hub_with_chat("gather-reader-hold");
+    // The reader is on only for a chat with a summarizer (`inbox_reader.rs` `on`).
+    set_test_summarizer(
+        &session.id,
+        Arc::new(|_: String| -> Result<String, String> { Ok("1|background update".into()) }),
+    );
     let now = now_ms();
     {
         let mut meta = session.meta.lock().unwrap();
