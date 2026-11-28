@@ -62,7 +62,7 @@ The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
 looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
 gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
-site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
+site=...`); a stable or rc build logs it. A Rust binary shipped inside a dev or nightly app enforces even when started outside the app. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
 reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. The gate's
 allowlist, `cmux-tui/crates/cmux-egress/hosts.txt`, is the one source: it records each host with what the app sends
@@ -310,6 +310,11 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `live.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `microsoftonline.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `outlook.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `api.slack.com` | opens | the Slack app page in your browser when you choose to create a Slack token; nothing is sent from the app |
+| `cmux-lawrences-mac-mini.tail137216.ts.net` | identifier | a team Subrouter address on the team's own tailnet, listed in the chief policy as one of the URLs a teammate's cmux may reach; the same service as the other team Subrouter addresses |
+| `console.cmux.dev` | identifier | the cmux console host whose `/integrations/callback` the GitHub App sends you back to; the app only checks that the callback is on it |
+| `console-staging.cmux.dev` | identifier | the staging console host, checked the same way as `console.cmux.dev` |
+| `share.io` | identifier | the error code a share listing prints when it cannot be encoded, not a host |
 | `office.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `xbox.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `skype.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |

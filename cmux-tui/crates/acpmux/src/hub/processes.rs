@@ -495,7 +495,9 @@ impl ProcessTable {
     /// up, so the chat lists the call once.
     pub(super) fn daemon_moved_change(&self, id: &str) -> Option<Process> {
         let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
-        if process.state != ProcessState::Running {
+        // Running, or `lost` by a listing here before the move re-armed it (this machine has no
+        // record of a task that ran on the other one).
+        if !matches!(process.state, ProcessState::Running | ProcessState::Lost) {
             return None;
         }
         process.state = ProcessState::Killed;

@@ -88,12 +88,46 @@ class TargetsOfTheMatches(unittest.TestCase):
         self.assertEqual(pairs(args, "-p"), {"a", "b"}, args)
         self.assertEqual(pairs(args, "--test"), {"hits", "nested", "journey"}, args)
         self.assertIn("--lib", args)
+        # a's src/ match is in its lib, and a has no bin target: `--bins` would be asked of no package.
+        self.assertNotIn("--bins", args)
+
+    def test_a_bin_only_crate_gets_bins_not_lib(self) -> None:
+        # #60340 moved cmux-tui's lib into cmux-tui-lib; `-p cmux-tui --lib` then failed every pull request's
+        # cmux-next-tui step ("no library targets found in package `cmux-tui`", job 141118493284, cmux#65372).
+        self.box.crate("tui", '\n[[bin]]\nname = "tui"\npath = "src/bin/tui.rs"\n')
+        self.box.write("cmux-tui/crates/tui/src/bin/tui.rs", "fn main() {}\n#[test] fn cmux_next_bin() {}\n")
+        self.box.commit()
+        args = run(self.box.root)
+        self.assertEqual(args, ["-p", "tui", "--bins"])
+
+    def test_a_bin_only_crate_names_the_member_that_builds_its_lib(self) -> None:
+        # cmux-tui-lib builds ../cmux-tui/src as its [lib] (#60340): cmux-tui's unit tests are cmux-tui-lib's.
+        self.box.crate("tui", '\n[[bin]]\nname = "tui"\npath = "src/bin/tui.rs"\n')
+        self.box.write("cmux-tui/crates/tui/src/bin/tui.rs", "fn main() {}\n")
+        self.box.write("cmux-tui/crates/tui/src/app.rs", "#[test] fn cmux_next_app() {}\n")
+        self.box.crate("tui-lib", '\n[lib]\nname = "tui"\npath = "../tui/src/main.rs"\n')
+        self.box.commit()
+        args = run(self.box.root)
+        self.assertEqual(pairs(args, "-p"), {"tui", "tui-lib"}, args)
+        self.assertIn("--lib", args)
         self.assertIn("--bins", args)
 
     def test_a_match_with_only_test_targets_builds_no_lib(self) -> None:
         self.box.crate("a")
         self.box.write("cmux-tui/crates/a/src/lib.rs", "pub fn f() {}\n")
         self.box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
+        self.box.commit()
+        args = run(self.box.root)
+        self.assertEqual(args, ["-p", "a", "--test", "hits"])
+
+    def test_a_crate_with_its_own_workspace_is_not_named(self) -> None:
+        # cmux-next-linux (#64481) has its own [workspace] table and `cmux_next_linux::` in its sources:
+        # `-p cmux-next-linux` failed the job ("did not match any packages"), so no tree published from
+        # 2026-11-28 14:44Z (run 46156345440).
+        self.box.crate("a")
+        self.box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
+        self.box.crate("own-ws", "\n[workspace]\n")
+        self.box.write("cmux-tui/crates/own-ws/src/main.rs", "use cmux_next_linux::run;\n")
         self.box.commit()
         args = run(self.box.root)
         self.assertEqual(args, ["-p", "a", "--test", "hits"])

@@ -3,6 +3,7 @@ import { ChevronIcon } from "../ComposerPickers";
 import { EnvironmentIcon } from "../EnvironmentPicker";
 import { useT, type Translate } from "../i18n";
 import type { PlaceMode, PlaceState } from "./placeModel";
+import { faceText, placeName } from "./placeText";
 import "./place.css";
 
 /// How the control draws (PlaceControl.gallery.tsx compares them): `segmented`, Local, Cloud and Auto
@@ -11,22 +12,6 @@ import "./place.css";
 export type PlaceControlLook = "segmented" | "menu" | "rows";
 
 const MODES: readonly PlaceMode[] = ["local", "cloud", "auto"];
-
-/// The place's name: the chat's own VM when known.
-export function cloudLabel(place: PlaceState, t: Translate): string {
-  return place.cloudName ?? t("place.cloud");
-}
-
-export function placeName(place: PlaceState, t: Translate): string {
-  return place.at === "cloud" ? cloudLabel(place, t) : t("place.thisMac");
-}
-
-/// The control's face: the choice, and for Auto where it runs now.
-export function faceText(place: PlaceState, t: Translate): string {
-  if (place.move?.state === "moving") return t("place.faceMoving", { to: place.move.to });
-  if (place.mode === "auto") return t(place.at === "cloud" ? "place.faceAutoCloud" : "place.faceAutoLocal");
-  return t(place.mode === "cloud" ? "place.faceCloud" : "place.faceLocal");
-}
 
 const modeLabel = (mode: PlaceMode, t: Translate) => t(`place.${mode}`);
 
@@ -67,6 +52,7 @@ export function PlaceControl({
   onMode(mode: PlaceMode): void;
 }) {
   const t = useT();
+  const modes = place.modes?.length ? place.modes : MODES;
   const moving = place.move?.state === "moving";
   const rule = t("placeAuto.rule");
   const here = t("place.runsAt", { place: placeName(place, t) });
@@ -88,9 +74,9 @@ export function PlaceControl({
           </span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup label={t("place.label")} side="top" align="start">
+        <MenuPopup label={t("place.label")} side="top" align="start" className="acpmux-quick-menu">
           <MenuRadioGroup value={place.mode} onValueChange={(mode) => onMode(mode as PlaceMode)}>
-            {MODES.map((mode) => (
+            {modes.map((mode) => (
               <MenuRadioItem
                 key={mode}
                 value={mode}
@@ -112,7 +98,7 @@ export function PlaceControl({
   if (look === "rows") {
     return (
       <div className="acpmux-place acpmux-place-rows" role="radiogroup" aria-label={t("place.label")} title={here}>
-        {MODES.map((mode) => (
+        {modes.map((mode) => (
           <button
             key={mode}
             type="button"
@@ -144,7 +130,7 @@ export function PlaceControl({
   return (
     <div className="acpmux-place acpmux-place-seg-wrap" data-moving={moving ? "true" : undefined}>
       <div className="acpmux-place-seg" role="radiogroup" aria-label={t("place.label")} title={here}>
-        {MODES.map((mode) => (
+        {modes.map((mode) => (
           <button
             key={mode}
             type="button"

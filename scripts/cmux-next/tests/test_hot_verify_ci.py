@@ -85,6 +85,16 @@ class Verdict(unittest.TestCase):
                                       "build": {"Swift": ["A.swift"], "strings": ["Localizable.xcstrings"]}}))
         self.assertEqual((only["eligible"], only["layers"]), (True, ["app"]))
 
+    def test_bundled_resources_look_with_an_app_build(self) -> None:
+        # cmux#47278: theme files only, Rust and web beside them; the engine's can_build_swift_app builds it.
+        build = {"Swift, resources or manifests": ["Resources/theme-files/sakura.json"]}
+        found = hv.verdict(json.dumps({"layers": ["web", "rust"], "needs_build": True, "build": build}))
+        self.assertEqual((found["eligible"], found["layers"]), (True, ["app", "rust", "web"]))
+        for path in ("Resources/Info.plist", "Resources/bin/cmux"):
+            with self.subTest(path=path):
+                plan = {"layers": ["web"], "needs_build": True, "build": {"Swift, resources or manifests": [path]}}
+                self.assertFalse(hv.verdict(json.dumps(plan))["eligible"])
+
     def test_other_builds_stay_build_required(self) -> None:
         for build in ({"Swift": ["Package.swift"]}, {"Swift": ["A.swift"], "web ABI": ["x"]},
                       {"strings": ["A.swift"]}, {}, {"Swift": []}):
@@ -639,7 +649,9 @@ class Workflow(unittest.TestCase):
         block = self.job_block("publish")
         self.assertIn("inputs.look_result != ''", "\n".join(block))
         step = block.index("      - name: Dispatch one more look")
-        self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
+        # The step's own if: (an id: line may sit between it and the name; the summary reads steps.again).
+        condition = next(line for line in block[step + 1:step + 4] if line.strip().startswith("if:"))
+        self.assertEqual(condition.strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
                                                   "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
                                                   "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])

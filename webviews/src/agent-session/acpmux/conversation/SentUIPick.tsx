@@ -2,18 +2,14 @@
 // in the message's one body: the element and a snippet of its text, opening the whole report in place
 // with Collapse to fold it back (sentUIPickModel.ts). The text around each pick draws as `typed` does
 // (PromptText.tsx PromptTyped). Its own file, so the bubble's renderer changes by one line.
-import { createContext, Fragment, useContext, useLayoutEffect, type ReactNode } from "react";
+import { Fragment, useContext, useLayoutEffect, type ReactNode } from "react";
 import { BrowserPickChip } from "../composer/BrowserPickChip";
 import { isBrowserPick } from "../composer/browserPickModel";
 import { UIPickChip } from "../composer/UIPickChip";
 import { FindReveal, foldFind } from "./chatFind";
 import type { SentPromptSegment } from "./sentUIPickModel";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
-
-/// The sent prompt a pick's chip is drawn in (PromptText.tsx): its row, whether its fold is shut, and
-/// how to open it. None outside a transcript's prompt (a gallery, a test of the chip alone).
-export type SentPromptFold = { rowId: string; collapsed: boolean; open: () => void };
-export const SentPromptFoldContext = createContext<SentPromptFold | undefined>(undefined);
+import { SentPromptFoldContext } from "./sentPromptFoldContext";
 
 /// A pick's chip in a sent message, as the text file's chip it took the place of behaved
 /// (InlinePromptContent.tsx PromptTextFile): its open state is the row's disclosure

@@ -64,7 +64,11 @@ final class TabCell {
     /// came while hidden runs when the strip shows again.
     var isStripShown = true {
         didSet {
-            if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() }
+            if isStripShown, !oldValue, owesIndicatorResync {
+                statusIndicatorResync()
+            } else if isStripShown != oldValue, item.isBusy {
+                updateSpinner()
+            }
             if isStripShown != oldValue { updateNeedsYouGlowMotion() }
         }
     }
@@ -582,12 +586,19 @@ final class TabCell {
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
-            closeBackgroundLayer.frame = closeRect
-            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
-            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            // Helium's plate, centered on the x's square (tab_close_button.cc's highlight around its contents or its
+            // whole button): 14 pt on a tab under 32 pt, 24 pt from 32 pt, with its 4 pt corner. It stays inside the
+            // pill and a point clear of a favicon shown before it, so a narrow tab shrinks it, centered still.
+            var plateSide = min(m.closePlateSide, bounds.height, 2 * (bounds.width - closeRect.midX))
+            if visibility.showsIcon, iconFrame.maxX <= closeRect.minX { plateSide = min(plateSide, 2 * (closeRect.midX - iconFrame.maxX - 1)) }
+            plateSide = max(closeRect.width, plateSide)
+            let plate = CGRect(x: pixel(closeRect.midX - plateSide / 2), y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
+            closeBackgroundLayer.frame = plate
+            closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
-            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
-            let glyph = closeRect.insetBy(dx: inset, dy: inset)
+            let ink = m.closeGlyphInk, inset = m.closeGlyphPathInset
+            let glyph = CGRect(x: pixel(plate.midX - ink / 2), y: pixel(plate.midY - ink / 2), width: ink, height: ink)
+                .insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
             closeGlyphLayer.path = Self.closeGlyphPath(in: CGRect(origin: .zero, size: glyph.size))

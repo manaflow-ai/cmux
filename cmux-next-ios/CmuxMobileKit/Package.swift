@@ -81,6 +81,7 @@ let package = Package(
         // CmuxMobileLinkFFI: New Workspace's rules (WorkspaceCreationRules) are Rust's workspace_creation.
         // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions; RowSpill's pages on disk are RowSpillPages (row_spill.rs).
         // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
+        // CmuxMobileLinkFFI: the terminal sizing view's rules (TerminalSizingPresentation) are Rust's terminal_sizing_view.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
@@ -218,6 +219,7 @@ let package = Package(
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             // A `cmux://mac-screen` link's cmux.rd/1 session: Rust's MacScreenRd on the streamed-surface model.
             "CmuxMobileBrowserStream", "CmuxMobileTransport",
+            .product(name: "CmuxEgress", package: "CmuxEgress"),
             // Follow mode's camera (FollowCamera).
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
@@ -331,6 +333,16 @@ let package = Package(
     ],
     swiftLanguageModes: [.v6]
 )
+
+// CMUX_MOBILE_KIT_TEST_TARGETS=A,B keeps only those test targets (the library targets all stay). SwiftPM 6.3 links
+// every test target into one bundle and Xcode's CmuxMobileKit-Package scheme builds them all, so `swift test --filter`
+// and `xcodebuild test -only-testing:` still compile every neighbour: one compile error in CmuxMobileShellTests
+// (base run 45853032811) left the Instant list bench with no INSTANTPERF line. The bench steps of
+// cmux-next-ios-kit.yml set it to CmuxMobileInstantPerfTests; nothing else does, so every other run is unchanged.
+if let only = ProcessInfo.processInfo.environment["CMUX_MOBILE_KIT_TEST_TARGETS"], !only.isEmpty {
+    let kept = Set(only.split(separator: ",").map { String($0) })
+    package.targets.removeAll { $0.type == .test && !kept.contains($0.name) }
+}
 
 #if os(Linux)
 // The Linux package job (swift-linux-packages.yml, group ios-kit) builds and tests the modules that need no

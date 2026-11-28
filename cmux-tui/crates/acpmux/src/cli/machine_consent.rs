@@ -165,7 +165,7 @@ impl Authority {
 
     fn validate_marker(&self) -> Result<()> {
         let file = crate::config::private_state_file(&self.root.join("enrolled.json"))?;
-        let value: Value = serde_json::from_reader(file)?;
+        let value: Value = serde_json::from_reader(std::io::BufReader::new(file))?;
         anyhow::ensure!(value["schema"] == 1, "invalid machine enrollment marker");
         Ok(())
     }

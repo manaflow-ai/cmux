@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::link::ChannelSender;
 use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change};
 use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
@@ -30,6 +30,7 @@ mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
+mod harness_tuck;
 mod lan;
 mod last_place;
 mod link_progress;
@@ -52,6 +53,8 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
+mod terminal_stream;
 mod vault;
 mod vnc;
 mod window_layout;
@@ -118,6 +121,7 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use terminal_stream::{TerminalStreamFacts, TerminalStreamPlan, terminal_stream_plan};
 pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_arrangement::{

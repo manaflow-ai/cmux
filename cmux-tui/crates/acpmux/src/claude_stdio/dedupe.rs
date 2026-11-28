@@ -43,6 +43,12 @@
 //! with no decision. Counted per turn on the prompt result's `_meta.harnessMagic.dedupe`, which
 //! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `searchesStubbed`,
 //! `estTokensSaved`).
+//!
+//! Its regret (RFD 0147, "What would change it") is counted beside them: `stubRegrets`, a stub
+//! the model did not take, as it asked for the same answer again (the same call, or a Bash
+//! command naming a file whose Read was stubbed); `spills`, a tool result Claude Code saved to a
+//! file (`<persisted-output>`), and `spillReadBacks`, a spill file the model then read. The
+//! scorecard divides them (`dedupeRegretRate`, `spillReadBackRate`), per turn group and feature.
 
 use super::dedupe_search::{self, Search};
 use super::dedupe_shell::{self, Inputs};
@@ -146,6 +152,13 @@ pub(super) struct Counters {
     pub est_tokens_saved: u64,
     /// Of `reads_stubbed`, those answered from a prefetch attachment.
     pub reads_stubbed_prefetched: u64,
+    /// Stubs the model asked past: the same call again, or a Bash command naming a file whose
+    /// Read was stubbed.
+    pub stub_regrets: u64,
+    /// Tool results Claude Code saved to a file (`<persisted-output>`).
+    pub spills: u64,
+    /// Of those, spill files a later call named.
+    pub spill_read_backs: u64,
 }
 
 impl Counters {
@@ -156,6 +169,9 @@ impl Counters {
             "searchesStubbed": self.searches_stubbed,
             "estTokensSaved": self.est_tokens_saved,
             "readsStubbedPrefetched": self.reads_stubbed_prefetched,
+            "stubRegrets": self.stub_regrets,
+            "spills": self.spills,
+            "spillReadBacks": self.spill_read_backs,
         })
     }
 }
@@ -359,6 +375,8 @@ struct Seen {
     turn: u64,
     chars: usize,
     stubbed: bool,
+    /// Asked for again after its stub (counted once).
+    regretted: bool,
     /// Entered from a prefetch attachment, not a Read.
     prefetched: bool,
 }
@@ -377,6 +395,8 @@ struct State {
     /// Keyed (agent, cwd, input); kept across turns like a Read, as the fingerprint covers the
     /// whole tree.
     searches: HashMap<(String, String, String), Seen>,
+    /// Spill files not yet read back; kept across resets (the file stays on disk).
+    spill_paths: std::collections::HashSet<String>,
     counters: Counters,
 }
 
@@ -462,6 +482,9 @@ impl Dedupe {
             s.counters.est_tokens_saved += saved;
             return Some(stub);
         }
+        if regretted(&mut s, agent, &call, &fingerprint) {
+            s.counters.stub_regrets += 1;
+        }
         if s.pending.len() >= MAX_PENDING {
             s.pending.clear();
         }
@@ -511,6 +534,7 @@ impl Dedupe {
                     turn: p.turn,
                     chars,
                     stubbed: false,
+                    regretted: false,
                     prefetched: false,
                 });
             }
@@ -524,6 +548,7 @@ impl Dedupe {
                         turn: p.turn,
                         chars,
                         stubbed: false,
+                        regretted: false,
                         prefetched: false,
                     },
                 );
@@ -538,6 +563,7 @@ impl Dedupe {
                         turn: p.turn,
                         chars,
                         stubbed: false,
+                        regretted: false,
                         prefetched: false,
                     },
                 );
@@ -584,6 +610,7 @@ impl Dedupe {
                     turn,
                     chars: per,
                     stubbed: false,
+                    regretted: false,
                     prefetched: true,
                 });
             }
@@ -664,6 +691,8 @@ impl Translator {
             return pass;
         }
         let input = req.get("input").cloned().unwrap_or(Value::Null);
+        let agent = input.get("agent_id").and_then(Value::as_str).unwrap_or("").to_owned();
+        self.dedupe.observe(&agent, &input);
         let Some(call) = Call::of(&input) else { return pass };
         let use_id = input
             .get("tool_use_id")
@@ -674,7 +703,6 @@ impl Translator {
         if use_id.is_empty() {
             return pass;
         }
-        let agent = input.get("agent_id").and_then(Value::as_str).unwrap_or("").to_owned();
         let probe = call.clone();
         let work = tokio::task::spawn_blocking(move || probe.fingerprint());
         let Ok(Ok(Some(fingerprint))) = tokio::time::timeout(WORK_BOUND, work).await else {
@@ -688,6 +716,9 @@ impl Translator {
 
     /// A tool result (`inbound.rs`): off the reading task, as its check stats files.
     pub(super) async fn dedupe_result(&self, use_id: &str, is_error: bool, text: &str) {
+        if let Some(path) = spill_path(text).filter(|_| enabled()) {
+            self.dedupe.spilled(path);
+        }
         if use_id.is_empty() || !self.dedupe.has_pending(use_id) {
             return;
         }
@@ -721,8 +752,127 @@ impl Translator {
     }
 }
 
+/// Whether `call` asks again for an answer it was stubbed for (marked, so each stub counts once).
+fn regretted(s: &mut State, agent: &str, call: &Call, fingerprint: &str) -> bool {
+    let fresh = |r: &&mut Seen| r.stubbed && !r.regretted && r.fingerprint == fingerprint;
+    let hit = match call {
+        Call::Read { path, lines } => {
+            s.reads.get_mut(&(agent.to_owned(), path.clone())).and_then(|seen| {
+                seen.iter_mut().find(|r| fresh(r) && r.lines.0 < lines.1 && lines.0 < r.lines.1)
+            })
+        }
+        Call::Shell { cwd, command, .. } => {
+            s.shells.get_mut(&(agent.to_owned(), cwd.clone(), command.clone())).filter(|r| fresh(r))
+        }
+        Call::Search { cwd, key, .. } => {
+            s.searches.get_mut(&(agent.to_owned(), cwd.clone(), key.clone())).filter(|r| fresh(r))
+        }
+    };
+    hit.map(|r| r.regretted = true).is_some()
+}
+
+/// Whether `text` names `path` as a whole path (not the start of a longer name).
+fn names(text: &str, path: &str) -> bool {
+    !path.is_empty()
+        && text.match_indices(path).any(|(at, _)| {
+            !text[at + path.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+        })
+}
+
+/// The file a `<persisted-output>` result was saved to.
+pub(super) fn spill_path(text: &str) -> Option<&str> {
+    let rest = text.trim_start().strip_prefix("<persisted-output>")?;
+    let (_, after) = rest.split_once("Full output saved to: ")?;
+    let path = after.split_whitespace().next()?;
+    Path::new(path).is_absolute().then_some(path)
+}
+
+const MAX_SPILLS: usize = 256;
+
 impl Dedupe {
+    /// A tool result Claude Code saved to `path`.
+    pub(super) fn spilled(&self, path: &str) {
+        let Ok(mut s) = self.state.lock() else { return };
+        s.counters.spills += 1;
+        if s.spill_paths.len() >= MAX_SPILLS {
+            s.spill_paths.clear();
+        }
+        s.spill_paths.insert(path.to_owned());
+    }
+
+    /// Any call the hook saw (`input`, its PreToolUse input), before it is decided: one that
+    /// names a spill file reads it back, and a Bash command naming a file whose Read was stubbed
+    /// asks past that stub.
+    pub(super) fn observe(&self, agent: &str, input: &Value) {
+        let Some(args) = input.get("tool_input").and_then(Value::as_object) else { return };
+        let Ok(mut guard) = self.state.lock() else { return };
+        let s = &mut *guard;
+        let texts: Vec<&str> = args.values().filter_map(Value::as_str).collect();
+        if let Some(p) = s.spill_paths.iter().find(|p| texts.iter().any(|t| names(t, p))).cloned() {
+            s.spill_paths.remove(&p);
+            s.counters.spill_read_backs += 1;
+        }
+        if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
+            return;
+        }
+        let Some(command) = args.get("command").and_then(Value::as_str) else { return };
+        for ((a, path), seen) in s.reads.iter_mut() {
+            if a != agent {
+                continue;
+            }
+            let Some(r) = seen.iter_mut().find(|r| r.stubbed && !r.regretted) else { continue };
+            if path.to_str().is_some_and(|p| names(command, p)) {
+                r.regretted = true;
+                s.counters.stub_regrets += 1;
+            }
+        }
+    }
+
     pub(super) fn has_pending(&self, use_id: &str) -> bool {
         self.state.lock().is_ok_and(|s| s.pending.contains_key(use_id))
     }
+}
+
+/// A Codex shell call the dedupe may answer (`codex_dedupe.rs`): Codex's PreToolUse and
+/// PostToolUse payloads carry Claude's `tool_name` / `tool_input` / `cwd` shape, so the same
+/// read-only list (`dedupe_shell.rs`) and fingerprint decide it. Only `Bash` qualifies; Codex
+/// has no `Read`.
+pub(crate) struct CodexShell(Call);
+
+impl CodexShell {
+    /// The call in a Codex hook `input`, when it is a shell command the dedupe may stub.
+    pub(crate) fn of(input: &Value) -> Option<Self> {
+        match Call::of(input)? {
+            call @ Call::Shell { .. } => Some(Self(call)),
+            // Codex has neither `Read` nor `Grep` / `Glob`.
+            Call::Read { .. } | Call::Search { .. } => None,
+        }
+    }
+
+    /// The call's identity: its folder and its command.
+    pub(crate) fn key(&self) -> String {
+        match &self.0 {
+            Call::Shell { cwd, command, .. } => format!("{cwd}\0{command}"),
+            Call::Read { path, .. } => path.display().to_string(),
+            Call::Search { cwd, key, .. } => format!("{cwd}\0{key}"),
+        }
+    }
+
+    /// What its answer depends on, stamped now; `None` when it cannot be taken.
+    pub(crate) fn fingerprint(&self) -> Option<String> {
+        self.0.fingerprint()
+    }
+
+    /// What the model reads instead of running it again, `ago` calls after the earlier run.
+    pub(crate) fn stub(&self, ago: u64) -> String {
+        stub(&self.0, ago)
+    }
+}
+
+/// Whether the feature is on now, for the Codex hook and its launch (`codex_dedupe.rs`).
+pub(crate) fn enabled_now() -> bool {
+    enabled()
 }

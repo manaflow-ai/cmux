@@ -108,7 +108,9 @@ impl Engine {
         let windows = self.windows()?;
         let id = pick(&windows, &self.app_names(), given)?.id.clone();
         let mut out = args.clone();
-        out["window_id"] = json!(id);
+        if let Some(map) = out.as_object_mut() {
+            map.insert("window_id".to_owned(), json!(id));
+        }
         Ok(Some(out))
     }
 }

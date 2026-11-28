@@ -15,6 +15,7 @@ import {
   type MoveView,
 } from "./placeModel";
 import "./place.css";
+import { useNow } from "./useNow";
 
 /// How the move draws (MoveProgress.gallery.tsx compares them): `card`, a titled block with a step
 /// bar and the carries; `line`, one row with the step, its clock and Cancel; `steps`, the eight
@@ -24,7 +25,7 @@ export type MoveProgressLook = "card" | "line" | "steps";
 /// How long a finished move stays on screen before it goes.
 const LIVE_LINGER_MS = 2500;
 
-export function carryText(carry: MoveCarry, move: MoveView, t: Translate): string {
+function carryText(carry: MoveCarry, move: MoveView, t: Translate): string {
   switch (carry.kind) {
     case "history":
       return t("place.carry.history");
@@ -41,18 +42,6 @@ export function carryText(carry: MoveCarry, move: MoveView, t: Translate): strin
     case "changes":
       return t("place.carry.changes", { n: carry.count ?? 0 });
   }
-}
-
-/// The page's own clock for a running move, one tick per 100 ms; stopped once it ends.
-export function useNow(running: boolean, fixed: number | undefined): number {
-  const [now, setNow] = useState(() => fixed ?? Date.now());
-  useEffect(() => {
-    if (!running || fixed !== undefined) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(timer);
-  }, [running, fixed]);
-  return fixed ?? now;
 }
 
 /// What moves with the chat. A move that failed or was cancelled carries nothing: the chat stays

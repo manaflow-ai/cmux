@@ -11,6 +11,13 @@ nonisolated enum MacScreenRules {
         ScreenRules { operation, data in call(operation, data) }
     }
 
+    /// One `rd_hub_*` op (cmux-rd-core's device hub rules) with a JSON object each way; nil when the
+    /// library refuses the request or answers something that is not an object.
+    static func rdHub(_ operation: String, _ request: [String: Any]) -> [String: Any]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request), let reply = call(operation, data) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+    }
+
     /// One `cmux_layout_reducer_json` call, retried once at the size it asks for.
     private static func call(_ operation: String, _ data: Data) -> Data? {
         var capacity = 4096
@@ -25,5 +32,29 @@ nonisolated enum MacScreenRules {
             return Data(output.prefix(outputLength))
         }
         return nil
+    }
+}
+
+nonisolated extension MacScreenRules {
+    /// One `rd_devices_*` call (cmux-rd-core's rd_devices rules), decoded; nil when Rust does not answer.
+    static func rdDevices<T: Decodable>(_ operation: String, _ request: Any, as _: T.Type) -> T? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request, options: .fragmentsAllowed),
+              let answer = call(operation, data) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: answer)
+    }
+}
+
+/// cmux-rd-core's `Words`: a localized format (`key`, its English `text`, `table`) with each `%@`
+/// filled from `args` the same way, or words not localized (`key` nil).
+nonisolated struct RdWords: Decodable, Sendable {
+    var key: String?
+    var text: String
+    var table: String?
+    var args: [RdWords]?
+
+    var string: String {
+        let format = key.map { Bundle.localizedModule.localizedString(forKey: $0, value: text, table: table) } ?? text
+        guard let args, !args.isEmpty else { return format }
+        return String(format: format, arguments: args.map { $0.string as any CVarArg })
     }
 }

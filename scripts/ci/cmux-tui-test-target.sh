@@ -22,10 +22,10 @@
 # never holds). A pull request restores into its own checkout's cmux-tui/target, which the runner wipes after the job, and
 # nothing it builds is ever read by a later job.
 #
-# Key: cmux-next-daemon-tests-cargo-v1-<build environment>-<4-hour window>. The environment is what cargo's fingerprints
+# Key: cmux-next-daemon-tests-cargo-v1-<build environment>-<hour>. The environment is what cargo's fingerprints
 # do not see (the pinned toolchain file, the host, its C compiler, the ghostty-next gitlink and the Zig pin) and the
-# workspace path (fingerprints hold absolute paths). A save happens at most once a window (r2-cache.sh skips a key the
-# bucket has), and a restore reads the newest save under the environment's prefix. r2_cache_prune.py keeps one day.
+# workspace path (fingerprints hold absolute paths). A save happens at most once an hour (r2-cache.sh skips a key the
+# bucket has; a 4-hour window left pull requests 686-887 changed files behind, 28-40 min compiles, 2026-11-28), and a restore reads the newest save under the environment's prefix. r2_cache_prune.py keeps one day.
 #
 # Disk: a restore needs CMUX_TUI_TEST_TARGET_MIN_FREE_GIB (30) free, else it builds cold. A save drops incremental state
 # first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps only third-party output (scripts/ci/cargo_target_strip.py).
@@ -77,7 +77,7 @@ environment="$( {
   echo "$repo"
 } | sha256sum | cut -c1-16)"
 prefix="cmux-next-daemon-tests-cargo-v1-$environment-"
-window="$(date -u +%Y%m%d)h$(( 10#$(date -u +%H) / 4 * 4 ))"
+window="$(date -u +%Y%m%d)h$(date -u +%H)"
 key="$prefix$window"
 
 free_gib() { df -Pk "$1" | awk 'NR == 2 { printf "%d", $4 / 1048576 }'; }
@@ -198,8 +198,9 @@ save() {
   size_gib="$(du -sxk "$target" | awk '{ printf "%d", $1 / 1048576 }')"
   if ((size_gib > max_gib)); then
     say "the target is $size_gib GiB, over $max_gib: saving third-party output only"
-    local crates
-    mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
+    # No mapfile: macOS runners may run this under /bin/bash 3.2, which has no mapfile (kit_sim_fleet.sh, #63758).
+    local crates=() crate
+    while IFS= read -r crate; do crates+=("$crate"); done < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
       | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
     python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}"
   else

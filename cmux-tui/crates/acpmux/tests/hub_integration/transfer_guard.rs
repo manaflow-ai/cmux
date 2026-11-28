@@ -545,7 +545,7 @@ exec python3 '{FAKE}' "$@"
             answer.unwrap();
             assert!(hub.resolve(id).unwrap().meta().credential_connection.is_none());
             dst.request(method::SESSION_PROMPT, ask(id, "after-return", "hello")).await.unwrap();
-            assert_eq!(hub.session_summary(&hub.resolve(id).unwrap())["preview"], "hello");
+            assert_eq!(hub.session_summary(&hub.resolve(id).unwrap())["preview"], "echo: hello");
         } else {
             assert!(answer.is_err_and(|error| error.contains("needs its model connection")));
             assert!(hub.resolve(id).is_err());

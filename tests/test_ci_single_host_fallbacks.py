@@ -24,7 +24,9 @@ only warns; the pre-push gate runs it strictly). What is read, for every workflo
 
 The declaration itself must promise a bounded fallback: the same schema checks as the build-fleet
 test (fallback_policy in its tests/test_runner_label_policy.py), so a declaration it would refuse
-fails here first. Its nightly scan (nightly_terminal_labels, nightly_job_outputs) stays there.
+fails here first. Its full nightly scan (nightly_terminal_labels, nightly_job_outputs) stays there; the pull
+request step runs-on-fallbacks-declared (ci/steps.toml, `--new-since HEAD^1`) fails on each nightly label or
+picker output a change adds with no declaration here.
 """
 
 from __future__ import annotations
@@ -707,6 +709,114 @@ class SingleHostFallbacks(unittest.TestCase):
 
     def test_a_missing_workflow_directory_is_reported(self) -> None:
         self.assertTrue(undeclared([ROOT / "no-such-dir" / "workflows"], load_declaration()))
+
+
+class NewNightlyLabelsFailThePullRequest(unittest.TestCase):
+    """A pull request that adds a nightly runs-on label with no declared fallback fails here, not in build-fleet.
+
+    2026-11-27: cmux 6b9c53cd (and the PRs before it) put mac-gateway, mac-nightly and xcode-27.0 on nightly jobs and
+    an undeclared picker output on ios-internal-nightly.yml's archive; this repository's checks passed, and the
+    build-fleet runner label policy test, which reads these workflows live, went red on every build-fleet pull request
+    instead. `--new-since BASE` judges the nightly workflows' labels and picker outputs too, and fails on each the head
+    adds that the base did not have. The nightly half of the policy is split between this file and build-fleet's
+    (which declares its own pool labels, such as cmux-linux), so only what a change adds is judged here: a name the
+    base already used stays build-fleet's business.
+    """
+
+    POLICY = {
+        "schema": 1,
+        "labels": {"glaeda-runner-made-up": {"fallback": "x", "after_minutes": 5}},
+        "controller_labels": [], "single_host_prefixes": ["glaeda-runner-"], "variables": {},
+        "nightly_workflow_marker": "nightly",
+        "nightly_terminal_labels": {"mac-declared": {"fallback": "Blacksmith macOS", "after_minutes": 10,
+                                                     "served_by": "a pool"}},
+        "nightly_job_outputs": {},
+    }
+
+    def repo(self, tmp: str, base: str, head: str, policy: dict | None = None,
+             name: str = "made-up-nightly.yml") -> Path:
+        root = Path(tmp) / "repo"
+        (root / ".github" / "workflows").mkdir(parents=True)
+        env = git_fixture_env.write_env()
+        git = ["git", "-C", str(root)]
+        subprocess.run([*git, "init", "-q"], env=env, check=True)
+        subprocess.run([*git, "config", "user.email", "t@example.com"], env=env, check=True)
+        subprocess.run([*git, "config", "user.name", "t"], env=env, check=True)
+        (root / ".github" / "single-host-fallbacks.json").write_text(json.dumps(policy or self.POLICY), encoding="utf-8")
+        for text in (base, head):
+            (root / ".github" / "workflows" / name).write_text(text, encoding="utf-8")
+            subprocess.run([*git, "add", "-A"], env=env, check=True)
+            subprocess.run([*git, "commit", "-qm", "x", "--allow-empty"], env=env, check=True)
+        return root
+
+    def gate(self, root: Path) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = checker.main(["--root", str(root), "--new-since", "HEAD^1"])
+        return code, out.getvalue()
+
+    @staticmethod
+    def job(runs_on: str, name: str = "a") -> str:
+        return f"jobs:\n  {name}:\n    runs-on: {runs_on}\n    steps:\n      - run: true\n"
+
+    def test_a_new_undeclared_nightly_label_fails_naming_it_and_its_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.repo(tmp, self.job("mac-declared"),
+                             self.job("${{ github.repository_owner != 'manaflow-ai' && 'mac-declared' || 'mac-made-up' }}"))
+            code, out = self.gate(root)
+        self.assertEqual(code, 1, out)
+        self.assertIn("made-up-nightly.yml:3: job a: mac-made-up", out)
+        self.assertIn("nightly_terminal_labels", out)
+
+    def test_a_new_declared_or_blacksmith_label_passes(self) -> None:
+        for label in ("mac-declared", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                code, out = self.gate(self.repo(tmp, self.job("mac-declared"), self.job(label, name="b")))
+                self.assertEqual(code, 0, out)
+
+    def test_a_label_the_base_already_used_is_not_this_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.repo(tmp, self.job("cmux-linux"), self.job("cmux-linux") + "  b:\n    runs-on: mac-declared\n")
+            code, out = self.gate(root)
+        self.assertEqual(code, 0, out)
+
+    def test_a_workflow_that_is_not_nightly_is_not_judged_for_terminal_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.repo(tmp, self.job("mac-declared"), self.job("mac-made-up"), name="pr-checks.yml")
+            code, out = self.gate(root)
+        self.assertEqual(code, 0, out)
+
+    def test_a_new_undeclared_picker_output_fails(self) -> None:
+        head = ("jobs:\n  pick:\n    runs-on: mac-declared\n    outputs:\n      runner: x\n    steps:\n      - run: true\n"
+                "  a:\n    needs: pick\n    runs-on: ${{ needs.pick.outputs.runner || 'mac-declared' }}\n"
+                "    steps:\n      - run: true\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = self.gate(self.repo(tmp, self.job("mac-declared"), head))
+            self.assertEqual(code, 1, out)
+            self.assertIn("made-up-nightly.yml:pick.runner", out)
+            policy = json.loads(json.dumps(self.POLICY))
+            policy["nightly_job_outputs"]["made-up-nightly.yml:pick.runner"] = {
+                "labels": ["mac-declared"], "constrained_by": "x", "empty_falls_back_to": "mac-declared"}
+            code, out = self.gate(self.repo(tmp + "/2", self.job("mac-declared"), head, policy))
+        self.assertEqual(code, 0, out)
+
+    def test_a_new_label_inside_a_fromjson_array_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.repo(tmp, self.job("mac-declared"), self.job(
+                "${{ fromJSON(needs.x.outputs.y != '' && needs.x.outputs.y || '[\"mac-declared\",\"xcode-99.0\"]') }}"))
+            code, out = self.gate(root)
+        self.assertEqual(code, 1, out)
+        self.assertIn("xcode-99.0", out)
+
+    def test_this_change_adds_nothing_against_its_own_tip(self) -> None:
+        env = git_fixture_env.without_redirects(dict(os.environ))
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True, env=env)
+        if head.returncode != 0:
+            self.skipTest("not a git checkout")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = checker.main(["--root", str(ROOT), "--new-since", "HEAD"])
+        self.assertEqual(code, 0, out.getvalue())
 
 
 class VarsReadOracle(unittest.TestCase):

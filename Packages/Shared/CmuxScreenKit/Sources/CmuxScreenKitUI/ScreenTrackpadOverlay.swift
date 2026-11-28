@@ -1,4 +1,5 @@
 #if os(iOS)
+import CCmuxScreenKit
 import CmuxScreenKit
 import SwiftUI
 import UIKit
@@ -149,38 +150,19 @@ struct ScreenTrackpadHintFrame: View, Animatable {
     }
 }
 
-/// Where the hint's hand is at a moment: positions as fractions of the pad,
-/// the press as a scale, the tap's ripple and the fade-in and -out.
-/// Each of the two strokes glides from lower left to upper right, then taps.
+/// Where the hint's hand is at a moment (cmux-rd-core `screen_kit::hint`):
+/// positions as fractions of the pad, the press as a scale, the tap's ripple
+/// and the fade-in and -out.
 struct ScreenTrackpadHintPose: Equatable {
-    var x = 0.5, y = 0.55, scale = 1.0, ripple = 0.0, opacity = 1.0
+    var x, y, scale, ripple, opacity: Double
 
     /// nil: the still hand (Reduce Motion), in the middle.
     init(progress: Double?) {
-        guard let progress else { return }
-        let t = min(max(progress, 0), 1)
-        // Fade in over the first 6 %, out over the last 10 %.
-        opacity = min(1, t / 0.06, (1 - t) / 0.10)
-        // Two strokes, each 45 % of the hint; the rest is the fade.
-        let stroke = min(t / 0.45, 1.999)
-        let local = stroke - stroke.rounded(.down)
-        let from = (x: 0.28, y: 0.70), to = (x: 0.66, y: 0.36)
-        let glide = Self.ease(min(local / 0.55, 1))
-        x = from.x + (to.x - from.x) * glide
-        y = from.y + (to.y - from.y) * glide
-        // Between the strokes the hand lifts away and comes back, not jumps.
-        if stroke < 1 { opacity *= min(1, (1 - local) / 0.06) } else { opacity *= min(1, local / 0.06) }
-        // After the glide: press (to 0.86) and release, with a ripple that fades as it grows.
-        let tap = max(0, (local - 0.62) / 0.3)
-        if tap > 0, tap < 1 {
-            scale = 1 - 0.14 * sin(.pi * min(tap * 2, 1))
-            ripple = tap < 0.5 ? 0 : 1 - (tap - 0.5) * 2
-        }
-        if t >= 0.9 { (x, y) = to }
+        let pose = cmux_screen_hint_pose(progress != nil, progress ?? 0)
+        (x, y, scale, ripple, opacity) = (pose.x, pose.y, pose.scale, pose.ripple, pose.opacity)
     }
-
-    private static func ease(_ t: Double) -> Double { t * t * (3 - 2 * t) }
 }
+
 /// Reports how much of the bottom of its safe area the software keyboard (or only its
 /// key bar, with a hardware keyboard) covers, from UIKit's keyboard layout guide. Put it
 /// behind a view that is laid out as if the keyboard were down, so the keyboard always
