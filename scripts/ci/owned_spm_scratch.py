@@ -128,8 +128,10 @@ ADMISSION = ".admission"
 # A measured root larger than this is used instead.
 ROOT_BYTES_UNMEASURED = 14 * 1024**3
 HELD = "held"
-# swift-package-tests' timeout-minutes is 60: a holder outliving it belongs to a job the runner lost.
-HOLD_SECONDS = 65 * 60
+# Past the longest timeout-minutes of a job that leases or links scratch (cmux-next.yml swift-test 135, the fast
+# tier 120, generated-files 70): a holder outliving it belongs to a job the runner lost. Shorter, a live job's
+# lock lapses and its scratch can be leased or pruned under it.
+HOLD_SECONDS = 140 * 60
 WARM_START_FILE = "glaeda-warm-start.json"
 WARM_START_SCHEMA = "cmux-warm-start/v1"
 
