@@ -177,7 +177,8 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
         // still judged by its box as before.
         if (minimal()) {
           for (const row of rows) if (!cssOf(row).some(pending)) rows.delete(row);
-          for (const element of changed) if (!rows.has(element.closest(ROW)!) || !cssOf(element).some(pending)) changed.delete(element);
+          for (const element of changed)
+            if (!rows.has(element.closest(ROW)!) || !cssOf(element).some(pending)) changed.delete(element);
           if (rows.size === 0) return;
         }
         const view = scroller.getBoundingClientRect();
