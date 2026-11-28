@@ -48,12 +48,18 @@ type Row = HTMLElement & { animations: FakeAnimation[] };
 const active = (animation: FakeAnimation) => animation.playState === "running" || animation.playState === "paused";
 const translate = (row: Row) =>
   String(
-    row.animations.findLast((animation) => active(animation) && "translate" in animation.keyframes[0]!)?.keyframes[0]!
-      .translate ?? "none",
+    row.animations
+      .slice()
+      .reverse()
+      .find((animation) => active(animation) && "translate" in animation.keyframes[0]!)?.keyframes[0]!.translate ??
+      "none",
   );
 const drawnTop = (row: Row) => row.offsetTop + (Number.parseFloat(translate(row).split(" ")[1] ?? "0") || 0);
 const clipBottom = (row: Row) => {
-  const clip = row.animations.findLast((animation) => active(animation) && "clipPath" in animation.keyframes[0]!);
+  const clip = row.animations
+    .slice()
+    .reverse()
+    .find((animation) => active(animation) && "clipPath" in animation.keyframes[0]!);
   return Number.parseFloat(String(clip?.keyframes[0]!.clipPath ?? "inset(0px 0px 0px 0px)").split(" ")[2]!);
 };
 const view = {
