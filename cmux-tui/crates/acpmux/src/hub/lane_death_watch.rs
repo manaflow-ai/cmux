@@ -94,6 +94,16 @@ impl Hub {
             |p| local.contains_key(p),
             |host| self.peer_by_name(host).is_some_and(|peer| peer.idle_parked()),
         );
+        if let Some((down, held)) = watch.outage_began() {
+            tracing::warn!(
+                down,
+                held,
+                min = crate::lane_death_watch::OUTAGE_MIN_HOSTS,
+                "lane-death-outage: {down} of {held} machines read down at once; these are this \
+                 daemon's own links, not that many dead machines, so no lane death is told until \
+                 fewer are"
+            );
+        }
         for n in notices.iter().filter(|n| n.deaths >= MAX_DEATHS) {
             tracing::warn!(lane = %n.key, host = %n.host, parent = %n.parent, deaths = n.deaths,
                 window_min = WINDOW_MS / 60_000, max = MAX_DEATHS, handed_over = intensity_on(),

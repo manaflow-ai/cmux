@@ -4,9 +4,9 @@
 //!
 //! It runs `acpmux session place SESSION --on PLACE --json` (acpmux `chat_place.rs`), which makes
 //! the move one Auto `set`: the store's fenced handoff. From the person's terminal any move goes;
-//! from an agent's shell only its own chat, off the Mac, while AutoCloud is on, and the answer
-//! says `needs_person` with this command otherwise. An agent in a chat has the same move as its
-//! `move_chat` tool.
+//! from an agent's shell only its own chat: off the Mac while AutoCloud is on, and home to the
+//! Mac, also from the Cloud machine it runs on; the answer says `needs_person` with this command
+//! otherwise. An agent in a chat has the same move as its `move_chat` tool.
 
 use std::time::Duration;
 
@@ -15,17 +15,19 @@ use cmux_process::Command;
 use super::{UsageError, chat_start::joined, cloud_start_chat, wire};
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat move SESSION --on local|cloud|auto [--reason TEXT] [--json]
+usage: cmux chat move [SESSION] --on local|cloud|auto [--reason TEXT] [--json]
 
-Moves the chat SESSION to where it should run:
+Moves the chat SESSION (with none, the chat this runs in) to where it should run:
 
   local   this Mac (Auto off); the Cloud's changes come back into the folder
   cloud   cmux Cloud, staying there when the Mac comes back
   auto    AutoCloud: here while the Mac is up, in the Cloud while it sleeps
 
-From an agent's shell only its own chat moves, off the Mac, while the AutoCloud setting is on;
-otherwise the answer is needs_person and the person runs this command.
+From an agent's shell only its own chat moves: off the Mac while the AutoCloud setting is on,
+and back to local, also from the Cloud machine it runs on (it arrives as auto; local again there
+keeps it on the Mac only). Otherwise the answer is needs_person and the person runs this command.
 
+  cmux chat move --on cloud          # from an agent: its own chat
   cmux chat move s-1 --on cloud
   cmux chat move s-1 --on local --json
 ";
@@ -42,6 +44,11 @@ pub(super) enum Parsed {
 }
 
 pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
+    parse_in(words, own_chat())
+}
+
+/// [`parse`], with `own` the chat this runs in (`@`), if any.
+pub(super) fn parse_in(words: &[String], own: Option<String>) -> Result<Parsed, UsageError> {
     let (mut session, mut on, mut reason) = (None, None, None);
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -55,7 +62,10 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
             w => return Err(UsageError(format!("one SESSION only (got {w:?} too)"))),
         }
     }
-    let session = session.ok_or_else(|| UsageError("SESSION is required".to_owned()))?;
+    // An agent's shell names its own chat: `@` is the caller's (`$ACPMUX_SESSION_ID`).
+    let session = session.or(own).ok_or_else(|| {
+        UsageError("SESSION is required outside a chat (no ACPMUX_SESSION_ID)".to_owned())
+    })?;
     let on = on.ok_or_else(|| UsageError("--on local|cloud|auto is required".to_owned()))?;
     if !matches!(
         on.to_ascii_lowercase().as_str(),
@@ -72,6 +82,14 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
         return Err(UsageError(format!("--on must be local, cloud or auto (got {on:?})")));
     }
     Ok(Parsed::Run { session, on, reason })
+}
+
+/// The chat this command runs in, as `@`, when it runs in one.
+fn own_chat() -> Option<String> {
+    std::env::var("ACPMUX_SESSION_ID")
+        .ok()
+        .filter(|id| !id.trim().is_empty())
+        .map(|_| "@".to_owned())
 }
 
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
