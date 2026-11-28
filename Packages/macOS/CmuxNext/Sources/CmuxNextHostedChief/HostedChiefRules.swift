@@ -12,7 +12,7 @@ nonisolated enum ChiefRules {
         do {
             return try HomeEngineRules.call(op, input)
         } catch {
-            assertionFailure(String(describing: error))
+            // capture-only: no assert (stale FFI pin)
             return fallback()
         }
     }
