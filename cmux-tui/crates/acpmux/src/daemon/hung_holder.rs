@@ -283,10 +283,20 @@ pub(crate) fn check_identity(pid: u32, home: &Path) -> Result<u32, Refusal> {
 }
 
 fn is_acpmux_exe(exe: &Path) -> bool {
+    let me = std::env::current_exe().ok();
+    let canonical = me.as_deref().and_then(|me| std::fs::canonicalize(me).ok());
+    is_acpmux_exe_of(exe, [me.as_deref(), canonical.as_deref()].into_iter().flatten())
+}
+
+/// Whether `exe` (the kernel's path of the holder, symlinks resolved) is acpmux: named `acpmux*`,
+/// or named as this binary is, by the path it was started as or by that path resolved. The app
+/// bundle's `bin/acpmux` is a symlink to its multicall `bin/cmux`: the kernel names a bundle
+/// daemon `cmux` while this start's own path says `acpmux`, so without the resolved name no
+/// bundle daemon was ever replaced (a NIGHTLY daemon wedged 14 h, 2026-11-28, every chat stuck).
+fn is_acpmux_exe_of<'a>(exe: &Path, me: impl IntoIterator<Item = &'a Path>) -> bool {
     let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
     let Some(file) = name(exe) else { return false };
-    file.starts_with("acpmux")
-        || std::env::current_exe().ok().as_deref().and_then(name).is_some_and(|me| me == file)
+    file.starts_with("acpmux") || me.into_iter().filter_map(name).any(|me| me == file)
 }
 
 fn signal(pid: u32, sig: libc::c_int) -> bool {

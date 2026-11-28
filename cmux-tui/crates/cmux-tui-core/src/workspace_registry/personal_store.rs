@@ -416,7 +416,7 @@ pub fn validate_personal_json(
     Ok(text)
 }
 
-/// A session's capability list: unique tokens of `[a-z][a-z0-9._-]`, each at
+/// A session's capability list: unique tokens of `[a-z][a-z0-9._:-]`, each at
 /// most [`MAX_CAPABILITY_TOKEN_BYTES`], at most
 /// [`MAX_SESSION_CAPABILITIES_BYTES`] as JSON. Returns the stored text.
 pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
@@ -435,9 +435,9 @@ pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
                 && bytes.iter().all(|byte| {
                     byte.is_ascii_lowercase()
                         || byte.is_ascii_digit()
-                        || matches!(byte, b'.' | b'_' | b'-')
+                        || matches!(byte, b'.' | b'_' | b'-' | b':')
                 }),
-            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._-], starting with a letter"
+            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._:-], starting with a letter"
         );
         anyhow::ensure!(seen.insert(token), "bad request: capability {token} is listed twice");
     }

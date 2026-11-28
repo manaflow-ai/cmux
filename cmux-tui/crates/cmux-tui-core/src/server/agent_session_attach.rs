@@ -30,6 +30,7 @@ pub(super) mod agent_session_link;
 pub(super) mod agent_session_observe;
 #[path = "agent_session_start.rs"]
 pub(super) mod agent_session_start;
+pub(crate) use agent_session_start::ENDPOINT_HARNESS_CAPABILITIES;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
 #[path = "agent_session_bad_field.rs"]

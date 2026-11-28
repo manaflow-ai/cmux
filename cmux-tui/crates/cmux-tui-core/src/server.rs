@@ -141,6 +141,7 @@ mod agent_cli_job;
 mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
+pub(crate) use agent_session_attach::ENDPOINT_HARNESS_CAPABILITIES;
 #[cfg(unix)]
 mod machine_chats;
 #[cfg(unix)]
