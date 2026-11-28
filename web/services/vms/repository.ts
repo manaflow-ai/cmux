@@ -94,6 +94,7 @@ import {
   type VmResourceReservation,
 } from "./machineSpec";
 import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY } from "../runs/model";
+import { CREATE_WAIT_METADATA_KEY, type VmCreateWait } from "./createWait";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -236,6 +237,30 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
    */
   readonly beginSnapshotRequest?: (input: BeginSnapshotRequestInput) => Effect.Effect<SnapshotRequestBegin, VmDatabaseError>;
   readonly finishSnapshotRequest?: (input: FinishSnapshotRequestInput) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Machines holding (or about to hold) an address on one private network:
+   * rows in the network's scope that are provisioning, running or paused and
+   * whose recorded IPv4 lies inside `cidr`, plus provisioning rows with no
+   * address yet. Address admission (networkAdmission.ts) reads it before a
+   * provider start. Optional so older test doubles compile; absent admits.
+   */
+  readonly countNetworkAddressHolders?: (input: {
+    readonly provider: ProviderId;
+    readonly userId: string;
+    readonly billingTeamId: string | null;
+    readonly scope: "user" | "team";
+    readonly cidr: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * Record a create's explicit wait (services/vms/createWait.ts) on its
+   * failed row, so the same-key retry that replaces the row keeps the first
+   * wait's deadline. False when the row is not a failed create without a
+   * provider machine.
+   */
+  readonly recordCreateWait?: (input: {
+    readonly id: string;
+    readonly wait: VmCreateWait;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -1683,6 +1708,53 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   beginSnapshotRequest,
   finishSnapshotRequest,
+  countNetworkAddressHolders: (input) =>
+    dbEffect("countNetworkAddressHolders", async () => {
+      const db = cloudDb();
+      // A team network holds every member's machines billed to the team; a
+      // user network holds the user's own machines that joined it. Users may
+      // share a range (privateNetwork.ts userNetworkCidr), so the CIDR test
+      // alone never decides membership.
+      const scope = input.scope === "team" && input.billingTeamId
+        ? eq(cloudVms.ownerTeamId, input.billingTeamId)
+        : eq(cloudVms.userId, input.userId);
+      const ipv4 = sql`(${cloudVms.providerMetadata} ->> 'networkIpv4')`;
+      const [row] = await db
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(and(
+          scope,
+          eq(cloudVms.provider, input.provider),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          or(
+            sql`(${ipv4} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$' and ${ipv4}::inet <<= ${input.cidr}::inet)`,
+            and(eq(cloudVms.status, "provisioning"), sql`${ipv4} is null`),
+          ),
+        ));
+      return Number(row?.total ?? 0);
+    }),
+
+  recordCreateWait: (input) =>
+    dbEffect("recordCreateWait", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVms)
+        .set({
+          updatedAt: new Date(),
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object('${sql.raw(CREATE_WAIT_METADATA_KEY)}', ${JSON.stringify(input.wait)}::jsonb)
+          )`,
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "failed"),
+          isNull(cloudVms.providerVmId),
+        ))
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
+    }),
+
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();

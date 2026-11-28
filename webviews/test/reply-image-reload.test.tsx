@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { IMAGE_CACHE_MAX_ENTRIES } from "../src/agent-session/acpmux/chips/imageCache";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { IMAGE_CACHE_MAX_ENTRIES } = await importWithDom(() => import("../src/agent-session/acpmux/chips/imageCache"));
 
 // Reply images keep a bounded cache of what loaded on their own. An image the reader loaded with
 // "Load image" must still draw when it comes back into view: loading it again would need another
