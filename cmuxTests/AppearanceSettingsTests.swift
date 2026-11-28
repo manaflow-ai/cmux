@@ -541,6 +541,83 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
     }
 
+    func testApplyingStoredModeAfterLaunchReleasesSystemLaunchPin() {
+        let suiteName = "AppearanceSettingsTests.AfterLaunchSystem.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var appliedAppearances: [NSAppearance?] = []
+        var terminalSynchronizationCount = 0
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearances.append(appearance)
+            },
+            synchronizeTerminalThemeWithAppearance: { _, _ in
+                terminalSynchronizationCount += 1
+            },
+            systemAppearance: {
+                NSAppearance(named: .aqua)
+            }
+        )
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+
+        // Launch pins the app to the system appearance it sees at that moment.
+        AppearanceSettings.applyStoredMode(
+            rawValue: defaults.string(forKey: AppearanceSettings.appearanceModeKey),
+            defaults: defaults,
+            source: "test.launch",
+            duringLaunch: true,
+            synchronizeTerminalTheme: false,
+            environment: environment
+        )
+        let selected = AppearanceSettings.applyStoredModeAfterLaunch(
+            defaults: defaults,
+            environment: environment
+        )
+
+        XCTAssertEqual(selected, .system)
+        XCTAssertEqual(appliedAppearances.count, 2)
+        XCTAssertEqual(appliedAppearances.first??.bestMatch(from: [.darkAqua, .aqua]), .aqua)
+        XCTAssertTrue(
+            appliedAppearances.count == 2 && appliedAppearances[1] == nil,
+            "After launch, system mode must clear NSApp.appearance so AppKit follows later Light/Dark switches"
+        )
+        XCTAssertEqual(terminalSynchronizationCount, 0)
+    }
+
+    func testApplyingStoredModeAfterLaunchKeepsExplicitDarkMode() {
+        let suiteName = "AppearanceSettingsTests.AfterLaunchDark.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var appliedAppearanceName: NSAppearance.Name?
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+            },
+            synchronizeTerminalThemeWithAppearance: { _, _ in },
+            systemAppearance: {
+                XCTFail("Dark mode should not resolve system appearance")
+                return nil
+            }
+        )
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+
+        let selected = AppearanceSettings.applyStoredModeAfterLaunch(
+            defaults: defaults,
+            environment: environment
+        )
+
+        XCTAssertEqual(selected, .dark)
+        XCTAssertEqual(appliedAppearanceName, .darkAqua)
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
