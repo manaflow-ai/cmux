@@ -239,6 +239,14 @@ extension WorkspaceTabsSource {
         let faces = pairFaces(tab, in: workspace)
         return faces.offered && face(of: tab, faces: faces) == .chat
     }
+
+    /// Whether terminal `tab`'s terminal face is an interactive page: its page is (`page`: settled full screen) and the
+    /// tab shows that face. Behind the chat face the terminal is parked, not in use: it gives back its size on the Mac
+    /// (after the claim's delay, so a quick swap back resizes nothing; PROTOCOL.md, "Terminal size claims"), its
+    /// keyboard goes and it takes no touch (Leo, 2026-11-12: the terminal's size follows the device in active use).
+    func terminalFaceIsInteractive(_ tab: WorkspaceTab, in workspace: Workspace, page: Bool) -> Bool {
+        page && !showsChatFace(tab, in: workspace)
+    }
 }
 
 /// A terminal tab's two faces, both kept built: the terminal and, once a chat shows its

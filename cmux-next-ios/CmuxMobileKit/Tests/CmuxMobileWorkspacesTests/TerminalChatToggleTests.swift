@@ -102,6 +102,23 @@ struct TerminalChatToggleTests {
         #expect(source.terminalChatItems(tab, in: workspace).map(\.title) == ["Show Terminal"])
     }
 
+    /// Behind the chat face the terminal is parked: not an interactive page, so it claims no size on the Mac and takes
+    /// no keyboard; the swap back makes it one again (Leo, 2026-11-12: the terminal's size follows the device in
+    /// active use). A tab with no pair is its page's state alone.
+    @Test func theTerminalBehindTheChatFaceClaimsNoSizeOnTheMac() throws {
+        let backend = PairBackend(listings: [Self.watch])
+        let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "claude-code", session: "h-1"),
+                                                     Self.terminal("s2", agent: nil, session: nil)])
+        let workspace = try #require(source.workspace)
+        let paired = try #require(source.workspaceTab("s1")), plain = try #require(source.workspaceTab("s2"))
+        #expect(source.showsChatFace(paired, in: workspace))
+        #expect(!source.terminalFaceIsInteractive(paired, in: workspace, page: true), "the parked terminal still claims its size")
+        source.swapTerminalChat("s1", to: .terminal)
+        #expect(source.terminalFaceIsInteractive(paired, in: workspace, page: true))
+        #expect(!source.terminalFaceIsInteractive(paired, in: workspace, page: false), "a page mid-swipe claimed")
+        #expect(source.terminalFaceIsInteractive(plain, in: workspace, page: true))
+    }
+
     @Test func aTerminalWithNoChatAsksTheMacForTheViewOnlyChatOnce() async throws {
         let backend = PairBackend(answer: .chat("w-9"))
         let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "codex", session: "h-2")])
