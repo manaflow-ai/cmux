@@ -336,7 +336,7 @@ fn chat_column_reads_a_lone_chat_that_docks() {
 }
 
 #[test]
-fn chat_column_sends_the_docks_new_tab_to_the_strip_and_refuses_a_tool() {
+fn chat_column_sends_the_docks_new_tab_to_the_strip_and_takes_a_tool() {
     let (code, body) = call_json(
         c"window_chat_column",
         &json!({"pane": "chat", "columns": [{"panes": ["chat"], "dock": {"role": "agentChat"}}, {"panes": ["page"]}],
@@ -349,7 +349,7 @@ fn chat_column_sends_the_docks_new_tab_to_the_strip_and_refuses_a_tool() {
     assert_eq!(body["pagePick"], json!("page"));
     assert_eq!(body["chatDock"], json!(true));
     assert_eq!(body["splitsDown"], json!(true));
-    assert_eq!(body["refusesMove"], json!(true));
+    assert_eq!(body["refusesMove"], json!(false));
     assert_eq!(body["chatDockTop"], json!("chat"));
 }
 

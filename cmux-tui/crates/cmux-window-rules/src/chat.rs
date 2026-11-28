@@ -42,11 +42,13 @@ impl Dock {
         self.role == Some(DockRole::AgentChat)
     }
 
-    /// Whether this chat dock takes only agent chats: every chat dock but
-    /// Home's pinned dock while it takes tabs (`allow_tabs`; Leo 2026-10-21:
+    /// Whether this chat dock takes only agent chats: only Home's pinned dock
+    /// while it is closed to tabs (no `allow_tabs`). Any other chat dock takes
+    /// a dragged tab, so a tool dragged from the split beside the chat joins
+    /// the chat's pane as a tab (Lucas 2026-11-27; Leo 2026-10-21 for Home:
     /// "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO").
     pub fn takes_only_chats(&self) -> bool {
-        self.is_chat() && !(self.pinned && self.allows_tabs)
+        self.is_chat() && self.pinned && !self.allows_tabs
     }
 
     /// Whether Split Down of a pane in this column grows it below that pane
