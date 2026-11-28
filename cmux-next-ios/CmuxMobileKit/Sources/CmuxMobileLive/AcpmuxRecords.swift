@@ -224,6 +224,9 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var name: String
     /// `title`: the chat's generated title, else its first prompt.
     public var title: String?
+    /// `titleSource`: where `title` came from (`prompt`, `harness`, `generated`, `adopted`,
+    /// `named`, `launched`, ...); nil from an older daemon.
+    public var titleSource: String?
     public var harness: String
     public var cwd: String
     /// `peer`: the acpmux peer (another machine) the session runs on; nil for this Mac's own.
@@ -256,6 +259,37 @@ public struct AcpmuxSession: Hashable, Sendable {
         return name.isEmpty || name.hasPrefix("optchat-") ? nil : name
     }
 
+    /// The chat's own name, never its prompt (issue 51331: the composer read "Reply to Take over
+    /// https://github.com/manaflow-…"): `title` when its source is a real title (the harness's,
+    /// a generated one, an adopted one; the Mac's `AgentTurnStates.chatTitle` trusts the same),
+    /// else the session's name when a person or launcher gave it (not `claude-3`, `claude-fork-2`,
+    /// nor an opaque id). A `named` or `launched` chat's `title` can be its prompt line, so its
+    /// name speaks for it. Nil when the chat has no name of its own yet.
+    public var chatName: String? {
+        Self.chatName(title: title, titleSource: titleSource, name: shownName, harness: harness)
+    }
+
+    public static let realTitleSources: Set<String> = ["harness", "generated", "adopted"]
+
+    public static func chatName(title: String?, titleSource: String?, name: String?, harness: String) -> String? {
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+           let titleSource, realTitleSources.contains(titleSource) { return title }
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
+        let parts = bare.split(separator: "-", omittingEmptySubsequences: false)
+        let digits = { (part: Substring) in !part.isEmpty && part.allSatisfy { ("0"..."9").contains($0) } }
+        // `<harness>`, `<harness>-3`, `<harness>-fork-2`: the mux's own names.
+        if let first = parts.first, first.lowercased() == harness.lowercased() || harness.lowercased().hasPrefix(first.lowercased() + "-"),
+           parts.dropFirst().allSatisfy({ $0 == "fork" || digits($0) }) { return nil }
+        // An opaque id (`dispatch-019a3f2e`, a uuid), as the Mac's `isOpaqueName`.
+        let words = bare.split(whereSeparator: { "-_.".contains($0) })
+        if words.count > 1, let last = words.last, digits(last) { return nil }
+        if words.contains(where: { $0.count >= 6 && $0.allSatisfy(\.isHexDigit) && $0.contains { ("0"..."9").contains($0) } }) {
+            return nil
+        }
+        return name
+    }
+
     /// What a list calls the chat: its name, else the agent ("Claude", "Codex").
     public var displayName: String { shownName ?? DaemonTree.agentName(harness) }
 
@@ -264,6 +298,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         self.id = id
         name = value["name"]?.stringValue ?? ""
         title = value["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        titleSource = value["titleSource"]?.stringValue
         harness = value["harness"]?.stringValue ?? "agent"
         cwd = value["cwd"]?.stringValue ?? ""
         peer = value["peer"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
