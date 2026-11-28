@@ -110,5 +110,42 @@ class Resolve(unittest.TestCase):
         self.assertEqual(got[1]["run"], 3)
 
 
+class RunsRequestTest(unittest.TestCase):
+    # The first real run (46111150746) died at resolve with HTTP 403: urllib's default agent.
+    def test_names_its_agent_and_api_version(self):
+        req = mop.runs_request("manaflow-ai/cmux", "tok")
+        self.assertTrue(req.get_header("User-agent", "").startswith("cmux-ci-mobile-old-phones"))
+        self.assertEqual(req.get_header("X-github-api-version"), "2022-11-28")
+        self.assertEqual(req.get_header("Authorization"), "Bearer tok")
+
+    def test_no_token_sends_no_authorization(self):
+        self.assertIsNone(mop.runs_request("manaflow-ai/cmux", "").get_header("Authorization"))
+
+class FetchRunsRetryTest(unittest.TestCase):
+    def _err(self, code):
+        import email.message, io, urllib.error
+        h = email.message.Message(); h["x-ratelimit-remaining"] = "0"
+        return urllib.error.HTTPError("u", code, "Forbidden", h, io.BytesIO(b'{"message":"rate limit"}'))
+
+    def test_403_then_ok_retries(self):
+        import io
+        calls = []
+        def opener(req, timeout):
+            calls.append(1)
+            if len(calls) == 1:
+                raise self._err(403)
+            return io.BytesIO(b'{"workflow_runs":[{"id":1}]}')
+        self.assertEqual(mop.fetch_runs("o/r", "t", opener=opener, sleep=lambda s: None), [{"id": 1}])
+        self.assertEqual(len(calls), 2)
+
+    def test_last_403_names_githubs_reason(self):
+        def opener(req, timeout):
+            raise self._err(403)
+        with self.assertRaises(SystemExit) as cm:
+            mop.fetch_runs("o/r", "t", opener=opener, sleep=lambda s: None)
+        self.assertIn("403", str(cm.exception))
+        self.assertIn("x-ratelimit-remaining=0", str(cm.exception))
+        self.assertIn("rate limit", str(cm.exception))
+
 if __name__ == "__main__":
     unittest.main()

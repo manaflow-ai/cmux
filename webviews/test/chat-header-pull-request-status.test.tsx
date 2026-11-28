@@ -3,7 +3,6 @@
 // each check, failing first, each linking its run. The App pushes it all with the header state.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { headerState } from "../src/agent-session/acpmux/header/headerState";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -33,6 +32,7 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { headerState } = await import("../src/agent-session/acpmux/header/headerState");
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
