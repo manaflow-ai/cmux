@@ -79,11 +79,6 @@ pub struct EnrollmentInvitation {
     /// named none. Absent on invitations from before it, and on machines not joined to a hub.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_machine: Option<String>,
-    /// Every welcome of the last connection offered IK, so the next cold connect runs IK, one
-    /// round trip shorter than XX (`ClientConnection::connect_with_ik_hint`). False until a
-    /// connection says so, and cleared when one stops offering it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub takes_ik: bool,
 }
 
 impl std::fmt::Debug for EnrollmentInvitation {
@@ -217,6 +212,11 @@ pub struct KnownDaemon {
     /// invitation that enrolled it, so a later connect reaches its loopback route the same way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_machine: Option<String>,
+    /// Every welcome of the last connection offered IK, so the next cold connect runs IK, one
+    /// round trip shorter than XX (`ClientConnection::connect_with_ik_hint`). False until a
+    /// connection says so, and cleared when one stops offering it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub takes_ik: bool,
 }
 
 impl std::fmt::Debug for KnownDaemon {
