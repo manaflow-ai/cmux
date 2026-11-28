@@ -1152,7 +1152,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -1169,7 +1169,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail
