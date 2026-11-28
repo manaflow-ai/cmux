@@ -119,7 +119,16 @@ jobs:
       # The exact binary's key names the whole cmux-tui tree, so a PR that changes
       # cmux-tui never hits it. feat-cmux-next keeps its target dir
       # under one shared key, and conformance builds a PR's tree from it incrementally.
+      # The target dir's key is the toolchain and the UTC day, not Cargo.lock: feat-cmux-next changed cmux-tui/Cargo.lock
+      # 24 times in the 24 h to 2026-11-28 02:30Z, and each change saved another 1.75 GB entry into the repository's
+      # 10 GB GitHub cache, evicting the rest (every pull request's 18 MB web-bundle entry within ~25 min). One save
+      # a day; a later lock restores the day's entry and cargo rebuilds only what changed.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache the cmux-tui target dir
+        id: headless-target
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -128,8 +137,33 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           cache-workspace-crates: "true"
+
+      # The first run of a UTC day (or a lock rust-cache has no entry for) restores the newest entry under any day.
+      - name: Paths of the headless target dir
+        id: headless-target-paths
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          {
+            echo "paths<<EOF"
+            echo "$cargo_home/registry"
+            echo "$cargo_home/git"
+            echo "$GITHUB_WORKSPACE/cmux-tui/target"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore the newest headless target dir (any day)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.headless-target-paths.outputs.paths }}
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}-${{ runner.os }}-x64
+          restore-keys: |
+            v0-rust-cmux-tui-headless-debug-
 
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}

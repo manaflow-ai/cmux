@@ -193,6 +193,7 @@ async fn authenticate_one(
             crate::provider::DisplaySeconds(timeout)
         ))))
     })??;
+    crate::phase_timing::mark(&format!("link-open:{primary}"));
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -218,6 +219,7 @@ async fn authenticate_one(
         let deadline = started + timeout;
         (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
     };
+    crate::phase_timing::mark(&format!("noise-done:{primary}"));
     let answer =
         tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
             .await
@@ -242,6 +244,7 @@ async fn authenticate_one(
             "daemon link-ready metadata does not match the requested session".into(),
         ));
     }
+    crate::phase_timing::mark(&format!("link-ready:{primary}"));
     Ok((lanes, secure, ready.daemon_resume))
 }
 
@@ -311,7 +314,9 @@ pub(crate) async fn send_link_rejection(
 async fn receive_control<T: for<'de> Deserialize<'de>>(
     link: &dyn FrameLink,
 ) -> Result<T, ConnectionError> {
-    let payload = link.receive().await?.ok_or(LinkError::Closed)?;
+    let payload = link.receive().await?.ok_or_else(|| {
+        LinkError::Transport("the daemon closed the link before link-ready".into())
+    })?;
     serde_json::from_slice(&payload).map_err(|error| ConnectionError::Protocol(error.to_string()))
 }
 

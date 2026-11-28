@@ -164,6 +164,20 @@ fn a_chat_with_an_address_or_a_failure_already_told_prints_nothing() {
     assert_eq!(said(json!({"failed": "register.unproven: x", "repeat": true})), None);
 }
 
+/// A chat that already got its one automatic code, or a send from a process the chat did not
+/// run itself: no code went, and the send says how to register by hand.
+#[test]
+fn a_send_with_no_code_says_how_to_register_by_hand() {
+    let shown = said(json!({"offered": true, "name": "claude-h-ab627c05"})).unwrap();
+    assert!(shown.contains("already sent this chat its one automatic register code"), "{shown}");
+    assert!(shown.contains("`acpmux register claude-h-ab627c05`"), "{shown}");
+    let by = "pid 9 (`bash deploy.sh`)";
+    let shown = said(json!({"offered": false, "reason": "register.not_own_send", "by": by}));
+    let shown = shown.unwrap();
+    assert!(shown.contains(by), "{shown}");
+    assert!(shown.contains("`acpmux register claude-desktop-03214b87`"), "{shown}");
+}
+
 /// Repro: the 3 s wait ran out and the send said registering "did not start" and to run
 /// `acpmux register NAME`, while the daemon went on and delivered the code; that manual
 /// register would send a second code, which replaces the first.

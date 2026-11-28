@@ -1029,11 +1029,21 @@ button {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 8px 14px;
-  border: 1px solid var(--notification-warning);
-  background: var(--status-bg);
-  color: #ffffaf;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-inactive);
+  background: var(--menu-bg);
+  color: var(--status-fg);
   font-size: 12px;
+}
+.reconnect-banner button {
+  padding: 2px 7px;
+  border: 1px solid var(--border-active);
+  background: var(--sidebar-active-bg);
+  color: var(--status-active-fg);
+  cursor: pointer;
 }
 .toast-stack {
   position: fixed;

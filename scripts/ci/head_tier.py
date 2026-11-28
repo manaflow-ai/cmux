@@ -23,6 +23,14 @@ for 99% fewer minutes of ci time, period."): a pull request from this repository
 `labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
 `full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
 
+Post-merge tier rule (on unless the repository variable CI_POST_MERGE_TIER_PR is 0; cmuxterm-hq
+docs/rfd/0200-ci-four-tiers.md, tier 3; Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time,
+period."): a feat-cmux-next pull request head gets the tier `none` in a workflow that RFD 0013's merge tiers put after
+the merge (`merge_tier.post_merge` in .github/post-merge-checks.json, with `merge_tier.switch` on) and that a suite of
+.github/post-merge-batch.json runs. The check still starts and reports on the PR; its heavy jobs run once per
+post-merge batch instead of on each landing head, and a red there is bisected to the PR. `full-ci` still runs it on
+the PR. Unreadable config, a called workflow (its $GITHUB_WORKFLOW_REF is the caller's) or a fork's head: unchanged.
+
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
 ci.yml and cmux-next.yml run it like a draft. Base merges were 37% of PR runner-minutes over 11-13..19, most on
@@ -47,6 +55,17 @@ owner reverts or fixes forward. On 11-25..26, about 100k runner-minutes a day we
 `ready-to-land` heads whose branch never merged. Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci
 time, period." `full-ci` still gives a head the full tier. The repository variable CI_LAND_FULL_PER_PR=1 restores
 the full tier on every landing head (and turns the hourly run off).
+
+Land-ask rule (on unless the repository variable CI_LAND_TIER_AT_ASK is 0; cmuxterm-hq docs/rfd/0200-ci-four-tiers.md,
+tier 2 "runs on the head handed to land, once"; Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci
+time, period." and "the goal is ofc to have that 214x reduction in minutes asap so we dont have to use so much
+stuff"): a later push of a `ready-to-land` pull request (a `synchronize` that is not land's own update-branch, i.e.
+not a base merge GitHub made) gets the plain cheap tier instead of the affected landing tier, and `cmux/land-tier`
+stays pending. The label stays on a PR for hours or days while it keeps getting pushes, and every such head ran the
+landing tier (the ios fast verdict, landing gates) though a later head replaced it: on 11-28 02Z..05Z the heads of
+`ready-to-land` PRs that a later head replaced spent about 2.6k runner-min on heavy jobs in 3 h. land-judge pulses
+`ready-to-land` at the head it lands when `cmux/land-tier` is pending (tools/land_judge/rules/land_tier.py), and that
+`labeled` event runs the affected tier on the exact head that merges. Unread head facts keep the affected tier.
 
 Sync rule: a head that only merges the base into a pull request, and that an agent's own `git merge` made (the
 merge commit's committer is not GitHub), runs the cheap tier. On 2026-11-24, 115 of 600 cmux-next heads were such merges, each
@@ -191,7 +210,9 @@ SAME_HEAD_VAR = "CI_SAME_HEAD_LAND_CARRY"  # 0: the same-head land carry rule is
 CHECK_PAGES = 5  # check-run pages (100 each) the same-head rule reads at most; more is not judged
 FULL_CARRY_LABELS = frozenset({"full-ci", "ready-to-land"})
 IDLE_HOURS = 24
-LAND_AFFECTED_REASON = "landing on the affected tier"  # the hourly full tier rule's reason prefix
+LAND_AFFECTED_REASON = "landing on the affected tier"
+LAND_ASK_REASON = "land tier at the land's ask (CI_LAND_TIER_AT_ASK)"
+LAND_ASK_VAR = "CI_LAND_TIER_AT_ASK"  # the hourly full tier rule's reason prefix
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
 GREEN = frozenset({"success", "skipped", "neutral"})
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
@@ -488,11 +509,12 @@ def head_green_before(checks: list | None, statuses: list | None, cutoff: float 
 def _get_json(url: str, token: str) -> object | None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
-        import deadline_http  # the router's sparse checkout carries it beside this file
+        import gh_http  # every checkout that runs this carries scripts/ci (gh_http beside deadline_http)
         req = urllib.request.Request(url, headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"})
-        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        # A 5xx or secondary limit is asked again inside the same VERDICT_SECONDS bound; no rate-limit sleep.
+        status, body, _ = gh_http.request(req, VERDICT_SECONDS, budget_s=VERDICT_SECONDS, rate_budget_s=0)
         return json.loads(body) if status == 200 else None
     except Exception:  # fail open: unread is not green
         return None
@@ -615,6 +637,14 @@ def same_repo(event: dict) -> bool:
     return bool(base_repo) and base_repo == head_repo
 
 
+def land_ask_rule_applies(event: dict, switch: str | None = None) -> bool:
+    """Land-ask rule: whether EVENT is a later push (`synchronize`) of a `ready-to-land` pull request with the rule on
+    ($CI_LAND_TIER_AT_ASK, on unless 0, when SWITCH is None). Which base merge keeps the affected tier (land's own
+    update-branch, made by GitHub) is tier()'s call on the head's facts."""
+    on = os.environ.get(LAND_ASK_VAR, "1") if switch is None else switch
+    return (on or "1").strip() != "0" and event.get("action") == "synchronize" and LAND_LABEL in labels_of(event)
+
+
 def land_handoff(event: dict) -> bool:
     """Heavy-at-land rule (CI_HEAVY_AT_LAND, default on; cmux#ci-min-per-pr-30): whether EVENT is the one event
     that hands a ready pull request to land, `ready-to-land` or `full-ci` being added. Only that event keeps the
@@ -631,7 +661,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
          labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1",
          heavy_at_land_switch: str = "0", one_shot: str | None = None,
-         same_head_switch: str = "1") -> tuple[str, str]:
+         same_head_switch: str = "1", land_ask_switch: str = "0") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`. With HEAVY_AT_LAND_SWITCH on, a full head of a pull
     request from this repository is `cheap` unless its event is the land handoff itself (see heavy_at_land)."""
@@ -640,7 +670,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if (heavy_at_land_switch or "0").strip() not in ("0", "") and same_repo(event) and not land_handoff(event):
         decided = tier(event_name, event, switch, facts, now, idle_switch, land_switch, sync_switch, green_switch,
                        carry_switch, land_full_switch, labelled_switch, rerun_switch, full_carry_switch,
-                       one_shot=one_shot, same_head_switch=same_head_switch)
+                       one_shot=one_shot, same_head_switch=same_head_switch, land_ask_switch=land_ask_switch)
         if decided[0] == "full":
             return "cheap", (f"{HEAVY_AT_LAND_REASON}: heavy jobs run once, on the event that hands this pull "
                              f"request to land (adding `{LAND_LABEL}` or `{FULL_CI}`), not on every push; "
@@ -703,6 +733,12 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
                 f"{FULL_CI} is added (`{LAND_LABEL}` lands on the affected tier: the full tier runs hourly on "
                 f"{LAND_BASE}'s head)")
         return "cheap", f"not handed off to land yet: the full tier runs when {when}; {LAND_STATUS} stays pending until then"
+    if (landing and land_on and (land_full_switch or "0").strip() != "1" and land_ask_rule_applies(event, land_ask_switch)
+            and facts is not None and not (facts.get("base_merge_only") and facts.get("by_github") is True)):
+        return "cheap", (f"{LAND_ASK_REASON}: a later push of a {LAND_LABEL} pull request runs the cheap tier; "
+                         f"land-judge pulses {LAND_LABEL} at the head it lands ({LAND_STATUS} stays pending), and "
+                         f"that event runs the landing tier once; {FULL_CI} gives this head the full tier, "
+                         f"{LAND_ASK_VAR}=0 runs the landing tier on every push again")
     if landing and land_on and (land_full_switch or "0").strip() != "1":
         return "cheap", (f"{LAND_AFFECTED_REASON}: the full tier runs once an hour on {LAND_BASE}'s head "
                          f"(cmux-next-hourly-full-tier.yml); {FULL_CI} gives this head the full tier, and "
@@ -837,6 +873,45 @@ def same_patch_facts(event: dict) -> dict:
     return {"before": before, "same_patch_green": runs is not None and green_previous(runs)}
 
 
+POST_MERGE_TIER_VAR = "CI_POST_MERGE_TIER_PR"  # 1: batch-covered post-merge-tier workflows skip PR heads
+POST_MERGE_TIER_REASON = "post-merge tier (CI_POST_MERGE_TIER_PR=1)"
+
+
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def batch_post_merge_workflows(root: str | None = None) -> set[str]:
+    """Workflow files that RFD 0013 puts after the merge (merge_tier.post_merge, switch on) and that a post-merge
+    batch suite runs. Empty when either file is unreadable or the switch is off."""
+    root = root or _repo_root()
+    checks = _load(os.path.join(root, ".github", "post-merge-checks.json")).get("merge_tier")
+    batch = _load(os.path.join(root, ".github", "post-merge-batch.json")).get("suites")
+    if not isinstance(checks, dict) or str(checks.get("switch") or "") != "on" or not isinstance(batch, dict):
+        return set()
+    listed = checks.get("post_merge")
+    listed = set(listed) if isinstance(listed, (dict, list)) else set()
+    run = {str(v.get("workflow") or "") for v in batch.values() if isinstance(v, dict)}
+    return {str(w) for w in listed} & run
+
+
+def post_merge_tier(event_name: str, event: dict, workflow: str, switch: str | None = None,
+                    root: str | None = None) -> tuple[str, str] | None:
+    """The post-merge tier rule (docstring): ("none", reason) for a feat-cmux-next pull request head in a
+    batch-covered post-merge-tier WORKFLOW with SWITCH on; None when the rule does not apply."""
+    switch = os.environ.get(POST_MERGE_TIER_VAR, "0") if switch is None else switch
+    if (switch or "0").strip() != "1" or event_name not in ("pull_request", "pull_request_target"):
+        return None
+    pr = event.get("pull_request") or {}
+    if str((pr.get("base") or {}).get("ref") or "") != "feat-cmux-next" or not same_repo(event):
+        return None
+    if FULL_CI in labels_of(event) or not workflow or workflow not in batch_post_merge_workflows(root):
+        return None
+    return "none", (f"{POST_MERGE_TIER_REASON}: {workflow} is in RFD 0013's post-merge tier and the "
+                    f"feat-cmux-next post-merge batch runs it on every merge, bisecting a red to its pull request; "
+                    f"`{FULL_CI}` runs it here")
+
+
 def decide(event_name: str, event: dict) -> tuple[str, str]:
     """tier() for this run: its switches from the environment, the head's facts read only when they can matter."""
     return decide_with_facts(event_name, event)[0]
@@ -844,6 +919,9 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
 
 def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], dict | None]:
     """(decide()'s answer, the facts it read): pr_router.rerun_plan reads `previous_runs` from them."""
+    post_merge = post_merge_tier(event_name, event, workflow_file(os.environ.get("GITHUB_WORKFLOW_REF")))
+    if post_merge:
+        return post_merge, None
     switch = os.environ.get("CI_DRAFT_CHEAP_TIER", "1")
     idle_switch = os.environ.get("CI_IDLE_BASE_MERGE_SKIP", "1")
     land_switch = os.environ.get("CI_LAND_TIER", "1")
@@ -856,6 +934,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     one_shot = os.environ.get(ONE_SHOT_VAR, "1")
     full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
     heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "1")
+    land_ask_switch = os.environ.get(LAND_ASK_VAR, "1")
     labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     same_head_switch = os.environ.get(SAME_HEAD_VAR, "1")
@@ -901,7 +980,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
                 carry_switch, land_full_switch, labelled_switch, rerun_switch, "0", heavy_at_land_switch,
-                one_shot), facts
+                one_shot, land_ask_switch=land_ask_switch), facts
 
 
 def _load(path: str) -> dict:

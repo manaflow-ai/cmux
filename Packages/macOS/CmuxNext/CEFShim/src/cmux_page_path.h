@@ -339,6 +339,15 @@ inline std::vector<std::pair<std::string, std::string>> OwnRendererHeaders(const
   };
 }
 
+// Whether a chat's top document must wait one UI (main) thread turn before it is answered
+// (shim_page_scheme.mm's DeferredPageResource `after_ui_turn`). The turn exists so a browser the app names
+// in the turn that created it (CEFOwnChatRenderer.attached) is seen. A browser already named needs no
+// turn: its answer is the same either way, and on a launch that turn waits behind the app's own launch
+// work on the main thread, on the front chat's path to its first paint.
+inline bool OwnRendererNeedsUITurn(bool candidate, int browser_id, int owner_browser_id) {
+  return candidate && !(browser_id > 0 && browser_id == owner_browser_id);
+}
+
 // Whether a bundled page file's request names its content (`?h=` and 8 to 64 hex digits, written by
 // the page's build: build-agent-pane-web.sh's pane.css): that URL never names other bytes, so the
 // answer may be kept (`Cache-Control: max-age=31536000, immutable`). Blink then hands every page of

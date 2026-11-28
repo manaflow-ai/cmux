@@ -179,6 +179,9 @@
   "cmux_tui::devices::setup::verbs": {
    "test": "cmux-tui/crates/cmux-tui/src/devices/setup_tests.rs::seeded_feed_read_sends_no_credential"
   },
+  "cmux_tui::link::sync_cli::memory_http": {
+   "test": "cmux-tui/crates/cmux-tui/src/link/sync_cli/memory_http_tests.rs::seeded_secrets_beside_the_carried_files_never_reach_the_wire"
+  },
   "cmux_tui::link::sync_cli::store": {
    "todo": true
   },

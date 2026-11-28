@@ -23,6 +23,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/job-own-home.sh"
 WORKFLOW = ROOT / ".github/workflows/cmux-vm.yml"
+# ci-web.yml too: post-merge react-apps-check shards on hetzner-2-28, -1-13, -1-11 failed setup-bun EACCES, ran
+# every file without bun and wrote 628-1,032 file-level reds a shard (runs 46040477174, 46023562151).
+WORKFLOWS = (WORKFLOW, ROOT / ".github/workflows/ci-web.yml")
+
+
+def all_jobs():
+    for workflow in WORKFLOWS:
+        for name, job in yaml.safe_load(workflow.read_text())["jobs"].items():
+            yield workflow.name, name, job
 
 
 def run(home: Path, temp: Path) -> dict[str, str]:
@@ -71,25 +80,23 @@ class JobOwnHome(unittest.TestCase):
         out = run(self.home, self.temp)
         self.assertEqual(out["HOME"], str(self.temp / "home"))
 
-    def test_every_bun_job_in_cmux_vm_runs_it_before_bun(self) -> None:
-        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    def test_every_bun_job_runs_it_before_bun(self) -> None:
         missing = []
-        for name, job in jobs.items():
+        for workflow, name, job in all_jobs():
             steps = job.get("steps") or []
             bun = [i for i, s in enumerate(steps) if "setup-bun" in str(s.get("uses", "")) or "restore bun" in str(s.get("run", ""))]
             if not bun:
                 continue
             own = [i for i, s in enumerate(steps) if "scripts/ci/job-own-home.sh" in str(s.get("run", ""))]
             if not own or own[0] > bun[0]:
-                missing.append(name)
+                missing.append(f"{workflow}:{name}")
         self.assertEqual(missing, [], "jobs that set up Bun before scripts/ci/job-own-home.sh")
 
     def test_the_step_skips_when_its_job_never_checked_out(self) -> None:
         # A gated-off job (CMUX_VM_DEPLOY_ENABLED != 1) has no checkout, so an unguarded step exits 127.
-        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         unguarded = [
-            name
-            for name, job in jobs.items()
+            f"{workflow}:{name}"
+            for workflow, name, job in all_jobs()
             for s in job.get("steps") or []
             if "scripts/ci/job-own-home.sh" in str(s.get("run", ""))
             and str(s.get("if", "")).replace('"', "'") != "hashFiles('scripts/ci/job-own-home.sh') != ''"
