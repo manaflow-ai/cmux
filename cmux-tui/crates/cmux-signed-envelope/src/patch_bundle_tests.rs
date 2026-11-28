@@ -238,7 +238,7 @@ fn command_probe_passes_fails_and_times_out() {
             .unwrap_err()
             .contains("failed")
     );
-    let started = Instant::now();
+    let started = std::time::Instant::now();
     let err = command_probe(&["sleep", "5"], Duration::from_millis(200)).unwrap_err();
     assert!(err.contains("did not pass within"), "{err}");
     assert!(started.elapsed() < Duration::from_secs(3));

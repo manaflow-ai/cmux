@@ -23,8 +23,9 @@
 use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use cmux_process::{Command, Stdio};
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -351,19 +352,16 @@ pub fn command_probe(argv: &[&str], bound: Duration) -> Result<(), String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("starting the health probe {program}: {e}"))?;
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => return Err(format!("the health probe {program} failed: {status}")),
-            Ok(None) if started.elapsed() >= bound => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("the health probe {program} did not pass within {bound:?}"));
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => return Err(format!("waiting on the health probe {program}: {e}")),
+    // The probe's Child ends with this call: killed at the bound, reaped either way.
+    match child.wait_timeout(bound) {
+        Ok(Some(status)) if status.success() => Ok(()),
+        Ok(Some(status)) => Err(format!("the health probe {program} failed: {status}")),
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(format!("the health probe {program} did not pass within {bound:?}"))
         }
+        Err(e) => Err(format!("waiting on the health probe {program}: {e}")),
     }
 }
 

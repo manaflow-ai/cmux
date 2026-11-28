@@ -3290,6 +3290,7 @@ name = "cmux-signed-envelope"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "ring",
  "serde",
  "serde_json",
