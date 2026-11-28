@@ -129,15 +129,20 @@ public final class AgentChatSurface {
         editingEarlier = EarlierPromptEdit(turnID: turn.id, throughSeq: seq, original: turn.prompt)
     }
 
-    /// The cmux commands this chat's composer offers (`/fork` only in a workspace tab).
-    var cmuxCommands: [CmuxSlashCommand] {
-        CmuxSlashCommand.allCases.filter { $0 != .fork || tabActions != nil }
+    /// The cmux commands this chat's composer offers (`/fork` only in a workspace tab). A terminal's
+    /// Chat face forks and hands off nothing: its session runs in the terminal, so it offers `/status`.
+    func cmuxCommands(store: AgentChatStore) -> [CmuxSlashCommand] {
+        CmuxSlashCommand.allCases.filter {
+            store.terminalRoute == nil ? ($0 != .fork || tabActions != nil) : $0 == .status
+        }
     }
 
     /// A cmux command typed in the composer (`/status`, `/fork`, `/continue [harness]`, `/help`): run
     /// here; nil when it ran (or opened its screen), else the refusal to show (the draft stays).
     func run(_ command: CmuxSlashCommand, args: String, store: AgentChatStore) async -> String? {
         let canFork = tabActions != nil
+        // A terminal's Chat face: its session runs in the terminal, which neither forks nor hands off from here.
+        if store.terminalRoute != nil, command != .status { return AgentChatStore.terminalCommandNotice }
         switch command {
         case .status:
             showStatus = true
@@ -645,7 +650,7 @@ public struct AgentChatTranscript: View {
             SessionStatusSheet(store: store)
         }
         .sheet(isPresented: $surface.showHelp) {
-            ComposerHelpSheet(commands: CmuxSlashCommand.merged(surface.cmuxCommands, agent: store.availableCommands)) { command in
+            ComposerHelpSheet(commands: CmuxSlashCommand.merged(surface.cmuxCommands(store: store), agent: store.availableCommands)) { command in
                 surface.showHelp = false
                 surface.text = "/\(command.name) "
                 surface.composerFocused = true
@@ -931,7 +936,7 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 cmuxCommands: surface.cmuxCommands,
+                                 cmuxCommands: surface.cmuxCommands(store: store),
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
                                  },

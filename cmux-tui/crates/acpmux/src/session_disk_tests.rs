@@ -280,3 +280,26 @@ fn a_restart_resumes_the_groups_the_last_daemon_left_stopped() {
         let _ = c.wait();
     }
 }
+
+#[test]
+fn only_the_last_window_of_writes_counts_and_a_deletion_ages_out() {
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let at = |mins: u64| t0 + Duration::from_secs(mins * 60);
+    let mut k = Known::default();
+    // First sight: the whole life counts (a writer already past its budget is not missed).
+    assert_eq!(k.recent(at(0), 9_000), 9_000);
+    // A harness's churn of 1 GB an hour (one 37-hour chat: 11.4 GB written, 160 MB kept).
+    let mut last = 0;
+    for h in 1..=37u64 {
+        for half in 0..2 {
+            last = k.recent(at(h * 60 + half * 30), 9_000 + h * GB);
+        }
+    }
+    // After the first window only about 6 h of it counts, not 37 h.
+    assert!(last >= 6 * GB && last <= 7 * GB, "{last}");
+    assert!(k.marks.len() <= (WINDOW.as_secs() / MARK_EVERY.as_secs()) as usize + 2);
+    // A writer that exits lowers the total: the window never reads below 0, and growth counts.
+    assert_eq!(k.recent(at(37 * 60 + 40), 100), 0);
+    assert_eq!(k.recent(at(37 * 60 + 41), 100 + GB), GB);
+}
