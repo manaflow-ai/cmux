@@ -54,6 +54,14 @@ for arch in $ARCHS; do
       *) echo "error: unexpected $arch dependency: $dependency" >&2; exit 1 ;;
     esac
   done < <(otool -arch "$arch" -L "$BINARY" | tail -n +2 | awk '{print $1}')
+  # macOS 27 dyld refuses an image whose LINKEDIT string pool is not 8-byte
+  # aligned ("mis-aligned LINKEDIT string pool"). Apple's ld and strip pad it;
+  # the rust-objcopy that strips Rust < 1.98 does not (rust-lang/rust#157750).
+  STROFF="$(otool -arch "$arch" -l "$BINARY" | awk '$1 == "stroff" {print $2; exit}')"
+  if [[ -z "$STROFF" ]] || (( STROFF % 8 != 0 )); then
+    echo "error: $arch diff sidecar LINKEDIT string pool offset '${STROFF}' is not 8-byte aligned; macOS 27 dyld rejects it (strip with Rust >= 1.98)" >&2
+    exit 1
+  fi
   LOCAL_SYMBOLS="$(nm -arch "$arch" -a "$BINARY" 2>/dev/null | awk '$2 ~ /^[NnSsTt]$/ && $3 != "__mh_execute_header" {count++} END {print count+0}')"
   if (( LOCAL_SYMBOLS != 0 )); then
     echo "error: $arch diff sidecar retains ${LOCAL_SYMBOLS} local or debug symbols" >&2

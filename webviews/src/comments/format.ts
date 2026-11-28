@@ -7,9 +7,7 @@ export function commentBasename(filePath: string): string {
   return base != null && base !== "" ? base : filePath;
 }
 
-export function commentDisplayName(
-  comment: Pick<DiffCommentRecord, "filePath" | "startLine" | "endLine">,
-): string {
+export function commentDisplayName(comment: Pick<DiffCommentRecord, "filePath" | "startLine" | "endLine">): string {
   const base = `${commentBasename(comment.filePath)}:${comment.startLine}`;
   return comment.endLine > comment.startLine ? `${base}-${comment.endLine}` : base;
 }
@@ -22,9 +20,8 @@ export function commentSubmissionText(
   comment: Pick<DiffCommentRecord, "filePath" | "side" | "startLine" | "endLine" | "message">,
   fileDiff: CommentFileDiff | null | undefined,
 ): string {
-  const lineRef = comment.endLine > comment.startLine
-    ? `lines ${comment.startLine}-${comment.endLine}`
-    : `line ${comment.startLine}`;
+  const lineRef =
+    comment.endLine > comment.startLine ? `lines ${comment.startLine}-${comment.endLine}` : `line ${comment.startLine}`;
   const version = comment.side === "deletions" ? "old" : "new";
   const sections = [`Review comment on ${comment.filePath} ${lineRef} (${version} version):`];
   const diffExcerpt = diffExcerptFor(fileDiff, comment.side, comment.startLine, comment.endLine);

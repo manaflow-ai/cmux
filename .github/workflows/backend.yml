@@ -1,0 +1,488 @@
+# CI/CD for the cmux-next cloud backend (backend/). Untrusted PR jobs live here (tests,
+# migrations on the shared development branch, preview Worker) plus the deploys. The
+# trusted pre-merge migration apply and the required gate `backend migrations applied`
+# live in backend-migrations.yml (pull_request_target: it runs from the base branch and
+# only reads the PR's SQL files). Rule: merging deploys, so every migration is on staging
+# and production before its PR merges (skills/cmux-backend-migrations).
+#
+#   Push to feat-cmux-next: deploy development (no secrets sent; refused when its deployed vars
+#   drifted from the previous commit's wrangler.jsonc, a var change in the push deploys) and staging. Push to main, or dispatch target=production
+#   from main: deploy production. Every deploy refuses when its database lacks a migration
+#   or has one the tree lacks.
+
+name: backend
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - backend/**
+      - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
+      - .github/workflows/backend.yml
+      - .github/workflows/backend-migrations.yml
+  push:
+    branches: [feat-cmux-next, main]
+    paths:
+      - backend/**
+      - clients/ts/**
+      # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
+      - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
+      - .github/workflows/backend.yml
+      - .github/workflows/backend-migrations.yml
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deploy target"
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
+  DASHBOARD_PROJECT_STAGING: prj_gAWWNokzcoomx3IvIVGl29iZM6JC
+  DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
+
+jobs:
+  test:
+    if: github.event.action != 'closed'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      # PlanetScale MySQL (Vitess) projection during the Postgres to MySQL move (state-placement.md 4.4).
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: scratch
+          MYSQL_DATABASE: cmux_next
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pscratch" --health-interval 5s --health-timeout 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      # vitest-pool-workers and node:sqlite need a current Node.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Catalog and generated client drift
+        run: bun run catalog:check
+      - name: No god files (500 lines per hand-written source file)
+        run: bun run lint:size
+      - name: Generated cloud client (clients/ts/cloud, GPL) tests
+        working-directory: clients/ts/cloud
+        run: bun test test
+      - name: Migration lint (parsed SQL) and lint tests
+        working-directory: backend/db
+        run: bun migrate.ts --lint && bun test test
+      - name: Release rails migration lint (expand-only, numbering, hash lock)
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile && bun lint.ts --tree backend
+      - name: Migrations apply from zero (scratch Postgres)
+        working-directory: backend/db
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: bun migrate.ts --url-env SCRATCH_URL && bun migrate.ts --url-env SCRATCH_URL --verify
+      - name: Projection queries and the Drizzle schema on the migrated scratch Postgres
+        working-directory: backend/db
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: bun test test-pg
+      - name: MySQL migration lint (Vitess rules)
+        working-directory: backend/db
+        run: bun migrate-mysql.ts --lint
+      - name: MySQL migrations apply from zero, projection, search and Postgres/MySQL parity
+        working-directory: backend/db
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+          MYSQL_URL: mysql://root:scratch@127.0.0.1:3306/cmux_next
+        run: bun migrate-mysql.ts --url-env MYSQL_URL && bun migrate-mysql.ts --url-env MYSQL_URL --verify && bun test test-mysql
+      - name: Ownership invariants (OwnershipConvergence model + mutants)
+        working-directory: backend/packages/ownership
+        env:
+          OWNERSHIP_SEEDS: "1500"
+        run: bun run test
+      - name: SAML validator (signature wrapping, comment injection, c14n vs xml-crypto)
+        working-directory: backend/packages/saml
+        run: bun run test
+      - name: API Worker tests (workerd)
+        working-directory: backend/apps/api
+        run: bun run test
+      - name: Dashboard tests (approvals, search params)
+        working-directory: backend/apps/dashboard
+        run: bun run test
+      - name: Dashboard build
+        working-directory: backend/apps/dashboard
+        run: bun run build
+      - name: Dashboard server build renders the invite card
+        working-directory: backend/apps/dashboard
+        run: bun run test:server
+      - name: Wrangler dry-run build
+        working-directory: backend/apps/api
+        run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist
+
+  # Development is shared by previews and holds no real data, so the PR's own runner may
+  # apply there; staging and production only through backend-migrations.yml.
+  # Vitess parses SQL more strictly than the mysql:8.4 service (`SAVEPOINT row` passed there and failed
+  # on PlanetScale, 2026-10-04): every projection kind and the drain batch run against the PlanetScale
+  # development branch on test-only keys. Pushes to feat-cmux-next only (environment branch policy).
+  vitess-development:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-vitess-ci
+    defaults:
+      run:
+        working-directory: backend/db
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+        working-directory: backend
+      - name: Projection SQL on PlanetScale Vitess (development branch, test-only keys)
+        env:
+          VITESS_URL: ${{ secrets.CMUX_NEXT_VITESS_DEV_URL }}
+        run: test -n "$VITESS_URL" && bun test test-vitess
+
+  migrations-development:
+    needs: test
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-development
+    defaults:
+      run:
+        working-directory: backend/db
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+        working-directory: backend
+      - name: Apply to cmux-next/development (shared by previews)
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+        run: bun migrate.ts --env development
+
+  preview:
+    needs: migrations-development
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    concurrency:
+      group: backend-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Deploy preview Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          JWT_PRIVATE_JWK: ${{ secrets.CMUX_NEXT_API_PREVIEW_JWT_PRIVATE_JWK }}
+        run: bash scripts/deploy-worker.sh "preview-${{ github.event.pull_request.number }}"
+      - name: Smoke preview
+        run: |
+          url="https://cmux-api-preview-${{ github.event.pull_request.number }}.debussy.workers.dev"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "$url/v1/health"; then echo; echo "preview: $url" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+            sleep $((i * 5))
+          done
+          echo "::error::preview Worker did not answer at $url"; exit 1
+
+  # Pushes are never rejected (agents push straight to feat-cmux-next); a bad migration push
+  # turns red here, after the fact. No secrets: it compares the pushed tree with the previous head.
+  migrations-push-guard:
+    if: github.event_name == 'push'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Migrations stay append-only, numbered upward, expand-only on feat-cmux-next
+        env:
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir=backend/db/migrations
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch or force push); lint only"; BEFORE=""; fi
+          errors=0
+          if [ -n "$BEFORE" ]; then
+            while IFS=$'\t' read -r status path; do
+              [ -n "$path" ] || continue
+              if [ "$status" != A ]; then echo "::error file=$path,title=Migration changed after it was shared::$path ($status). Applied migrations are append-only; add a new numbered file."; errors=1; fi
+            done < <(git diff --name-status --no-renames "$BEFORE" HEAD -- "$dir")
+            before_max=0
+            for m in $(git ls-tree --name-only "$BEFORE" "$dir/" 2>/dev/null); do n=$(basename "$m"); [[ "$n" =~ ^[0-9]{4}_ ]] && [ $((10#${n:0:4})) -gt "$before_max" ] && before_max=$((10#${n:0:4})); done
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              n=$(basename "$path"); num=$((10#${n:0:4}))
+              if [ "$num" -le "$before_max" ]; then echo "::error file=$path,title=Migration number not above the previous head::$path must be numbered above $before_max."; errors=1; fi
+              # A contract migration needs a written `-- contract: <reason>` line; the release rails lint below then
+              # allows only the named contract operations (scripts/cmux-next/release/lint-rules.ts).
+              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path" && ! grep -qE '^--[[:space:]]*contract:[[:space:]]*[^[:space:]]' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::a contract migration needs a '-- contract: <reason>' line, and the release rails lint must accept it."; errors=1; fi
+            done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- "$dir")
+          fi
+          (cd backend && bun install --frozen-lockfile >/dev/null)
+          (cd backend/db && bun migrate.ts --lint) || errors=1
+          # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
+          exit "$errors"
+
+  deploy-staging:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-staging
+    concurrency:
+      group: cmux-next-deploy-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      # Visible refusal: a migration pushed without the label flow (or a database ahead of this
+      # tree) stops the deploy here with an annotation naming the commit, before anything ships.
+      - name: Staging schema matches this commit
+        working-directory: backend/db
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ! out=$(bun migrate.ts --env staging --verify 2>&1); then
+            echo "$out"
+            msg="Staging deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1). Migrations reach staging only through a PR with the label backend:apply-migrations (skills/cmux-backend-migrations)."
+            echo "::error title=Staging deploy refused::$msg"
+            { echo "### Staging deploy refused"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "$out"
+      # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
+      # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
+      - name: Deploy API Worker (records the rollback target)
+        id: deploy-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
+        run: bash scripts/deploy-worker.sh staging
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api-staging --url https://cloud-api-staging.cmux.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
+      - name: Deploy dashboard (console-staging.cmux.dev)
+        working-directory: backend/apps/dashboard
+        env:
+          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_STAGING }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      - name: Smoke
+        run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
+
+  # Development (cmux-api-development) follows feat-cmux-next. It ships code only: the job sends no
+  # secrets (the Worker keeps its own). Before deploying it compares the serving version's vars
+  # with wrangler.jsonc env.development.vars at the push's BEFORE commit and refuses on drift (a
+  # var set out of band); a var change made by the pushed commits deploys. Same rails as staging:
+  # schema gate, recorded rollback target, smoke, automatic rollback on red.
+  deploy-development:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-development
+    concurrency:
+      group: cmux-next-deploy-development
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Development schema matches this commit
+        working-directory: backend/db
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ! out=$(bun migrate.ts --env development --verify 2>&1); then
+            echo "$out"
+            msg="Development deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1)."
+            echo "::error title=Development deploy refused::$msg"
+            { echo "### Development deploy refused"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "$out"
+      # The deployed vars must equal wrangler.jsonc at the push's BEFORE commit (else drift, set out
+      # of band: refused). Then the repo is the source: a var the pushed commits change (an image
+      # promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by name and value.
+      - name: Worker vars match the previous commit (drift refused; changes in this push logged)
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
+            git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
+            BASE="$(git rev-parse FETCH_HEAD^)"
+          else
+            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+            BASE="$BEFORE"
+          fi
+          git show "${BASE}:backend/apps/api/wrangler.jsonc" > "$RUNNER_TEMP/wrangler.base.jsonc"
+          echo "base config: wrangler.jsonc at ${BASE}"
+          bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
+            --config wrangler.jsonc --base-config "$RUNNER_TEMP/wrangler.base.jsonc" --env development --wrangler ./node_modules/.bin/wrangler
+      - name: Deploy API Worker (no secrets; records the rollback target)
+        id: deploy-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_DEPLOY_NO_SECRETS: "1"
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
+        run: bash scripts/deploy-worker.sh development
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api-development --url https://cmux-api-development.debussy.workers.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-production
+    concurrency:
+      group: cmux-next-deploy-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
+        id: deploy-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
+          CMUX_RELEASE_VERIFY_STEP: "1"
+        run: bash scripts/deploy-worker.sh production
+      # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          BEFORE: ${{ github.event.before }}
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
+      - name: Deploy dashboard (console.cmux.dev)
+        working-directory: backend/apps/dashboard
+        env:
+          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_PRODUCTION }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      - name: Smoke
+        run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
+
+  preview-cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Delete preview Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          name="cmux-api-preview-${{ github.event.pull_request.number }}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name?force=true")
+          echo "delete $name -> $code"
+          [ "$code" = 200 ] || [ "$code" = 404 ]
+          wf="cmux-automation-run-preview-${{ github.event.pull_request.number }}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workflows/$wf")
+          echo "delete workflow $wf -> $code"
+          [ "$code" = 200 ] || [ "$code" = 404 ]

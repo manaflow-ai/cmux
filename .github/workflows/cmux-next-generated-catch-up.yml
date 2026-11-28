@@ -1,0 +1,191 @@
+name: cmux-next generated catch-up
+
+# The generated web bundles and strings tables (.gitattributes, merge driver
+# cmux-generated-v1) collide on nearly every feat-cmux-next move, and GitHub
+# ignores merge drivers, so every landed UI PR left the other open PRs
+# conflicting until each one merged the base and rebuilt the bundles by hand.
+# On each feat-cmux-next move this merges the base into every same-repository
+# PR whose only conflicts are those files, rebuilds them
+# (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
+# any authored conflict is left to its author.
+#
+# Dry run until the repo variable CMUX_NEXT_GENERATED_CATCH_UP is 1: it merges
+# and rebuilds, and the summary says what it would push.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-generated-catch-up
+  cancel-in-progress: true
+
+jobs:
+  select:
+    if: github.repository == 'manaflow-ai/cmux'
+    name: select conflicting PRs
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      prs: ${{ steps.select.outputs.prs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/generated_catch_up.py
+          sparse-checkout-cone-mode: false
+
+      - name: Select PRs that conflict with feat-cmux-next
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prs="$(python3 scripts/cmux-next/generated_catch_up.py select --repo "$GITHUB_REPOSITORY")"
+          echo "prs=$prs" >> "$GITHUB_OUTPUT"
+          echo "Conflicting PRs to catch up: $prs" >> "$GITHUB_STEP_SUMMARY"
+
+  catch-up:
+    needs: select
+    if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
+    name: catch up #${{ matrix.pr.number }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        pr: ${{ fromJSON(needs.select.outputs.prs) }}
+    steps:
+      # The classifier and the generated patterns come from the base, never
+      # from the PR being merged.
+      - name: Check out the base's catch-up script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: trusted
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/generated_catch_up.py
+            .gitattributes
+          sparse-checkout-cone-mode: false
+
+      - name: Check out the pull request
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.pr.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Merge feat-cmux-next
+        id: merge
+        working-directory: pr
+        env:
+          BASE_SHA: ${{ github.sha }}
+          BRANCH: ${{ matrix.pr.branch }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+        run: |
+          set -euo pipefail
+          git config user.name "cmux CI catch-up"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config merge.cmux-generated-v1.name "keep this branch's generated file"
+          git config merge.cmux-generated-v1.driver true
+          git fetch --quiet origin "$BASE_SHA"
+          if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/unmerged"
+          if ! python3 ../trusted/scripts/cmux-next/generated_catch_up.py authored \
+              --gitattributes ../trusted/.gitattributes < "$RUNNER_TEMP/unmerged" > "$RUNNER_TEMP/authored"; then
+            echo "#$PR_NUMBER conflicts outside generated files ($(paste -sd' ' "$RUNNER_TEMP/authored")); left for its author." | tee -a "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Every conflict is a generated file: keep either side, the rebuild
+          # replaces it (and its `git add -A` settles a delete/modify).
+          while IFS= read -r path; do
+            if git checkout --ours -- "$path" 2>/dev/null; then git add -- "$path"; else git rm --quiet --cached -- "$path"; fi
+          done < "$RUNNER_TEMP/unmerged"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bun
+        if: steps.merge.outputs.skip != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Setup Node
+        if: steps.merge.outputs.skip != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      # The PR's own code builds here, before any write token exists.
+      - name: Rebuild the generated files
+        if: steps.merge.outputs.skip != 'true'
+        working-directory: pr
+        run: scripts/cmux-next/regenerate-web-bundles.sh
+
+      - name: Commit the merge
+        if: steps.merge.outputs.skip != 'true'
+        working-directory: pr
+        env:
+          BRANCH: ${{ matrix.pr.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
+            echo "::error::paths are still unmerged after the rebuild"; git diff --name-only --diff-filter=U; exit 1
+          fi
+          git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
+            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh): $RUN_URL"
+          git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mint the catch-up token
+        id: app-token
+        if: steps.merge.outputs.skip != 'true' && vars.CMUX_NEXT_GENERATED_CATCH_UP == '1'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Push the merge
+        if: steps.merge.outputs.skip != 'true'
+        working-directory: pr
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ matrix.pr.branch }}
+          HEAD_SHA: ${{ matrix.pr.sha }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_TOKEN" ]]; then
+            echo "Dry run (CMUX_NEXT_GENERATED_CATCH_UP is not 1): would push $(git rev-parse --short HEAD) to $BRANCH (#$PR_NUMBER)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
+          current="$("${with_auth[@]}" git ls-remote "$remote" "refs/heads/$BRANCH" | awk '{print $1}')"
+          if [[ "$current" != "$HEAD_SHA" ]]; then
+            echo "#$PR_NUMBER moved to $current after $HEAD_SHA; the next base move catches it up." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
+          if ! "${with_auth[@]}" git push --quiet "$remote" "HEAD:refs/heads/$BRANCH"; then
+            echo "#$PR_NUMBER moved during the catch-up; the next base move catches it up." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Pushed $(git rev-parse --short HEAD) to $BRANCH (#$PR_NUMBER)." | tee -a "$GITHUB_STEP_SUMMARY"

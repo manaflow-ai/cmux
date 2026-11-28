@@ -27,11 +27,46 @@ export function transcriptTarget(sess: SessionCtx): TranscriptTarget | undefined
   return sess.internal.transcriptTarget as TranscriptTarget | undefined;
 }
 
+function rpcErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.trim().slice(0, 300) || "the cmux control request failed";
+}
+
 /** Focuses the terminal pane that runs the agent (for prompts the view cannot answer). */
 export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpcResult> {
   const surfaceId = transcriptTarget(sess)?.surfaceId;
   if (!surfaceId) return { ok: false, error: "The terminal for this session is unknown." };
-  return rpc("surface.focus", { surface_id: surfaceId });
+  try {
+    return await rpc("surface.focus", { surface_id: surfaceId });
+  } catch (err) {
+    return { ok: false, error: rpcErrorMessage(err) };
+  }
+}
+
+/** A cmux agent message waiting for this terminal's agent to take it. */
+export interface QueuedAgentMessage {
+  id: string;
+  from: string;
+  body: string;
+}
+
+/**
+ * The terminal's queued agent messages, oldest first. Undefined when the app
+ * could not be read, so the view keeps what it last showed.
+ */
+export async function queuedTranscriptMessages(sess: SessionCtx): Promise<QueuedAgentMessage[] | undefined> {
+  const surfaceId = transcriptTarget(sess)?.surfaceId;
+  if (!surfaceId) return [];
+  // The list is newest first; the limit is high enough that the oldest (the
+  // next to be delivered) are not cut off.
+  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 200 });
+  const messages = res.ok ? (res.result as { messages?: unknown })?.messages : undefined;
+  if (!Array.isArray(messages)) return undefined;
+  return messages
+    .filter((m: any) => m && typeof m.id === "string" && typeof m.body === "string"
+      && String(m.recipient_surface_id ?? "").toUpperCase() === surfaceId.toUpperCase())
+    .sort((a: any, b: any) => Number(a.created_at ?? 0) - Number(b.created_at ?? 0))
+    .map((m: any) => ({ id: m.id, from: String(m.sender_name ?? ""), body: m.body }));
 }
 
 export interface TranscriptParser {
@@ -87,8 +122,51 @@ function textOf(content: unknown): string {
 }
 
 function tagValue(text: string, tag: string): string | undefined {
-  const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+  // Task results are untrusted tool output; quoted reminders must not become
+  // delivered cmux messages.
+  const safeText = text.replace(/<(?:task-result|tool_result|tool-result)(?:\s[^>]*)?>[\s\S]*?<\/(?:task-result|tool_result|tool-result)>/gi, "");
+  const match = safeText.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
   return match?.[1]?.trim();
+}
+
+// cmux delivers agent messages through agent hooks, so they reach the
+// transcript as hook context, stop feedback, or a wake reminder. Every path
+// carries the same text (AgentMessagePromptRenderer.swift): a header line, a
+// `Message id:` line, other metadata, `---`, the body, and a closing line
+// that carries the id. The closing line is searched for by id and parsing
+// resumes after it, so text inside a body (a quoted header, a forged
+// message) is never read as a message of its own.
+const CMUX_AGENT_MESSAGE_HEADER = /\[cmux agent message(?: \(\d+ of \d+\))?\] from ([^\n]+)\nMessage id: ([^\n]+)\n/g;
+
+type CmuxAgentMessage = Extract<AgentEvent, { kind: "agent-message" }>;
+
+export function cmuxAgentMessages(text: string): CmuxAgentMessage[] {
+  const out: CmuxAgentMessage[] = [];
+  const header = new RegExp(CMUX_AGENT_MESSAGE_HEADER.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = header.exec(text))) {
+    const id = match[2].trim();
+    const open = text.indexOf("\n---\n", match.index);
+    const closing = `\n--- end of message ${id} ---`;
+    const close = open < 0 ? -1 : text.indexOf(closing, open + 4);
+    if (!id || close < 0) continue;
+    out.push({ kind: "agent-message", id, from: match[1].trim(), body: text.slice(open + 5, close) });
+    header.lastIndex = close + closing.length;
+  }
+  return out;
+}
+
+/** Keeps the first sighting of each message; replays and resumes repeat them. */
+class CmuxAgentMessageDedupe {
+  private seen = new Set<string>();
+  take(text: string): CmuxAgentMessage[] {
+    return cmuxAgentMessages(text).filter((m) => !this.seen.has(m.id) && Boolean(this.seen.add(m.id)));
+  }
+}
+
+function decodeXmlEntities(text: string): string {
+  return text.replace(/&(lt|gt|quot|apos|#39|amp);/g, (_, name: string) =>
+    ({ lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", amp: "&" })[name] ?? "");
 }
 
 // Claude Code wraps harness bookkeeping in pseudo-XML user messages. These are
@@ -102,6 +180,7 @@ class ClaudeTranscriptParser implements TranscriptParser {
   private seen = new Set<string>();
   private turnOpen = false;
   private endedMessageIds = new Set<string>();
+  private agentMessages = new CmuxAgentMessageDedupe();
 
   parse(line: string): AgentEvent[] {
     const events = this.parseLine(line);
@@ -142,17 +221,28 @@ class ClaudeTranscriptParser implements TranscriptParser {
         return this.assistant(ev);
       case "system":
         return this.system(ev);
+      case "attachment":
+        // Prompt-submit hook context, recorded after the prompt it joined.
+        if (ev.attachment?.type !== "hook_additional_context" || !Array.isArray(ev.attachment.content)) return [];
+        return ev.attachment.content.flatMap((part: unknown) => (typeof part === "string" ? this.agentMessages.take(part) : []));
       default:
         return [];
     }
   }
 
   private user(ev: any): AgentEvent[] {
-    if (ev.isMeta || ev.isCompactSummary || ev.isVisibleInTranscriptOnly) return [];
     const originKind = ev.origin?.kind;
     const content = ev.message?.content;
+    if (ev.isMeta && typeof content === "string" && content.startsWith("Stop hook feedback:")) {
+      return this.agentMessages.take(content);
+    }
+    if (ev.isMeta || ev.isCompactSummary || ev.isVisibleInTranscriptOnly) return [];
     if (originKind === "task-notification") {
       const text = typeof content === "string" ? content : textOf(content);
+      // An idle agent woken by cmux (asyncRewake) records the message here.
+      // Only the reminder is cmux's; a task's own result may quote anything.
+      const reminder = tagValue(text, "system-reminder") ?? "";
+      if (cmuxAgentMessages(reminder).length) return this.agentMessages.take(reminder);
       const summary = tagValue(text, "summary") ?? tagValue(text, "status");
       return [{ kind: "status", text: summary ? `Background task: ${truncate(summary, 160)}` : "Background task update" }];
     }
@@ -262,6 +352,7 @@ class CodexTranscriptParser implements TranscriptParser {
   cwd?: string;
   private lastUser?: string;
   private sinceUser = 0;
+  private agentMessages = new CmuxAgentMessageDedupe();
 
   parse(line: string): AgentEvent[] {
     const ev = tryParse(line);
@@ -287,6 +378,8 @@ class CodexTranscriptParser implements TranscriptParser {
 
   private track(events: AgentEvent[]): AgentEvent[] {
     for (const evt of events) {
+      // Hook context can sit between the two records of one prompt.
+      if (evt.kind === "agent-message") continue;
       if (evt.kind === "user") {
         this.lastUser = evt.text;
         this.sinceUser = 0;
@@ -329,6 +422,14 @@ class CodexTranscriptParser implements TranscriptParser {
   private responseItem(payload: any): AgentEvent[] {
     switch (payload.type) {
       case "message": {
+        // Hook context is a developer message; a stop continuation is a
+        // user message wrapped in an escaped <hook_prompt>.
+        if (payload.role === "developer") return this.agentMessages.take(textOf(payload.content));
+        if (payload.role === "user") {
+          const text = textOf(payload.content);
+          const hookPrompt = text.match(/^<hook_prompt\b[^>]*>([\s\S]*)<\/hook_prompt>\s*$/)?.[1];
+          return hookPrompt === undefined ? [] : this.agentMessages.take(decodeXmlEntities(hookPrompt));
+        }
         if (payload.role !== "assistant") return [];
         const text = textOf(payload.content).trim();
         return text ? [{ kind: "assistant", text }] : [];
@@ -360,26 +461,35 @@ export const TRANSCRIPT_INITIAL_WINDOW_BYTES = 8 * 1024 * 1024;
 const TRANSCRIPT_POLL_MS = 500;
 const TRANSCRIPT_READ_CHUNK = 1024 * 1024;
 
-/** Follows an append-only JSONL file by offset, delivering complete lines. */
+/** Follows JSONL appends by offset, resetting when the file is replaced. */
 export class TranscriptTail {
   private offset = -1;
+  private identity: { dev: number; ino: number } | null = null;
   private pending = "";
   private timer: ReturnType<typeof setInterval> | null = null;
-  private inflight: Promise<void> | null = null;
+  // Filesystem calls can finish after stop/restart. Only the current lifetime
+  // may advance decoding state or deliver callbacks; old handles still close.
+  private generation = 0;
+  private stopped = false;
+  private inflight: { generation: number; promise: Promise<void> } | null = null;
   private decoder = new TextDecoder();
 
   constructor(
     readonly path: string,
     private readonly onLines: (lines: string[], mtimeMs: number) => void,
-    private readonly opts: { pollMs?: number; initialWindowBytes?: number } = {},
+    private readonly opts: { pollMs?: number; initialWindowBytes?: number; onReset?: () => void } = {},
   ) {}
 
   start() {
     if (this.timer) return;
+    this.stopped = false;
+    const generation = this.generation;
     // A transcript that stops being readable between stat and open (deleted,
     // or a root-owned file) must not reject out of the timer: an unhandled
     // rejection ends the whole sidecar. The next poll tries again.
-    const tick = () => void this.poll().catch(() => {});
+    const tick = () => {
+      if (this.ownsRead(generation)) void this.poll().catch(() => {});
+    };
     tick();
     this.timer = setInterval(tick, this.opts.pollMs ?? TRANSCRIPT_POLL_MS);
   }
@@ -387,39 +497,66 @@ export class TranscriptTail {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopped = true;
+    this.generation++;
   }
 
-  /** Reads everything appended since the last poll; joins a read in flight. */
+  /** Reads new appends, joining only a read from the current lifetime. */
   poll(): Promise<void> {
-    if (!this.inflight) {
-      this.inflight = this.read().finally(() => {
-        this.inflight = null;
+    if (this.stopped) return Promise.resolve();
+    const generation = this.generation;
+    if (!this.inflight || this.inflight.generation !== generation) {
+      const flight = { generation, promise: this.read(generation) };
+      this.inflight = flight;
+      flight.promise = flight.promise.finally(() => {
+        if (this.inflight === flight) this.inflight = null;
       });
     }
-    return this.inflight;
+    return this.inflight.promise;
   }
 
-  private async read(): Promise<void> {
-    const info = await stat(this.path).catch(() => null);
-    if (!info) return;
-    let skipPartialFirstLine = false;
-    if (this.offset < 0) {
-      const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
-      this.offset = Math.max(0, info.size - window);
-      skipPartialFirstLine = this.offset > 0;
-    } else if (info.size < this.offset) {
-      // Truncated or replaced: follow the new file from its start.
-      this.offset = 0;
-      this.pending = "";
-      this.decoder = new TextDecoder();
-    }
-    if (info.size === this.offset) return;
+  private ownsRead(generation: number): boolean {
+    return !this.stopped && this.generation === generation;
+  }
+
+  private async read(generation: number): Promise<void> {
+    const probe = await stat(this.path).catch(() => null);
+    if (!this.ownsRead(generation) || !probe) return;
+    if (this.identity?.dev === probe.dev && this.identity.ino === probe.ino && probe.size === this.offset) return;
     const handle = await open(this.path, "r");
     try {
+      if (!this.ownsRead(generation)) return;
+      // Use the opened file's identity and size: an atomic rename can replace
+      // the path between the probe and open, even with unchanged size/mtime.
+      const info = await handle.stat();
+      if (!this.ownsRead(generation)) return;
+      const reset = this.identity !== null && (
+        this.identity.dev !== info.dev || this.identity.ino !== info.ino || info.size < this.offset
+      );
+      if (this.identity?.dev !== info.dev || this.identity.ino !== info.ino) {
+        this.offset = -1;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      this.identity = { dev: info.dev, ino: info.ino };
+      let skipPartialFirstLine = false;
+      if (this.offset < 0) {
+        const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
+        this.offset = Math.max(0, info.size - window);
+        skipPartialFirstLine = this.offset > 0;
+      } else if (info.size < this.offset) {
+        // An in-place truncation keeps its inode but still resets decoding.
+        this.offset = 0;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      if (reset) this.opts.onReset?.();
+      if (!this.ownsRead(generation)) return;
+      if (info.size === this.offset) return;
       const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
-      while (this.offset < info.size) {
+      while (this.ownsRead(generation) && this.offset < info.size) {
         const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, info.size - this.offset), this.offset);
-        if (bytesRead <= 0) break;
+        if (!this.ownsRead(generation) || bytesRead <= 0) break;
         this.offset += bytesRead;
         this.pending += this.decoder.decode(buf.subarray(0, bytesRead), { stream: true });
         if (skipPartialFirstLine) {
@@ -449,7 +586,7 @@ export function transcriptLooksRunning(events: AgentEvent[], lastWriteMs: number
   for (let i = events.length - 1; i >= 0; i--) {
     const kind = events[i].kind;
     if (kind === "done") return false;
-    if (kind === "user" || kind === "tool-start" || kind === "tool-end" || kind === "thinking" || kind === "assistant" || kind === "status") return true;
+    if (kind === "user" || kind === "agent-message" || kind === "tool-start" || kind === "tool-end" || kind === "thinking" || kind === "assistant" || kind === "status") return true;
   }
   return false;
 }
@@ -476,25 +613,43 @@ export function attachTranscript(
   onTitle?: (title: string) => void,
   opts: { pollMs?: number; initialWindowBytes?: number; onTick?: () => void } = {},
 ): TranscriptTail {
-  const parser = transcriptParser(agent);
+  let parser = transcriptParser(agent);
   const refreshStatus = () => {
     const st = transcriptState(sess);
-    if (!st) return;
+    if (!st || st.tail !== tail) return;
     sess.setStatus(transcriptLooksRunning(sess.events, st.lastWriteMs) ? "running" : "idle");
-    opts.onTick?.();
+    if (transcriptState(sess) === st) opts.onTick?.();
   };
   const tail = new TranscriptTail(path, (lines, mtimeMs) => {
     const st = transcriptState(sess);
+    if (!st || st.tail !== tail) return;
     // Activity comes from the file's own write time, so a transcript that
     // went idle long ago does not look busy when its history first loads.
-    if (st) st.lastWriteMs = mtimeMs;
+    st.lastWriteMs = mtimeMs;
     const title = parser.title;
     for (const line of lines) {
-      for (const evt of parser.parse(line)) sess.emit(evt);
+      if (transcriptState(sess) !== st) return;
+      for (const evt of parser.parse(line)) {
+        if (transcriptState(sess) !== st) return;
+        sess.emit(evt);
+      }
     }
+    if (transcriptState(sess) !== st) return;
     if (parser.title && parser.title !== title) onTitle?.(parser.title);
     refreshStatus();
-  }, opts);
+  }, {
+    ...opts,
+    onReset: () => {
+      const st = transcriptState(sess);
+      if (!st || st.tail !== tail) return;
+      parser = transcriptParser(agent);
+      st.parser = parser;
+      st.lastWriteMs = 0;
+      if (sess.resetHistory) sess.resetHistory();
+      else sess.events.length = 0;
+      refreshStatus();
+    },
+  });
   const state: TranscriptState = {
     tail,
     parser,
@@ -517,15 +672,23 @@ export const transcriptAdapter: Adapter = {
       sess.emit({ kind: "error", message: "This view is not attached to a terminal session.", prompt });
       return;
     }
-    const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
-    if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+    try {
+      const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
+      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+    } catch (err) {
+      sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${rpcErrorMessage(err)}`, prompt });
+    }
   },
   stop(sess: SessionCtx) {
     const target = transcriptTarget(sess);
     if (!target) return;
-    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId }).then((res) => {
-      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
-    });
+    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId })
+      .then((res) => {
+        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
+      })
+      .catch((err) => {
+        sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${rpcErrorMessage(err)}` });
+      });
   },
   dispose(sess: SessionCtx) {
     const st = transcriptState(sess);

@@ -1,14 +1,16 @@
 import { type NextRequest, NextResponse } from "next/server";
-import createMiddleware from "next-intl/middleware";
+import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import { isDocsPathname, isDocsZoneDeployment } from "./app/lib/docs-channel";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -24,7 +26,6 @@ import {
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
 
-const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
@@ -74,7 +75,7 @@ function routeRequest(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
-  response = intlMiddleware(request);
+  response = localeMiddleware(request);
   if (
     request.headers.has("next-router-prefetch") ||
     request.headers.get("purpose") === "prefetch"
@@ -170,12 +171,7 @@ function handleHostAndMachineRoutes(
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
-  const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-  const isDocsOrigin = docsChannel === "release" || docsChannel === "nightly";
-  const isDocsPath = /^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?docs(?:\/|$)/u.test(
-    pathname,
-  );
-  if (!isDocsOrigin && isDocsPath) {
+  if (!isDocsZoneDeployment() && isDocsPathname(pathname)) {
     return NextResponse.next();
   }
 
@@ -461,6 +457,25 @@ function handleLegalAndDocsRoutes(
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/managed-policies";
+    return NextResponse.rewrite(url);
+  }
+
+  const cloudSecurityMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/cloud-security\/?$/,
+  );
+  if (
+    cloudSecurityMatch &&
+    !cloudSecurityDocsLocales.includes(
+      cloudSecurityMatch[1] as (typeof cloudSecurityDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/cloud-security";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/cloud-security" || pathname === "/docs/cloud-security/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
   }
   return undefined;

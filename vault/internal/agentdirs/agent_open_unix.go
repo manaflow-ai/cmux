@@ -27,5 +27,9 @@ func OpenRegularFileNoSymlink(path string) (*os.File, os.FileInfo, error) {
 		_ = file.Close()
 		return nil, nil, fmt.Errorf("%s is not a regular file", path)
 	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Nlink != 1 {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("%s has multiple hard links", path)
+	}
 	return file, info, nil
 }

@@ -53,7 +53,7 @@ pub(super) fn prepare(
     let durable_intent = durable_intent(&intent, &operation)?;
     let preparation = mux
         .prepare_resource_effect(
-            idempotency_key,
+            &request.mutation().map_err(resource_operation_error)?,
             &operation,
             &fingerprint,
             &durable_intent,
@@ -499,7 +499,7 @@ mod tests {
                     .unwrap();
             assert!(matches!(
                 mux.prepare_resource_effect(
-                    "persistent-input-key",
+                    &crate::WorkspaceMutation::daemon("persistent-input-key", "test").unwrap(),
                     "terminal.input.write",
                     &fingerprint,
                     &intent,

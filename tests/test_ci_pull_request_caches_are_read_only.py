@@ -167,6 +167,11 @@ def main() -> int:
     # enter that environment on main and no environment anywhere else, so a
     # dispatch from another branch still runs and simply saves nothing.
     writer = "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}"
+    # A job that also signs cannot enter two environments, so it reads the
+    # copies held by the release environment (main and v* tags) and still
+    # enters it only on main.
+    signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
+    signing_secret = ("secrets.IOS_", "secrets.ASC_API_", "secrets.APPLE_")
     writers = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -174,8 +179,11 @@ def main() -> int:
             if "secrets.CI_CACHE_R2_" not in json.dumps(job):
                 continue
             writers += 1
-            if job.get("environment") != writer:
-                failures.append(f"{path.name} {job_name}: a job holding the R2 write credentials must declare environment: {writer}")
+            if job.get("environment") == writer:
+                continue
+            if job.get("environment") == signing_writer and any(name in json.dumps(job) for name in signing_secret):
+                continue
+            failures.append(f"{path.name} {job_name}: a job holding the R2 write credentials must declare environment: {writer}")
     if not writers:
         failures.append("no workflow names the R2 write credentials; this guard is reading the wrong tree")
 

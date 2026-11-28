@@ -1,0 +1,395 @@
+# Builds the cmux-terminal-client static library for iOS devices, both iOS
+# simulator architectures, and both macOS architectures, bundles them as
+# CmuxTerminalClient.xcframework, and
+# attaches the zip plus its SwiftPM checksum to a GitHub release tagged
+# cmux-terminal-client-v<crate version>[+<short sha>]. The release publishes
+# only on manual dispatch. The Swift package at
+# Packages/Shared/CmuxTerminalClient pins one release by tag and checksum.
+# Nothing here touches files.cmux.com.
+name: cmux-terminal-client xcframework
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit or branch to build (defaults to the dispatched ref)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: cmux-terminal-client-xcframework-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: build xcframework
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      source_sha: ${{ steps.version.outputs.source_sha }}
+    steps:
+      - name: Checkout dispatched ref
+        if: inputs.ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        shell: bash
+        run: |
+          rustup target add \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            aarch64-apple-darwin \
+            x86_64-apple-ios \
+            x86_64-apple-darwin
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          crate_version="$(python3 - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("cmux-tui/crates/cmux-terminal-client/Cargo.toml").read_text()
+          print(re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1))
+          PY
+          )"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          source_ref="${REQUESTED_REF:-${GITHUB_REF_NAME:-}}"
+          if [[ "$source_ref" == "main" || "$source_ref" == "refs/heads/main" ]]; then
+            version="$crate_version"
+          else
+            version="${crate_version}+${short_sha}"
+          fi
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=cmux-terminal-client-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build static libraries
+        working-directory: cmux-tui
+        shell: bash
+        env:
+          # The workspace release profile uses thin LTO, which leaves the
+          # staticlib's objects as LLVM bitcode. Apple's nm and ld (LLVM 17)
+          # cannot read bitcode from a newer rustc ("Unknown attribute kind"),
+          # so the archive would build green and fail to link in Xcode. Build
+          # the Apple slices as ordinary machine code instead.
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          RUSTFLAGS: "-C embed-bitcode=no"
+          # cc-built C objects (sqlite3, blake3, ring) must carry the same
+          # minimum OS as the app, or ld warns about every one of them.
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: |
+          set -euo pipefail
+          unset CMUX_GHOSTTY_SRC
+          for target in \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            aarch64-apple-darwin \
+            x86_64-apple-ios \
+            x86_64-apple-darwin; do
+            cargo build -p cmux-terminal-client --release --locked --target "$target"
+            lib="target/$target/release/libcmux_terminal_client.a"
+            test -f "$lib"
+            # Apple's nm must see the exported C symbols as real text symbols;
+            # bitcode-only objects show none.
+            exported="$(nm -g "$lib" 2>/dev/null | grep -c ' T _cmux_' || true)"
+            echo "$target: $exported exported _cmux_ symbols"
+            if [[ "$exported" -lt 1 ]]; then
+              echo "::error::$lib exports no _cmux_ text symbols; the archive is not linkable by Apple tools" >&2
+              exit 1
+            fi
+          done
+
+      - name: Assemble xcframework
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Each slice ships as a static framework, not a bare library. Xcode
+          # copies every bare-library slice's Headers/module.modulemap to the
+          # same Build/Products/<config>/include/module.modulemap, and the app
+          # already links GhosttyKit.xcframework that way, so two bare-library
+          # xcframeworks collide ("Multiple commands produce"). A framework
+          # carries its module map under Modules/ and nothing collides. The
+          # xcframework Info.plist is written here rather than by
+          # `xcodebuild -create-xcframework` so the layout is exactly the one
+          # the iOS app link was verified against.
+          lib=cmux-tui/target
+          header=cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h
+          xcf="$RUNNER_TEMP/xcframework/CmuxTerminalClient.xcframework"
+          rm -rf "$RUNNER_TEMP/xcframework"
+          mkdir -p "$xcf"
+          short_version="${VERSION%%+*}"
+          entries=""
+          add_slice() {
+            local slice="$1" platform="$2" supported="$3" minos="$4" variant="$5" architectures="$6"
+            shift 6
+            local archives=("$@")
+            local fw="$xcf/$slice/CmuxTerminalClientFFI.framework"
+            local archive="$RUNNER_TEMP/xcframework/$slice/libcmux_terminal_client.a"
+            mkdir -p "$(dirname "$archive")"
+            if [[ "${#archives[@]}" == 1 ]]; then
+              cp "${archives[0]}" "$archive"
+            else
+              lipo -create "${archives[@]}" -output "$archive"
+            fi
+            mkdir -p "$fw/Headers" "$fw/Modules"
+            cp "$archive" "$fw/CmuxTerminalClientFFI"
+            cp "$header" "$fw/Headers/"
+            cat > "$fw/Modules/module.modulemap" <<'MAP'
+          framework module CmuxTerminalClientFFI {
+              umbrella header "cmux_terminal_client.h"
+              export *
+              module * { export * }
+          }
+          MAP
+            local variant_key=""
+            if [[ -n "$variant" ]]; then
+              variant_key="<key>SupportedPlatformVariant</key><string>$variant</string>"
+            fi
+            cat > "$fw/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>CmuxTerminalClientFFI</string>
+            <key>CFBundleIdentifier</key><string>com.cmuxterm.CmuxTerminalClientFFI</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>CmuxTerminalClientFFI</string>
+            <key>CFBundlePackageType</key><string>FMWK</string>
+            <key>CFBundleShortVersionString</key><string>$short_version</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>$supported</string></array>
+            <key>MinimumOSVersion</key><string>$minos</string>
+          </dict></plist>
+          PLIST
+            plutil -lint "$fw/Info.plist"
+            local architectures_xml=""
+            for architecture in $architectures; do
+              architectures_xml+="<string>$architecture</string>"
+            done
+            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array>$architectures_xml</array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
+          }
+          add_slice ios-arm64 ios iPhoneOS 17.0 "" "arm64" \
+            "$lib/aarch64-apple-ios/release/libcmux_terminal_client.a"
+          add_slice ios-simulator ios iPhoneSimulator 17.0 simulator "arm64 x86_64" \
+            "$lib/aarch64-apple-ios-sim/release/libcmux_terminal_client.a" \
+            "$lib/x86_64-apple-ios/release/libcmux_terminal_client.a"
+          add_slice macos macos MacOSX 14.0 "" "arm64 x86_64" \
+            "$lib/aarch64-apple-darwin/release/libcmux_terminal_client.a" \
+            "$lib/x86_64-apple-darwin/release/libcmux_terminal_client.a"
+          cat > "$xcf/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>AvailableLibraries</key><array>$entries</array>
+            <key>CFBundlePackageType</key><string>XFWK</string>
+            <key>XCFrameworkFormatVersion</key><string>1.0</string>
+          </dict></plist>
+          PLIST
+          plutil -lint "$xcf/Info.plist"
+          out="$RUNNER_TEMP/xcframework"
+          # Keep release ZIP bytes stable across reruns of the same build.
+          find "$xcf" -exec touch -t 198001010000 {} +
+          (cd "$out" && ditto -c -k --keepParent CmuxTerminalClient.xcframework CmuxTerminalClient.xcframework.zip)
+          archive="$out/CmuxTerminalClient.xcframework.zip"
+          checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          swiftpm_checksum="$(swift package compute-checksum "$archive")"
+          if [[ "$swiftpm_checksum" != "$checksum" ]]; then
+            echo "::error::SwiftPM checksum $swiftpm_checksum does not match archive SHA-256 $checksum" >&2
+            exit 1
+          fi
+          printf '%s\n' "$checksum" > "$out/CmuxTerminalClient.xcframework.zip.sha256"
+          printf '%s  %s\n' "$checksum" CmuxTerminalClient.xcframework.zip > "$out/SHA256SUMS"
+          echo "swiftpm checksum: $checksum"
+
+      - name: Smoke-link each slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prove every slice links into a real program with only the system
+          # frameworks the Swift package declares. A C file that takes the
+          # address of every exported cmux_* symbol (list taken from the
+          # archive itself, so a new export is covered automatically) is
+          # compiled against the framework header and linked per platform.
+          xcf="$RUNNER_TEMP/xcframework/CmuxTerminalClient.xcframework"
+          work="$RUNNER_TEMP/smoke"
+          mkdir -p "$work"
+          frameworks=(-framework CmuxTerminalClientFFI -framework Network -framework CoreFoundation -framework Security -framework SystemConfiguration)
+          smoke_link() {
+            local slice="$1" sdk="$2" triple="$3" archive="$4"
+            local dir="$xcf/$slice"
+            local architecture="${triple%%-*}"
+            local src="$work/smoke-$slice-$architecture.c"
+            # Symbols are read from the ORIGINAL archive, not the framework's
+            # copy of it: the copy is named without a .a extension, and nm
+            # fails outright on it, which under set -o pipefail ended this
+            # step with no output at all. The bytes are identical, and the
+            # link below still resolves against the framework.
+            # nm exits non-zero when any archive member carries no symbols,
+            # which is normal here, so its status says nothing about whether
+            # the read worked. The extracted symbol count below is the real
+            # check.
+            local symbols
+            symbols="$(nm -g "$archive" 2>/dev/null || true)"
+            {
+              echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
+              echo '#include <stdio.h>'
+              echo 'int main(void) { const void *p[] = {'
+              printf '%s\n' "$symbols" |
+                sed -n 's/.* T _\(cmux_[A-Za-z0-9_]*\)$/  (const void *)\&\1,/p' | sort -u
+              printf '%s\n' '  0 }; printf("%p\n", p[0]); return 0; }'
+            } > "$src"
+            local count
+            # grep -c exits 1 on zero matches, which would end this step under
+            # set -e with no diagnostic at all; report the count instead.
+            count="$(grep -c '(const void \*)&cmux_' "$src" || true)"
+            echo "$slice: $count exported symbols referenced"
+            if [[ "$count" -lt 1 ]]; then
+              echo "::error::$slice exports no _cmux_ text symbols to reference; nm reported:" >&2
+              head -5 <<<"$symbols" >&2
+              exit 1
+            fi
+            xcrun --sdk "$sdk" clang -target "$triple" \
+              -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
+              -F "$dir" "${frameworks[@]}" \
+              -o "$work/smoke-$slice-$architecture" "$src"
+            echo "$slice: linked"
+          }
+          rel=cmux-tui/target
+          smoke_link ios-arm64 iphoneos arm64-apple-ios17.0 \
+            "$rel/aarch64-apple-ios/release/libcmux_terminal_client.a"
+          smoke_link ios-simulator iphonesimulator arm64-apple-ios17.0-simulator \
+            "$RUNNER_TEMP/xcframework/ios-simulator/libcmux_terminal_client.a"
+          smoke_link ios-simulator iphonesimulator x86_64-apple-ios17.0-simulator \
+            "$RUNNER_TEMP/xcframework/ios-simulator/libcmux_terminal_client.a"
+          smoke_link macos macosx arm64-apple-macos14.0 \
+            "$RUNNER_TEMP/xcframework/macos/libcmux_terminal_client.a"
+          smoke_link macos macosx x86_64-apple-macos14.0 \
+            "$RUNNER_TEMP/xcframework/macos/libcmux_terminal_client.a"
+          "$work/smoke-macos-arm64" >/dev/null
+          "$work/smoke-macos-x86_64" >/dev/null
+          echo "macos: smoke binary ran"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CmuxTerminalClient.xcframework
+          path: |
+            ${{ runner.temp }}/xcframework/CmuxTerminalClient.xcframework.zip
+            ${{ runner.temp }}/xcframework/CmuxTerminalClient.xcframework.zip.sha256
+            ${{ runner.temp }}/xcframework/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CmuxTerminalClient.xcframework
+          path: assets
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="assets/CmuxTerminalClient.xcframework.zip"
+          checksum="$(tr -d '[:space:]' < assets/CmuxTerminalClient.xcframework.zip.sha256)"
+          archive_checksum="$(sha256sum "$archive" | awk '{print $1}')"
+          if [[ "$archive_checksum" != "$checksum" ]]; then
+            echo "::error::new artifact checksum $checksum does not match its archive $archive_checksum" >&2
+            exit 1
+          fi
+          if ! (cd assets && sha256sum --check --strict SHA256SUMS); then
+            echo "::error::new artifact has an invalid SHA256SUMS entry" >&2
+            exit 1
+          fi
+          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, universal iOS simulator arm64/x86_64, universal macOS arm64/x86_64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            existing="$(mktemp -d)"
+            gh release download "$TAG" \
+              --pattern "CmuxTerminalClient.xcframework.zip" \
+              --pattern "CmuxTerminalClient.xcframework.zip.sha256" \
+              --pattern "SHA256SUMS" \
+              --dir "$existing"
+            for asset in \
+              CmuxTerminalClient.xcframework.zip \
+              CmuxTerminalClient.xcframework.zip.sha256 \
+              SHA256SUMS; do
+              if [[ ! -s "$existing/$asset" ]]; then
+                echo "::error::release $TAG is missing $asset" >&2
+                exit 1
+              fi
+            done
+            published_checksum="$(tr -d '[:space:]' < "$existing/CmuxTerminalClient.xcframework.zip.sha256")"
+            published_archive_checksum="$(sha256sum "$existing/CmuxTerminalClient.xcframework.zip" | awk '{print $1}')"
+            if [[ "$published_checksum" != "$checksum" || "$published_archive_checksum" != "$published_checksum" ]]; then
+              echo "::error::release $TAG checksum metadata does not match the expected or published archive checksum" >&2
+              exit 1
+            fi
+            if ! (cd "$existing" && sha256sum --check --strict SHA256SUMS); then
+              echo "::error::release $TAG has an invalid SHA256SUMS entry" >&2
+              exit 1
+            fi
+            echo "release $TAG already contains the matching immutable artifact"
+          else
+            gh release create "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS \
+              --target "$SOURCE_SHA" --title "$TAG" --notes "$notes" --prerelease
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+          echo "checksum: $checksum"

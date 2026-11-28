@@ -18,10 +18,9 @@ spec.loader.exec_module(health)
 
 
 class BuildGraphHealthTests(unittest.TestCase):
-    def test_classifies_app_cli_and_packages(self):
+    def test_classifies_app_and_packages(self):
         self.assertEqual(health.classify_path("Sources/Mobile/Foo.swift"), ("app", "Mobile"))
         self.assertEqual(health.classify_path("Sources/AppDelegate.swift"), ("app", "<root>"))
-        self.assertEqual(health.classify_path("CLI/CMUXCLI.swift"), ("cli", "CLI"))
         self.assertEqual(
             health.classify_path("Packages/macOS/CmuxGit/Sources/CmuxGit/Foo.swift"),
             ("package", "macOS/CmuxGit"),

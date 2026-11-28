@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CmuxClient, RenderAttachEvent, RenderCursor } from "cmux/raw";
 import { RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";
 import { useRenderTerminal } from "../src/hooks/useRenderTerminal";
@@ -37,37 +37,34 @@ class TestStream {
   }
 }
 
-function Harness({
-  client,
-  onError: suppliedOnError,
-}: {
-  client: CmuxClient;
-  onError?: (error: Error) => void;
-}) {
+function Harness({ client, onError: suppliedOnError }: { client: CmuxClient; onError?: (error: Error) => void }) {
   const throwingOnError = useCallback((error: Error) => {
     throw error;
   }, []);
   const onError = suppliedOnError ?? throwingOnError;
   const { terminalRef } = useRenderTerminal({ client, surface: 7n, active: true, onError });
-  const hostRef = useCallback((node: HTMLDivElement | null) => {
-    if (node !== null) {
-      Object.defineProperty(node, "clientWidth", { configurable: true, get: () => hostWidth });
-      Object.defineProperty(node, "clientHeight", { configurable: true, get: () => 480 });
-      const probe = node.querySelector<HTMLElement>("[data-render-probe]")!;
-      probe.getBoundingClientRect = () => ({
-        width: 10,
-        height: 20,
-        x: 0,
-        y: 0,
-        top: 0,
-        right: 10,
-        bottom: 20,
-        left: 0,
-        toJSON: () => ({}),
-      });
-    }
-    terminalRef(node);
-  }, [terminalRef]);
+  const hostRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== null) {
+        Object.defineProperty(node, "clientWidth", { configurable: true, get: () => hostWidth });
+        Object.defineProperty(node, "clientHeight", { configurable: true, get: () => 480 });
+        const probe = node.querySelector<HTMLElement>("[data-render-probe]")!;
+        probe.getBoundingClientRect = () => ({
+          width: 10,
+          height: 20,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 10,
+          bottom: 20,
+          left: 0,
+          toJSON: () => ({}),
+        });
+      }
+      terminalRef(node);
+    },
+    [terminalRef],
+  );
 
   return (
     <div className="terminal-stage">
@@ -173,28 +170,31 @@ describe("render terminal sizing", () => {
       rows: [],
       graphics: {
         generation: 1n,
-        images: [{
-          id: 1,
-          generation: 1n,
-          width: 2_500_000,
-          height: 1,
-          format: "rgba",
-          data,
-        }],
+        images: [
+          {
+            id: 1,
+            generation: 1n,
+            width: 2_500_000,
+            height: 1,
+            format: "rgba",
+            data,
+          },
+        ],
         placements: [],
       },
     };
     const initialStreams = Array.from({ length: 6 }, () => new TestStream([state]));
     const streamQueues = initialStreams.map((stream, index) =>
-      index === initialStreams.length - 1
-        ? [stream, new TestStream([state])]
-        : [stream]
+      index === initialStreams.length - 1 ? [stream, new TestStream([state])] : [stream],
     );
-    const clients = streamQueues.map((streams) => ({
-      attachSurface: vi.fn(async () => streams.shift()!),
-      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
-      releaseSurfaceSize: vi.fn(async () => ({})),
-    } as unknown as CmuxClient));
+    const clients = streamQueues.map(
+      (streams) =>
+        ({
+          attachSurface: vi.fn(async () => streams.shift()!),
+          resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+          releaseSurfaceSize: vi.fn(async () => ({})),
+        }) as unknown as CmuxClient,
+    );
     const renderHarnesses = (visible: readonly CmuxClient[]) => (
       <RenderGraphicsBudgetProvider>
         {visible.map((client, index) => (
@@ -211,10 +211,7 @@ describe("render terminal sizing", () => {
 
     view.rerender(renderHarnesses(clients.slice(1)));
 
-    await waitFor(
-      () => expect(clients.at(-1)!.attachSurface).toHaveBeenCalledTimes(2),
-      { timeout: 1_000 },
-    );
+    await waitFor(() => expect(clients.at(-1)!.attachSurface).toHaveBeenCalledTimes(2), { timeout: 1_000 });
     view.unmount();
   });
 
@@ -273,9 +270,7 @@ describe("render terminal sizing", () => {
       disconnect() {}
     };
     const client = {
-      attachSurface: vi.fn(async () => new TestStream([
-        { event: "detached", surface: 7n },
-      ])),
+      attachSurface: vi.fn(async () => new TestStream([{ event: "detached", surface: 7n }])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
     } as unknown as CmuxClient;
@@ -299,28 +294,30 @@ describe("render terminal sizing", () => {
       visible: true,
       color: null,
     };
-    const stream = new TestStream([{
-      event: "render-state",
-      surface: 7n,
-      size: { cols: 100, rows: 30 },
-      cursor,
-      default_fg: "#f8f8f2",
-      default_bg: "#272822",
-      scrollback_rows: 0,
-      rows: [],
-      graphics: {
-        generation: 1,
-        images: Array.from({ length: 4_097 }, (_, id) => ({
-          id,
+    const stream = new TestStream([
+      {
+        event: "render-state",
+        surface: 7n,
+        size: { cols: 100, rows: 30 },
+        cursor,
+        default_fg: "#f8f8f2",
+        default_bg: "#272822",
+        scrollback_rows: 0,
+        rows: [],
+        graphics: {
           generation: 1,
-          width: 1,
-          height: 1,
-          format: "rgb" as const,
-          data: "AAAA",
-        })),
-        placements: [],
+          images: Array.from({ length: 4_097 }, (_, id) => ({
+            id,
+            generation: 1,
+            width: 1,
+            height: 1,
+            format: "rgb" as const,
+            data: "AAAA",
+          })),
+          placements: [],
+        },
       },
-    }]);
+    ]);
     const client = {
       attachSurface: vi.fn(async () => stream),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
@@ -330,9 +327,11 @@ describe("render terminal sizing", () => {
 
     render(<Harness client={client} onError={onError} />);
 
-    await waitFor(() => expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "render graphics state exceeds 4096 images" }),
-    ));
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "render graphics state exceeds 4096 images" }),
+      ),
+    );
     expect(stream.close).toHaveBeenCalledTimes(1);
     expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n);
   });

@@ -153,3 +153,20 @@ export function nextDocsSearchIndex({
   }
   return (currentIndex <= 0 ? resultCount : currentIndex) - 1;
 }
+
+/**
+ * Cmd+K (Ctrl+K off macOS) and "/" open docs search. "/" is ignored while the
+ * reader types in a field, so it stays a normal character there.
+ */
+export function isDocsSearchShortcut(event: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  targetIsEditable: boolean;
+}): boolean {
+  if (event.altKey || event.shiftKey) return false;
+  if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) return true;
+  return event.key === "/" && !event.metaKey && !event.ctrlKey && !event.targetIsEditable;
+}

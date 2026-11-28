@@ -1,42 +1,14 @@
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
-import {
-  TEST_STACK_PROJECT_ID,
-  nextHeadersMock,
-} from "./helpers/dashboard-session-mock";
-import { renderSettled } from "./helpers/render-stream";
 
-type DashboardUser = {
-  readonly id: string;
-  readonly isAnonymous: boolean;
-  readonly primaryEmail?: string;
-  readonly primaryEmailVerified?: boolean;
-  readonly displayName?: string;
-};
-
-let currentUser: DashboardUser | null = {
-  id: "user-1",
-  isAnonymous: false,
-  primaryEmail: "user@example.com",
-  primaryEmailVerified: true,
-  displayName: "User One",
-};
-let refreshToken: string | null = "refresh-1";
-let requestHeaders = new Headers();
-let authUnavailable = false;
-let dashboardShellRenderCount = 0;
+let stackConfigured = true;
 let redirectedTo: string | null = null;
-const accountMenuUsers: unknown[] = [];
-const verifyBrowserSessionRequest = mock(async () =>
-  currentUser && !currentUser.isAnonymous ? currentUser : null,
-);
-const previousProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
 
+const realStack = await import("@hexclave/next");
 mock.module("@hexclave/next", () => ({
-  StackProvider: ({ children }: React.PropsWithChildren) => children,
-  StackTheme: ({ children }: React.PropsWithChildren) => children,
+  ...realStack,
+  StackTheme: ({ children }: React.PropsWithChildren) => <div data-testid="stack-theme">{children}</div>,
 }));
 
 mock.module("next/navigation", () => ({
@@ -44,182 +16,62 @@ mock.module("next/navigation", () => ({
     redirectedTo = target;
     throw new Error(`redirect:${target}`);
   },
-  unstable_rethrow: (error: unknown) => {
-    if (error instanceof Error && error.message.startsWith("redirect:")) throw error;
-  },
 }));
 
-mock.module("next/headers", () =>
-  nextHeadersMock({
-    headers: () => requestHeaders,
-    refreshToken: () => refreshToken,
-  }),
-);
-
-mock.module("next/cache", () => ({
-  cacheLife: () => undefined,
-}));
-
-mock.module("../services/vms/auth", () => ({
-  verifyBrowserSessionRequest,
-  withSubrouterAuthorizationDeadline: async (
-    operation: (signal: AbortSignal) => Promise<unknown>,
-  ) => {
-    if (authUnavailable) throw new Error("Stack unavailable");
-    return operation(new AbortController().signal);
-  },
-  isSubrouterAuthorizationError: () => true,
-}));
-
+// The dashboard prefetch reaches the team services, and their seat sync
+// imports the purchase service: carry every real export the chain needs.
+const realAppStack = await import("@/app/lib/stack");
 mock.module("@/app/lib/stack", () => ({
+  ...realAppStack,
+  isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({}),
-  isStackConfigured: () => true,
+  // Billing procedures import purchase code that names this export.
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
 }));
 
-mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({}),
-  isStackConfigured: () => true,
+mock.module("next-intl", () => ({
+  useLocale: () => "en",
+  useTranslations: () => (key: string) => key,
 }));
 
-mock.module("@/app/lib/vault-auth", () => ({
-  localizedVaultPath: (locale: string, path: string) => `/${locale}${path}`,
-  vaultSignInHref: (returnPath: string) => `/sign-in?after=${returnPath}`,
-}));
-
-mock.module("../app/lib/vault-auth", () => ({
-  localizedVaultPath: (locale: string, path: string) => `/${locale}${path}`,
-  vaultSignInHref: (returnPath: string) => `/sign-in?after=${returnPath}`,
-}));
-
-mock.module(
-  "../app/[locale]/dashboard/components/query-provider",
-  () => ({
-    DashboardQueryProvider: ({ children }: React.PropsWithChildren) => children,
-  }),
-);
-
-mock.module("../app/[locale]/dashboard/dashboard-account-menu", () => ({
-  DashboardAccountMenu: ({ user }: { user: unknown }) => {
-    accountMenuUsers.push(user);
-    return <span data-testid="account-menu" data-user={user ? "yes" : "no"} />;
-  },
-  DashboardAccountMenuFallback: () => <span data-testid="account-fallback" />,
-}));
-
-mock.module("../app/[locale]/dashboard/dashboard-shell", () => ({
-  DashboardShell: ({
-    children,
-    account,
-  }: React.PropsWithChildren<{ account: React.ReactNode }>) => {
-    dashboardShellRenderCount += 1;
-    return (
-      <div data-testid="dashboard-shell">
-        <header>{account}</header>
-        <main>{children}</main>
-      </div>
-    );
-  },
-}));
-
-const { default: DashboardLayout } = await import(
-  "../app/[locale]/dashboard/layout"
-);
+const layoutModule = await import("../app/[locale]/dashboard/layout");
+const pageModule = await import("../app/[locale]/dashboard/[[...path]]/page");
+const DashboardLayout = layoutModule.default;
+const DashboardPage = pageModule.default;
 
 beforeEach(() => {
-  currentUser = {
-    id: "user-1",
-    isAnonymous: false,
-    primaryEmail: "user@example.com",
-    primaryEmailVerified: true,
-    displayName: "User One",
-  };
-  refreshToken = "refresh-1";
-  requestHeaders = new Headers();
-  authUnavailable = false;
-  dashboardShellRenderCount = 0;
+  stackConfigured = true;
   redirectedTo = null;
-  accountMenuUsers.length = 0;
-  verifyBrowserSessionRequest.mockClear();
 });
 
-afterAll(() => {
-  if (previousProjectId === undefined) {
-    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-  } else {
-    process.env.NEXT_PUBLIC_STACK_PROJECT_ID = previousProjectId;
-  }
-});
-
-async function layout(children: React.ReactNode = <p>Private dashboard content</p>) {
-  return DashboardLayout({
-    children,
-    params: Promise.resolve({ locale: "en" }),
+describe("dashboard Next shell", () => {
+  test("the layout only adds the Stack theme around the SPA", () => {
+    const html = renderToStaticMarkup(
+      <DashboardLayout>
+        <p>SPA</p>
+      </DashboardLayout>,
+    );
+    expect(html).toBe('<div data-testid="stack-theme"><p>SPA</p></div>');
+    expect(redirectedTo).toBeNull();
   });
-}
 
-test("renders the shell and page content without waiting on Stack", async () => {
-  const html = renderToStaticMarkup(await layout());
-
-  // The synchronous pass paints the shell, the page, and the account
-  // fallback. Nothing above the session boundaries awaited the session.
-  expect(dashboardShellRenderCount).toBe(1);
-  expect(html).toContain('data-testid="dashboard-shell"');
-  expect(html).toContain("Private dashboard content");
-  expect(html).toContain('data-testid="account-fallback"');
-  expect(html).not.toContain('data-testid="account-menu"');
-});
-
-test("streams the identity row from one session read shared by every slot", async () => {
-  const html = await renderSettled(await layout());
-
-  expect(html).toContain('data-user="yes"');
-  // React's per-render `cache` only dedupes under the server-components
-  // runtime, so the count is not observable here; the call itself is.
-  expect(verifyBrowserSessionRequest).toHaveBeenCalled();
-  expect(accountMenuUsers[0]).toEqual({
-    id: "user-1",
-    displayName: "User One",
-    primaryEmail: "user@example.com",
-    primaryEmailVerified: true,
-    profileImageUrl: null,
-    selectedTeamId: null,
-    isAnonymous: false,
+  test("the layout sends visitors home when Stack is not configured", () => {
+    stackConfigured = false;
+    expect(() => DashboardLayout({ children: <p>SPA</p> })).toThrow("redirect:/");
+    expect(redirectedTo).toBe("/");
   });
-});
 
-for (const unauthenticatedUser of [
-  null,
-  { id: "anonymous-1", isAnonymous: true },
-] as const) {
-  test(`redirects a ${unauthenticatedUser ? "anonymous" : "rejected"} session cookie to sign-in`, async () => {
-    currentUser = unauthenticatedUser;
-    requestHeaders = new Headers({
-      "x-cmux-dashboard-return-path": "/dashboard/coderouter?team=team-1",
-    });
-
-    // The guard sits behind Suspense, so the redirect is thrown while the
-    // stream settles rather than before the shell renders.
-    await renderSettled(await layout());
-
-    expect(redirectedTo).toBe("/sign-in?after=/en/dashboard/coderouter?team=team-1");
+  test("every dashboard URL shares one static shell", () => {
+    // No instant validation: the SPA owns navigation inside /dashboard.
+    expect("instant" in layoutModule).toBe(false);
+    expect("instant" in pageModule).toBe(false);
   });
-}
 
-test("shows the sign-in control without calling Stack when no session cookie exists", async () => {
-  refreshToken = null;
-
-  const html = await renderSettled(await layout());
-
-  expect(html).toContain('data-user="no"');
-  expect(verifyBrowserSessionRequest).not.toHaveBeenCalled();
-});
-
-test("keeps the shell and page content when Stack is unavailable", async () => {
-  authUnavailable = true;
-
-  const html = await renderSettled(await layout());
-
-  expect(html).toContain('data-testid="dashboard-shell"');
-  expect(html).toContain("Private dashboard content");
-  expect(html).toContain('data-user="no"');
+  test("the static shell is the skeleton; the request-time prefetch streams in behind Suspense", () => {
+    const pending = new Promise<never>(() => undefined);
+    const html = renderToStaticMarkup(<DashboardPage params={pending} searchParams={pending} />);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('data-testid="dashboard-section-skeleton"');
+    expect(html).not.toContain("dashboard-shell");
+  });
 });

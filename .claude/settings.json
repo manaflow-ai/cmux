@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/ci/lint-swift-post-edit.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

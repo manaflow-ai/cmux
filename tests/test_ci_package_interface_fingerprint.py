@@ -34,8 +34,8 @@ GIT_ENV = {
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
     "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
 }
-PKG = "Packages/macOS/CMUXAgentLaunch"
-SOURCE = f"{PKG}/Sources/CMUXAgentLaunch/Launch.swift"
+PKG = "Packages/macOS/FixtureLaunch"
+SOURCE = f"{PKG}/Sources/FixtureLaunch/Launch.swift"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -57,6 +57,10 @@ def failing_build(package: Path, modules, scratch: Path) -> str:
 
 class FingerprintTests(unittest.TestCase):
     def setUp(self) -> None:
+        # No real package is allowlisted today; exercise the classifier with a fixture one.
+        patch = unittest.mock.patch.dict(fp.ALLOWLIST, {"FixtureLaunch": ("FixtureLaunch",)})
+        patch.start()
+        self.addCleanup(patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name) / "repo"
         self.work = Path(self.tmp.name) / "work"
@@ -64,8 +68,8 @@ class FingerprintTests(unittest.TestCase):
         git(self.repo, "init", "-q", "-b", "main")
         self.write(f"{PKG}/Package.swift", "// swift-tools-version: 6.0\n")
         self.write(SOURCE, "public func launch() {}\nfunc helper() { print(1) }\n")
-        self.write(f"{PKG}/Tests/CMUXAgentLaunchTests/LaunchTests.swift", "// test\n")
-        self.write("Sources/App.swift", "import CMUXAgentLaunch\n")
+        self.write(f"{PKG}/Tests/FixtureLaunchTests/LaunchTests.swift", "// test\n")
+        self.write("Sources/App.swift", "import FixtureLaunch\n")
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "base")
 
@@ -88,7 +92,7 @@ class FingerprintTests(unittest.TestCase):
         receipt = self.run_head()
         self.assertEqual(receipt["class"], "interface_equivalent")
         self.assertTrue(receipt["would_skip_app_compile"])
-        package = receipt["packages"]["CMUXAgentLaunch"]
+        package = receipt["packages"]["FixtureLaunch"]
         self.assertEqual(package["interface"], "equivalent")
         self.assertEqual(package["base_sha256"], package["head_sha256"])
 
@@ -97,17 +101,17 @@ class FingerprintTests(unittest.TestCase):
         receipt = self.run_head()
         self.assertEqual(receipt["class"], "interface_changing")
         self.assertFalse(receipt["would_skip_app_compile"])
-        self.assertEqual(receipt["packages"]["CMUXAgentLaunch"]["interface"], "changed")
+        self.assertEqual(receipt["packages"]["FixtureLaunch"]["interface"], "changed")
 
     def test_package_tests_only(self) -> None:
-        self.write(f"{PKG}/Tests/CMUXAgentLaunchTests/LaunchTests.swift", "// test 2\n")
+        self.write(f"{PKG}/Tests/FixtureLaunchTests/LaunchTests.swift", "// test 2\n")
         receipt = self.run_head(build=failing_build)
         self.assertEqual(receipt["class"], "package_tests_only")
         self.assertTrue(receipt["would_skip_app_compile"])
 
     def test_app_edit_beside_package_edit_is_ineligible(self) -> None:
         self.write(SOURCE, "public func launch() {}\nfunc helper() { print(2) }\n")
-        self.write("Sources/App.swift", "import CMUXAgentLaunch\n// edited\n")
+        self.write("Sources/App.swift", "import FixtureLaunch\n// edited\n")
         receipt = self.run_head(build=failing_build)
         self.assertEqual(receipt["class"], "ineligible")
         self.assertFalse(receipt["would_skip_app_compile"])

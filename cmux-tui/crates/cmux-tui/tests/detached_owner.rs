@@ -113,3 +113,51 @@ fn concurrent_ensures_converge_on_one_owner() {
     pids.dedup();
     assert_eq!(pids.len(), 1, "every ensure must report the same owner: {pids:?}");
 }
+
+fn owner_command_line(pid: u64) -> String {
+    let output =
+        Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]).output().unwrap();
+    assert!(output.status.success(), "ps -p {pid} failed: {output:?}");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Reaping is opt-in (`--terminal-reap-grace-seconds`), and the cmux-next app
+/// starts its daemon only through `server ensure`, so ensure must hand the
+/// grace to the owner it spawns. Without the option the owner never reaps.
+#[test]
+fn cmux_next_ensure_starts_the_owner_with_the_reap_grace() {
+    let fixture = EnsureFixture::new("reap");
+    let output =
+        fixture.command("ensure").args(["--terminal-reap-grace-seconds", "30"]).output().unwrap();
+    let started = parse_success("ensure", &output);
+    assert_eq!(started["status"], "started", "{started}");
+    let pid = started["pid"].as_u64().expect("owner pid");
+    let command_line = owner_command_line(pid);
+    assert!(
+        command_line.contains("--terminal-reap-grace-seconds 30"),
+        "owner argv lacks the reap grace: {command_line}"
+    );
+
+    let plain = EnsureFixture::new("noreap");
+    let started = plain.run("ensure");
+    let pid = started["pid"].as_u64().expect("owner pid");
+    let command_line = owner_command_line(pid);
+    assert!(
+        !command_line.contains("--terminal-reap-grace-seconds"),
+        "an owner started without the option must not reap: {command_line}"
+    );
+}
+
+#[test]
+fn cmux_next_ensure_rejects_an_invalid_reap_grace() {
+    let fixture = EnsureFixture::new("badreap");
+    for value in ["soon", "604801"] {
+        let output = fixture
+            .command("ensure")
+            .args(["--terminal-reap-grace-seconds", value])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "ensure accepted reap grace {value:?}");
+        assert!(fixture.command("status").output().unwrap().status.code() != Some(0));
+    }
+}

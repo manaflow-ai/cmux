@@ -1,0 +1,53 @@
+{
+  "id": "perm_toolu_preview",
+  "source": {
+    "harness": "claude",
+    "session": "sess_claude_1",
+    "permission": "perm_toolu_preview",
+    "agentName": "Claude Code",
+    "answerOption": "allow_once",
+    "rejectOption": "reject_once",
+    "toolCall": "toolu_preview"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "header": "Layout",
+      "prompt": "Which layout should the settings page use?",
+      "options": [
+        {
+          "id": "Sidebar",
+          "label": "Sidebar",
+          "detail": "Categories in a left column, one pane at a time.",
+          "preview": {
+            "text": "┌──────────┬──────────────────┐\n│ General  │  Appearance      │\n│ Keys     │  ○ Light ● Dark  │\n│ Agents   │  Font  [ 13 pt ] │\n└──────────┴──────────────────┘",
+            "format": "monospace"
+          }
+        },
+        {
+          "id": "Tabs",
+          "label": "Tabs",
+          "detail": "Categories as a tab bar along the top.",
+          "preview": {
+            "text": "┌ General ┬ Keys ┬ Agents ─────┐\n│                              │\n│  Appearance  ○ Light ● Dark  │\n│  Font        [ 13 pt ]       │\n└──────────────────────────────┘",
+            "format": "monospace"
+          }
+        },
+        {
+          "id": "Single scroll",
+          "label": "Single scroll",
+          "detail": "One long page with section headers.",
+          "preview": {
+            "text": "GENERAL\n  Appearance  ○ Light ● Dark\nKEYS\n  New tab     ⌘T\nAGENTS\n  Default     Claude Code",
+            "format": "monospace"
+          }
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": true
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

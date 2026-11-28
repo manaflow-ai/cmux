@@ -88,6 +88,7 @@ var (
 	ScreenClose        = Operation{"screen.close", Mutation}
 	ScreenLayoutExport = Operation{"screen.layout.export", Read}
 	ScreenLayoutUndo   = Operation{"screen.layout.undo", Mutation}
+	ScreenColumnUpdate = Operation{"column.update", Mutation}
 
 	PaneList             = Operation{"pane.list", Read}
 	PaneGet              = Operation{"pane.get", Read}

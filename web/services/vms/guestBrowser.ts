@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { guestMessageShell } from "./guestCliMessages";
+import { guestClipboardInstallCommand } from "./guestClipboard";
 
 /** Installed on create/heal, independently of the immutable devbox snapshot. */
 export const GUEST_BROWSER_OPENER_PATH = "/usr/local/bin/cmux-open-url";
@@ -113,5 +114,5 @@ export function guestBrowserInstallCommand(): string {
   // A fresh snapshot can already contain these exact files. In particular,
   // repeating xdg-mime for every user needlessly adds subprocesses to create.
   // The byte checks still repair missing, changed, or outdated integration.
-  return `( ${guestBrowserReadyCommand} ) || ( ${install} )`;
+  return `( ( ${guestBrowserReadyCommand} ) || ( ${install} ) ) && ${guestClipboardInstallCommand()}`;
 }

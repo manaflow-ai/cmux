@@ -1,9 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import {
-  beginTerminalSelection,
-  clampTerminalSelection,
-  releaseTerminalSelection,
-} from "../src/lib/terminalSelection";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../src/lib/terminalSelection";
 
 function fixture() {
   const shell = document.createElement("main");

@@ -8,10 +8,9 @@ public struct MobileBrowserFrameSizeBudget: Equatable, Sendable {
     /// Maximum base64 character count allowed for image data.
     public let maximumBase64Bytes: Int
 
-    /// Creates a frame-size budget.
+    /// Creates a frame-size budget. A budget below one byte becomes one byte.
     public init(maximumBase64Bytes: Int = Self.defaultMaximumBase64Bytes) {
-        precondition(maximumBase64Bytes > 0)
-        self.maximumBase64Bytes = maximumBase64Bytes
+        self.maximumBase64Bytes = max(1, maximumBase64Bytes)
     }
 
     /// Returns the base64 character count for an encoded byte count.

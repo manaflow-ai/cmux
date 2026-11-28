@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../src/lib/attachRecovery";
 
 describe("surface attach recovery", () => {

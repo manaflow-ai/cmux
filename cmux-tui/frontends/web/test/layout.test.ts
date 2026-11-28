@@ -1,12 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Layout } from "cmux/raw";
 import { layoutToViewModel, visibleStackPanes } from "../src/lib/layout";
-import {
-  clampSplitRatio,
-  splitDividerTarget,
-  splitRatioFromPointer,
-  splitRatioToCommit,
-} from "../src/lib/splitDrag";
+import { clampSplitRatio, splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../src/lib/splitDrag";
 
 describe("layoutToViewModel", () => {
   it("maps nested split directions and ratios to flex percentages", () => {
@@ -59,13 +54,15 @@ describe("layoutToViewModel", () => {
   });
 
   it("rejects split snapshots without stable split IDs", () => {
-    expect(() => layoutToViewModel({
-      type: "split",
-      dir: "right",
-      ratio: 0.5,
-      a: { type: "leaf", pane: 1n },
-      b: { type: "leaf", pane: 2n },
-    })).toThrow("invalid split layout");
+    expect(() =>
+      layoutToViewModel({
+        type: "split",
+        dir: "right",
+        ratio: 0.5,
+        a: { type: "leaf", pane: 1n },
+        b: { type: "leaf", pane: 2n },
+      }),
+    ).toThrow("invalid split layout");
   });
 
   it("preserves Zellij stack order and the expanded pane", () => {
@@ -76,16 +73,20 @@ describe("layoutToViewModel", () => {
   });
 
   it("rejects malformed stack snapshots", () => {
-    expect(() => layoutToViewModel({
-      type: "stack",
-      panes: [],
-      expanded: 1n,
-    } as unknown as Layout)).toThrow("invalid stack layout");
-    expect(() => layoutToViewModel({
-      type: "stack",
-      panes: [1n, 2n],
-      expanded: 3n,
-    })).toThrow("invalid stack layout");
+    expect(() =>
+      layoutToViewModel({
+        type: "stack",
+        panes: [],
+        expanded: 1n,
+      } as unknown as Layout),
+    ).toThrow("invalid stack layout");
+    expect(() =>
+      layoutToViewModel({
+        type: "stack",
+        panes: [1n, 2n],
+        expanded: 3n,
+      }),
+    ).toThrow("invalid stack layout");
   });
 });
 

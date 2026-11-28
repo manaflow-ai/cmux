@@ -400,6 +400,53 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, ok := layout.Root.(LayoutLeaf); !ok {
 		t.Fatalf("layout root type = %T", layout.Root)
 	}
+	viewport := func(dock string) json.RawMessage {
+		return json.RawMessage(
+			`{"version":1,` +
+				`"screen_id":"screen_00000000000000000000000000000004",` +
+				`"active_pane_id":"pane_00000000000000000000000000000005",` +
+				`"zoomed_pane_id":null,` +
+				`"root":{"kind":"viewport","base_width":0.5,"columns":[` +
+				`{"column_id":"split_00000000000000000000000000000008","width":0.5,` +
+				`"root":{"kind":"leaf","pane_id":"pane_00000000000000000000000000000005","tab_ids":[]}` +
+				dock + `},` +
+				`{"column_id":"split_00000000000000000000000000000009","width":0.5,` +
+				`"root":{"kind":"leaf","pane_id":"pane_0000000000000000000000000000000a","tab_ids":[]}}]}}`,
+		)
+	}
+	pinned, err := decodeValue[LayoutDocument](
+		viewport(`,"dock":{"edge":"top","mode":"docked"}`),
+		"layout",
+	)
+	if err != nil {
+		t.Fatalf("viewport with a dock column: %v", err)
+	}
+	columns := pinned.Root.(LayoutViewport).Columns
+	if columns[0].Dock == nil || *columns[0].Dock != (LayoutColumnDock{Edge: "top", Mode: "docked"}) ||
+		columns[1].Dock != nil {
+		t.Fatalf("dock flags = %#v, %#v", columns[0].Dock, columns[1].Dock)
+	}
+	if _, err := decodeValue[LayoutDocument](viewport(`,"dock":null`), "layout"); err != nil {
+		t.Fatalf("null dock: %v", err)
+	}
+	// R87: `sticky`, the pre-rename name, still decodes (replayed results).
+	legacy, err := decodeValue[LayoutDocument](
+		viewport(`,"sticky":{"edge":"left","mode":"overlay"}`),
+		"layout",
+	)
+	if err != nil {
+		t.Fatalf("viewport with a legacy sticky column: %v", err)
+	}
+	if got := legacy.Root.(LayoutViewport).Columns[0].Dock; got == nil ||
+		*got != (LayoutColumnDock{Edge: "left", Mode: "overlay"}) {
+		t.Fatalf("legacy sticky flag = %#v", got)
+	}
+	if _, err := decodeValue[LayoutDocument](
+		viewport(`,"dock":{"edge":"diagonal","mode":"docked"}`),
+		"layout",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("unknown dock edge error = %T %v", err, err)
+	}
 	if _, err := decodeValue[LayoutDocument](
 		json.RawMessage(
 			`{"version":1,`+

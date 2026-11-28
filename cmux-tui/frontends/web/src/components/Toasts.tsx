@@ -12,8 +12,13 @@ export function Toasts({ toasts, onDismiss }: ToastsProps) {
     <div className="toast-stack" aria-live="polite">
       {toasts.map((toast) => (
         <article className={`toast ${toast.level}`} key={toast.notification}>
-          <div><strong>{toast.title}</strong><p>{toast.body}</p></div>
-          <button type="button" onClick={() => onDismiss(toast.notification)} aria-label={t("closeNotification")}>×</button>
+          <div>
+            <strong>{toast.title}</strong>
+            <p>{toast.body}</p>
+          </div>
+          <button type="button" onClick={() => onDismiss(toast.notification)} aria-label={t("closeNotification")}>
+            ×
+          </button>
         </article>
       ))}
     </div>

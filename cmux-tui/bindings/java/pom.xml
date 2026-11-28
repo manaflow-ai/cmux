@@ -11,8 +11,8 @@
   <url>https://github.com/manaflow-ai/cmux</url>
   <licenses>
     <license>
-      <name>GNU General Public License v3.0</name>
-      <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+      <name>GPL-3.0-or-later</name>
+      <url>https://spdx.org/licenses/GPL-3.0-or-later.html</url>
       <distribution>repo</distribution>
     </license>
   </licenses>

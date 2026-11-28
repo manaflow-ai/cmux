@@ -1,0 +1,97 @@
+name: cloud image staleness
+
+# Reports (one issue, never a red check) when a Cloud VM image that a channel points at (images/cmux-vm/channels/*.json: the
+# personal Cloud image and the team VM image) lacks a daemon capability the tip's cmux-tui
+# serves, or differs from the tip and is more than 7 days older (bead cx-4l51,
+# scripts/cmux-next/release/image-staleness.ts, plans/cmux-next/release-rails.md "Image
+# staleness"). It reads the capability list each bake recorded in channels/dev.json history and
+# the tip's list from the cmux-tui source: no VM, no secrets, no deploys.
+#
+# On feat-cmux-next it keeps ONE open issue with the label cloud-image-stale up to date (the body
+# is replaced, no comment per push) and closes it when the images match the tip again. The fix is
+# a rebake from the tip and a promotion (images/cmux-vm/promote.ts), never a change here.
+
+on:
+  push:
+    # The trunk only: lane side branches touch cmux-tui all day and are not what new VMs boot.
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/crates/**
+      - images/cmux-vm/channels/**
+      - backend/apps/api/wrangler.jsonc
+      - scripts/cmux-next/release/image-staleness.ts
+      - .github/workflows/cloud-image-staleness.yml
+  # Dormant: GitHub runs schedules only from the default branch (main), and cmux-next does not
+  # change main now. This block takes effect when feat-cmux-next reaches main; until then the push
+  # trigger above is the check (a capability is added by a push, which is when drift starts).
+  schedule:
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-image-staleness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staleness:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        working-directory: scripts/cmux-next/release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Compare the channel images with the tip's capabilities
+        id: staleness
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bun image-staleness.ts | tee "$RUNNER_TEMP/staleness-report.txt"
+      - name: Open, update, or close the cloud-image-stale issue
+        if: github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          OUTCOME: ${{ steps.staleness.outcome }}
+          HEAD_SHA: ${{ github.sha }}
+          REPORT: ${{ runner.temp }}/staleness-report.txt
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'cloud-image-stale';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync(process.env.REPORT) ? fs.readFileSync(process.env.REPORT, 'utf8').trim() : '(no report)';
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (process.env.OUTCOME === 'success') {
+              if (open.data.length > 0) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `The channel images match the tip again at ${process.env.HEAD_SHA} (${runUrl}).\n\n\`\`\`\n${report}\n\`\`\`` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `A cmux-next Cloud VM image is behind the feat-cmux-next tip at ${process.env.HEAD_SHA} (${runUrl}). New Cloud machines and team VMs boot it, so app features gated on the missing daemon capabilities do not work there.\n\nFix: bake from a published tip cmux-tui (images/cmux-vm/inputs.lock.json, \`bun ../images/cmux-vm/bake.ts --tag <tag> --agent-tools [--team-vm]\` from web/), smoke it, append the bake record with \`cmux_tui.capabilities\` to images/cmux-vm/channels/dev.json history, promote with \`bun images/cmux-vm/promote.ts\`, and deploy the env (plans/cmux-next/release-rails.md). This issue is updated in place and closes itself on the first run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'A cmux-next Cloud VM image lacks daemon capabilities of the feat-cmux-next tip' });
+            }
+            if (open.data.length > 0) await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+            else await github.rest.issues.create({ owner, repo, title: 'cmux-next Cloud VM image is behind the feat-cmux-next tip', labels: [label], body });
+      # Issue only (lead decision 2026-10-09): image staleness is not a code red, so the job stays
+      # green and never blocks a landing; the cloud-image-stale issue is the signal.
+      - name: Warn when an image is stale
+        if: steps.staleness.outcome != 'success'
+        run: echo "::warning title=Cloud image stale::A channel image lacks tip daemon capabilities or has no capability record; see the report above and the cloud-image-stale issue."

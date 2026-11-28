@@ -1,0 +1,54 @@
+{
+  "permissionId": "perm_toolu_single",
+  "session": "sess_claude_1",
+  "request": {
+    "sessionId": "sess_claude_1",
+    "toolCall": {
+      "toolCallId": "toolu_single",
+      "title": "Question: Which auth method should the API use?",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "question": "Which auth method should the API use?",
+            "header": "Auth method",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "OAuth 2.0",
+                "description": "Delegated sign-in through the identity provider; best for third-party clients."
+              },
+              {
+                "label": "API keys",
+                "description": "One static key per integration. Simple, but keys must be rotated by hand."
+              },
+              {
+                "label": "Passkeys",
+                "description": "WebAuthn credentials bound to the device. No shared secret on the server."
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "claude": {
+          "tool": "AskUserQuestion",
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

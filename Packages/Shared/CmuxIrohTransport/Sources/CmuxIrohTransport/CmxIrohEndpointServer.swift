@@ -109,19 +109,17 @@ public actor CmxIrohEndpointServer {
         recoverEndpoint: @escaping EndpointRecovery,
         handler: @escaping ConnectionHandler
     ) {
-        precondition(maximumPendingAdmissions > 0)
-        precondition(maximumPendingAdmissionsPerIdentity > 0)
-        precondition(maximumPendingAdmissionsPerIdentity <= maximumPendingAdmissions)
-        precondition(maximumConnections > 0)
-        precondition(maximumConnectionsPerIdentity > 0)
-        precondition(maximumConnectionsPerIdentity <= maximumConnections)
-        precondition(admissionTimeout > 0)
+        // Out-of-range limits are corrected, not trapped: every limit is at least
+        // one, a per-identity limit is at most its total, and an admission timeout
+        // that is not positive takes the 15 s default.
+        let maximumPendingAdmissions = max(1, maximumPendingAdmissions)
+        let maximumConnections = max(1, maximumConnections)
         self.supervisor = supervisor
         self.maximumPendingAdmissions = maximumPendingAdmissions
-        self.maximumPendingAdmissionsPerIdentity = maximumPendingAdmissionsPerIdentity
+        self.maximumPendingAdmissionsPerIdentity = min(max(1, maximumPendingAdmissionsPerIdentity), maximumPendingAdmissions)
         self.maximumConnections = maximumConnections
-        self.maximumConnectionsPerIdentity = maximumConnectionsPerIdentity
-        self.admissionTimeout = admissionTimeout
+        self.maximumConnectionsPerIdentity = min(max(1, maximumConnectionsPerIdentity), maximumConnections)
+        self.admissionTimeout = admissionTimeout > 0 ? admissionTimeout : 15
         self.clock = clock
         self.recoverEndpoint = recoverEndpoint
         self.handler = handler

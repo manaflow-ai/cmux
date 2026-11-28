@@ -1,0 +1,87 @@
+name: cmux-tui Windows check
+
+# A fast compile check of cmux-tui-core and the cmux-tui bins for
+# x86_64-pc-windows-gnu, cross-compiled on Linux. Two feat-cmux-next landings
+# broke the Windows build on 2026-10-08 and only the dispatch-only full-mode
+# cmux-tui.yml run (test (windows)) caught them hours later. This runs on every
+# push to feat-cmux-next and to its side branches (feat-cmux-next-*), so a
+# unix-only item is caught within minutes, before or right after it lands.
+on:
+  push:
+    branches:
+      - feat-cmux-next
+      - "feat-cmux-next-*"
+    paths:
+      - "cmux-tui/**"
+      - "ghostty-next"
+      - ".github/workflows/cmux-tui-windows-check.yml"
+      - ".github/actions/setup-cmux-tui-rust/**"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-tui-windows-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+  GHOSTTY_ZIG_SOURCE: ghostty-next
+
+jobs:
+  windows-gnu-check:
+    name: cargo check (x86_64-pc-windows-gnu)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install Linux and MinGW build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+
+      - name: Cache Zig package downloads
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
+          restore-keys: |
+            cmux-tui-zig-
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch Ghostty Zig packages
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install the Windows GNU Rust target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      # One key per branch scope; feat-cmux-next side branches restore the
+      # trunk's cache and build incrementally.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-windows-gnu-check
+
+      - name: cargo check cmux-tui-core and cmux-tui for Windows
+        working-directory: cmux-tui
+        run: |
+          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui; then
+            echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
+            exit 1
+          fi

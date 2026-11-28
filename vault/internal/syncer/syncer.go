@@ -72,7 +72,7 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 			e.print("skip unchanged %s %s\n", session.AgentName, session.RelPath)
 			continue
 		}
-		hash, err := sha256File(session.AbsPath)
+		hash, err := sha256File(session)
 		if err != nil {
 			summary.Failed++
 			e.print("fail hash %s %s: %v\n", session.AgentName, session.RelPath, err)
@@ -203,7 +203,7 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 func (e *Engine) prepareBatch(batch []candidate) ([]candidate, error) {
 	prepared := make([]candidate, 0, len(batch))
 	for _, c := range batch {
-		result, err := compressFile(c.session.AbsPath, e.TempDir)
+		result, err := compressFile(c.session, e.TempDir)
 		if err != nil {
 			e.cleanup(prepared)
 			return nil, err
@@ -304,8 +304,8 @@ func itemKey(agent, relPath string) string {
 	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(relPath)
 }
 
-func sha256File(path string) (string, error) {
-	file, _, err := agentdirs.OpenRegularFileNoSymlink(path)
+func sha256File(session agentdirs.Session) (string, error) {
+	file, err := agentdirs.OpenDiscoveredSession(session)
 	if err != nil {
 		return "", err
 	}
@@ -324,7 +324,7 @@ type compressResult struct {
 	plainSize      int64
 }
 
-func compressFile(path, tempDir string) (compressResult, error) {
+func compressFile(session agentdirs.Session, tempDir string) (compressResult, error) {
 	var result compressResult
 	if strings.TrimSpace(tempDir) == "" {
 		tempDir = os.TempDir()
@@ -332,7 +332,7 @@ func compressFile(path, tempDir string) (compressResult, error) {
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return result, err
 	}
-	in, _, err := agentdirs.OpenRegularFileNoSymlink(path)
+	in, err := agentdirs.OpenDiscoveredSession(session)
 	if err != nil {
 		return result, err
 	}

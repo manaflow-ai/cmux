@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { maxActiveVmsForPlan } from "../services/vms/entitlements";
+import { PAID_MAX_ACTIVE_VMS_DEFAULT } from "../services/vms/machineSpec";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmRepository, VmRepositoryLive } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -54,12 +55,12 @@ describe("VM review regressions", () => {
   }));
 
   for (const operation of ["resize", "exec", "attach", "session", "cmux-remote"] as const) {
-    for (const allowance of [maxActiveVmsForPlan("team", {}, { seats: 4 }), null, 50, undefined]) {
+    for (const allowance of [maxActiveVmsForPlan("team", {}, { seats: 10 }), null, 20, undefined]) {
       dbTest(`${operation} resumes a paused Team VM using allowance ${allowance}`, () => withTeam(async team => {
         await sql`
           insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
           select ${team}, ${team}, 'team', 'freestyle', ${team} || '-' || n, 'snapshot-test', 'running'
-          from generate_series(1, 51) n
+          from generate_series(1, 21) n
         `;
         const providerVmId = `${team}-paused`;
         await sql`
@@ -118,9 +119,11 @@ describe("VM review regressions", () => {
             Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
           )),
         ));
-        if (allowance === 50 || allowance === undefined) {
+        if (allowance === 20 || allowance === undefined) {
           expect(result._tag).toBe("Left");
-          if (result._tag === "Left") expect(result.left).toMatchObject({ _tag: "VmLimitExceededError", limit: 50 });
+          // Without an explicit allowance, a Team row without seat data gets one seat's machines.
+          const limit = allowance ?? PAID_MAX_ACTIVE_VMS_DEFAULT;
+          if (result._tag === "Left") expect(result.left).toMatchObject({ _tag: "VmLimitExceededError", limit });
           expect(resumes).toBe(0);
           expect(operations).toBe(0);
         } else {

@@ -24,8 +24,6 @@
       "!!GhosttyKit.xcframework",
       "!!Native/**/target",
       "!!Packages/**/.build",
-      "!!Resources/agent-session-react",
-      "!!Resources/agent-session-solid",
       "!!Resources/markdown-viewer",
       "!!web/.next",
       "!!web/.pagefind-site",

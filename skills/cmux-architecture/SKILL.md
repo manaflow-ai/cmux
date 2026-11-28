@@ -15,7 +15,7 @@ cmux is migrating from a single app target into Swift Packages under `Packages/`
 
 When in doubt, extract leaf-first: the package with no internal dependencies. Existing packages under `Packages/` predate this policy; do not use them as design references.
 
-Wiring a new package into `cmux.xcodeproj` needs explicit pbxproj entries in **both** the `cmux` and `cmuxTests` targets (`cmuxTests` is what the `cmux-unit` scheme runs). See [references/package-boundaries.md](references/package-boundaries.md).
+The macOS app lives in `Packages/macOS/CmuxNext`, one module per feature; the `cmux-next` Xcode target links only its `CmuxNextApp` product. A new app module is a target in that `Package.swift`, with no pbxproj edit. A package linked directly by an Xcode target (`cmux-next`, `cmux-cli`, `cmuxCLITests`) needs explicit pbxproj entries; see [references/package-boundaries.md](references/package-boundaries.md).
 
 **Group folders.** Every package lives physically under exactly one group directory: `Packages/Shared/<pkg>` (both apps), `Packages/iOS/<pkg>` (iOS only), or `Packages/macOS/<pkg>` (macOS only). `cmux.xcworkspace/contents.xcworkspacedata` mirrors that folder shape, with three groups whose container locations are those folders and every package directory as a FileRef under its folder's group. The folder is the source of truth: to move a package, `git mv` the directory then run `python3 scripts/check-workspace-package-groups.py --write`. Cross-group `.package(path:)` deps use `../../<Group>/<Name>`. Never hand-edit workspace group membership. CI runs `python3 scripts/check-workspace-package-groups.py --check` and fails on drift.
 
@@ -30,8 +30,8 @@ Five layers, dependencies point only downward:
 1. **Core** (`CmuxCore`): pure `Sendable` values, IDs, DTOs, errors, shared protocol seams. No AppKit/SwiftUI/I/O. The lift target when two domains need the same type.
 2. **Services / infrastructure**: `actor`s implementing core protocols against the outside world (process/PTY, filesystem, sockets, web API, notifications, auth). One package per cohesive capability.
 3. **Domain / state**: `@MainActor @Observable` models plus Coordinators, one package per feature domain, owning that domain's mutable state. Exemplar `CmuxSettings`.
-4. **UI**: SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package plus Core, never a Service directly. Exemplar `CmuxSettingsUI`.
-5. **Executable** (`cmuxApp` / `AppDelegate`): thin composition shim, no business logic.
+4. **UI**: SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package plus Core, never a Service directly.
+5. **Executable** (`App/main.swift` plus the `CmuxNextApp` module): thin composition shim, no business logic.
 
 Classify every extracted entity by intent:
 
@@ -39,14 +39,14 @@ Classify every extracted entity by intent:
 - **Service**: `actor` (or `@MainActor` only when an AppKit main-thread API forces it) performing one outside-world capability; exposes `async`/`await` plus `AsyncStream`; holds only its own resource handles and no UI state.
 - **Repository**: `actor` mediating one persistence source of truth (file, defaults, web API) behind CRUD-shaped async methods returning value types. Precedents: `JSONConfigStore`, `UserDefaultsSettingsStore`.
 
-**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree (as `SettingsRuntime` does), never service wiring.
+**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree, never service wiring.
 
 **State and SwiftUI.** Domain state lives in `@MainActor @Observable` models, never `ObservableObject`/`@Published`. A god model decomposes into cohesive child `@Observable` sub-models owned by their domain packages and composed by held reference; cross-domain reads go behind read-only protocols. In views use `@State` (owned), `@Bindable` or plain `let` (passed in), or `@Environment(M.self)` plus `.environment(...)` (injected). Never `@StateObject` / `@ObservedObject` / `@EnvironmentObject` / `.environmentObject(_:)`.
 
 **Executable-target boundary (invert, never work around):**
 
-1. `@main` `cmuxApp` and `AppDelegate` stay in the executable target as the thin composition shim. That residual is the intended end state, not debt.
-2. A type is declared in exactly one module and a lower package cannot extend a higher-owned type, so `AppDelegate+*` / `cmuxApp+*` / `Workspace+*` extensions do not move down. Extract the behavior into a Coordinator/Service/Repository, have the god object own an instance, and reduce the extension to a one-line forward.
+1. `CmuxNextApp` (its `AppDelegate` and composition types) is the thin composition shim. That residual is the intended end state, not debt.
+2. A type is declared in exactly one module and a lower package cannot extend a higher-owned type, so `AppDelegate+*` extensions do not move down. Extract the behavior into a Coordinator/Service/Repository, have the god object own an instance, and reduce the extension to a one-line forward.
 3. Stored properties cannot cross module boundaries. Decompose god-model state into child `@Observable` sub-models owned by domain packages, composed by held reference, with cross-cutting reads behind read-only protocols.
 
 ## File organization
@@ -56,7 +56,7 @@ One major type per file, named after the type (`Control.swift`, `LabeledChoice.s
 - Trivial private helpers, nested types, and single-line extensions used only inside the file may stay with the parent type. Anything with a meaningful body gets its own file, including a `private final class` nested in another file's type.
 - Conformance-adding extensions for a type defined elsewhere go in `TypeName+Conformance.swift` or `TypeName+Feature.swift`, not bundled into the consuming feature file.
 - Type-erased wrappers live next to what they erase: `Foo.swift` and `AnyFoo.swift`.
-- The god files (`ContentView.swift`, `Workspace.swift`, `TabManager.swift`, `cmuxApp.swift`) are what this rule exists to stop. Splitting one file per type is correct even if it triples the file count. File count is cheap; "find this type" being unanswerable is expensive.
+- God files are what this rule exists to stop; in `Packages/macOS/CmuxNext`, `scripts/cmux-next/check-no-godfiles.sh` enforces it. Splitting one file per type is correct even if it triples the file count. File count is cheap; "find this type" being unanswerable is expensive.
 
 ## Documentation
 

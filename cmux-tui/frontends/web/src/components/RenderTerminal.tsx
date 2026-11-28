@@ -44,25 +44,18 @@ const RenderRowView = memo(function RenderRowView({
     >
       {row.runs.map((run, runIndex) => {
         const presentation = runPresentation(run, defaultFg, defaultBg);
-        const usesDefaultBackground =
-          run.bg === null && (run.attrs & renderAttrs.inverse) === 0;
+        const usesDefaultBackground = run.bg === null && (run.attrs & renderAttrs.inverse) === 0;
         const style = backgroundOnly
           ? {
-            color: "transparent",
-            backgroundColor: usesDefaultBackground
-              ? "transparent"
-              : presentation.style.backgroundColor,
-            ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
-          }
+              color: "transparent",
+              backgroundColor: usesDefaultBackground ? "transparent" : presentation.style.backgroundColor,
+              ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
+            }
           : mode === "foreground"
             ? { ...presentation.style, backgroundColor: "transparent" }
             : presentation.style;
         return (
-          <span
-            className={backgroundOnly ? "render-run" : presentation.className}
-            style={style}
-            key={runIndex}
-          >
+          <span className={backgroundOnly ? "render-run" : presentation.className} style={style} key={runIndex}>
             {run.text}
           </span>
         );
@@ -98,23 +91,14 @@ const RenderRowsView = memo(function RenderRowsView({
   ));
 });
 
-export function RenderTerminal({
-  client,
-  surface,
-  active,
-  error,
-  focusOnMount = false,
-  onError,
-}: RenderTerminalProps) {
-  const {
-    terminalRef,
-    focused,
-    model,
-    history,
-    backToLive,
-    sendKey,
-    sendText,
-  } = useRenderTerminal({ client, surface, active, focusOnMount, onError });
+export function RenderTerminal({ client, surface, active, error, focusOnMount = false, onError }: RenderTerminalProps) {
+  const { terminalRef, focused, model, history, backToLive, sendKey, sendText } = useRenderTerminal({
+    client,
+    surface,
+    active,
+    focusOnMount,
+    onError,
+  });
   const rows = history.active ? history.rows : (model?.rows ?? []);
   const defaultFg = model?.defaultFg ?? "var(--terminal-foreground)";
   const defaultBg = model?.defaultBg ?? "var(--terminal-background)";
@@ -125,48 +109,33 @@ export function RenderTerminal({
     backgroundColor: defaultBg,
   } satisfies CSSProperties;
   const cursor = model?.cursor;
-  const cursorStyle = cursor === undefined ? undefined : {
-    left: `calc(var(--render-cell-width) * ${cursor.x})`,
-    top: `calc(var(--render-cell-height) * ${cursor.y})`,
-    color: cursor.color ?? "var(--terminal-cursor)",
-  } satisfies CSSProperties;
+  const cursorStyle =
+    cursor === undefined
+      ? undefined
+      : ({
+          left: `calc(var(--render-cell-width) * ${cursor.x})`,
+          top: `calc(var(--render-cell-height) * ${cursor.y})`,
+          color: cursor.color ?? "var(--terminal-cursor)",
+        } satisfies CSSProperties);
   const projectedGraphics = history.active
     ? projectRenderGraphicsToRows(model?.graphics, rows, model?.historyEpoch, history.epoch)
     : model?.graphics;
-  const layeredGraphics = projectedGraphics !== undefined
-    && projectedGraphics.images.length > 0
-    && projectedGraphics.placements.length > 0
-    ? projectedGraphics
-    : undefined;
+  const layeredGraphics =
+    projectedGraphics !== undefined && projectedGraphics.images.length > 0 && projectedGraphics.placements.length > 0
+      ? projectedGraphics
+      : undefined;
   const rowKeyPrefix = history.active ? "history" : "live";
 
   return (
-    <TerminalFrame
-      client={client}
-      focused={focused}
-      error={error}
-      onKey={sendKey}
-      onSend={sendText}
-    >
-      <div
-        className="terminal-host render-terminal-host"
-        ref={terminalRef}
-      >
-        <div
-          className={`render-scroll${history.active ? " history" : " live"}`}
-          data-render-scroll
-        >
+    <TerminalFrame client={client} focused={focused} error={error} onKey={sendKey} onSend={sendText}>
+      <div className="terminal-host render-terminal-host" ref={terminalRef}>
+        <div className={`render-scroll${history.active ? " history" : " live"}`} data-render-scroll>
           <div className="render-grid" style={gridStyle} role="log">
             {layeredGraphics === undefined ? (
-              <RenderRowsView
-                defaultFg={defaultFg}
-                defaultBg={defaultBg}
-                keyPrefix={rowKeyPrefix}
-                rows={rows}
-              />
+              <RenderRowsView defaultFg={defaultFg} defaultBg={defaultBg} keyPrefix={rowKeyPrefix} rows={rows} />
             ) : (
               <RenderGraphics
-                backgroundChildren={(
+                backgroundChildren={
                   <RenderRowsView
                     defaultBg={defaultBg}
                     defaultFg={defaultFg}
@@ -174,16 +143,16 @@ export function RenderTerminal({
                     mode="background"
                     rows={rows}
                   />
-                )}
+                }
                 graphics={layeredGraphics}
-                plainChildren={(
+                plainChildren={
                   <RenderRowsView
                     defaultBg={defaultBg}
                     defaultFg={defaultFg}
                     keyPrefix={`${rowKeyPrefix}-plain`}
                     rows={rows}
                   />
-                )}
+                }
               >
                 <RenderRowsView
                   defaultBg={defaultBg}
@@ -209,11 +178,13 @@ export function RenderTerminal({
           aria-label={t("terminalInput")}
           autoCapitalize="off"
           autoComplete="off"
-        autoCorrect="off"
-        autoFocus={focusOnMount}
-        spellCheck={false}
+          autoCorrect="off"
+          autoFocus={focusOnMount}
+          spellCheck={false}
         />
-        <span className="render-metric-probe" data-render-probe aria-hidden="true">W</span>
+        <span className="render-metric-probe" data-render-probe aria-hidden="true">
+          W
+        </span>
         {history.active && (
           <button
             className="back-to-live"
@@ -225,7 +196,9 @@ export function RenderTerminal({
           </button>
         )}
         {history.active && history.loading && history.rows.length === 0 && (
-          <div className="scrollback-status" role="status">{t("loadingScrollback")}</div>
+          <div className="scrollback-status" role="status">
+            {t("loadingScrollback")}
+          </div>
         )}
       </div>
     </TerminalFrame>

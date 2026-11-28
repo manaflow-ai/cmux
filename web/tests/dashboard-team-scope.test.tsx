@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DashboardTeamScope } from "../app/[locale]/dashboard/dashboard-team-scope";
+import type { DashboardTeamScope } from "../dashboard-app/shell/dashboard-team-scope";
 
 type ReadyTeamScope = Extract<DashboardTeamScope, { status: "ready" }>;
 
@@ -20,8 +20,9 @@ let pending = false;
 let searchTeam: string | null = null;
 let legacyCookieScope: string | null = "team-2";
 const queryData = new Map<string, unknown>();
-const routerReplace = mock(() => undefined);
-const routerRefresh = mock(() => undefined);
+// `replaceSearch` is recorded as the resulting dashboard URL.
+const routerReplace = mock((url: string) => url);
+const routerRefresh = mock(async () => undefined);
 
 function queryKey(value: readonly unknown[]): string {
   return JSON.stringify(value);
@@ -41,17 +42,16 @@ mock.module("@tanstack/react-query", () => ({
   useQueryClient: () => queryClient,
 }));
 
-mock.module("next/navigation", () => ({
-  useSearchParams: () => ({
-    get: (name: string) => (name === "team" ? searchTeam : null),
-    has: (name: string) => name === "team" && searchTeam !== null,
-    toString: () => searchTeam ? `team=${encodeURIComponent(searchTeam)}` : "",
+mock.module("../dashboard-app/lib/url", () => ({
+  useDashboardUrl: () => ({
+    pathname: "/dashboard/coderouter",
+    searchParams: new URLSearchParams(searchTeam ? { team: searchTeam } : {}),
+    replaceSearch: (search: URLSearchParams) => {
+      const query = search.toString();
+      routerReplace(`/dashboard/coderouter${query ? `?${query}` : ""}`);
+    },
+    refresh: routerRefresh,
   }),
-}));
-
-mock.module("@/i18n/navigation", () => ({
-  usePathname: () => "/dashboard/coderouter",
-  useRouter: () => ({ replace: routerReplace, refresh: routerRefresh }),
 }));
 
 mock.module("@/services/coderouter/organizationScope", () => ({
@@ -64,15 +64,31 @@ mock.module("@/services/coderouter/organizationScope", () => ({
   },
 }));
 
-const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
-  "../app/[locale]/dashboard/dashboard-team-scope"
+const {
+  useDashboardTeamScope,
+  isCurrentRefreshGeneration,
+  parseTeamCatalog,
+  selectedTeam,
+  permittedTeams,
+} = await import(
+  "../dashboard-app/shell/dashboard-team-scope"
 );
 
 let probedScope: DashboardTeamScope | undefined;
 
-function Probe({ userId }: { userId: string | null }) {
-  const scope = useDashboardTeamScope(userId);
+const recordScope = (scope: DashboardTeamScope) => {
   probedScope = scope;
+};
+
+function Probe({
+  userId,
+  onScope = recordScope,
+}: {
+  userId: string | null;
+  onScope?: (scope: DashboardTeamScope) => void;
+}) {
+  const scope = useDashboardTeamScope(userId);
+  onScope(scope);
   return (
     <pre data-status={scope.status}>
       {scope.status === "ready"
@@ -121,6 +137,12 @@ const twoTeams: Catalog = {
     },
   ],
 };
+
+/** The RPC link encodes each call asynchronously; wait (microtasks only) until `ready`. */
+async function waitFor(ready: () => boolean): Promise<void> {
+  for (let tick = 0; tick < 200 && !ready(); tick += 1) await new Promise<void>((resolve) => queueMicrotask(resolve));
+  if (!ready()) throw new Error("condition not reached");
+}
 
 describe("dashboard team scope", () => {
   beforeEach(() => {
@@ -174,6 +196,14 @@ describe("dashboard team scope", () => {
     expect(selectedTeam(teams, null, null).id).toBe("user-1");
   });
 
+  test("ignores an older refresh completion when refreshes overlap", () => {
+    const firstRefresh = 1;
+    const retryRefresh = 2;
+
+    expect(isCurrentRefreshGeneration(retryRefresh, firstRefresh)).toBe(false);
+    expect(isCurrentRefreshGeneration(retryRefresh, retryRefresh)).toBe(true);
+  });
+
   test("rejects malformed catalogs instead of rendering them", () => {
     expect(parseTeamCatalog({ selectedTeamId: null, teams: [] })).toEqual({
       selectedTeamId: null,
@@ -205,6 +235,7 @@ describe("dashboard team scope", () => {
     try {
       const scope = renderReadyScope();
       const switching = scope.switchTeam(twoTeams.teams[0]!);
+      await waitFor(() => signal !== undefined);
       expect(signal).toBeInstanceOf(AbortSignal);
       expect(expire).toBeDefined();
       expire!();
@@ -235,13 +266,46 @@ describe("dashboard team scope", () => {
       expect(routerReplace).toHaveBeenCalledWith("/dashboard/coderouter?team=user-1");
       expect(routerRefresh).not.toHaveBeenCalled();
 
-      resolveFetch!(new Response(null, { status: 204 }));
+      await waitFor(() => resolveFetch !== undefined);
+      resolveFetch!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await switching;
 
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
       expect(routerRefresh).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not keep the team switch pending while the route refreshes", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    let signalRefreshStarted: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      signalRefreshStarted = resolve;
+    });
+    routerRefresh.mockImplementation(() => new Promise<undefined>((resolve) => {
+      signalRefreshStarted!();
+      resolveRefresh = () => resolve(undefined);
+    }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ json: { selectedTeamId: "confirmed" } })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const switching = scope.switchTeam(twoTeams.teams[0]!);
+
+      await refreshStarted;
+      expect(resolveRefresh).toBeDefined();
+      let completed = false;
+      void switching.then(() => { completed = true; });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      expect(completed).toBe(true);
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+      resolveRefresh!();
+      await switching;
+    } finally {
+      globalThis.fetch = originalFetch;
+      routerRefresh.mockImplementation(async () => undefined);
     }
   });
 
@@ -273,9 +337,11 @@ describe("dashboard team scope", () => {
       expect(legacyCookieScope).toBe("team-4");
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
 
+      await waitFor(() => resolvers.length > 0);
+
       resolvers[0]!(new Response(null, { status: 500 }));
       await expect(first).rejects.toThrow("Could not switch dashboard team");
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
         selectedTeamId: "team-4",
@@ -283,7 +349,9 @@ describe("dashboard team scope", () => {
       expect(legacyCookieScope).toBe("team-4");
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
 
-      resolvers[1]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 1);
+
+      resolvers[1]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await second;
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
       expect(routerRefresh).toHaveBeenCalledTimes(1);
@@ -321,15 +389,20 @@ describe("dashboard team scope", () => {
         selectedTeamId: "team-4",
       });
       expect(legacyCookieScope).toBe("team-4");
+      await waitFor(() => resolvers.length === 1);
       expect(resolvers).toHaveLength(1);
+
+      await waitFor(() => resolvers.length > 0);
 
       resolvers[0]!(new Response(null, { status: 500 }));
       await expect(first).rejects.toThrow("Could not switch dashboard team");
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
         selectedTeamId: "team-4",
       });
+
+      await waitFor(() => resolvers.length > 1);
 
       resolvers[1]!(new Response(null, { status: 500 }));
       await expect(second).rejects.toThrow("Could not switch dashboard team");
@@ -361,12 +434,16 @@ describe("dashboard team scope", () => {
       });
       expect(legacyCookieScope).toBe("team-2");
 
-      resolvers[0]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 0);
+
+      resolvers[0]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await away;
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
 
-      resolvers[1]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 1);
+
+      resolvers[1]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await back;
 
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({

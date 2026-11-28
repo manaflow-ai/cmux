@@ -48,7 +48,8 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     ///
     /// Mirrors `SidebarWorkspaceRenderItem.renderItems` on the Mac:
     /// - Items follow `workspaces` order. A group header is emitted at the first
-    ///   member's position.
+    ///   member's position, while each group's member positions are normalized
+    ///   to anchor, pinned members, then unpinned members.
     /// - The anchor workspace is never a separate row (the header represents it).
     /// - Expanded groups emit their visible non-anchor members directly after
     ///   the header, followed by one end-of-group drop slot when the run
@@ -101,6 +102,43 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             uniquingKeysWith: { first, _ in first }
         )
 
+        // A host refresh can publish a pin mutation before its spatial-order
+        // snapshot catches up. Keep the rendered member tier coherent at this
+        // boundary, while preserving the group's positions relative to every
+        // ungrouped row and preserving order within each pin tier.
+        var membersByGroupID: [MobileWorkspaceGroupPreview.ID: [MobileWorkspacePreview]] = [:]
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID, groupsByID[groupID] != nil else {
+                continue
+            }
+            membersByGroupID[groupID, default: []].append(workspace)
+        }
+        var orderedMembersByGroupID: [MobileWorkspaceGroupPreview.ID: [MobileWorkspacePreview]] = [:]
+        for (groupID, group) in groupsByID {
+            let members = membersByGroupID[groupID, default: []]
+            guard let anchorID = group.liveAnchorWorkspaceID,
+                  let anchor = members.first(where: { $0.id == anchorID }) else {
+                orderedMembersByGroupID[groupID] = members
+                continue
+            }
+            let nonAnchors = members.filter { $0.id != anchorID }
+            orderedMembersByGroupID[groupID] = [anchor]
+                + nonAnchors.filter(\.isPinned)
+                + nonAnchors.filter { !$0.isPinned }
+        }
+        var nextMemberIndexByGroupID: [MobileWorkspaceGroupPreview.ID: Int] = [:]
+        var orderedWorkspaces = workspaces
+        for index in workspaces.indices {
+            guard let groupID = workspaces[index].groupID,
+                  let members = orderedMembersByGroupID[groupID],
+                  members.indices.contains(nextMemberIndexByGroupID[groupID, default: 0]) else {
+                continue
+            }
+            let memberIndex = nextMemberIndexByGroupID[groupID, default: 0]
+            orderedWorkspaces[index] = members[memberIndex]
+            nextMemberIndexByGroupID[groupID] = memberIndex + 1
+        }
+
         // Aggregate unread state per group up front (membership can be
         // non-contiguous, so this cannot be folded into the emit loop).
         // Mirrors the Mac header badge: anchor-only while expanded, whole
@@ -140,7 +178,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             memberRowsInCurrentRun = 0
         }
 
-        for workspace in workspaces {
+        for workspace in orderedWorkspaces {
             // Resolve the membership only when the referenced group actually
             // exists; otherwise treat the workspace as ungrouped.
             let groupID: MobileWorkspaceGroupPreview.ID? = workspace.groupID

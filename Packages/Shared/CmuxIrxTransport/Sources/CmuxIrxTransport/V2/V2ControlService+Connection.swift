@@ -71,7 +71,7 @@ extension V2ControlService {
                 journal("run-backing-off", [
                     "failure": mapped.diagnosticCode,
                     "attempt": String(attempt),
-                    "delay_s": String(Int(seconds)),
+                    "delay_s": seconds.journalInteger,
                 ])
                 attempt += 1
                 do { try await dependencies.sleep(seconds) }
@@ -136,7 +136,8 @@ extension V2ControlService {
 
     func makeSetup(requestID: String, run: UUID) async throws -> (V2SocketSetup, String) {
         let unsigned = V2SocketSetup(device: descriptor, haveRevision: cache.directory?.revision, proof: nil, requestID: requestID, schemaID: .sessionOpenV1)
-        let ticket = cache.ticket.flatMap { $0.expiresAt > Int(dependencies.now().timeIntervalSince1970) + 30 ? $0 : nil }
+        let now = unixSeconds
+        let ticket = cache.ticket.flatMap { $0.expiresAt.saturatingSubtraction(now) > 30 ? $0 : nil }
         let authorization: String
         if let ticket, !forceStackOnNextSetup, !cache.authorityRevoked {
             authorization = "IrohTicket " + ticket.token
@@ -148,7 +149,7 @@ extension V2ControlService {
         }
         // Also sign first setup. If enrollment committed but its reply was lost,
         // the server can recognize this key without an extra enrollment round.
-        let issuedAt = Int(dependencies.now().timeIntervalSince1970)
+        let issuedAt = unixSeconds
         let nonce = codec.newProofNonce()
         let bytes = try codec.request(device: descriptor, requestID: requestID, issuedAt: issuedAt, body: unsigned, nonce: nonce)
         let signature = try await dependencies.sign(bytes)

@@ -17,6 +17,7 @@ production use, including self-hosting:
   workers/presence/
   services/iroh-relay-minter/
   cmux-tui/relays/cloudflare-do/
+  backend/
 
 The macOS app, iOS app, CLI, cmux-tui, and all other directories remain under
 the license that this file or their own notices state.

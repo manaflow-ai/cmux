@@ -1,0 +1,20 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownGeometry.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownGeometry.swift
+@@ -48,7 +48,7 @@
+     func visibleRect(_ f: MDFrag) -> CGRect {
+         let dx = offsetX(f.region)
+         var r = CGRect(x: f.origin.x - dx, y: f.origin.y, width: f.width, height: f.height)
+-        if f.region >= 0 { r = r.intersection(regions[f.region].frame.insetBy(dx: 0, dy: -1)) }
++        if f.region >= 0, let reg = regions[checked: f.region] { r = r.intersection(reg.frame.insetBy(dx: 0, dy: -1)) } // cmux: checked
+         return r
+     }
+ 
+@@ -90,7 +90,7 @@
+             let x0 = inter.length > 0 || empty ? CTLineGetOffsetForStringIndex(f.line, a, nil) : f.width
+             let x1 = CTLineGetOffsetForStringIndex(f.line, b, nil) + (tail ? 4 : 0)
+             var rect = CGRect(x: f.origin.x - dx + x0, y: f.origin.y, width: max(2, x1 - x0), height: f.height)
+-            if f.region >= 0 { rect = rect.intersection(regions[f.region].frame) }
++            if f.region >= 0, let reg = regions[checked: f.region] { rect = rect.intersection(reg.frame) } // cmux: checked
+             if !rect.isNull, rect.width > 0 { out.append(rect) }
+         }
+         return out

@@ -58,8 +58,7 @@ public struct CmxRetryAfterPolicy: Sendable {
     /// without shortening ordinary server directives or trapping on restore.
     public func roundedUpSeconds(_ seconds: TimeInterval) -> Int {
         guard seconds > 0 else { return 0 }
-        let rounded = seconds.rounded(.up)
-        return rounded >= Double(Int.max) ? Int.max : Int(rounded)
+        return seconds.rounded(.up).saturatedInteger(Int.self) ?? 0
     }
 
     /// Sleep in representable chunks while preserving the entire requested

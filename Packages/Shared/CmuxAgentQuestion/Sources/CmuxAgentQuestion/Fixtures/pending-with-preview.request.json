@@ -1,0 +1,57 @@
+{
+  "permissionId": "perm_toolu_preview",
+  "session": "sess_claude_1",
+  "request": {
+    "sessionId": "sess_claude_1",
+    "toolCall": {
+      "toolCallId": "toolu_preview",
+      "title": "Question: Which layout should the settings page use?",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "question": "Which layout should the settings page use?",
+            "header": "Layout",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Sidebar",
+                "description": "Categories in a left column, one pane at a time.",
+                "preview": "┌──────────┬──────────────────┐\n│ General  │  Appearance      │\n│ Keys     │  ○ Light ● Dark  │\n│ Agents   │  Font  [ 13 pt ] │\n└──────────┴──────────────────┘"
+              },
+              {
+                "label": "Tabs",
+                "description": "Categories as a tab bar along the top.",
+                "preview": "┌ General ┬ Keys ┬ Agents ─────┐\n│                              │\n│  Appearance  ○ Light ● Dark  │\n│  Font        [ 13 pt ]       │\n└──────────────────────────────┘"
+              },
+              {
+                "label": "Single scroll",
+                "description": "One long page with section headers.",
+                "preview": "GENERAL\n  Appearance  ○ Light ● Dark\nKEYS\n  New tab     ⌘T\nAGENTS\n  Default     Claude Code"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "claude": {
+          "tool": "AskUserQuestion",
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

@@ -7,6 +7,28 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/ghostty-zig-version.sh"
 
 ZIG_REQUIRED="${ZIG_REQUIRED:-$(ghostty_minimum_zig_version "$REPO_ROOT")}"
+
+# Install only a Zig that the license review recorded: the shipped Zig
+# (toolchains.json zig ci_version; the app and the npm/PyPI packages ship its
+# LICENSE) or the Zig SDK conformance version (cmux-tui/bindings/zig/build.zig.zon).
+reviewed_zig_versions() {
+  python3 - "$REPO_ROOT" <<'PY'
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for zig in json.loads((root / "cmux-tui/build-support/notices/toolchains/toolchains.json").read_text())["zig"]:
+    print(zig["ci_version"])
+zon = root / "cmux-tui/bindings/zig/build.zig.zon"
+if zon.is_file():
+    found = re.search(r'^\s*\.minimum_zig_version\s*=\s*"([^"]+)"', zon.read_text(), re.M)
+    if found:
+        print(found.group(1))
+PY
+}
+if ! reviewed_zig_versions | grep -qxF "$ZIG_REQUIRED"; then
+  echo "error: zig ${ZIG_REQUIRED} is not a reviewed Zig version ($(reviewed_zig_versions | tr '\n' ' ')); record its LICENSE in cmux-tui/build-support/notices/toolchains/toolchains.json (ci_version) first" >&2
+  exit 1
+fi
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
@@ -158,7 +180,7 @@ trap cleanup_work_root EXIT
 ZIG_TAR="${ZIG_WORK_ROOT}/${ZIG_NAME}.tar.xz"
 ZIG_SIG="${ZIG_TAR}.minisig"
 ZIG_DIR="${ZIG_WORK_ROOT}/${ZIG_NAME}"
-ZIG_OFFICIAL_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz"
+ZIG_OFFICIAL_URL="${ZIG_OFFICIAL_URL:-https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz}"
 # The Tsimnet mirror is the reliable first hop for CI. Keep the previous
 # mirrors as configurable secondary/tertiary fallbacks before the official
 # endpoint.
@@ -167,6 +189,17 @@ ZIG_SECONDARY_MIRROR_URL="${ZIG_SECONDARY_MIRROR_URL:-https://zigmirror.hryx.net
 ZIG_TERTIARY_MIRROR_URL="${ZIG_TERTIARY_MIRROR_URL:-https://pkg.hexops.org/zig/${ZIG_NAME}.tar.xz}"
 ZIG_INDEX_ARCH="${ZIG_ARCH}-${ZIG_OS}"
 ZIG_DOWNLOAD_DEADLINE_SECONDS=0
+# The deadline of the source being tried (download_zig_artifact). Each later
+# source keeps ZIG_SOURCE_RESERVE_SECONDS of the budget, so one stalled mirror
+# cannot use the whole budget and starve the official URL
+# (FLAKE-ZIG-MIRRORS-502). The reserve applies when the budget holds it for
+# every fallback; a small budget keeps the plain overall deadline.
+ZIG_SOURCE_DEADLINE_SECONDS=0
+ZIG_SOURCE_RESERVE_SECONDS="${ZIG_SOURCE_RESERVE_SECONDS:-90}"
+# A directory that keeps verified tarballs between jobs (an actions/cache path
+# or a reused runner's cache). A cached tarball is used only when it matches
+# the expected SHA-256; any other file there is deleted.
+ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-}"
 
 download_now_seconds() {
   # Tests may provide a monotonic clock file so retry/deadline behavior can be
@@ -188,9 +221,17 @@ download_seconds_remaining() {
       return 1
       ;;
   esac
-  local remaining=$((ZIG_DOWNLOAD_DEADLINE_SECONDS - now))
+  local deadline="$ZIG_DOWNLOAD_DEADLINE_SECONDS"
+  if [ "$ZIG_SOURCE_DEADLINE_SECONDS" -gt 0 ] && [ "$ZIG_SOURCE_DEADLINE_SECONDS" -lt "$deadline" ]; then
+    deadline="$ZIG_SOURCE_DEADLINE_SECONDS"
+  fi
+  local remaining=$((deadline - now))
   if [ "$remaining" -le 0 ]; then
-    echo "Zig download deadline exceeded (${ZIG_DOWNLOAD_BUDGET_SECONDS}s budget)" >&2
+    if [ "$deadline" -lt "$ZIG_DOWNLOAD_DEADLINE_SECONDS" ]; then
+      echo "Zig download source share used up; later sources keep their reserve" >&2
+    else
+      echo "Zig download deadline exceeded (${ZIG_DOWNLOAD_BUDGET_SECONDS}s budget)" >&2
+    fi
     return 1
   fi
   printf '%s\n' "$remaining"
@@ -282,7 +323,14 @@ download_zig_artifact() {
   # resume from the same mirror, while a fallback starts with that mirror's
   # own bytes instead of appending to a partial response from another source.
   rm -f "$output"
+  local sources_after=3
+  local reserve=0
+  if [ $((ZIG_SOURCE_RESERVE_SECONDS * 4)) -le "$ZIG_DOWNLOAD_BUDGET_SECONDS" ]; then
+    reserve="$ZIG_SOURCE_RESERVE_SECONDS"
+  fi
   for mirror_name in primary secondary tertiary official; do
+    ZIG_SOURCE_DEADLINE_SECONDS=$((ZIG_DOWNLOAD_DEADLINE_SECONDS - reserve * sources_after))
+    sources_after=$((sources_after - 1))
     case "$mirror_name" in
       primary) mirror_url="$ZIG_MIRROR_URL" ;;
       secondary) mirror_url="$ZIG_SECONDARY_MIRROR_URL" ;;
@@ -308,12 +356,21 @@ download_zig_artifact() {
         ;;
     esac
   done
+  ZIG_SOURCE_DEADLINE_SECONDS=0
   return 1
 }
 
 resolve_zig_sha256() {
   if [ -n "$ZIG_EXPECTED_SHA256" ]; then
     printf '%s\n' "$ZIG_EXPECTED_SHA256"
+    return 0
+  fi
+  # The repository pins the CI tarballs' SHA-256 (no index download needed).
+  local pinned
+  pinned="$(awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' \
+    "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true)"
+  if [ -n "$pinned" ]; then
+    printf '%s\n' "$pinned"
     return 0
   fi
 
@@ -422,12 +479,40 @@ ZIG_MINISIGN_AVAILABLE=0
 if command -v minisign >/dev/null 2>&1; then
   ZIG_MINISIGN_AVAILABLE=1
 fi
-download_zig_artifact "" "$ZIG_TAR"
 ZIG_RESOLVED_SHA256="$(resolve_zig_sha256)"
-verify_zig_sha256 "$ZIG_RESOLVED_SHA256"
+ZIG_CACHED_TAR=""
+ZIG_CACHED_SIG=""
+if [ -n "$ZIG_TARBALL_CACHE_DIR" ]; then
+  ZIG_CACHED_TAR="${ZIG_TARBALL_CACHE_DIR}/${ZIG_NAME}.tar.xz"
+  ZIG_CACHED_SIG="${ZIG_CACHED_TAR}.minisig"
+fi
+ZIG_FROM_CACHE=0
+if [ -n "$ZIG_CACHED_TAR" ] && [ -f "$ZIG_CACHED_TAR" ]; then
+  cp "$ZIG_CACHED_TAR" "$ZIG_TAR"
+  if verify_zig_sha256 "$ZIG_RESOLVED_SHA256" >/dev/null 2>&1; then
+    ZIG_FROM_CACHE=1
+    echo "Using the verified cached Zig tarball ${ZIG_CACHED_TAR}"
+  else
+    echo "Cached Zig tarball ${ZIG_CACHED_TAR} does not match the expected SHA-256; discarding it" >&2
+    rm -f "$ZIG_TAR" "$ZIG_CACHED_TAR" "$ZIG_CACHED_SIG"
+  fi
+fi
+if [ "$ZIG_FROM_CACHE" -eq 0 ]; then
+  download_zig_artifact "" "$ZIG_TAR"
+  verify_zig_sha256 "$ZIG_RESOLVED_SHA256"
+  if [ -n "$ZIG_CACHED_TAR" ]; then
+    mkdir -p "$ZIG_TARBALL_CACHE_DIR"
+    cp "$ZIG_TAR" "${ZIG_CACHED_TAR}.tmp.$$" && mv -f "${ZIG_CACHED_TAR}.tmp.$$" "$ZIG_CACHED_TAR"
+  fi
+fi
 
 if [ "$ZIG_MINISIGN_AVAILABLE" -eq 1 ]; then
-  download_zig_artifact ".minisig" "$ZIG_SIG"
+  if [ -n "$ZIG_CACHED_SIG" ] && [ -f "$ZIG_CACHED_SIG" ]; then
+    cp "$ZIG_CACHED_SIG" "$ZIG_SIG"
+  else
+    download_zig_artifact ".minisig" "$ZIG_SIG"
+    if [ -n "$ZIG_CACHED_SIG" ]; then cp "$ZIG_SIG" "$ZIG_CACHED_SIG"; fi
+  fi
   minisign -Vm "$ZIG_TAR" -x "$ZIG_SIG" -P "$ZIG_MINISIGN_PUBLIC_KEY"
 else
   echo "minisign not found; verified Zig tarball with SHA-256 from ${ZIG_INDEX_URL}"

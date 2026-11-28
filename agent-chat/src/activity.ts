@@ -20,6 +20,10 @@ export function activityTailKey(blocks: Block[]): string {
   const prefix = `${blocks.length}:`;
   if (tail.kind === "assistant" || tail.kind === "thinking") return `${prefix}${tail.kind}:${tail.open}`;
   if (tail.kind === "tool") return `${prefix}${tail.kind}:${tail.toolId}:${tail.status}`;
+  if (tail.kind === "plan") {
+    const state = tail.entries.map((entry) => [entry.status, entry.priority ?? null]);
+    return `${prefix}${tail.kind}:${JSON.stringify(state)}`;
+  }
   if (tail.kind === "footer" || tail.kind === "status" || tail.kind === "error" || tail.kind === "user") {
     return `${prefix}${tail.kind}`;
   }

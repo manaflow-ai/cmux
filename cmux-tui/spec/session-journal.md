@@ -104,6 +104,10 @@ the adapter payload, not in `kind`. The initial agent vocabulary is:
 - `agent.state.changed`
 - `agent.session.ended`
 
+Terminal command history (`terminal-command-journal-v1`, opt-in per daemon
+with `set-terminal-command-history`) adds `shell.command.finished` from the
+reserved producer `cmux_shell`; see `commands.md`.
+
 `blocked` is a derived projection over approval, question, plan-review, and
 error events. It is not the only durable fact.
 
@@ -586,7 +590,10 @@ shutdown deadline, or an active parser update exceeds its shutdown grace, the
 old daemon appends a required `terminal.output.gap` record after its reader
 stops and before the terminal ingress barrier. The record names the terminal
 runtime generation and uses `cmux.terminal-output-gap.v1` with reason
-`detach_fence_failed` or `active_update_timeout`. A restore preview treats this
+`detach_fence_failed` or `active_update_timeout`. A live daemon appends the
+same record with reason `host_reconnect` when it reconnects to a terminal host
+after its tap was lost or the host asked it to resync (see `terminal-host.md`,
+"Durability boundary"). A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins

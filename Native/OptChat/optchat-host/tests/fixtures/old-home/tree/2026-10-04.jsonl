@@ -1,0 +1,30 @@
+{"l":0,"i":0,"text":"sum 0+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":180}
+{"l":0,"i":1,"text":"talk: line one 1\nline two with \"quotes\" and a tab\there","size":54}
+{"l":1,"i":0,"text":"sum 0+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite\ntalk: line one 1\nline two with \"quotes\" and a tab\there","size":235}
+{"l":0,"i":2,"text":"tool: unicode 2: café, 日本語, emoji 🚀, rtl עברית","size":61}
+{"l":0,"i":3,"text":"echo: Bash {\"command\":\"rg -n needle3 src\"}","size":42}
+{"l":1,"i":1,"text":"tool: unicode 2: café, 日本語, emoji 🚀, rtl עברית\necho: Bash {\"command\":\"rg -n needle3 src\"}","size":104}
+{"l":2,"i":0,"text":"sum 0+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite\ntalk: line one 1\nline two with \"quotes\" and a tab\there\ntool: unicode 2: café, 日本語, emoji 🚀, rtl עברית\necho: Bash {\"command\":\"rg -n needle3 src\"}","size":340}
+{"l":0,"i":4,"text":"note: short message 4 about the deploy pipeline","size":47}
+{"l":0,"i":5,"text":"user: short message 5 about the deploy pipeline","size":47}
+{"l":1,"i":2,"text":"note: short message 4 about the deploy pipeline\nuser: short message 5 about the deploy pipeline","size":95}
+{"l":0,"i":6,"text":"talk: short message 6 about the deploy pipeline","size":47}
+{"l":0,"i":7,"text":"sum 7+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":180}
+{"l":1,"i":3,"text":"talk: short message 6 about the deploy pipeline\nsum 7+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":228}
+{"l":2,"i":1,"text":"note: short message 4 about the deploy pipeline\nuser: short message 5 about the deploy pipeline\ntalk: short message 6 about the deploy pipeline\nsum 7+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":324}
+{"l":3,"i":0,"text":"sum 0+8: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":180}
+{"l":0,"i":8,"text":"echo: line one 8\nline two with \"quotes\" and a tab\there","size":54}
+{"l":0,"i":9,"text":"note: unicode 9: café, 日本語, emoji 🚀, rtl עברית","size":61}
+{"l":1,"i":4,"text":"echo: line one 8\nline two with \"quotes\" and a tab\there\nnote: unicode 9: café, 日本語, emoji 🚀, rtl עברית","size":116}
+{"l":0,"i":10,"text":"user: Bash {\"command\":\"rg -n needle10 src\"}","size":43}
+{"l":0,"i":11,"text":"talk: short message 11 about the deploy pipeline","size":48}
+{"l":1,"i":5,"text":"user: Bash {\"command\":\"rg -n needle10 src\"}\ntalk: short message 11 about the deploy pipeline","size":92}
+{"l":2,"i":2,"text":"echo: line one 8\nline two with \"quotes\" and a tab\there\nnote: unicode 9: café, 日本語, emoji 🚀, rtl עברית\nuser: Bash {\"command\":\"rg -n needle10 src\"}\ntalk: short message 11 about the deploy pipeline","size":209}
+{"l":0,"i":12,"text":"tool: short message 12 about the deploy pipeline","size":48}
+{"l":0,"i":13,"text":"echo: short message 13 about the deploy pipeline","size":48}
+{"l":1,"i":6,"text":"tool: short message 12 about the deploy pipeline\necho: short message 13 about the deploy pipeline","size":97}
+{"l":0,"i":14,"text":"sum 14+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it","size":180}
+{"l":0,"i":15,"text":"user: line one 15\nline two with \"quotes\" and a tab\there","size":55}
+{"l":1,"i":7,"text":"sum 14+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it\nuser: line one 15\nline two with \"quotes\" and a tab\there","size":236}
+{"l":2,"i":3,"text":"tool: short message 12 about the deploy pipeline\necho: short message 13 about the deploy pipeline\nsum 14+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it\nuser: line one 15\nline two with \"quotes\" and a tab\there","size":334}
+{"l":3,"i":1,"text":"sum 8+8: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite","size":180}

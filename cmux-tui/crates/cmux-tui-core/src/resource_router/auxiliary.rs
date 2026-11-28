@@ -225,6 +225,11 @@ fn resolve_pairing_request(
 ) -> Result<Value, ResourceError> {
     let pairing_id = resolve_pairing_id(&request.selectors)?;
     let decision = required_string(&request.fields, "decision")?;
+    // Approval admits a browser: only the verified app (cx-ehrq). The origin
+    // gate refuses earlier; this keeps any other caller from bypassing it.
+    if decision == "accept" && !matches!(request.actor, crate::Actor::Frontend { .. }) {
+        return Err(crate::request_origin::needs_user(crate::request_origin::RequestOrigin::Agent));
+    }
     let mutation = mutation(&request)?;
     let commit = mux
         .resource_resolve_pairing_selected(
@@ -562,15 +567,7 @@ fn parse_terminal_id(value: &Value) -> Result<TerminalPublicId, ResourceError> {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn decode_intent<T: serde::de::DeserializeOwned>(
@@ -591,7 +588,7 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{EnvelopeType, PROTOCOL, RequestEnvelope, RequestId};
+    use crate::resource::{RequestEnvelope, RequestId};
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
@@ -606,16 +603,15 @@ mod tests {
         fields: Value,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
-                protocol: PROTOCOL.to_string(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse(format!("aux-{operation:?}")).unwrap(),
+            envelope: RequestEnvelope::request(
+                RequestId::parse(format!("aux-{operation:?}")).unwrap(),
                 operation,
-                params: json!({}),
-                idempotency_key: key.map(str::to_string),
-            },
+                json!({}),
+                key.map(str::to_string),
+            ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
+            actor: crate::Actor::local_user(),
         }
     }
 
@@ -799,8 +795,9 @@ mod tests {
         let id = format!("pairing_{:032x}", challenge.id);
         let mut selected = session_selectors();
         selected.pairing_request = Some(id);
-        let resolve_request = || {
-            request(
+        let resolve_request = || ParsedResourceRequest {
+            actor: crate::Actor::Frontend { install_id: "test".into() },
+            ..request(
                 ResourceOperation::PairingRequestResolve,
                 Some("pairing-resolve-once"),
                 selected.clone(),

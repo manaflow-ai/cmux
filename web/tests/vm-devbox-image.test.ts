@@ -32,6 +32,7 @@ import {
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
+  devboxDaemonUnit,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
 import {
@@ -118,6 +119,7 @@ describe("devbox image template", () => {
       "cmux-opencode",
       "cmux-prompt-sync",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -135,6 +137,7 @@ describe("devbox image template", () => {
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -192,16 +195,13 @@ describe("devbox image template", () => {
 
   test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
     const motd = read("cmux-motd");
-    // The `cmux cloud` chevron logo from the CLI's cloud welcome
-    // (CLI/cmux.swift), same gradient and tagline.
+    // The `cmux cloud` chevron logo, gradient and tagline. The motd is the
+    // only copy now: the Swift CLI that also drew it was removed (#16174).
     expect(motd).toContain("persistent cloud VM");
     expect(motd).toContain("ready for coding agents");
     for (const rgb of ["0;212;255", "24;181;250", "48;150;245", "72;119;241", "96;88;239", "110;73;238", "124;58;237"]) {
       expect(motd).toContain(`38;2;${rgb}m`);
     }
-    expect(readFileSync(path.join(import.meta.dirname, "../../CLI/cmux.swift"), "utf8")).toContain(
-      "x cloud\\\\033[0m",
-    );
     // Seeds are readable by the work user (the seed pass runs as root and
     // ble.sh creates its cache dir 0700), and Ghostty's TERM is seeded too.
     expect(dockerfile).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");
@@ -305,6 +305,62 @@ describe("devbox image template", () => {
         bootRuntime,
       );
       expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("dotted python -m completion lists one package's submodules without importing others", async () => {
+    // ble.sh ghost text runs programmable completion after every keystroke.
+    // Ubuntu's stock helper walks (imports) every installed package once the
+    // word has a dot, which stalled typing `python -m http.` for ~5 s.
+    const python = (await runChild("bash", ["-c", "command -v python3"])).stdout.trim();
+    expect(python).not.toBe("");
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-python-completion-"));
+    const marker = path.join(directory, "imported");
+    mkdirSync(path.join(directory, "noisy"));
+    writeFileSync(path.join(directory, "noisy", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    mkdirSync(path.join(directory, "target", "beta"), { recursive: true });
+    // Resolving `target.` must not execute the package itself either.
+    writeFileSync(path.join(directory, "target", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    // A checkout in the shell's cwd must not shadow the helper's imports.
+    const checkout = path.join(directory, "checkout");
+    mkdirSync(path.join(checkout, "evil"), { recursive: true });
+    writeFileSync(path.join(checkout, "pkgutil.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(checkout, "evil", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(directory, "target", "alpha.py"), "");
+    writeFileSync(path.join(directory, "target", "beta", "__init__.py"), "");
+    // Namespace levels (no __init__.py) under a regular and a namespace parent.
+    mkdirSync(path.join(directory, "target", "spaced", "leaf"), { recursive: true });
+    writeFileSync(path.join(directory, "target", "spaced", "leaf", "__init__.py"), "");
+    mkdirSync(path.join(directory, "nsroot", "nsmid"), { recursive: true });
+    writeFileSync(path.join(directory, "nsroot", "nsmid", "tip.py"), "");
+    const stock = path.join(directory, "stock-python-completion");
+    writeFileSync(stock, "");
+    const completion = path.join(directory, "python-completion");
+    writeFileSync(
+      completion,
+      readFileSync(path.join(templateDir, "cmux-python-completion.bash"), "utf8")
+        .replaceAll("/usr/share/bash-completion/completions/python", stock),
+    );
+    try {
+      const complete = async (cur: string) => {
+        const result = await runChild("bash", ["--noprofile", "--norc", "-c", `. '${completion}'; cur='${cur}'; COMPREPLY=(); _python_modules '${python}'; printf '%s\\n' "\${COMPREPLY[@]}" | sort`], {
+          cwd: checkout,
+          // The leading empty entry is how `PYTHONPATH=$PYTHONPATH:/x` adds the cwd.
+          env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: `:${directory}` },
+        });
+        expect(result.status).toBe(0);
+        return result.stdout.trim().split("\n");
+      };
+      expect(await complete("target.")).toEqual(["target.alpha", "target.beta"]);
+      expect(await complete("target.spaced.")).toEqual(["target.spaced.leaf"]);
+      expect(await complete("nsroot.nsmid.")).toEqual(["nsroot.nsmid.tip"]);
+      expect(await complete("target.al")).toEqual(["target.alpha"]);
+      expect(await complete("targ")).toEqual(["target"]);
+      await complete("evil.x.");
+      await complete("ht");
+      expect(existsSync(marker)).toBe(false);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -527,9 +583,9 @@ describe("devbox image template", () => {
 
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
-    expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
+    expect(devboxDaemonUnit()).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
-    expect(freestyleScript).toContain("Restart=always");
+    expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
   test("the Freestyle replay carries the ble.sh cache bake", () => {
@@ -708,9 +764,7 @@ describe("devbox image template", () => {
     expect(readScript("verify-devbox-image.ts")).not.toContain("freestyle-beta");
     // The freestyle bake's systemd unit binds the daemon dual-stack: the
     // driver's route is the VM's public IPv6 straight to port 1337.
-    expect(readScript("build-devbox-freestyle.ts")).toContain(
-      "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
-    );
+    expect(devboxDaemonUnit()).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
     // Both the bake and the verifier must pin root: the 0.2 API's default guest
     // user is uid 1000, which the devbox image ships.
     expect(readScript("build-devbox-freestyle.ts")).toContain('linuxUser: "root"');

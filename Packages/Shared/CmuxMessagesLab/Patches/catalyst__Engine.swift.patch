@@ -1,0 +1,207 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
+@@ -13,6 +13,8 @@
+ struct ConversationUIState: Equatable {
+     var draft = Draft()
+     var typing: [ID] = []
++    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none).
++    var notice: String?
+     var openThread: PartRef?
+     /// `offset`: points scrolled up from the bottom (0 when pinned).
+     var scroll = Scroll()
+@@ -68,6 +70,11 @@
+     /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
+     /// written through; a height change animates like any row change.
+     case setCustomPart(ID, Int, CustomPart)
++    /// cmux: an attachment part's bytes arrived or its upload moved
++    /// (HomeStore); replaces the part with the same attachment id, no motion.
++    case cmuxSetAttachment(ID, Attachment)
++    /// cmux: the host's notice changed (nil clears it); the rows are derived again.
++    case cmuxNotice(String?)
+     /// Hosted rows of these messages measure again (no state change). `animated` false: an
+     /// estimate correction (no motion; the first visible row keeps its place).
+     case remeasureCustom([ID], animated: Bool)
+@@ -96,15 +103,18 @@
+         case let .react(ref, kind, by):
+             guard let i = s.conversation.messages.firstIndex(where: { $0.id == ref.messageId }) else { break }
+             let actor = by ?? s.me
+-            var rs = s.conversation.messages[i].reactions
+-            let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
+-            if let mine, rs[mine].kind == kind {
+-                rs.remove(at: mine)                          // toggle off
+-            } else {
+-                if let mine { rs.remove(at: mine) }          // one tapback per person per part
+-                rs.append(Reaction(senderId: actor, partIndex: ref.partIndex, kind: kind, at: stamp))
++            // cmux: in-place checked update (crash program).
++            s.conversation.messages.update(at: i) { m in
++                var rs = m.reactions
++                let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
++                if let mine, rs[checked: mine]?.kind == kind {
++                    rs.remove(at: mine)                          // toggle off
++                } else {
++                    if let mine { rs.remove(at: mine) }          // one tapback per person per part
++                    rs.append(Reaction(senderId: actor, partIndex: ref.partIndex, kind: kind, at: stamp))
++                }
++                m.reactions = rs
+             }
+-            s.conversation.messages[i].reactions = rs
+         case let .reply(ref):
+             let root = s.message(ref.messageId)?.replyTo ?? ref      // replies store the root
+             s.ui.openThread = root
+@@ -113,20 +123,22 @@
+             s.ui.openThread = nil
+             s.ui.draft.replyTo = nil
+         case let .edit(id, text):
++            // cmux: checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
+             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+-                  let pi = s.conversation.messages[i].parts.firstIndex(where: { $0.plainText != nil }),
+-                  let old = s.conversation.messages[i].parts[pi].plainText, old != text, !text.isEmpty else { break }
+-            s.conversation.messages[i].edits = (s.conversation.messages[i].edits ?? []) + [.init(text: old, at: stamp)]
+-            s.conversation.messages[i].parts[pi] = TextParts.parts(for: text)[0]
++                  let parts = s.conversation.messages[checked: i]?.parts,
++                  let pi = parts.firstIndex(where: { $0.plainText != nil }),
++                  let old = parts[checked: pi]?.plainText, old != text, !text.isEmpty,
++                  let edited = TextParts.parts(for: text).first else { break }
++            s.conversation.messages.update(at: i) { m in
++                m.edits = (m.edits ?? []) + [.init(text: old, at: stamp)]
++                m.parts.update(at: pi) { $0 = edited }
++            }
+         case let .unsend(id):
+             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
+-            s.conversation.messages[i].parts = []
+-            s.conversation.messages[i].reactions = []
+-            s.conversation.messages[i].retractedAt = stamp
++            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // cmux: checked
+         case let .delete(id):
+             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
+-            s.conversation.messages[i].deletedAt = stamp
+-            s.conversation.messages[i].reactions = []
++            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // cmux: checked
+             if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
+         case let .attach(a):
+             s.ui.draft.attachments.append(a)
+@@ -140,18 +152,22 @@
+             if s.atNewest { s.conversation.messages.append(m) }
+             s.total += 1
+         case let .status(id, st):
+-            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages[i].status = st }
++            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } } // cmux
+         case let .appendText(id, more):
+             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
+-                  let pi = s.conversation.messages[i].parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
+-                  case let .text(t, runs) = s.conversation.messages[i].parts[pi] else { break }
+-            s.conversation.messages[i].parts[pi] = .text(t + more, runs: runs)
++                  let parts = s.conversation.messages[checked: i]?.parts, // cmux: checked
++                  let pi = parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
++                  case let .text(t, runs)? = parts[checked: pi] else { break }
++            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .text(t + more, runs: runs) } }
+         case let .linkMetadata(url, title, site, image):
+-            for i in s.conversation.messages.indices {
+-                for (pi, p) in s.conversation.messages[i].parts.enumerated() {
+-                    guard case let .link(u, t, sn, img, theme) = p, u == url else { continue }
+-                    s.conversation.messages[i].parts[pi] = .link(url: u, title: title ?? t, siteName: site ?? sn, image: image ?? img, theme: theme)
++            // cmux: no index math (crash program).
++            s.conversation.messages = s.conversation.messages.map { m in
++                var m = m
++                m.parts = m.parts.map { p in
++                    guard case let .link(u, t, sn, img, theme) = p, u == url else { return p }
++                    return .link(url: u, title: title ?? t, siteName: site ?? sn, image: image ?? img, theme: theme)
+                 }
++                return m
+             }
+         case let .setScroll(offset, pinned):
+             s.ui.scroll = .init(pinnedToBottom: pinned, offset: pinned ? 0 : offset)
+@@ -162,7 +178,7 @@
+             s.conversation.messages.append(contentsOf: page)
+         case let .evict(top, bottom):
+             let n = s.conversation.messages.count
+-            let t = min(top, n), b = min(bottom, n - t)
++            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // cmux: a negative count does not trap
+             s.conversation.messages.removeFirst(t)
+             s.conversation.messages.removeLast(b)
+             s.windowStart += t
+@@ -171,11 +187,18 @@
+             s.windowStart = start
+             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
+         case let .setCustomPart(id, pi, part):
+-            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }), pi < s.conversation.messages[i].parts.count,
+-                  case .custom = s.conversation.messages[i].parts[pi] else { break }
+-            s.conversation.messages[i].parts[pi] = .custom(part)
++            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
++                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // cmux: checked
++            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
+         case .remeasureCustom:
+             break
++        case let .cmuxSetAttachment(id, a):  // cmux
++            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
++                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
++            else { break } // cmux: checked
++            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
++        case let .cmuxNotice(text):  // cmux
++            s.ui.notice = text
+         }
+         return nil
+     }
+@@ -190,13 +213,14 @@
+ /// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
+ /// without metadata, the domain card (title = site = host) replaces it.
+ enum TextParts {
+-    private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
++    // cmux: optional, no try! (crash program); without it no link is detected.
++    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+     static func host(_ url: URL) -> String {
+         url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
+     }
+     static func linkRuns(_ text: String) -> [TextRun] {
+         let ns = text as NSString
+-        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
++        return (detector?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? []).compactMap { m in
+             // Plain text is untrusted too: only links the markdown link policy allows.
+             guard let url = m.url, MarkdownLinkPolicy.allows(url) else { return nil }
+             return TextRun(start: m.range.location, length: m.range.length, style: nil, link: url.absoluteString, mention: nil, detected: nil)
+@@ -206,7 +230,7 @@
+     static func soleURL(_ line: String) -> URL? {
+         let t = line.trimmingCharacters(in: .whitespaces)
+         let ns = t as NSString
+-        guard ns.length > 0, let m = detector.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
++        guard ns.length > 0, let m = detector?.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
+               m.range.location == 0, m.range.length == ns.length, let url = m.url,
+               url.scheme == "http" || url.scheme == "https", MarkdownLinkPolicy.allows(url) else { return nil }
+         return url
+@@ -424,7 +448,8 @@
+     mutating func unit() -> Double { Double(next() >> 11) / Double(UInt64(1) << 53) }
+     mutating func range(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * unit() }
+     mutating func chance(_ p: Double) -> Bool { unit() < p }
+-    mutating func pick<T>(_ xs: [T]) -> T { xs[Int(next() % UInt64(xs.count))] }
++    /// cmux: the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
++    mutating func pick<T>(_ xs: [T]) -> T { xs[checked: Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, xs.count)))] ?? xs[0] }
+ }
+ 
+ /// Instinct, the agent on the other side of the chat (shared/THREADS.md):
+@@ -603,7 +628,7 @@
+         // I wrote it inside a thread: answer in that thread (a reply stores the root).
+         if let root = target.replyTo { return root }
+         guard let i = log.firstIndex(where: { $0.id == target.id }) else { return nil }
+-        let newer = log[(i + 1)...].contains { e in
++        let newer = log.dropFirst(i + 1).contains { e in // cmux: no range subscript
+             e.mine && !e.filler && s.message(e.id)?.retractedAt == nil
+         }
+         guard newer else { return nil }
+@@ -852,7 +877,7 @@
+         guard pending > 0 else { replying = false; return }
+         pending -= 1
+         let who = store.state.conversation.participants.first { !$0.isMe }?.id ?? "instinct"
+-        let text = lines[cycle % lines.count]
++        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // cmux: checked
+         cycle += 1
+         store.dispatch(.typing(who, true))
+         let typed = 0.4 + 0.025 * Double(text.count)
+@@ -869,7 +894,7 @@
+     /// `--responder bench|realistic`; without it, `--bench` runs use the bench
+     /// responder and every other run the realistic one.
+     static func make(arguments: [String] = ProcessInfo.processInfo.arguments, seed: UInt64 = 1) -> Responder {
+-        let choice = arguments.firstIndex(of: "--responder").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
++        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // cmux: no index math
+         if choice == "bench" || choice == nil && arguments.contains("--bench") { return BenchResponder() }
+         return DefaultResponder(seed: seed)
+     }

@@ -50,6 +50,7 @@ func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
 	var _ func(*cmux.ConnectedClient, context.Context, cmux.ConnectedClientCellPixelsSetOptions) (cmux.CellPixelsResult, error) = (*cmux.ConnectedClient).SetCellPixels
 	var _ func(*cmux.Workspace, context.Context, cmux.WorkspaceRenameOptions) (cmux.MutationResult[*cmux.Workspace], error) = (*cmux.Workspace).Rename
 	var _ func(*cmux.Screen, context.Context, cmux.ScreenRenameOptions) (cmux.MutationResult[*cmux.Screen], error) = (*cmux.Screen).Rename
+	var _ func(*cmux.Screen, context.Context, cmux.ScreenColumnUpdateOptions) (cmux.MutationResult[*cmux.Screen], error) = (*cmux.Screen).UpdateColumn
 	var _ func(*cmux.Pane, context.Context, cmux.PaneRenameOptions) (cmux.MutationResult[*cmux.Pane], error) = (*cmux.Pane).Rename
 	var _ func(*cmux.Tab, context.Context, cmux.TabRenameOptions) (cmux.MutationResult[*cmux.Tab], error) = (*cmux.Tab).Rename
 	var _ func(*cmux.Terminal, context.Context, cmux.TerminalMoveOptions) (cmux.MutationResult[*cmux.Terminal], error) = (*cmux.Terminal).Move

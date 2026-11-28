@@ -31,10 +31,15 @@ import {
   isVmOperationUnsupportedError,
   vmWorkflowErrorCause,
   type VmCreateInProgressError,
+  type VmResourcePoolExceededError,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
+  type VmFileNotFoundError,
+  type VmFirewallRuleNotFoundError,
+  type VmFirewallRuleInvalidError,
+  type VmFirewallRuleLimitError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -63,11 +68,12 @@ import {
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -548,7 +554,7 @@ export async function invalidVmDisplayNameResponse(request: Request): Promise<Re
 
 /**
  * A machine size the ladder offers but the caller's plan does not include
- * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
+ * (today: 16, 24, and 32 GB, sold by Max). This is a paywall, so the response
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
  * plus the plan that unlocks the size, and it is never silently coerced.
  */
@@ -642,6 +648,60 @@ export async function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Whole GB for display; pool sizes are multiples of 1 GiB. */
+function poolGb(memoryMb: number): number {
+  return Math.round((memoryMb / 1024) * 10) / 10;
+}
+
+/**
+ * The shared-pool refusal every create, Base open/reset, resume, resize, and
+ * fork answers with. It is a limit, not an outage: 402 like the active-VM
+ * limit, with the pool, what is in use, and the request so clients can show
+ * usage, and an upgrade to Max when the caller is not already on Max.
+ */
+export async function vmResourcePoolExceededResponse(
+  error: VmResourcePoolExceededError,
+  locale: Locale,
+): Promise<Response> {
+  const upgradePlanId = error.planId === "max" ? null : "max";
+  const memory = error.resource === "memoryMb";
+  const copy = await vmResourcePoolCopy(locale, {
+    resource: error.resource,
+    used: memory ? poolGb(error.used.memoryMb) : error.used.vcpus,
+    pool: memory ? poolGb(error.pool.memoryMb) : error.pool.vcpus,
+    requested: memory ? poolGb(error.requested.memoryMb) : error.requested.vcpus,
+    canUpgrade: upgradePlanId !== null,
+  });
+  const upgradeUrl = upgradePlanId ? `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}` : null;
+  return vmErrorResponse({
+    error: "vm_resource_pool_exceeded",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: error.phase,
+    retryable: false,
+    extra: {
+      resource: error.resource,
+      pool: error.pool,
+      used: error.used,
+      requested: error.requested,
+      upgradePlanId,
+      ...(upgradeUrl ? { upgradeUrl } : {}),
+    },
+    details: {
+      resource: error.resource,
+      poolVcpus: error.pool.vcpus,
+      poolMemoryMb: error.pool.memoryMb,
+      usedVcpus: error.used.vcpus,
+      usedMemoryMb: error.used.memoryMb,
+      requestedVcpus: error.requested.vcpus,
+      requestedMemoryMb: error.requested.memoryMb,
+      upgradePlanId,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /** Request-scoped inputs a responder may need beyond the error itself. */
@@ -673,6 +733,45 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
     message: "A Cloud VM create is already running for this request.",
     action,
     details: { idempotencyKeySet: !!error.idempotencyKey },
+  });
+
+const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_not_found",
+    status: 404,
+    message: "This firewall rule is not in your Cloud VM network.",
+    action: "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done.",
+    displayTitle: "Firewall rule not found",
+    details: { ruleId: error.ruleId },
+  });
+
+const vmFirewallRuleInvalidResponse = (error: VmFirewallRuleInvalidError): Response =>
+  vmErrorResponse({
+    error: "vm_invalid_firewall_rule",
+    status: 400,
+    message: error.reason,
+    action: "Name your own Cloud VM, network, or tunnel as the destination.",
+    displayTitle: "Firewall rule not allowed",
+  });
+
+const vmFirewallRuleLimitResponse = (error: VmFirewallRuleLimitError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_limit",
+    status: 409,
+    message: `You already have ${error.limit} firewall rules.`,
+    action: "Delete a rule you no longer need, then retry.",
+    displayTitle: "Firewall rule limit reached",
+    details: { limit: error.limit },
+  });
+
+const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_file_not_found",
+    status: 404,
+    message: "This path does not exist on the Cloud VM.",
+    action: "Check the path; a retried delete of a removed file is already done.",
+    displayTitle: "File not found",
+    details: { path: error.path },
   });
 
 const vmSnapshotNotFoundResponse = (error: VmSnapshotNotFoundError): Response =>
@@ -810,6 +909,9 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
+    if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
+      return vmNetworkFullResponse(error);
+    }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
     }
@@ -875,6 +977,25 @@ export const vmWorkflowErrorResponders = {
     retryable: false,
     details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
   }),
+  VmSnapshotInProgressError: () =>
+    vmErrorResponse({
+      error: "vm_snapshot_in_progress",
+      status: 409,
+      message: "A snapshot with this idempotency key is still running for this Cloud VM.",
+      action: "Wait for the first snapshot to finish, then retry with the same idempotency key.",
+      phase: "snapshot",
+      retryable: true,
+      retryAfterSeconds: 5,
+    }),
+  VmSnapshotIdempotencyConflictError: () =>
+    vmErrorResponse({
+      error: "vm_snapshot_idempotency_conflict",
+      status: 409,
+      message: "This idempotency key was already used for another snapshot request on this Cloud VM.",
+      action: "Use a new idempotency key for a snapshot with another name.",
+      phase: "snapshot",
+      retryable: false,
+    }),
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",
@@ -991,12 +1112,17 @@ export const vmWorkflowErrorResponders = {
   VmFreeAccessExpiredError: (error) =>
     vmFreeAccessExpiredResponse({ vmId: error.vmId, windowDays: error.windowDays }),
   VmSnapshotNotFoundError: (error) => vmSnapshotNotFoundResponse(error),
+  VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
+  VmFirewallRuleNotFoundError: (error) => vmFirewallRuleNotFoundResponse(error),
+  VmFirewallRuleInvalidError: (error) => vmFirewallRuleInvalidResponse(error),
+  VmFirewallRuleLimitError: (error) => vmFirewallRuleLimitResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
+  VmResourcePoolExceededError: (error, context) => vmResourcePoolExceededResponse(error, context.locale),
   VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
   VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
   VmGoShapeError: async (_error, context) => {
@@ -1044,24 +1170,24 @@ export async function vmWorkflowErrorResponse(
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
 }
 
-/** Match typed artifact failures even when the provider wraps the original cause. */
-function providerArtifactUnavailable(cause: unknown): boolean {
+/** Match a typed provider failure even when the provider wraps the original cause. */
+function providerCauseIs(cause: unknown, type: abstract new (...args: never[]) => Error): boolean {
   let current = cause;
   for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof ProviderArtifactUnavailableError) return true;
+    if (current instanceof type) return true;
     current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
   }
   return false;
 }
 
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  return providerCauseIs(cause, ProviderArtifactUnavailableError);
+}
+
 /** Match a machine the server can never attach, even when the provider wraps it. */
 function providerMachineRecreateRequired(cause: unknown): boolean {
-  let current = cause;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof ProviderMachineRecreateRequiredError) return true;
-    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
-  }
-  return false;
+  return providerCauseIs(cause, ProviderMachineRecreateRequiredError);
 }
 
 type GuestCliInstallFailure = {
@@ -1162,6 +1288,29 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
     displayTitle: copy.title,
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
+ * The owner's private network has no free address. It stays full until the
+ * owner deletes machines or revokes Macs, so this is a permanent refusal: no
+ * retryAfter, and an action that frees addresses instead of "retry".
+ */
+function vmNetworkFullResponse(error: VmProviderOperationError): Response {
+  const message = "This account's private network has no free addresses.";
+  return vmErrorResponse({
+    error: "vm_network_full",
+    status: 409,
+    message,
+    reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
+    action:
+      "Delete machines you no longer use with `cmux vm rm <id>`, or revoke Macs you no longer use on the " +
+      "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: "Private network full",
+    displayMessage: message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
   });
 }
 

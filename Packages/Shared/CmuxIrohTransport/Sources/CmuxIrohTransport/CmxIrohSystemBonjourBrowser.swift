@@ -48,12 +48,11 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         maximumPendingResolves: Int,
         resolveTimeout: TimeInterval
     ) {
-        precondition(maximumPendingResolves > 0)
-        precondition(resolveTimeout.isFinite && resolveTimeout > 0)
         self.dnsService = dnsService
         self.clock = clock
-        self.maximumPendingResolves = maximumPendingResolves
-        self.resolveTimeout = resolveTimeout
+        // Out-of-range values take their defaults instead of trapping.
+        self.maximumPendingResolves = maximumPendingResolves > 0 ? maximumPendingResolves : Self.defaultMaximumPendingResolves
+        self.resolveTimeout = resolveTimeout.isFinite && resolveTimeout > 0 ? resolveTimeout : Self.defaultResolveTimeout
     }
 
     public func events() -> AsyncStream<CmxIrohBonjourBrowserEvent> {
@@ -62,7 +61,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
             CmxIrohBonjourBrowserEvent.self,
             bufferingPolicy: .bufferingNewest(64)
         ) { continuation in
-            observers[id] = continuation
+            observers.updateValue(continuation, forKey: id)
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeObserver(id) }
             }
@@ -134,7 +133,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
             browseEventTask = nil
             browseIngress = nil
             browseToken = nil
-            publishError(Int32(kDNSServiceErr_Unknown))
+            publishError(Int32(clamping: kDNSServiceErr_Unknown))
         }
     }
 
@@ -243,7 +242,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
             publishError(error.code)
             drainQueuedResolves()
         } catch {
-            publishError(Int32(kDNSServiceErr_Unknown))
+            publishError(Int32(clamping: kDNSServiceErr_Unknown))
             drainQueuedResolves()
         }
     }

@@ -131,7 +131,7 @@ jobs:
           export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
           export DIRECT_DATABASE_URL="$DATABASE_URL"
           cd web && bun install
-          bunx drizzle-kit migrate --config drizzle.config.ts
+          bun scripts/db-migrate.mjs
           # load dev secrets (Stack keys + dedicated CI account); keep our DB url
           set -a; source scripts/load-dev-env.sh; set +a
           export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"

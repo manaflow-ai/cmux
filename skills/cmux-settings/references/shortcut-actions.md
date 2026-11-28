@@ -32,6 +32,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
+- `shortcuts.bindings.tab.search`
 
 ## Workspace
 
@@ -119,6 +120,7 @@ Values for `shortcuts.bindings.<action>`:
 
 ## Command palette
 
+- `shortcuts.bindings.agentInbox`
 - `shortcuts.bindings.commandPalette`
 - `shortcuts.bindings.commandPaletteNext`
 - `shortcuts.bindings.commandPalettePrevious`
@@ -138,8 +140,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusRightSidebar`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.nextWorkspaceGroup`
 - `shortcuts.bindings.prevSidebarTab`
 - `shortcuts.bindings.prevSidebarTabInGroup`
+- `shortcuts.bindings.prevWorkspaceGroup`
 - `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToFiles`
@@ -154,10 +158,15 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.browserForward`
 - `shortcuts.bindings.browserHardReload`
 - `shortcuts.bindings.browserReload`
+- `shortcuts.bindings.browserStop`
+- `shortcuts.bindings.browser.copyURL`
+- `shortcuts.bindings.browser.findPrevious`
 - `shortcuts.bindings.browserZoomIn`
 - `shortcuts.bindings.browserZoomOut`
 - `shortcuts.bindings.browserZoomReset`
 - `shortcuts.bindings.focusBrowserAddressBar`
+- `shortcuts.bindings.omnibar.openInBackgroundTab`
+- `shortcuts.bindings.omnibar.openInForegroundTab`
 - `shortcuts.bindings.openBrowser`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
 - `shortcuts.bindings.splitBrowserDown`
@@ -175,6 +184,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.hideFind`
 - `shortcuts.bindings.pasteLastScreenshot`
 - `shortcuts.bindings.sendCtrlFToTerminal`
+- `shortcuts.bindings.sizeTerminalToMyWindow`
 - `shortcuts.bindings.useSelectionForFind`
 
 ## Files and React Grab
@@ -189,8 +199,10 @@ Values for `shortcuts.bindings.<action>`:
 ## Markdown and diff viewer
 
 - `shortcuts.bindings.diffViewerNextFile`
+- `shortcuts.bindings.diffViewerNextHunk`
 - `shortcuts.bindings.diffViewerOpenFileSearch`
 - `shortcuts.bindings.diffViewerPreviousFile`
+- `shortcuts.bindings.diffViewerPreviousHunk`
 - `shortcuts.bindings.diffViewerScrollDown`
 - `shortcuts.bindings.diffViewerScrollDownEmacs`
 - `shortcuts.bindings.diffViewerScrollHalfPageDown`
@@ -199,6 +211,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.diffViewerScrollToTop`
 - `shortcuts.bindings.diffViewerScrollUp`
 - `shortcuts.bindings.diffViewerScrollUpEmacs`
+- `shortcuts.bindings.diffViewerToggleViewed`
 - `shortcuts.bindings.markdownZoomIn`
 - `shortcuts.bindings.markdownZoomOut`
 - `shortcuts.bindings.markdownZoomReset`

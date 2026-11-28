@@ -179,12 +179,12 @@ private extension Data {
     init?(canonicalHex value: String) {
         guard value.utf8.count.isMultiple(of: 2) else { return nil }
         var bytes = Data(capacity: value.utf8.count / 2)
-        var index = value.startIndex
-        while index < value.endIndex {
-            let next = value.index(index, offsetBy: 2)
-            guard let byte = UInt8(value[index ..< next], radix: 16) else { return nil }
+        // Two characters per byte; an odd character count (a multi-byte
+        // character) is refused instead of stepping past the end.
+        var characters = value.makeIterator()
+        while let first = characters.next() {
+            guard let second = characters.next(), let byte = UInt8(String([first, second]), radix: 16) else { return nil }
             bytes.append(byte)
-            index = next
         }
         self = bytes
     }

@@ -1531,8 +1531,9 @@ fn frame_read_io_error(failure: FrameReadFailure) -> io::Error {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[cfg(unix)]
+    use crate::test_exec::write_executable;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -2645,7 +2646,7 @@ mod tests {
             std::process::id(),
             NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::write(
+        write_executable(
             &script_path,
             concat!(
                 "#!/bin/sh\n",
@@ -2669,10 +2670,7 @@ mod tests {
                 "  done\n",
                 "fi\n",
             ),
-        )
-        .expect("write provider command");
-        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o700))
-            .expect("make provider command executable");
+        );
 
         let connector = Arc::new(
             CommandProviderConnector::new([script_path.clone().into_os_string()])

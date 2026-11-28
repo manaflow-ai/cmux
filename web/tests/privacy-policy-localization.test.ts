@@ -6,7 +6,7 @@ import {
   privacyPolicyContent,
   type PrivacyPolicyContent,
 } from "../app/[locale]/(legal)/privacy-policy/content";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import { locales } from "../i18n/routing";
 
 const markdownLinkPattern = /\[[^\]]+]\((https?:\/\/[^)]+|mailto:[^)]+)\)/g;

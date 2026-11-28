@@ -6,10 +6,24 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WRAPPER="$ROOT_DIR/scripts/ci/run-xcodebuild-with-diagnostics.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+# The wrapper keeps a failed build's output under TMPDIR when RUNNER_TEMP is unset.
+export TMPDIR="$TMP_DIR"
+unset RUNNER_TEMP
 
 cat >"$TMP_DIR/fake-xcodebuild.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'fake xcodebuild args: %s\n' "$*"
+if [[ -n "${FAKE_XCODEBUILD_ERRORS:-}" ]]; then
+  echo "/src/App/Thing.swift:21:42: error: generic parameter 'T' could not be inferred"
+  echo "   |   \`- error: generic parameter 'T' could not be inferred"
+  echo "<unknown>:0: error: deinit is marked isolated, but containing class 'TerminalSession' is not isolated to an actor"
+  for _ in {1..200}; do echo "noise line"; done
+  echo "/src/App/Thing.swift:21:42: error: generic parameter 'T' could not be inferred"
+  echo "** BUILD FAILED **"
+  echo "The following build commands failed:"
+  echo "	SwiftCompile normal arm64 Thing.swift (in target 'App' from project 'App')"
+  echo "(1 failure)"
+fi
 if [[ -n "${FAKE_XCODEBUILD_DELAY:-}" ]]; then
   python3 -c 'import os, time; time.sleep(float(os.environ["FAKE_XCODEBUILD_DELAY"]))'
 fi
@@ -36,6 +50,31 @@ grep -Fq 'xcodebuild exit status: 137' "$TMP_DIR/failure.log"
 grep -Fq 'xcodebuild termination: signal=9' "$TMP_DIR/failure.log"
 grep -Fq 'resource diagnostics follow' "$TMP_DIR/failure.log"
 grep -Fq -- '--- top processes by resident memory ---' "$TMP_DIR/failure.log"
+
+set +e
+FAKE_XCODEBUILD_ERRORS=1 FAKE_XCODEBUILD_STATUS=65 \
+  "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/errors.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 65 ]]; then
+  echo "FAIL: wrapper must return xcodebuild's exit 65, got $status" >&2
+  exit 1
+fi
+# Each distinct error becomes one annotation, with file and line when present.
+if [[ "$(grep -c '^::error file=/src/App/Thing.swift,line=21,col=42::generic parameter' "$TMP_DIR/errors.log")" -ne 1 ]]; then
+  echo "FAIL: a located compiler error must become exactly one file annotation" >&2
+  cat "$TMP_DIR/errors.log" >&2
+  exit 1
+fi
+grep -Fq "::error::<unknown>:0: error: deinit is marked isolated" "$TMP_DIR/errors.log"
+if grep -q '^::error.*`- error' "$TMP_DIR/errors.log"; then
+  echo "FAIL: the pretty-printed diagnostic gutter must not become an annotation" >&2
+  exit 1
+fi
+# The log ends with the errors, after the resource diagnostics.
+tail -n 12 "$TMP_DIR/errors.log" | grep -Fq "<unknown>:0: error: deinit is marked isolated"
+tail -n 12 "$TMP_DIR/errors.log" | grep -Fq "The following build commands failed:"
+grep -Fq 'noise line' "$TMP_DIR/errors.log"
 
 for invalid_interval in 0 0.0 00; do
   if CMUX_XCODEBUILD_HEARTBEAT_SECONDS="$invalid_interval" \

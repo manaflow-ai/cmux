@@ -29,6 +29,7 @@ import {
   type AuthedUser,
 } from "../../../../services/vms/auth";
 import { relayAuthenticationError } from "../../../../services/relay/errors";
+import { isAuthorizedDevRelayRateLimitBypass } from "../../../../services/relay/devRateLimitBypass";
 
 
 const MAX_BODY_BYTES = 32 * 1_024;
@@ -46,6 +47,11 @@ export interface RelayPreferenceDeps {
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
+  readonly isDevRateLimitBypassAllowed: (input: {
+    readonly request: Request;
+    readonly user: AuthedUser;
+    readonly clientNamespace: string;
+  }) => boolean | Promise<boolean>;
 }
 
 const productionDeps: RelayPreferenceDeps = {
@@ -60,6 +66,11 @@ const productionDeps: RelayPreferenceDeps = {
     process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID ??
     process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
+  isDevRateLimitBypassAllowed: ({ clientNamespace, user }) =>
+    isAuthorizedDevRelayRateLimitBypass({
+      clientNamespace,
+      teamIds: user.teamIds,
+    }),
 };
 
 async function authenticatedAccount(
@@ -73,14 +84,30 @@ async function authenticatedAccount(
     throw relayAuthenticationError(error);
   }
   if (!user) return unauthorized();
-  await runRelayEffect(enforceRelayRateLimit({
-    request,
-    accountId: user.id,
-    ruleId: deps.rateLimitRuleId(),
-    check: deps.checkRateLimit,
-    isVercel: deps.isVercel(),
-    retryAfterSeconds: 60,
-  }));
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  let bypassRateLimit = false;
+  try {
+    bypassRateLimit = await deps.isDevRateLimitBypassAllowed({
+      request,
+      user,
+      clientNamespace,
+    });
+  } catch {
+    // A failed authorization lookup must retain the normal limiter.
+    bypassRateLimit = false;
+  }
+  if (bypassRateLimit) {
+    console.info("relay.rate_limit_bypassed", { reason: "authorized_dev_team" });
+  } else {
+    await runRelayEffect(enforceRelayRateLimit({
+      request,
+      accountId: user.id,
+      ruleId: deps.rateLimitRuleId(),
+      check: deps.checkRateLimit,
+      isVercel: deps.isVercel(),
+      retryAfterSeconds: 60,
+    }));
+  }
   return user;
 }
 

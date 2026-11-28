@@ -1,111 +1,142 @@
 # cmux Workspace Command Reference
 
-Use these commands from a cmux terminal. Most commands infer the caller workspace from `CMUX_WORKSPACE_ID`, but explicit flags are safer for automation.
+Use these commands from a cmux terminal; the CLI reads the session from the environment. Selectors are a public id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), `current` (the focused one), or an exact name. `--json` prints one result object, `--jsonl` one object per result or event. `cmux <scope> --help` prints each scope's grammar.
 
 ## Context
 
 ```bash
-cmux identify --json
-cmux --json --id-format both identify   # stable UUIDs plus human refs, for logs and handoffs
-cmux current-workspace --json
-cmux capabilities --json
-cmux ping
+cmux app identify              # the app: bundle, tag, socket
+cmux app capabilities
+cmux app ping
+cmux session list
+cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json
 ```
 
-## Windows and Workspaces
+## Windows and workspaces
 
 ```bash
-cmux list-windows
-cmux current-window
-cmux new-window
-cmux focus-window --window window:2
-cmux close-window --window window:2
+cmux window list
+cmux app new-window
 
-cmux list-workspaces
-cmux list-workspaces --json
-cmux new-workspace --name "task" --cwd "$PWD"
-cmux new-workspace --command "npm run dev"
-cmux new-workspace --layout '{"root":{"type":"terminal"}}'
-cmux current-workspace
-cmux select-workspace --workspace workspace:2
-cmux rename-workspace --workspace workspace:2 -- "new name"
-cmux close-workspace --workspace workspace:2
-cmux reorder-workspace --workspace workspace:4 --before workspace:2
-cmux move-workspace-to-window --workspace workspace:4 --window window:1
+cmux workspace list --json
+cmux workspace create --name task
+cmux workspace create --name empty --empty
+cmux workspace new --name task --cwd "$PWD" --command "npm run dev"   # app action
+cmux workspace ws_… show
+cmux workspace ws_… focus
+cmux workspace ws_… rename --name "new name"
+cmux workspace ws_… update --title "API" --color "#336699" --icon server.rack
+cmux workspace ws_… update --clear-title
+cmux workspace create --name scratch --ephemeral   # incognito, closed at the next session start
+cmux workspace ws_… move --index 0
+cmux workspace ws_… close
+cmux workspace ws_… run -- cargo test
+cmux workspace move-to-window --target ws_…   # app action
 ```
 
-## Panes and Surfaces
+`workspace create` makes the workspace in the daemon. `workspace new` is the app's New Workspace action with its arguments; `cmux action describe "workspace new"` lists them.
+
+## Panes and tabs
 
 ```bash
-cmux list-panes --workspace "$CMUX_WORKSPACE_ID"
-cmux list-pane-surfaces --workspace "$CMUX_WORKSPACE_ID" --pane pane:1
-cmux list-panels --workspace "$CMUX_WORKSPACE_ID"
-cmux tree --workspace "$CMUX_WORKSPACE_ID"
+cmux pane list --json
+cmux tab list --json
+cmux terminal list --json
 
-cmux new-split right --workspace "$CMUX_WORKSPACE_ID"
-cmux new-split down --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID"
-cmux new-split down --workspace "$CMUX_WORKSPACE_ID" --command "npm run dev"
-cmux new-pane --workspace "$CMUX_WORKSPACE_ID" --type terminal --direction right
-cmux new-pane --workspace "$CMUX_WORKSPACE_ID" --type terminal --direction right --command "tail -f logs/dev.log"
-cmux new-pane --workspace "$CMUX_WORKSPACE_ID" --type browser --url http://localhost:3000
-cmux new-surface --workspace "$CMUX_WORKSPACE_ID" --type terminal --pane pane:1
-cmux new-surface --workspace "$CMUX_WORKSPACE_ID" --type terminal --pane pane:1 --working-directory "$PWD" --command "npm test"
-cmux new-surface --workspace "$CMUX_WORKSPACE_ID" --type browser --pane pane:1 --url http://localhost:3000
+cmux pane pane_… split --right
+cmux pane pane_… split --down --cwd "$PWD"
+cmux pane pane_… run --name tests -- npm test
+cmux pane pane_… run shell 'tail -f logs/dev.log'
+cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
+cmux tab create browser --pane pane_… --url http://localhost:3000
 
-cmux focus-pane --workspace "$CMUX_WORKSPACE_ID" --pane pane:2
-cmux focus-panel --workspace "$CMUX_WORKSPACE_ID" --panel surface:3
-cmux close-surface --workspace "$CMUX_WORKSPACE_ID" --surface surface:3
-cmux move-surface --surface surface:7 --pane pane:2 --focus true
-cmux reorder-surface --surface surface:7 --before surface:3
-cmux move-tab-to-new-workspace --surface surface:7 --title "browser"
+cmux pane pane_… focus
+cmux pane pane_… focus direction left
+cmux pane pane_… zoom --enabled true
+cmux pane pane_… close
+cmux tab tab_… rename --name logs
+cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
+cmux tab tab_… pin
+cmux tab tab_… zoom 1.25            # browser page zoom or terminal font scale; `zoom reset`
+cmux tab tab_… close
 ```
 
-`--command <text>` (also on `new-workspace`) types the text plus one Enter into the new terminal's interactive shell at spawn time, so no follow-up `send` or `send-key enter` is needed and the shell stays alive after the command exits. It is terminal-only (`--type browser|simulator|agent-session` rejects it), blank text is ignored, and `new-workspace --layout` ignores it.
+## Tab and screen groups
 
-## Input
+Groups take their id or exact name.
 
 ```bash
-cmux send "echo hello\n"
-cmux send-key enter
-cmux send --surface "$CMUX_SURFACE_ID" "git status\n"
-cmux send-key --surface "$CMUX_SURFACE_ID" enter
-cmux read-screen --surface "$CMUX_SURFACE_ID"
+cmux tab group create --tabs tab_…,tab_… --name agents --color green
+cmux tab group list --json
+cmux tab group agents update --collapse
+cmux tab group agents add --tabs tab_…
+cmux tab group remove --tabs tab_…
+cmux tab group agents move --pane pane_… --index 0
+cmux tab group agents save --room Work      # personal saved group
+cmux tab group saved list
+cmux tab group saved <saved> reopen --pane pane_…
+cmux tab group agents ungroup               # or close (closes its tabs)
+
+cmux screen screen_… pin
+cmux screen screen_… update --color blue --icon star
+cmux screen screen_… move --index 0
+cmux screen group create --screens screen_…,screen_… --name infra
+cmux screen group infra update --collapse
 ```
 
-## Sidebar Metadata
+## Workspace status, progress and log
 
 ```bash
-cmux set-status build "running" --workspace "$CMUX_WORKSPACE_ID" --icon hammer --color "#ff9500"
-cmux clear-status build --workspace "$CMUX_WORKSPACE_ID"
-cmux list-status --workspace "$CMUX_WORKSPACE_ID"
-cmux set-progress 0.5 --workspace "$CMUX_WORKSPACE_ID" --label "Building"
-cmux clear-progress --workspace "$CMUX_WORKSPACE_ID"
-cmux log --workspace "$CMUX_WORKSPACE_ID" --level info -- "Build started"
-cmux list-log --workspace "$CMUX_WORKSPACE_ID" --limit 20
-cmux clear-log --workspace "$CMUX_WORKSPACE_ID"
-cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" --json
+cmux workspace status set build "tests running"
+cmux workspace progress set 0.5 --label tests
+cmux workspace log append "done" --level success
+cmux workspace status list --json
 ```
 
-## Notifications and Attention
+Without a selector they target the caller's workspace. See the skill for more.
+
+## Closed history
 
 ```bash
-notification_id="$(cmux notify --title "Done" --body "Task complete" --id-format uuids | awk '$1 == "OK" {print $2}')"
-cmux dismiss-notification --id "$notification_id"
-cmux notify --clear
-cmux list-notifications --json
-cmux clear-notifications --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID"
-cmux trigger-flash --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID"
-cmux surface-health --workspace "$CMUX_WORKSPACE_ID" --json
+cmux closed list --json
+cmux closed <closed_id> reopen
 ```
 
-## Config and Docs
+## Input and output
 
 ```bash
-cmux docs api
-cmux docs browser
-cmux docs settings
-cmux settings path
-cmux settings cmux-json
-cmux settings shortcuts
-cmux reload-config
+cmux terminal term_… write --text $'echo hello\n'
+cmux terminal term_… keys enter
+cmux terminal term_… keys ctrl+c
+cmux terminal term_… screen read
+cmux terminal term_… history read --limit 200
+cmux terminal term_… screen wait --pattern 'ready' --timeout-ms 30000
+cmux terminal term_… process wait --timeout-ms 600000
+```
+
+`write` sends text literally; it adds no Enter. Key chords join modifiers with `+` (`ctrl+c`, `shift+tab`). `screen wait` exits 1 when the timeout passes without a match.
+
+## Notifications and attention
+
+```bash
+cmux notify --title "Done" --body "Task complete"      # attached to the caller terminal
+cmux notification create --title "Done" --body "Task complete" --level success
+cmux notification list --json
+cmux notification clear --terminal "$CMUX_TUI_TERMINAL_ID"
+cmux pane flash-focused                                  # app action
+```
+
+## Not supported
+
+Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, `reorder-surface`, and `cmux docs` have no equivalent in cmux-next. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
+
+## Settings and actions
+
+```bash
+cmux settings get
+cmux settings get app.appearance
+cmux settings set app.appearance dark
+cmux settings reload-configuration     # app action
+cmux action list --noun workspace
+cmux action describe "workspace new"
 ```

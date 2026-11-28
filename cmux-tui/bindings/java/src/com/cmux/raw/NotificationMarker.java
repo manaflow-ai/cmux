@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class NotificationMarker implements WireValue {
     private final NotificationLevel level;
     private final UInt64 notification;
+    private final Field<NotificationSource> source;
     private final boolean unread;
 
     private NotificationMarker(Builder builder) {
@@ -20,6 +21,7 @@ public final class NotificationMarker implements WireValue {
         this.level = Wire.nonNull(builder.level, "level");
         if (!builder.notificationSet) throw new IllegalArgumentException("notification is required");
         this.notification = Wire.nonNull(builder.notification, "notification");
+        this.source = builder.source;
         if (!builder.unreadSet) throw new IllegalArgumentException("unread is required");
         this.unread = builder.unread;
     }
@@ -28,6 +30,7 @@ public final class NotificationMarker implements WireValue {
 
     public NotificationLevel level() { return level; }
     public UInt64 notification() { return notification; }
+    public Field<NotificationSource> source() { return source; }
     public boolean unread() { return unread; }
 
     public static NotificationMarker fromWire(Object value) {
@@ -37,6 +40,10 @@ public final class NotificationMarker implements WireValue {
         builder.level(NotificationLevel.fromWire(rawLevel));
         Object rawNotification = Wire.required(object, "notification");
         builder.notification(Wire.uint64(rawNotification, "NotificationMarker.notification"));
+        Object rawSource = Wire.optional(object, "source");
+        if (!Wire.isMissing(rawSource)) {
+            builder.source(NotificationSource.fromWire(rawSource));
+        }
         Object rawUnread = Wire.required(object, "unread");
         builder.unread(Wire.bool(rawUnread, "NotificationMarker.unread"));
         return builder.build();
@@ -47,6 +54,7 @@ public final class NotificationMarker implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "level", level);
         Wire.put(object, "notification", notification);
+        Wire.put(object, "source", source);
         Wire.put(object, "unread", unread);
         return Collections.unmodifiableMap(object);
     }
@@ -54,11 +62,11 @@ public final class NotificationMarker implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NotificationMarker that)) return false;
-        return Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(unread, that.unread);
+        return Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(source, that.source) && Objects.equals(unread, that.unread);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(level, notification, unread); }
+    public int hashCode() { return Objects.hash(level, notification, source, unread); }
 
     @Override
     public String toString() { return "NotificationMarker" + toWire(); }
@@ -68,6 +76,7 @@ public final class NotificationMarker implements WireValue {
         private boolean levelSet;
         private UInt64 notification;
         private boolean notificationSet;
+        private Field<NotificationSource> source = Field.omitted();
         private Boolean unread;
         private boolean unreadSet;
 
@@ -79,6 +88,10 @@ public final class NotificationMarker implements WireValue {
         public Builder notification(UInt64 value) {
             this.notification = value;
             this.notificationSet = true;
+            return this;
+        }
+        public Builder source(NotificationSource value) {
+            this.source = Field.of(value);
             return this;
         }
         public Builder unread(boolean value) {

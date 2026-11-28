@@ -1,6 +1,6 @@
 ---
 name: cmux-dev-workflow
-description: "Contributor workflow for native cmux setup, tagged dev builds, Xcode project normalization and sidebar extensions. Use for native build inputs, setup or tagged app verification."
+description: "Contributor workflow for native cmux setup, tagged dev builds and Xcode project normalization. Use for native build inputs, setup or tagged app verification."
 ---
 
 # cmux Dev Workflow
@@ -49,11 +49,3 @@ The installed pre-commit hook normalizes staged project files and registers new
 Python tests in `tests/test-execution.toml`. Preserve it and
 run `python3 scripts/verify-local.py --only project` after project edits. Toolchain
 pin changes are deliberate team decisions; see [project normalization](references/xcode-project-normalization.md).
-
-## Sidebar extension tags
-
-Keep the extension-point ID, bundle-ID suffix and display-name suffix distinct
-for each tag. Build extensions through `scripts/reload-extension.sh --tag <tag>`
-with the matching host; do not repair a mismatched tag by re-signing. The exact
-settings, helper arguments and verification checklist live in
-[sidebar extension tagging](references/sidebar-extension-tagging.md).

@@ -119,8 +119,13 @@ shift 2
 shift 2
 [[ "$1" == --arch ]] || exit 2
 case "$2" in arm64) archs=arm64 ;; universal) archs="arm64 x86_64" ;; *) exit 2 ;; esac
-printf '%s\\n' "$archs" > "$app/Contents/Resources/bin/cmux-tui"
-chmod +x "$app/Contents/Resources/bin/cmux-tui"
+rm -f "$app/Contents/Resources/bin/cmux"
+printf '%s\\n' "$archs" > "$app/Contents/Resources/bin/cmux"
+chmod +x "$app/Contents/Resources/bin/cmux"
+for alias in cmux-tui acpmux; do
+  rm -f "$app/Contents/Resources/bin/$alias"
+  ln -s cmux "$app/Contents/Resources/bin/$alias"
+done
 ''')
         self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'])
         self.context = {'inputs': {'release_archs': 'default'}, 'vars': {'CI_RELEASE_BUILD_ARCHS': ''},

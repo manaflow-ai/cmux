@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { RenderRun, RenderUnderline } from "cmux/raw";
 import { renderAttrs, runPresentation } from "../src/lib/renderStyles";
 
@@ -27,7 +27,7 @@ describe("render run presentation", () => {
     ["curly", "render-underline-curly"],
     ["dotted", "render-underline-dotted"],
     ["dashed", "render-underline-dashed"],
-  ] satisfies [RenderUnderline, string][]) ("maps %s underline", (underline, className) => {
+  ] satisfies [RenderUnderline, string][])("maps %s underline", (underline, className) => {
     expect(runPresentation(run({ underline }), "#eeeeee", "#111111").className).toContain(className);
   });
 
@@ -40,7 +40,8 @@ describe("render run presentation", () => {
   });
 
   it("makes width_hint authoritative in measured cell units", () => {
-    expect(runPresentation(run({ text: "界", width_hint: 2 }), "#eeeeee", "#111111").style.width)
-      .toBe("calc(var(--render-cell-width) * 2)");
+    expect(runPresentation(run({ text: "界", width_hint: 2 }), "#eeeeee", "#111111").style.width).toBe(
+      "calc(var(--render-cell-width) * 2)",
+    );
   });
 });

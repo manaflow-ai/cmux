@@ -1,0 +1,40 @@
+name: Vendored agent cursor
+
+# Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua
+# at CMUX_CUA_PINNED_SHA. This fails when the copy was edited by hand or the pin
+# moved without a re-sync (scripts/bump-cmux-cua-pin.sh does both).
+
+on:
+  pull_request:
+    paths:
+      - Packages/Shared/CmuxAgentCursor/**
+      - scripts/build-cmux-cua.sh
+      - scripts/cmux_agent_cursor_vendor.py
+      - tests/test_vendored_cmux_agent_cursor.py
+      - .github/workflows/vendored-agent-cursor.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/Shared/CmuxAgentCursor/**
+      - scripts/build-cmux-cua.sh
+      - scripts/cmux_agent_cursor_vendor.py
+      - tests/test_vendored_cmux_agent_cursor.py
+      - .github/workflows/vendored-agent-cursor.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vendored-agent-cursor-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - run: python3 tests/test_vendored_cmux_agent_cursor.py

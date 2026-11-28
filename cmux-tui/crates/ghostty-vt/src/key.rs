@@ -327,7 +327,11 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         return;
     }
 
-    let shifted_separator = key_field.iter().position(|byte| *byte == b':').unwrap();
+    // colon_count >= 1 above, so the key field has a separator.
+    let Some(shifted_separator) = key_field.iter().position(|byte| *byte == b':') else {
+        out.extend_from_slice(encoded);
+        return;
+    };
     let shifted_start = shifted_separator + 1;
     let base_separator = key_field[shifted_start..]
         .iter()

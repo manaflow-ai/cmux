@@ -196,6 +196,8 @@ public final class UpdateController {
     /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
+        // Terminal states the controller sets itself never pass through the driver.
+        if UpdateDriver.endsInstallRequest(state) { driver.installsWhenStaged = false }
 
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)

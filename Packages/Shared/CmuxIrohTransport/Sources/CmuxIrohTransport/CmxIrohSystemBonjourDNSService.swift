@@ -196,7 +196,7 @@ private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
     if txtLength == 0 {
         data = Data()
     } else if let txtRecord {
-        data = Data(bytes: txtRecord, count: Int(txtLength))
+        data = Data(bytes: txtRecord, count: Int(clamping: txtLength))
     } else {
         data = nil
     }
@@ -268,7 +268,7 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked
             Unmanaged<CmxIrohBonjourBrowseCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(
                 code: errorCode == kDNSServiceErr_NoError
-                    ? Int32(kDNSServiceErr_Unknown)
+                    ? Int32(clamping: kDNSServiceErr_Unknown)
                     : errorCode
             )
         }
@@ -313,7 +313,7 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked
             Unmanaged<CmxIrohBonjourResolveCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(
                 code: errorCode == kDNSServiceErr_NoError
-                    ? Int32(kDNSServiceErr_Unknown)
+                    ? Int32(clamping: kDNSServiceErr_Unknown)
                     : errorCode
             )
         }

@@ -462,7 +462,11 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
+    /// Latest trust and sink per transport (keyed by FrameContext::transport_id).
+    /// Output and trust checks for an attachment use its own transport's entry,
+    /// so a frame from another transport can neither receive its output nor
+    /// change its trust.
+    auth: Mutex<HashMap<Option<String>, AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -513,7 +517,7 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                auth: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -539,19 +543,22 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                auth: Mutex::new(HashMap::new()),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
-            send: Arc::clone(&context.send),
-            buffered_amount: Arc::clone(&context.buffered_amount),
-        });
+        self.inner.auth.lock().expect("auth lock").insert(
+            context.transport_id.clone(),
+            AuthSnapshot {
+                trust: context.trust.clone(),
+                owner_user_id: context.owner_user_id.clone(),
+                send: Arc::clone(&context.send),
+                buffered_amount: Arc::clone(&context.buffered_amount),
+            },
+        );
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -639,6 +646,7 @@ impl PtyManager {
     }
 
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
+        self.inner.auth.lock().expect("auth lock").retain(|owner, _| !owns(owner.as_deref()));
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
         let mut ids: Vec<String> = {
@@ -930,7 +938,7 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for(context) else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
             return;
         }
@@ -965,7 +973,7 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for(context) else { return };
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
             return;
         }
@@ -1019,8 +1027,13 @@ impl Inner {
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
+        let auth = self.auth_for(context)?;
         self.authorize_snapshot(pty_id, &auth, context, action)
+    }
+
+    /// The latest trust and sink of the transport `context` belongs to.
+    fn auth_for(&self, context: &FrameContext) -> Option<AuthSnapshot> {
+        self.auth.lock().expect("auth lock").get(&context.transport_id).cloned()
     }
 
     fn authorize_snapshot(
@@ -2916,6 +2929,39 @@ mod tests {
         // A caller with no transport identity owns the whole manager (legacy).
         h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
         assert!(!h.manager.has_attachment("p1"));
+    }
+
+    /// Output of a PTY goes only to the transport that opened it, with that
+    /// transport's trust: a later frame from another transport (another
+    /// user's tunnel, a relay) must not redirect it.
+    #[tokio::test]
+    async fn sec_audit_pty_output_stays_on_the_opening_transport() {
+        let h = harness(None, None);
+        let captured = |sink: Arc<StdMutex<Vec<Value>>>, transport: &str, trust: &str| {
+            let mut context = h.context_with_transport(trust, h.owner.clone(), Some(transport));
+            context.send = Arc::new(move |frame| sink.lock().unwrap().push(frame));
+            context
+        };
+        let relay_frames = Arc::new(StdMutex::new(Vec::new()));
+        let tunnel_frames = Arc::new(StdMutex::new(Vec::new()));
+        let relay = captured(Arc::clone(&relay_frames), "transport-relay", "supervised");
+        let tunnel = captured(Arc::clone(&tunnel_frames), "transport-tunnel", "supervised");
+        let open = serde_json::json!({
+            "version": 4, "type": "pty_open", "ptyId": "p-relay", "session": "relay-side",
+            "cols": 80, "rows": 24, "actorId": "user_owner", "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&open, &relay).await;
+        // Any frame from the other transport, even one for an unknown PTY.
+        let other =
+            serde_json::json!({ "type": "pty_resize", "ptyId": "p-none", "cols": 90, "rows": 30 });
+        h.manager.handle_frame(&other, &tunnel).await;
+        h.spawned()[0].emit("secret output\r\n");
+        let outputs = |frames: &Arc<StdMutex<Vec<Value>>>| {
+            frames.lock().unwrap().iter().filter(|f| f["type"] == "pty_output").count()
+        };
+        assert_eq!(outputs(&tunnel_frames), 0, "output leaked to another transport");
+        assert_eq!(outputs(&relay_frames), 1, "output did not reach the opening transport");
     }
 
     #[tokio::test]

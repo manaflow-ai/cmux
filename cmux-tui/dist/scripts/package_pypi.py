@@ -18,6 +18,10 @@ from pathlib import Path
 VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]{9,})$")
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
+LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
+# Third-party notices of the bundled binaries (package_notices.py generate);
+# PEP 639 License-File in .dist-info/licenses/.
+NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PROJECT_SUMMARY = "cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt"
 PROJECT_DESCRIPTION = """# cmux
@@ -88,6 +92,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Output directory for generated wheels.",
     )
+    parser.add_argument(
+        "--notices-dir",
+        required=True,
+        type=Path,
+        help="package_notices.py generate output: cmux-tui-<rust target>.md per target.",
+    )
     return parser.parse_args()
 
 
@@ -109,7 +119,7 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
 
 
 def wheel_bytes(
-    version: str, tag: str, binary: bytes, hook_binary: bytes
+    version: str, tag: str, binary: bytes, hook_binary: bytes, notice: bytes
 ) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
     return [
@@ -151,11 +161,13 @@ Tag: py3-none-{tag}
         (
             f"{dist_info}/METADATA",
             text_bytes(
-                f"""Metadata-Version: 2.1
+                f"""Metadata-Version: 2.4
 Name: {DIST_NAME}
 Version: {version}
 Summary: {PROJECT_SUMMARY}
-License: MIT
+License-Expression: GPL-3.0-or-later
+License-File: LICENSE
+License-File: {NOTICE_FILE}
 Project-URL: Source, https://github.com/manaflow-ai/cmux
 Description-Content-Type: text/markdown
 
@@ -163,6 +175,8 @@ Description-Content-Type: text/markdown
             ),
             0o644,
         ),
+        (f"{dist_info}/licenses/LICENSE", LICENSE_SOURCE.read_bytes(), 0o644),
+        (f"{dist_info}/licenses/{NOTICE_FILE}", notice, 0o644),
         (
             f"{dist_info}/entry_points.txt",
             text_bytes(
@@ -215,6 +229,10 @@ def main() -> None:
             raise SystemExit(f"missing hook binary: {hook_binary_path}")
         binary = binary_path.read_bytes()
         hook_binary = hook_binary_path.read_bytes()
+        notice_path = args.notices_dir / f"cmux-tui-{target.rust_target}.md"
+        if not notice_path.is_file():
+            raise SystemExit(f"missing third-party notice {notice_path} (package_notices.py generate)")
+        notice = notice_path.read_bytes()
         for platform_tag in target.platform_tags:
             wheel_name = f"{DIST_NAME}-{args.version}-py3-none-{platform_tag}.whl"
             wheel_path = out_dir / wheel_name
@@ -222,7 +240,7 @@ def main() -> None:
                 wheel_path.unlink()
             write_wheel(
                 wheel_path,
-                wheel_bytes(args.version, platform_tag, binary, hook_binary),
+                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice),
                 args.version,
             )
 

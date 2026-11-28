@@ -94,12 +94,18 @@ export function useVirtualTurns(count: number, enabled = true) {
   const cleanups = useRef(new Map<number, () => void>());
   const measureCallbacks = useRef(new Map<number, (node: HTMLDivElement | null) => void>());
   const measureCacheKey = useRef({ count, enabled });
+  const countRef = useRef(count);
+  countRef.current = count;
   const estimate = useRef(260);
   const measured = useRef({ total: 0, count: 0 });
   const [version, setVersion] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 900 });
   useLayoutEffect(() => {
-    if (measureCacheKey.current.count === count && measureCacheKey.current.enabled === enabled) return;
+    const previous = measureCacheKey.current;
+    measureCacheKey.current = { count, enabled };
+    // Existing turn indexes remain valid when another turn is appended. Keep
+    // their heights and observers so reading older turns doesn't reset layout.
+    if (count >= previous.count && previous.enabled === enabled) return;
     for (const obs of observers.current.values()) obs.disconnect();
     for (const cleanup of cleanups.current.values()) cleanup();
     observers.current.clear();
@@ -108,7 +114,6 @@ export function useVirtualTurns(count: number, enabled = true) {
     heights.current.clear();
     estimate.current = 260;
     measured.current = { total: 0, count: 0 };
-    measureCacheKey.current = { count, enabled };
     setVersion((v) => v + 1);
   }, [count, enabled]);
   useLayoutEffect(() => {
@@ -149,7 +154,7 @@ export function useVirtualTurns(count: number, enabled = true) {
       cleanups.current.delete(index);
       if (!node || !enabled) return;
       const measurementState: VirtualRowMeasurementState = {
-        count,
+        get count() { return countRef.current; },
         heights: heights.current,
         measured,
         estimate,

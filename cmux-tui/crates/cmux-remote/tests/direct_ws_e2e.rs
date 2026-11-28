@@ -215,3 +215,170 @@ async fn carrier_dial_is_accepted_only_by_a_trusted_listener() {
     trusted.shutdown().await.unwrap();
     untrusted.shutdown().await.unwrap();
 }
+
+/// Dials `server` once as `identity` with `auth` and returns the client.
+async fn dial_once(
+    server: &cmux_remote::daemon::DirectWebSocketServer,
+    daemon_key: [u8; 32],
+    identity: StaticIdentity,
+    auth: ClientAuthMode,
+    session: SessionId,
+    reconnect: ReconnectPolicy,
+) -> Result<std::sync::Arc<ClientConnection>, cmux_remote::connection::ConnectionError> {
+    let endpoint =
+        Url::parse(&format!("ws://127.0.0.1:{}/v1/link", server.local_addr().port())).unwrap();
+    let group = DirectWebSocketProvider::new(65_535)
+        .connect(ConnectRequest {
+            endpoint,
+            session,
+            lane_policy: LanePolicy::Isolated,
+            routing: Default::default(),
+        })
+        .await
+        .unwrap();
+    ClientConnection::connect(
+        group,
+        ClientConnectionConfig {
+            identity,
+            expected_daemon: Some(daemon_key),
+            auth,
+            device_name: "enrolled-listener-client".into(),
+            session,
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect,
+        },
+    )
+    .await
+}
+
+/// The session host's enrolled listener (every `cmux host run` mode except
+/// the Cloud edge carrier), on loopback and on a non-loopback bind: a
+/// device that is not enrolled is refused, a credential revoked during a
+/// session closes that session within one heartbeat, and the revoked
+/// (stale) credential is refused on the next dial.
+#[tokio::test]
+async fn enrolled_listener_refuses_strangers_and_closes_a_revoked_session_within_one_heartbeat() {
+    use cmux_remote::daemon::{DirectWebSocketOptions, serve_direct_websocket_with_options};
+
+    const HEARTBEAT: Duration = Duration::from_secs(1);
+    for (bind, allow_insecure_non_loopback) in [("127.0.0.1:0", false), ("0.0.0.0:0", true)] {
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "enrolled-listener", false).unwrap();
+        let daemon_key = auth.identity().public_key();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let server = serve_direct_websocket_with_options(
+            daemon,
+            bind.parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
+        )
+        .await
+        .unwrap();
+        let once = ReconnectPolicy { maximum_attempts: Some(1), ..Default::default() };
+
+        // Unauthenticated: a stranger's key, and a carrier claim.
+        for (auth_mode, session) in [
+            (ClientAuthMode::Enrolled, SessionId([91; 16])),
+            (ClientAuthMode::Carrier, SessionId([92; 16])),
+        ] {
+            tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                dial_once(
+                    &server,
+                    daemon_key,
+                    StaticIdentity::generate().unwrap(),
+                    auth_mode,
+                    session,
+                    once,
+                ),
+            )
+            .await
+            .expect("stranger dial timed out")
+            .expect_err("enrolled listener accepted an unauthenticated dial");
+        }
+
+        // Enroll one device, then connect with its enrolled key.
+        let identity = StaticIdentity::generate().unwrap();
+        let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+        let approver = tokio::spawn({
+            let auth = auth.clone();
+            async move {
+                let pending = auth.wait_for_pending(Duration::from_secs(5)).await.unwrap();
+                auth.approve(&pending[0].invitation_id).await.unwrap()
+            }
+        });
+        let enrolling = dial_once(
+            &server,
+            daemon_key,
+            identity.clone(),
+            ClientAuthMode::Invitation {
+                id: invitation.id.clone(),
+                secret: Zeroizing::new(invitation.secret_bytes().unwrap()),
+            },
+            SessionId([93; 16]),
+            once,
+        )
+        .await
+        .unwrap();
+        let device = approver.await.unwrap();
+        let _ = tokio::time::timeout(CONNECT_TIMEOUT, accepted.recv()).await.unwrap().unwrap();
+        enrolling.close().await.unwrap();
+
+        let live = ReconnectPolicy {
+            heartbeat_interval: Some(HEARTBEAT),
+            heartbeat_timeout: HEARTBEAT,
+            maximum_attempts: Some(1),
+            ..Default::default()
+        };
+        let client = dial_once(
+            &server,
+            daemon_key,
+            identity.clone(),
+            ClientAuthMode::Enrolled,
+            SessionId([94; 16]),
+            live,
+        )
+        .await
+        .expect("an enrolled device was refused");
+        let daemon_client =
+            tokio::time::timeout(CONNECT_TIMEOUT, accepted.recv()).await.unwrap().unwrap();
+        assert_eq!(client.snapshot().await.state, ConnectionState::Connected);
+
+        // Revoked mid-session: closed within one heartbeat, on both ends.
+        auth.revoke(&device.id).await.unwrap();
+        let ended = tokio::time::timeout(HEARTBEAT, async {
+            loop {
+                match client.receive().await {
+                    Ok(Some(_)) => continue,
+                    other => return other.map(|_| ()),
+                }
+            }
+        })
+        .await;
+        assert!(ended.is_ok(), "{bind}: a revoked session stayed open past one heartbeat");
+        assert_ne!(client.snapshot().await.state, ConnectionState::Connected, "{bind}");
+        let server_side = tokio::time::timeout(HEARTBEAT, daemon_client.receive()).await;
+        assert!(
+            matches!(server_side, Ok(Ok(None)) | Ok(Err(_))),
+            "{bind}: the daemon kept the revoked session"
+        );
+
+        // Stale credential: the revoked device's key is refused.
+        tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            dial_once(
+                &server,
+                daemon_key,
+                identity,
+                ClientAuthMode::Enrolled,
+                SessionId([95; 16]),
+                once,
+            ),
+        )
+        .await
+        .expect("revoked dial timed out")
+        .expect_err("a revoked device was accepted");
+        server.shutdown().await.unwrap();
+    }
+}

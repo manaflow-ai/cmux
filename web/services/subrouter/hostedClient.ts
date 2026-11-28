@@ -296,6 +296,14 @@ export class HostedSubrouterError extends Error {
   }
 }
 
+/** The hosted service could not be reached at all (DNS, connection, timeout). */
+export class HostedSubrouterUnreachableError extends HostedSubrouterError {
+  constructor() {
+    super("hosted Subrouter unavailable", 503);
+    this.name = "HostedSubrouterUnreachableError";
+  }
+}
+
 async function requestJson(
   fetchImpl: typeof fetch,
   url: string,
@@ -332,7 +340,7 @@ async function requestResponse(
       signal: init.signal ?? AbortSignal.timeout(10_000),
     });
   } catch {
-    throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
+    throw new HostedSubrouterUnreachableError();
   }
   if (!response.ok) {
     throw new HostedSubrouterError(

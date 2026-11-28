@@ -59,10 +59,10 @@ public enum CmuxTUISplitDirection: String, Sendable {
 
 extension CmuxTUIControl {
     /// Gives up this attachment's geometry authority while keeping its
-    /// stream (`release-attached-view-size`). The server hands geometry back
-    /// to the owner this attachment displaced (for example a laptop client)
-    /// when it still reports a viewport; otherwise the grid stays as it is
-    /// until a view claims it again. Returns `false` without sending anything
+    /// stream (`release-attached-view-size`). The view stops counting toward
+    /// size, so the server's shared sizing policy hands the grid to the
+    /// remaining counting views (for example a laptop client); with none the
+    /// grid keeps its last size. Returns `false` without sending anything
     /// when the stream has no lease.
     @discardableResult
     public func releaseGeometry(_ attachment: CmuxTUIAttachment) async throws -> Bool {
