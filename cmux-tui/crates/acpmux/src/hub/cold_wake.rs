@@ -40,6 +40,9 @@
 //!   a watch's wake, a cross-host message). What stays immediate: a block, a question, a fire
 //!   notice, the person's own prompt (a Cloud trigger's too), a chat's first work, a cut turn's
 //!   continuation and a goal's continuation (each runs alone, right after its turn, warm).
+//!   A time watch's wake (`watch_timers.rs`) is an alarm the chat set for that time, so it keeps
+//!   only the burst window ([`due_wake`]): held for a 300 s batch, four alarms due 13:40Z to
+//!   15:05Z fired at 17:54:43 when their machine came back and started their turn at 17:59:47.
 //! - **Outside producers** (a forum or Slack bridge, a CI notifier run from a timer) join it with
 //!   `acpmux send SESSION --gather --from NAME` (or `--notice ... --sender NAME`), which sends
 //!   [`GATHER_META`]: a named sender's message that waits for the chat's batch. The daemon
@@ -56,6 +59,32 @@ use super::*;
 /// `_meta.acpmux.gather` (`acpmux send --gather`, module docs): an outside producer's message
 /// that waits for the chat's batch instead of waking it at once.
 pub const GATHER_META: &str = "gather";
+
+/// `_meta.acpmux.watchDueAt` of a time watch's wake (`watch_timers.rs` `fire_timers`), kept in
+/// its provenance as [`DUE_AT`]: the time the chat asked to be woken at.
+pub(crate) const WATCH_DUE_AT_META: &str = "watchDueAt";
+
+/// The provenance key a time watch's wake carries ([`stamp_due`]).
+pub(crate) const DUE_AT: &str = "dueAt";
+
+/// `provenance` with the due time of the time watch whose wake `params` is ([`DUE_AT`]); as it
+/// was for every other prompt.
+pub(crate) fn stamp_due(provenance: Option<Value>, params: &Value) -> Option<Value> {
+    let due = params.pointer("/_meta/acpmux/watchDueAt").and_then(Value::as_u64);
+    match (provenance, due) {
+        (Some(Value::Object(mut p)), Some(due)) => {
+            p.insert(DUE_AT.into(), json!(due));
+            Some(Value::Object(p))
+        }
+        (p, _) => p,
+    }
+}
+
+/// Whether a prompt is a time watch's wake ([`stamp_due`]): it never waits for a cold batch
+/// (module docs), only the burst window every agent message waits.
+pub(crate) fn due_wake(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(DUE_AT)).and_then(Value::as_u64).is_some()
+}
 
 /// The explicit batch request kept with the sender's provenance in the inbox journal.
 pub(super) fn requested(provenance: Option<&Value>) -> bool {
@@ -354,6 +383,22 @@ impl Hub {
             );
         }
         Some(due)
+    }
+
+    /// How long another agent's message (`provenance`) about to gather in idle `session` waits
+    /// for the chat's cold batch at `now`, before the burst window (`queue.rs`): to the batch's
+    /// deadline, opening one when the chat is cold; nothing for a warm chat or a time watch's
+    /// wake ([`due_wake`]), which opens none either.
+    pub(super) fn cold_batch_wait(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        provenance: Option<&Value>,
+        now: u64,
+    ) -> u64 {
+        if due_wake(provenance) {
+            return 0;
+        }
+        self.cold_batch_due(session, &session.meta(), now).map_or(0, |due| due.saturating_sub(now))
     }
 
     /// A turn started in `session`: its batch went in with it, unless it is the batch's own
