@@ -21,7 +21,8 @@ def call(b):
 REPORT = {"payload": "mixed", "rows": [
     {"name": "terminal.throughput.next_mb_s", "p50": 100.0, "unit": "MB/s"},
     {"name": "terminal.throughput.ghostty_mb_s", "p50": 213.0, "unit": "MB/s"},
-    {"name": "terminal.throughput.ratio", "p50": 0.469, "unit": "x"},
+    {"name": "terminal.throughput.ratio", "p50": 0.469, "unit": "x", "n": 4},
+    {"name": "terminal.throughput.pair_spread_pct", "p50": 6.2, "unit": "%", "n": 4},
     {"name": "terminal.interrupt.key_to_signal_ms", "p50": 4.0, "unit": "ms"}],
     "next": {"trace": {"window_s": 2.0, "writer_pid": 1, "threads": [
         {"thread": "Main Thread 0x1 (Python, pid: 1)", "pid": 1, "running_pct": 50.0, "calls": {"write": call(9)}},
@@ -46,6 +47,8 @@ class Quick(unittest.TestCase):
             bench.ingest(ctx, path)
         got = {(r["metric"], r["labels"].get("terminal")): r for r in ctx.rows}
         self.assertEqual(got[("ratio", None)]["value"], 0.469)
+        self.assertEqual(got[("ratio", None)]["n"], 4)
+        self.assertEqual((got[("pair_spread_pct", None)]["value"], got[("pair_spread_pct", None)]["better"]), (6.2, "lower"))
         self.assertEqual(got[("next_mb_s", None)]["better"], "higher")
         self.assertNotIn(("key_to_signal_ms", None), got)
         self.assertEqual(got[("pty_read_running_pct", "next")]["value"], 92.0)
