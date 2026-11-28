@@ -265,6 +265,12 @@ class FrameScore(unittest.TestCase):
         self.assertEqual(vs.motion_geometry(log), GEO)
         self.assertIsNone(vs.motion_geometry("marker-origin 0,50\n"))
 
+    def test_marker_refresh_line_gives_the_host_display_rate(self):
+        # A 30 Hz mode doubles the Screen stage; the row has to say which rate the host ran.
+        self.assertEqual(vs.marker_refresh("refresh-hz 60 mode-hz 30"), {"refresh_hz": 60.0, "mode_hz": 30.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz 120"), {"refresh_hz": 120.0})
+        self.assertEqual(vs.marker_refresh("refresh-hz x mode-hz"), {})
+
     def test_click_and_scroll_aim_at_the_marker_pad(self):
         # Without --at the bench clicks 960,600, off the marker, and every click/scroll trial is lost.
         at = vs.marker_click_at("marker-origin 0,50 click-at 704,66")
