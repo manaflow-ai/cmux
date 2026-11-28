@@ -185,6 +185,3 @@ export function resetSlotsForTest(): void {
   stored = undefined;
   changed();
 }
-
-/** Bumps on every change; for tests that count notifications. */
-export const slotsVersion = (): number => version;

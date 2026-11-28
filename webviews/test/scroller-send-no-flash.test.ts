@@ -4,13 +4,11 @@
 // transcript's thumb stays hidden. A key, button or wheel aimed at the scroller itself still shows it.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  MINIMAL_SCROLLER_ATTRIBUTE,
-  SCROLLING_ATTRIBUTE,
-  SHOWN_SCROLLER_ATTRIBUTE,
-  installScrollingMarks,
-  type ScrollTimers,
-} from "../src/scrollers";
+import type { ScrollTimers } from "../src/scrollers";
+import { importWithDom } from "./support/importWithDom";
+
+const { MINIMAL_SCROLLER_ATTRIBUTE, SCROLLING_ATTRIBUTE, SHOWN_SCROLLER_ATTRIBUTE, installScrollingMarks } =
+  await importWithDom(() => import("../src/scrollers"));
 
 const timers: ScrollTimers = { set: () => 0, clear: () => {} };
 

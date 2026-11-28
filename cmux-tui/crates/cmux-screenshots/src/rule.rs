@@ -79,7 +79,7 @@ pub fn path_extension(name: &str) -> &str {
     let name = name.trim_end_matches('/');
     let last = name.rsplit('/').next().unwrap_or(name);
     match last.rfind('.') {
-        Some(dot) if dot > 0 => &last[dot + 1..],
+        Some(dot) if dot > 0 => last.get(dot + 1..).unwrap_or_default(),
         _ => "",
     }
 }

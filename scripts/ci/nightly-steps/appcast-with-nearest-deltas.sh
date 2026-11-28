@@ -8,10 +8,11 @@
 #                  and the DMG's digest. One still running when those checks end is stopped (one-job.sh
 #                  deltas-join): no process outlives its step into the secrets.
 #   (no argument)  "Generate Sparkle appcasts (nightly)", BEFORE the feed is written. With
-#                  NIGHTLY_NEXT_DELTAS_AFTER_FEED=true (nightly-next-one) it writes the item full-only and ends;
+#                  NIGHTLY_NEXT_DELTAS_AFTER_FEED=true (nightly-next-one) it signs a finished prebuild's deltas
+#                  into the item (the release push fires on this first write), or else writes it full-only;
 #                  without it (the split jobs) it builds the deltas here, as before.
 #   after-feed     "Build the nightly-next deltas after the feed" (nightly-next-one), AFTER the feed is live: the
-#                  deltas and an item that carries them go to nightly-deltas/, which
+#                  deltas (none when the feed's item already lists one) and an item that carries them go to nightly-deltas/, which
 #                  republish-deltas-upload-next-appcasts.sh uploads and merges into the live item, only while
 #                  this build is still the feed's newest (write-feed --same-build is the compare-and-swap).
 # Both keyed modes take the prebuild's bases and deltas when `done` names this build and DMG, so only the signing
@@ -96,7 +97,11 @@ full_only() {
   fi
 }
 
-if [ "$mode" = publication ] && [ "${NIGHTLY_NEXT_DELTAS_AFTER_FEED:-}" = true ]; then
+# With a finished prebuild the item goes out with its deltas (only the signing is left, ~26 s): the release
+# push fires on the feed's first write, so a delta added after the feed never reaches a pushed Mac
+# (ask-1f1e9b8ec5). Without one, full-only, and the deltas follow the feed.
+if [ "$mode" = publication ] && [ "${NIGHTLY_NEXT_DELTAS_AFTER_FEED:-}" = true ] \
+    && ! { [ -f "$prebuilt/done" ] && [ "$(cat "$prebuilt/done")" = "$(this_build)" ]; }; then
   echo "Publishing $NIGHTLY_BUILD full-only; its deltas follow the feed (after-feed mode)"
   full_only
   echo "nightly-next deltas: after the feed; item written full-only in ${SECONDS}s" >> "$summary"
@@ -113,6 +118,13 @@ if [ "$mode" = after-feed ]; then
       --build "$NIGHTLY_BUILD"; then
     echo "::notice::a newer build is on the feed (or it is unreadable); build $NIGHTLY_BUILD gets no nearest deltas"
     echo "nightly-next deltas: skipped, build $NIGHTLY_BUILD is no longer the feed's newest" >> "$summary"
+    exit 0
+  fi
+  # The feed's first write already carried the prebuild's deltas: nothing to add.
+  if python3 "$here/nightly_next_delta_check.py" check --feed-url "${NIGHTLY_NEXT_FEED_BASE%/}/${feed_name}" \
+      --build "$NIGHTLY_BUILD" >/dev/null 2>&1; then
+    echo "build $NIGHTLY_BUILD went out with its deltas; nothing to add after the feed"
+    echo "nightly-next deltas: shipped with the feed" >> "$summary"
     exit 0
   fi
   mkdir -p nightly-deltas
