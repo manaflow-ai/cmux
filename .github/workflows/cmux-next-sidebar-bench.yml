@@ -17,11 +17,16 @@ on:
   # Started only by pr-router.yml (one router per push, RFD 0023).
   workflow_call:
   workflow_dispatch:
+  # A push of this file to feat-cmux-next registers the workflow with GitHub, so a dispatch of it does not
+  # answer 404 (tests/test_ci_workflows_registered.py); that run benches the merged tip.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-sidebar-bench.yml]
 
 permissions: {}
 
 concurrency:
-  group: cmux-next-sidebar-bench-${{ github.event.pull_request.number || github.ref }}
+  group: cmux-next-sidebar-bench-${{ github.event.pull_request.number || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:

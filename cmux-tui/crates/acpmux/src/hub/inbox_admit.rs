@@ -160,6 +160,16 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::super::queue::closing_error());
             }
+            // A chat being moved to another daemon (`transfer_out.rs`) takes no message: its
+            // record would be written after the bundle's log was read and stay behind on the
+            // tombstone. Refused, a relayed message stays leased and goes where the chat went
+            // once the move commits (`server/mesh_relay.rs` `forward_moved`); a local sender's
+            // outbox follows the refusal's `movedTo`. The super-highway ring lost the sends that
+            // reached a chat mid-move this way (2026-11-28). Auto mode's freeze moves nothing.
+            // Read here, then written below with no await between, as the close is.
+            if session.moving().is_some_and(|mark| mark != super::super::AUTO_AWAY) {
+                return Err(super::super::queue::moving_error(session));
+            }
             let now = now_ms();
             let verdict =
                 page_message.as_ref().and_then(|m| page_rule::judge(&inbox.folds, m, now));
@@ -459,7 +469,7 @@ impl Hub {
 
     /// Whether a turn is still coming for session `id` with nothing more sent: a prompt queued
     /// behind its turn that is not held aside (between a turn's end and the next one's start no
-    /// turn runs), a message this daemon's outbox has not delivered to it yet, or its inbox's
+    /// turn runs), or one that took the turn lock and has not shown its turn yet, a message this daemon's outbox has not delivered to it yet, or its inbox's
     /// ([`turn_coming`]). A wait for its turn's end does not answer with the idle state from
     /// before (`server/wait.rs`).
     pub(crate) fn work_coming(&self, id: &str) -> bool {
@@ -467,8 +477,12 @@ impl Hub {
         if session.id != id {
             return false;
         }
+        // A prompt that left the queue for its turn holds the turn lock (`turn_claimed`) before
+        // its turn shows (`start_turn` runs after awaits): the queue reads empty and no turn
+        // runs, but its turn is coming. Without this a `wait until ready` answered between two
+        // queued turns (`transfer_cli` session_move, CI run 46089658670: "b" had not run).
         if session.meta().status != SessionStatus::Closed
-            && super::super::queue::queue_waits(&session)
+            && (super::super::queue::queue_waits(&session) || session.turn_claimed())
         {
             return true;
         }
