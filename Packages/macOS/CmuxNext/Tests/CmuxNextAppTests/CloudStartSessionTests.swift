@@ -294,6 +294,24 @@ struct CloudStartSessionTests {
         #expect(machine?.id == "vm_b")
     }
 
+    @Test func anUnreadListNamesItsFailureInsteadOfGuessingAMachineExists() async throws {
+        let request = CloudStartSession.Request(name: "lane-canary", agent: "claude")
+        do {
+            try await request.requireFreshNamedList(isFresh: { false }, refresh: {}, check: {}, failure: { "network timeout\n" })
+            Issue.record("a list that never read must refuse")
+        } catch let refusal as CloudStartSession.Request.Refusal {
+            #expect(refusal.message.contains("network timeout"), "\(refusal.message)")
+            #expect(!refusal.message.contains("may already exist"), "\(refusal.message)")
+            #expect(refusal.message.contains("lane-canary"), "\(refusal.message)")
+        }
+        do {
+            try await request.requireFreshNamedList(isFresh: { false }, refresh: {}, check: {}, failure: { "  " })
+            Issue.record("a list that never read must refuse")
+        } catch let refusal as CloudStartSession.Request.Refusal {
+            #expect(refusal.message == CloudStartSessionStrings.listUnread(request.asked(machine: "lane-canary")))
+        }
+    }
+
     @Test func aNamedClaudeStartRefreshesBeforeRefusingMissingSetup() async throws {
         var machine = CloudMachine(id: "vm_b", displayName: "old-name")
         var fresh = false
@@ -704,7 +722,7 @@ struct CloudStartSessionTests {
         let messages = [
             CloudStartSessionStrings.needsMachine(agent: "claude"), CloudStartSessionStrings.noSuchMachine(id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentInvalid, CloudStartSessionStrings.cwdInvalid, CloudStartSessionStrings.stillStarting(Self.asked),
-            CloudStartSessionStrings.listUnread(Self.asked),
+            CloudStartSessionStrings.listUnread(Self.asked), CloudStartSessionStrings.listFailed(Self.asked, reason: "x"),
             CloudStartSessionStrings.createFailed("dev", quoted: "dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentFailed("dev", id: "vm-x", agent: "claude", reason: "x"), CloudStartSessionStrings.needsFolder("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentSignedOut("dev", id: "vm-x", agent: "cursor", agentName: "Cursor", expired: false),
