@@ -220,6 +220,7 @@ pub fn seen_of(outcome: &super::role::Outcome) -> Seen {
         Outcome::Current(_) => Seen::Current,
         Outcome::Older => Seen::Older,
         Outcome::RolledBackBefore => Seen::RolledBackBefore,
+        Outcome::Staged(_) => Seen::Held("rollout".to_owned()),
         Outcome::Busy(items) => busy_seen(items),
         Outcome::Updating(commit) => Seen::Swapped(commit.clone()),
         Outcome::Failed(_) => Seen::Failed,
