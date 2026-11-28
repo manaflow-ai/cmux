@@ -23,6 +23,11 @@ public final class AgentPageLiveness {
     /// Every page made here and not closed, in no particular order.
     public var pages: [AgentPaneView] { live.allObjects.filter { !$0.model.pageClosed } }
 
+    /// Pages whose model is closed but whose view is still alive. ``pages`` hides them, so a closed chat kept by an
+    /// observer or closure would be invisible to every other readout. Once the retirer's bound (two kept pages for
+    /// 30 s, one retiring per turn) has passed, a nonzero count is a leak: each one holds its transcript and state.
+    public var closedAlive: Int { live.allObjects.count(where: { $0.model.pageClosed }) }
+
     /// Every live page with the owner `owner` names for it; nil there makes it an orphan.
     public func roles(owner: (AgentPaneView) -> AgentPageRole?) -> [(view: AgentPaneView, role: AgentPageRole)] {
         pages.map { ($0, owner($0) ?? .orphan) }
@@ -69,6 +74,8 @@ public final class AgentPageLiveness {
             "visible_tabless": .number(Double(census.visibleTabless)),
             "violations": .number(Double(census.violations)),
             "swept": .number(Double(swept)),
+            "closed_alive": .number(Double(closedAlive)),
+            "made_alive": .number(Double(live.allObjects.count)),
         ])
     }
 

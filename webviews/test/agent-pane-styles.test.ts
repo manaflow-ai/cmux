@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import postcss from "postcss";
 import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
+import splitHasLists from "../scripts/postcss/splitHasLists.mjs";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { withoutComments } from "../scripts/agent-pane/paneCssComments.mjs";
 
@@ -31,11 +32,14 @@ const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** A source sheet as the page ships it: the build runs the focus-ring gate over the joined sheets
- * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it, then drops their comments
- * (scripts/agent-pane/paneCssComments.mjs). */
+/** A source sheet as the page ships it: the build runs gate-css.mjs over the joined sheets (the
+ * focus-ring gate, so each `:focus-visible` carries it, then splitHasLists, so a selector list with a
+ * `:has(...)` ships as one rule per selector, #59968), then drops their comments
+ * (scripts/agent-pane/paneCssComments.mjs). Same plugins, same order as gate-css.mjs. */
 const shipped = (file: string) =>
-  withoutComments(postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css);
+  withoutComments(
+    postcss([focusRingGate(), splitHasLists()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css,
+  );
 
 /** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
  * the imported sheet before it), so compare without them. */
@@ -98,6 +102,20 @@ describe.skipIf(!built)("agent pane page", () => {
     const copy = fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8");
     expect(copy).toBe(snapshotCss(css));
     expect(copy.length).toBeLessThan(css.length / 10);
+  });
+
+  // A WebKit pane reloaded onto other web kept the pane.js it had cached under the same name and ran it under
+  // the new document: it imported chunks the new web does not have, and New Tab drew blank (cmux#64758). The
+  // script is named by its content, as the sheets are, in both places the page names it.
+  test("names its script by its content", () => {
+    const html = fs.readFileSync(page, "utf8");
+    const hash = createHash("sha256")
+      .update(fs.readFileSync(path.join(path.dirname(page), "pane.js")))
+      .digest("hex")
+      .slice(0, 16);
+    expect(html).toContain(`<link rel="preload" as="script" href="pane.js?h=${hash}" />`);
+    expect(html).toContain(`<script src="pane.js?h=${hash}"></script>`);
+    expect(html).not.toMatch(/["']pane\.js["']/);
   });
 
   // Source comments were a third of the sheet (638 KB of 1.96 MB), tokenized by every renderer before

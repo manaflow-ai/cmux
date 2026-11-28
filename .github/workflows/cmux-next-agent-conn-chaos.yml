@@ -106,7 +106,7 @@ jobs:
       !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
       (github.event_name != 'pull_request' || (needs.route.outputs.run == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
     steps:
@@ -139,7 +139,7 @@ jobs:
             --key "agent-conn-chaos-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/agent-conn-chaos/result.json ${extra[@]+"${extra[@]}"} \
             2>&1 | tee "$out/step.log" || status=1
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1 || true)"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/result.json" || "$client" artifact --failed "$step" "$out/result.json" || true
           fi

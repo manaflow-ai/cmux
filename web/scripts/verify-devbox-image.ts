@@ -40,7 +40,7 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
-  retryFreestyleOverload,
+  startAnsweringVm,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -470,12 +470,25 @@ if (provider === "freestyle") {
       output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
     };
   };
+  type Started = Awaited<ReturnType<typeof fs.vms.create>>;
+  const deleteStarted = async (started: Started) => {
+    await started.vm.delete();
+    console.log(`deleted ${started.vmId}`);
+  };
+  // A machine whose guest stops answering before its daemon does is
+  // Freestyle's fault: it is deleted and a fresh one started.
   const t0 = Date.now();
-  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
-  console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const first = await startAnsweringVm(
+    "vm start",
+    () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }),
+    (started) => waitForBakedDaemon("freestyle", execFor(started.vm)),
+    deleteStarted,
+  );
+  const { vm, vmId } = first.vm;
+  console.log(`provisioned ${vmId} (${((Date.now() - t0) / 1000).toFixed(1)}s with its daemon's first answer)`);
   try {
     const exec = execFor(vm);
-    const daemonMs = await waitForBakedDaemon("freestyle", exec);
+    const daemonMs = first.ready;
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
@@ -497,7 +510,24 @@ if (provider === "freestyle") {
     }
     const pin = await exec(`printf '%s  %s\\n' ${bakedSha} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
     if (pin.exitCode !== 0) {
-      throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
+      // Name what replaced the baked file: its digest, size, mtime and build,
+      // the folders beside it, and any self-update the clone ran on its own.
+      const bin = `${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`;
+      const why = await exec(
+        [
+          `ls -l --time-style=full-iso ${bin} ${DEVBOX_WORK_HOME}/.local/bin/ ${DEVBOX_WORK_HOME}/.cmux/bin/ 2>&1`,
+          `sha256sum "$(readlink -f ${bin})" 2>&1; stat -c 'size=%s mtime=%y' "$(readlink -f ${bin})" 2>&1`,
+          `${bin} --version 2>&1 | head -2`,
+          `ls -la ${DEVBOX_WORK_HOME}/.acpmux/ 2>&1 | head -30`,
+          `XDG_RUNTIME_DIR=/run/user/${DEVBOX_WORK_UID} setpriv --reuid=${DEVBOX_WORK_UID} --regid=${DEVBOX_WORK_UID} --init-groups systemctl --user list-timers --all --no-pager 2>&1 | head -15`,
+          `journalctl --no-pager -o short-iso _UID=${DEVBOX_WORK_UID} 2>/dev/null | grep -iE 'self-update|acpmux-update|cmux-tui (updated|replaced)|installed' | tail -25`,
+          `journalctl --no-pager -o short-iso 2>/dev/null | grep -iE 'acpmux-update' | tail -15`,
+        ].join("; echo ---; "),
+        60_000,
+      );
+      throw new Error(
+        `baked cmux-tui does not match the pin recorded at bake time (${bakedSha} ${bakedCommit}):\n${why.output.slice(-6000)}`,
+      );
     }
     const live = await resolveCmuxTuiSource("freestyle");
     console.log(
@@ -515,10 +545,14 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
+    const { vm: second } = await startAnsweringVm(
+      "second vm start",
+      () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }),
+      (started) => waitForBakedDaemon("freestyle", execFor(started.vm)),
+      deleteStarted,
+    );
     try {
       const exec2 = execFor(second.vm);
-      await waitForBakedDaemon("freestyle", exec2);
       const settled2 = await exec2(devboxWaitForDaemonCommand(), 200_000);
       if (settled2.exitCode !== 0) throw new Error(`second machine's daemon never reached its listener: ${settled2.output.slice(-500)}`);
       const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
@@ -560,8 +594,7 @@ if (provider === "freestyle") {
       console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
       if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
     } finally {
-      await second.vm.delete();
-      console.log(`deleted ${second.vmId}`);
+      await deleteStarted(second);
     }
     // The image stamp says which layers were baked; a desktop image must
     // pass the desktop contract, a base image must not carry a desktop.
