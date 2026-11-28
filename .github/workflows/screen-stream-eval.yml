@@ -149,6 +149,30 @@ jobs:
           # on an unlocked console (worker screen_share.eval_launcher); the top-level screen_share grants are
           # the Computer Use helper's, and Macs read as granted from them failed the eval's preflight (exit 3).
           # The iPhone viewer target boots an iOS simulator, so it also needs the simulator label.
+          # A worker named by the input or vars.SCREEN_STREAM_EVAL_WORKER is strictly pinned, so one that is
+          # offline or lacks the eval grants holds the step in the queue until QUEUE_TIMEOUT: runs
+          # 46137161090 and 46137162688 (2026-11-28) sat 8 h pinned to cmux-austin-mini-0 (offline), and
+          # iphone-sim runs pinned to cmux18 (no simulator label, no Xcode.app) failed their build. Keep the
+          # named worker only while it is online and carries the labels this run needs; else resolve
+          # one below, as an empty worker does.
+          if [ -n "$WORKER" ]; then
+            named="$WORKER"
+            WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
+          import json, sys
+          try:
+              rows, _ = json.JSONDecoder().raw_decode(sys.stdin.read())
+          except ValueError:
+              sys.exit(0)
+          iphone = ",iphone-sim," in "," + sys.argv[2] + ","
+          w = rows.get(sys.argv[1])
+          if w and w.get("state", "online") == "online":
+              labels = w.get("labels", [])
+              if ("measure" in labels and "screen-eval-granted" in labels
+                      and (not iphone or "simulator" in labels)):
+                  print(sys.argv[1])
+          ' "$named" "$TARGETS" || true)
+            [ -n "$WORKER" ] || echo "::warning title=screen stream eval::named worker $named is offline or lacks the labels for targets $TARGETS; resolving a granted worker instead"
+          fi
           if [ -z "$WORKER" ]; then
             WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
           import json, sys
@@ -159,7 +183,8 @@ jobs:
           iphone = ",iphone-sim," in "," + sys.argv[1] + ","
           def ok(w):
               labels = w.get("labels", [])
-              return ("measure" in labels and "screen-eval-granted" in labels
+              return (w.get("state", "online") == "online"
+                      and "measure" in labels and "screen-eval-granted" in labels
                       and (not iphone or "simulator" in labels))
           names = sorted((n for n, w in rows.items() if ok(w)),
                          key=lambda n: (n != "cmux20-bench", bool(rows[n].get("claim_paused")), n))
@@ -179,9 +204,14 @@ jobs:
           print(" ".join(rows.get(sys.argv[1], {}).get("labels", [])))
           ' "$WORKER" || true)
           [[ " $labels " == *" bench "* ]] && target+=(--label bench)
-          # A strict pin never moves to another worker (that one would lack the console grants).
           [ -n "$WORKER" ] && target+=(--target-worker "$WORKER")
-          [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
+          # The grants travel as labels, so the pin is a preference, not a strict one: a strict pin to one
+          # Mac whose claims a runner job or host lock keeps paused held the step 8 h (runs 46137161090 and
+          # 46137162688, 2026-11-28; "pinned strictly ... never moves"), while other Macs carry
+          # screen-eval-granted. After the controller's pin_fallback_after (10 min) the step moves to
+          # another worker with these labels.
+          target+=(--label screen-eval-granted)
+          [[ ",${TARGETS// /}," == *",iphone-sim,"* ]] && target+=(--label simulator)
           # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
           # then cancelled below, so a paused or drained worker never holds this runner without end.
           "$client" run --help 2>/dev/null | grep -q -- --queue-timeout && target+=(--queue-timeout "$QUEUE_TIMEOUT")
