@@ -20447,11 +20447,13 @@ type NewConversationTabRequest struct {
 	AgentSession Presence[AgentSessionSource] `json:"-"`
 	Cols         Presence[uint16]             `json:"-"`
 	Conversation Presence[string]             `json:"-"`
-	MutationID   Presence[string]             `json:"-"`
-	Origin       Presence[string]             `json:"-"`
-	Owner        Presence[string]             `json:"-"`
-	Page         Presence[string]             `json:"-"`
-	Pane         Presence[ID]                 `json:"-"`
+	// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
+	Dock       Presence[ColumnPin] `json:"-"`
+	MutationID Presence[string]    `json:"-"`
+	Origin     Presence[string]    `json:"-"`
+	Owner      Presence[string]    `json:"-"`
+	Page       Presence[string]    `json:"-"`
+	Pane       Presence[ID]        `json:"-"`
 	// Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.
 	Place Presence[TabPlace] `json:"-"`
 	Route Presence[string]   `json:"-"`
@@ -20460,7 +20462,9 @@ type NewConversationTabRequest struct {
 	Split Presence[ConversationTabSplit] `json:"-"`
 	// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
 	Transaction Presence[string] `json:"-"`
-	Workspace   Presence[ID]     `json:"-"`
+	// With dock: the new column's viewport fraction.
+	Width     Presence[float32] `json:"-"`
+	Workspace Presence[ID]      `json:"-"`
 }
 
 func (value NewConversationTabRequest) MarshalJSON() ([]byte, error) {
@@ -20508,6 +20512,18 @@ func (value NewConversationTabRequest) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode NewConversationTabRequest.Conversation: %w", err)
 		}
 		object["conversation"] = encodedField
+	}
+	if value.Dock.IsAbsent() {
+		delete(object, "dock")
+	} else if value.Dock.IsNull() {
+		object["dock"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Dock.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewConversationTabRequest.Dock: %w", err)
+		}
+		object["dock"] = encodedField
 	}
 	if value.MutationID.IsAbsent() {
 		delete(object, "mutation_id")
@@ -20629,6 +20645,18 @@ func (value NewConversationTabRequest) MarshalJSON() ([]byte, error) {
 		}
 		object["transaction"] = encodedField
 	}
+	if value.Width.IsAbsent() {
+		delete(object, "width")
+	} else if value.Width.IsNull() {
+		object["width"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Width.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewConversationTabRequest.Width: %w", err)
+		}
+		object["width"] = encodedField
+	}
 	if value.Workspace.IsAbsent() {
 		delete(object, "workspace")
 	} else if value.Workspace.IsNull() {
@@ -20652,6 +20680,7 @@ func (value *NewConversationTabRequest) UnmarshalJSON(data []byte) error {
 		AgentSession Presence[AgentSessionSource]   `json:"agent_session"`
 		Cols         Presence[uint16]               `json:"cols"`
 		Conversation Presence[string]               `json:"conversation"`
+		Dock         Presence[ColumnPin]            `json:"dock"`
 		MutationID   Presence[string]               `json:"mutation_id"`
 		Origin       Presence[string]               `json:"origin"`
 		Owner        Presence[string]               `json:"owner"`
@@ -20662,6 +20691,7 @@ func (value *NewConversationTabRequest) UnmarshalJSON(data []byte) error {
 		Rows         Presence[uint16]               `json:"rows"`
 		Split        Presence[ConversationTabSplit] `json:"split"`
 		Transaction  Presence[string]               `json:"transaction"`
+		Width        Presence[float32]              `json:"width"`
 		Workspace    Presence[ID]                   `json:"workspace"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -20672,6 +20702,7 @@ func (value *NewConversationTabRequest) UnmarshalJSON(data []byte) error {
 	decoded.AgentSession = fields.AgentSession
 	decoded.Cols = fields.Cols
 	decoded.Conversation = fields.Conversation
+	decoded.Dock = fields.Dock
 	decoded.MutationID = fields.MutationID
 	decoded.Origin = fields.Origin
 	decoded.Owner = fields.Owner
@@ -20682,6 +20713,7 @@ func (value *NewConversationTabRequest) UnmarshalJSON(data []byte) error {
 	decoded.Rows = fields.Rows
 	decoded.Split = fields.Split
 	decoded.Transaction = fields.Transaction
+	decoded.Width = fields.Width
 	decoded.Workspace = fields.Workspace
 	*value = NewConversationTabRequest(decoded)
 	return nil
@@ -20690,9 +20722,11 @@ func (value *NewConversationTabRequest) UnmarshalJSON(data []byte) error {
 type NewConversationTabResult struct {
 	ContentResourceID RequiredNullable[string] `json:"-"`
 	Conversation      ConversationTabRecord    `json:"conversation"`
-	Replayed          bool                     `json:"replayed"`
-	Surface           ID                       `json:"surface"`
-	TabResourceID     RequiredNullable[string] `json:"-"`
+	// With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).
+	Docked        *bool                    `json:"docked,omitempty"`
+	Replayed      bool                     `json:"replayed"`
+	Surface       ID                       `json:"surface"`
+	TabResourceID RequiredNullable[string] `json:"-"`
 	// The request's transaction, when it sent one.
 	Transaction *string `json:"transaction,omitempty"`
 }
@@ -20743,6 +20777,7 @@ func (value *NewConversationTabResult) UnmarshalJSON(data []byte) error {
 	var fields struct {
 		ContentResourceID RequiredNullable[string]    `json:"content_resource_id"`
 		Conversation      *ConversationTabRecord      `json:"conversation"`
+		Docked            optionalNonNullJSON[bool]   `json:"docked"`
 		Replayed          *bool                       `json:"replayed"`
 		Surface           *ID                         `json:"surface"`
 		TabResourceID     RequiredNullable[string]    `json:"tab_resource_id"`
@@ -20761,6 +20796,12 @@ func (value *NewConversationTabResult) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode NewConversationTabResult: required field conversation is missing or null")
 	}
 	decoded.Conversation = *fields.Conversation
+	if fields.Docked.null {
+		return fmt.Errorf("decode NewConversationTabResult: non-nullable field docked is null")
+	}
+	if fields.Docked.set {
+		decoded.Docked = &fields.Docked.value
+	}
 	if fields.Replayed == nil {
 		return fmt.Errorf("decode NewConversationTabResult: required field replayed is missing or null")
 	}
@@ -20787,11 +20828,13 @@ type NewConversationTabOptions struct {
 	AgentSession Presence[AgentSessionSource] `json:"-"`
 	Cols         Presence[uint16]             `json:"-"`
 	Conversation Presence[string]             `json:"-"`
-	MutationID   Presence[string]             `json:"-"`
-	Origin       Presence[string]             `json:"-"`
-	Owner        Presence[string]             `json:"-"`
-	Page         Presence[string]             `json:"-"`
-	Pane         Presence[ID]                 `json:"-"`
+	// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
+	Dock       Presence[ColumnPin] `json:"-"`
+	MutationID Presence[string]    `json:"-"`
+	Origin     Presence[string]    `json:"-"`
+	Owner      Presence[string]    `json:"-"`
+	Page       Presence[string]    `json:"-"`
+	Pane       Presence[ID]        `json:"-"`
 	// Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.
 	Place Presence[TabPlace] `json:"-"`
 	Route Presence[string]   `json:"-"`
@@ -20800,7 +20843,9 @@ type NewConversationTabOptions struct {
 	Split Presence[ConversationTabSplit] `json:"-"`
 	// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
 	Transaction Presence[string] `json:"-"`
-	Workspace   Presence[ID]     `json:"-"`
+	// With dock: the new column's viewport fraction.
+	Width     Presence[float32] `json:"-"`
+	Workspace Presence[ID]      `json:"-"`
 }
 
 func (value NewConversationTabOptions) MarshalJSON() ([]byte, error) {
@@ -20848,6 +20893,18 @@ func (value NewConversationTabOptions) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode NewConversationTabOptions.Conversation: %w", err)
 		}
 		object["conversation"] = encodedField
+	}
+	if value.Dock.IsAbsent() {
+		delete(object, "dock")
+	} else if value.Dock.IsNull() {
+		object["dock"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Dock.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewConversationTabOptions.Dock: %w", err)
+		}
+		object["dock"] = encodedField
 	}
 	if value.MutationID.IsAbsent() {
 		delete(object, "mutation_id")
@@ -20969,6 +21026,18 @@ func (value NewConversationTabOptions) MarshalJSON() ([]byte, error) {
 		}
 		object["transaction"] = encodedField
 	}
+	if value.Width.IsAbsent() {
+		delete(object, "width")
+	} else if value.Width.IsNull() {
+		object["width"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Width.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewConversationTabOptions.Width: %w", err)
+		}
+		object["width"] = encodedField
+	}
 	if value.Workspace.IsAbsent() {
 		delete(object, "workspace")
 	} else if value.Workspace.IsNull() {
@@ -20992,6 +21061,7 @@ func (value *NewConversationTabOptions) UnmarshalJSON(data []byte) error {
 		AgentSession Presence[AgentSessionSource]   `json:"agent_session"`
 		Cols         Presence[uint16]               `json:"cols"`
 		Conversation Presence[string]               `json:"conversation"`
+		Dock         Presence[ColumnPin]            `json:"dock"`
 		MutationID   Presence[string]               `json:"mutation_id"`
 		Origin       Presence[string]               `json:"origin"`
 		Owner        Presence[string]               `json:"owner"`
@@ -21002,6 +21072,7 @@ func (value *NewConversationTabOptions) UnmarshalJSON(data []byte) error {
 		Rows         Presence[uint16]               `json:"rows"`
 		Split        Presence[ConversationTabSplit] `json:"split"`
 		Transaction  Presence[string]               `json:"transaction"`
+		Width        Presence[float32]              `json:"width"`
 		Workspace    Presence[ID]                   `json:"workspace"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -21012,6 +21083,7 @@ func (value *NewConversationTabOptions) UnmarshalJSON(data []byte) error {
 	decoded.AgentSession = fields.AgentSession
 	decoded.Cols = fields.Cols
 	decoded.Conversation = fields.Conversation
+	decoded.Dock = fields.Dock
 	decoded.MutationID = fields.MutationID
 	decoded.Origin = fields.Origin
 	decoded.Owner = fields.Owner
@@ -21022,6 +21094,7 @@ func (value *NewConversationTabOptions) UnmarshalJSON(data []byte) error {
 	decoded.Rows = fields.Rows
 	decoded.Split = fields.Split
 	decoded.Transaction = fields.Transaction
+	decoded.Width = fields.Width
 	decoded.Workspace = fields.Workspace
 	*value = NewConversationTabOptions(decoded)
 	return nil

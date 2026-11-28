@@ -66,6 +66,7 @@ fn docked_move() -> MoveTabToColumnRequest {
         dock: Optional::Value(ColumnPin {
             edge: "right".to_string(),
             mode: "docked".to_string(),
+            pinned: Optional::Missing,
             role: Optional::Missing,
         }),
         keep_focus: None,

@@ -145,6 +145,10 @@
       "`new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one",
       "daemon commit and one `pane-added` delta (a person's Cmd-D, atomically)."
     ]},
+    {"case": "conversationTabDock", "wire": "conversation-tab-dock-v1", "tier": "optional", "doc": [
+      "`new-conversation-tab {dock, width}`: the tab is made in a new pinned dock column in the same",
+      "request (Home's page in its dock with no `move-tab-to-column` round trip after it)."
+    ]},
     {"case": "frontendBrowserTabSplit", "wire": "frontend-browser-tab-split-v1", "tier": "optional", "doc": [
       "`new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon",
       "commit and one `pane-added` delta (a link opened to the right never shows in its pane first)."

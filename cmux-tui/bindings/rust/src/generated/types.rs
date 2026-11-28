@@ -509,6 +509,8 @@ pub struct ColumnPin {
     pub edge: String,
     pub mode: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
 }
 

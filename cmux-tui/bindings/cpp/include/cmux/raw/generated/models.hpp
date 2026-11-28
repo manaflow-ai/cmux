@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "cfa506e06735ef5f23a70c5fce2644dcb33c7b777a2fd307bf3517375151420d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2212,6 +2212,7 @@ enum class ColumnMoveDirection {
 struct ColumnPin {
     std::string edge{};
     std::string mode{};
+    Field<bool> pinned{};
     Field<std::string> role{};
     friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
 };
@@ -4457,6 +4458,7 @@ struct NewConversationTabRequest {
     Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
     Field<std::string> conversation{};
+    Field<ColumnPin> dock{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
     Field<std::string> owner{};
@@ -4467,6 +4469,7 @@ struct NewConversationTabRequest {
     Field<std::uint16_t> rows{};
     Field<ConversationTabSplit> split{};
     Field<std::string> transaction{};
+    Field<float> width{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
 };
@@ -4474,6 +4477,7 @@ struct NewConversationTabRequest {
 struct NewConversationTabResult {
     std::optional<std::string> content_resource_id{};
     ConversationTabRecord conversation{};
+    std::optional<bool> docked{};
     bool replayed{};
     Id surface{};
     std::optional<std::string> tab_resource_id{};

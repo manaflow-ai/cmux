@@ -16338,6 +16338,10 @@
         "ty": "string",
         "required": true
       },
+      "/dock/pinned": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/dock/role": {
         "ty": "string",
         "nullable": true
@@ -16666,6 +16670,26 @@
         "ty": "string",
         "nullable": true
       },
+      "/dock": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/dock/edge": {
+        "ty": "string",
+        "required": true
+      },
+      "/dock/mode": {
+        "ty": "string",
+        "required": true
+      },
+      "/dock/pinned": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/dock/role": {
+        "ty": "string",
+        "nullable": true
+      },
       "/mutation_id": {
         "ty": "string",
         "nullable": true
@@ -16740,6 +16764,10 @@
       },
       "/transaction": {
         "ty": "string",
+        "nullable": true
+      },
+      "/width": {
+        "ty": "float32",
         "nullable": true
       },
       "/workspace": {
@@ -26999,6 +27027,9 @@
       },
       "/data/conversation/route": {
         "ty": "string"
+      },
+      "/data/docked": {
+        "ty": "boolean"
       },
       "/data/replayed": {
         "ty": "boolean",

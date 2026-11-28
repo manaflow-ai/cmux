@@ -2492,9 +2492,10 @@ func (value *ColumnMoveDirection) UnmarshalJSON(data []byte) error {
 }
 
 type ColumnPin struct {
-	Edge string           `json:"edge"`
-	Mode string           `json:"mode"`
-	Role Presence[string] `json:"-"`
+	Edge   string           `json:"edge"`
+	Mode   string           `json:"mode"`
+	Pinned Presence[bool]   `json:"-"`
+	Role   Presence[string] `json:"-"`
 }
 
 func (value ColumnPin) MarshalJSON() ([]byte, error) {
@@ -2506,6 +2507,18 @@ func (value ColumnPin) MarshalJSON() ([]byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
 		return nil, err
+	}
+	if value.Pinned.IsAbsent() {
+		delete(object, "pinned")
+	} else if value.Pinned.IsNull() {
+		object["pinned"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pinned.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColumnPin.Pinned: %w", err)
+		}
+		object["pinned"] = encodedField
 	}
 	if value.Role.IsAbsent() {
 		delete(object, "role")
@@ -2527,9 +2540,10 @@ func (value *ColumnPin) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ColumnPin: expected object")
 	}
 	var fields struct {
-		Edge *string          `json:"edge"`
-		Mode *string          `json:"mode"`
-		Role Presence[string] `json:"role"`
+		Edge   *string          `json:"edge"`
+		Mode   *string          `json:"mode"`
+		Pinned Presence[bool]   `json:"pinned"`
+		Role   Presence[string] `json:"role"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ColumnPin: %w", err)
@@ -2544,6 +2558,7 @@ func (value *ColumnPin) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ColumnPin: required field mode is missing or null")
 	}
 	decoded.Mode = *fields.Mode
+	decoded.Pinned = fields.Pinned
 	decoded.Role = fields.Role
 	*value = ColumnPin(decoded)
 	return nil

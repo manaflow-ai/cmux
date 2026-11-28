@@ -1860,6 +1860,8 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "agent_session"?: (T.AgentSessionSource) | null;
   "cols"?: (number) | null;
   "conversation"?: (string) | null;
+  /** The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is. */
+  "dock"?: (T.ColumnPin) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
   "owner"?: (string) | null;
@@ -1873,11 +1875,15 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
   "transaction"?: (string) | null;
+  /** With dock: the new column's viewport fraction. */
+  "width"?: (number) | null;
   "workspace"?: (T.Id) | null;
 }
 export type NewConversationTabResult = {
   "content_resource_id": (string) | null;
   "conversation": T.ConversationTabRecord;
+  /** With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column). */
+  "docked"?: boolean;
   "replayed": boolean;
   "surface": T.Id;
   "tab_resource_id": (string) | null;

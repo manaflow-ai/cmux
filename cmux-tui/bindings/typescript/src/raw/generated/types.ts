@@ -269,6 +269,7 @@ export type ColumnMoveDirection = "left" | "right";
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "pinned"?: (boolean) | null;
   "role"?: (string) | null;
 };
 

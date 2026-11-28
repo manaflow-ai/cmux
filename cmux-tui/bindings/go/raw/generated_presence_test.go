@@ -1119,6 +1119,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "role", true, "\"agent_chat\"")
 	})
+	t.Run("ColumnPin.Pinned", func(t *testing.T) {
+		var missing ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Pinned.IsAbsent() {
+			t.Fatal("Pinned did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "pinned", false, "")
+		var nullValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"pinned\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Pinned.IsNull() {
+			t.Fatal("Pinned did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "pinned", true, "null")
+		var presentValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"pinned\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Pinned.Get(); !ok {
+			t.Fatal("Pinned did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "pinned", true, "true")
+	})
 	t.Run("ColumnPin.Role", func(t *testing.T) {
 		var missing ColumnPin
 		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
@@ -28773,6 +28799,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "conversation", true, "\"value\"")
 	})
+	t.Run("NewConversationTabRequest.Dock", func(t *testing.T) {
+		var missing NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Dock.IsAbsent() {
+			t.Fatal("Dock did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "dock", false, "")
+		var nullValue NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{\"dock\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Dock.IsNull() {
+			t.Fatal("Dock did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "dock", true, "null")
+		var presentValue NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{\"dock\":{\"edge\":\"value\",\"mode\":\"value\"}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Dock.Get(); !ok {
+			t.Fatal("Dock did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "dock", true, "{\"edge\":\"value\",\"mode\":\"value\"}")
+	})
 	t.Run("NewConversationTabRequest.MutationID", func(t *testing.T) {
 		var missing NewConversationTabRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -29033,6 +29085,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "transaction", true, "\"value\"")
 	})
+	t.Run("NewConversationTabRequest.Width", func(t *testing.T) {
+		var missing NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Width.IsAbsent() {
+			t.Fatal("Width did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "width", false, "")
+		var nullValue NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{\"width\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Width.IsNull() {
+			t.Fatal("Width did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "width", true, "null")
+		var presentValue NewConversationTabRequest
+		if err := json.Unmarshal([]byte("{\"width\":1.5}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Width.Get(); !ok {
+			t.Fatal("Width did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "width", true, "1.5")
+	})
 	t.Run("NewConversationTabRequest.Workspace", func(t *testing.T) {
 		var missing NewConversationTabRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -29080,6 +29158,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("ContentResourceID did not preserve a required value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "content_resource_id", true, "\"value\"")
+	})
+	t.Run("NewConversationTabResult.Docked", func(t *testing.T) {
+		var missing NewConversationTabResult
+		if err := json.Unmarshal([]byte("{\"content_resource_id\":null,\"conversation\":{},\"replayed\":true,\"surface\":1,\"tab_resource_id\":null}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Docked != nil {
+			t.Fatal("Docked did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "docked", false, "")
+		var nullValue NewConversationTabResult
+		if err := json.Unmarshal([]byte("{\"content_resource_id\":null,\"conversation\":{},\"replayed\":true,\"surface\":1,\"tab_resource_id\":null,\"docked\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field docked accepted null")
+		}
+		var presentValue NewConversationTabResult
+		if err := json.Unmarshal([]byte("{\"content_resource_id\":null,\"conversation\":{},\"replayed\":true,\"surface\":1,\"tab_resource_id\":null,\"docked\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Docked == nil {
+			t.Fatal("Docked lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "docked", true, "true")
 	})
 	t.Run("NewConversationTabResult.TabResourceID", func(t *testing.T) {
 		var missing NewConversationTabResult
@@ -29202,6 +29302,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Conversation did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "conversation", true, "\"value\"")
+	})
+	t.Run("NewConversationTabOptions.Dock", func(t *testing.T) {
+		var missing NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Dock.IsAbsent() {
+			t.Fatal("Dock did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "dock", false, "")
+		var nullValue NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{\"dock\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Dock.IsNull() {
+			t.Fatal("Dock did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "dock", true, "null")
+		var presentValue NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{\"dock\":{\"edge\":\"value\",\"mode\":\"value\"}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Dock.Get(); !ok {
+			t.Fatal("Dock did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "dock", true, "{\"edge\":\"value\",\"mode\":\"value\"}")
 	})
 	t.Run("NewConversationTabOptions.MutationID", func(t *testing.T) {
 		var missing NewConversationTabOptions
@@ -29462,6 +29588,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Transaction did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "transaction", true, "\"value\"")
+	})
+	t.Run("NewConversationTabOptions.Width", func(t *testing.T) {
+		var missing NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Width.IsAbsent() {
+			t.Fatal("Width did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "width", false, "")
+		var nullValue NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{\"width\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Width.IsNull() {
+			t.Fatal("Width did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "width", true, "null")
+		var presentValue NewConversationTabOptions
+		if err := json.Unmarshal([]byte("{\"width\":1.5}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Width.Get(); !ok {
+			t.Fatal("Width did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "width", true, "1.5")
 	})
 	t.Run("NewConversationTabOptions.Workspace", func(t *testing.T) {
 		var missing NewConversationTabOptions
@@ -70319,10 +70471,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1978
-	generatedOptionalNullableFieldCount    = 1367
+	generatedFieldShapeCount               = 1984
+	generatedOptionalNullableFieldCount    = 1372
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 433
+	generatedOptionalNonnullableFieldCount = 434
 	generatedRequiredFieldCount            = 1671
 	generatedRequiredNonnullableFieldCount = 1493
 	generatedConstrainedFieldCount         = 142

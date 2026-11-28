@@ -36,8 +36,10 @@ public struct NewConversationTabRequest: DaemonRequest {
         public var surface: SurfaceID
         public var tabResourceID: ResourceID?
         public var replayed: Bool
+        /// `conversation-tab-dock-v1`: the tab was made in the asked dock (nil when none was asked).
+        public var docked: Bool?
         enum CodingKeys: String, CodingKey {
-            case surface, replayed
+            case surface, replayed, docked
             case tabResourceID = "tab_resource_id"
         }
     }
@@ -61,6 +63,10 @@ public struct NewConversationTabRequest: DaemonRequest {
     /// With `pane`: the tab opens in a new pane split from it, in one daemon commit and one
     /// `pane-added` delta (`conversation-tab-split-v1`); `pane` never lists it.
     public var split: ConversationTabSplit?
+    /// `conversation-tab-dock-v1`: the tab moves into a new column pinned at `dock`, `width` of the window,
+    /// before the reply (the Home dock's page). Not with `split`.
+    public var dock: DockSnapshot?
+    public var width: Double?
 
     public init(conversation: String, owner: String = "local", pane: PaneID? = nil, workspace: WorkspaceHandle? = nil,
                 origin: String? = nil, mutationID: String? = nil) {
@@ -110,7 +116,7 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, page, route, pane, workspace, origin, transaction, split
+        case conversation, owner, page, route, pane, workspace, origin, transaction, split, dock, width
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
     }

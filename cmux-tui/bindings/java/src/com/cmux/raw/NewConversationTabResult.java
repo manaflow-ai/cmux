@@ -13,6 +13,8 @@ import java.util.Objects;
 public final class NewConversationTabResult implements WireValue {
     private final String contentResourceId;
     private final ConversationTabRecord conversation;
+    /** With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column). */
+    private final Field<Boolean> docked;
     private final boolean replayed;
     private final UInt64 surface;
     private final String tabResourceId;
@@ -24,6 +26,7 @@ public final class NewConversationTabResult implements WireValue {
         this.contentResourceId = builder.contentResourceId;
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
         this.conversation = Wire.nonNull(builder.conversation, "conversation");
+        this.docked = builder.docked;
         if (!builder.replayedSet) throw new IllegalArgumentException("replayed is required");
         this.replayed = builder.replayed;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -37,6 +40,7 @@ public final class NewConversationTabResult implements WireValue {
 
     public String contentResourceId() { return contentResourceId; }
     public ConversationTabRecord conversation() { return conversation; }
+    public Field<Boolean> docked() { return docked; }
     public boolean replayed() { return replayed; }
     public UInt64 surface() { return surface; }
     public String tabResourceId() { return tabResourceId; }
@@ -49,6 +53,10 @@ public final class NewConversationTabResult implements WireValue {
         builder.contentResourceId(rawContentResourceId == null ? null : Wire.string(rawContentResourceId, "NewConversationTabResult.content_resource_id"));
         Object rawConversation = Wire.required(object, "conversation");
         builder.conversation(ConversationTabRecord.fromWire(rawConversation));
+        Object rawDocked = Wire.optional(object, "docked");
+        if (!Wire.isMissing(rawDocked)) {
+            builder.docked(Wire.bool(rawDocked, "NewConversationTabResult.docked"));
+        }
         Object rawReplayed = Wire.required(object, "replayed");
         builder.replayed(Wire.bool(rawReplayed, "NewConversationTabResult.replayed"));
         Object rawSurface = Wire.required(object, "surface");
@@ -67,6 +75,7 @@ public final class NewConversationTabResult implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "content_resource_id", contentResourceId);
         Wire.put(object, "conversation", conversation);
+        Wire.put(object, "docked", docked);
         Wire.put(object, "replayed", replayed);
         Wire.put(object, "surface", surface);
         Wire.put(object, "tab_resource_id", tabResourceId);
@@ -77,11 +86,11 @@ public final class NewConversationTabResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewConversationTabResult that)) return false;
-        return Objects.equals(contentResourceId, that.contentResourceId) && Objects.equals(conversation, that.conversation) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabResourceId, that.tabResourceId) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(contentResourceId, that.contentResourceId) && Objects.equals(conversation, that.conversation) && Objects.equals(docked, that.docked) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabResourceId, that.tabResourceId) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(contentResourceId, conversation, replayed, surface, tabResourceId, transaction); }
+    public int hashCode() { return Objects.hash(contentResourceId, conversation, docked, replayed, surface, tabResourceId, transaction); }
 
     @Override
     public String toString() { return "NewConversationTabResult" + toWire(); }
@@ -91,6 +100,7 @@ public final class NewConversationTabResult implements WireValue {
         private boolean contentResourceIdSet;
         private ConversationTabRecord conversation;
         private boolean conversationSet;
+        private Field<Boolean> docked = Field.omitted();
         private Boolean replayed;
         private boolean replayedSet;
         private UInt64 surface;
@@ -107,6 +117,10 @@ public final class NewConversationTabResult implements WireValue {
         public Builder conversation(ConversationTabRecord value) {
             this.conversation = value;
             this.conversationSet = true;
+            return this;
+        }
+        public Builder docked(Boolean value) {
+            this.docked = Field.of(value);
             return this;
         }
         public Builder replayed(boolean value) {
