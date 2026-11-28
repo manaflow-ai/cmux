@@ -5,7 +5,10 @@
 //
 // Measured in Chromium over the transcript gallery scenes, at a wide and a narrow pane:
 // - every laid-out chevron (an opened group's inner steps too, whose chevron shows on hover) starts
-//   within MAX_GAP px of the right edge of the last visible words before it on its line;
+//   between MIN_GAP and MAX_GAP px after the right edge of the last visible words before it on its line
+//   (never on the words: Leo, 2026-11-27, on a sender's chip and machine with the chevron touching
+//   them, "these chevrons are too close dont we have any guidelines for these yet?";
+//   docs/cmux-next/ui-guidelines.md);
 // - a closed chevron's glyph is taller than wide (it points right), an open one's wider than tall
 //   (it points down).
 //
@@ -22,7 +25,9 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   const MAX_GAP = 8;
   /** The nearest a chevron's glyph may start after its words' ink: --grid-chevron-gap (docs/cmux-next/ui-guidelines.md). */
   const MIN_GAP = 4;
-  /** The nearest a chevron may start to the chip (sender, recipient) it follows: design/chevrons.md's 8px floor. */
+  /** The least a first-line preview may keep when it shows: room for an ellipsis and a letter, else it goes. */
+  const MIN_PREVIEW = 24;
+  /** The nearest a chevron may start to the chip (sender, recipient) it follows: docs/cmux-next/ui-guidelines.md's 8px floor. */
   const MIN_CHIP_GAP = 8;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
   const SCENES: { entry: string; variant: string }[] = [
@@ -37,6 +42,11 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     // count, SendMessage rows to long names, a bot's received line and a received pair.
     { entry: "agent-pane.message-line-look", variant: "leo-capture" },
     { entry: "agent-pane.message-line-look", variant: "single" },
+    // Shut-and-stacked and opened lines: the toggle holds no words, so the chevron follows the
+    // sentence's last box, a link chip or bare words (a machine, "· and 7 more commands"); before
+    // 2026-11-27 an opened one drew it on the last letter (docs/cmux-next/ui-guidelines.md).
+    { entry: "agent-pane.message-line-look", variant: "stacked" },
+    { entry: "agent-pane.message-line-look", variant: "opened" },
     // An opened lead thought: its own first line and its chevron right after it (cmux#27896 parked it
     // at the row's far edge).
     { entry: "agent-pane.claude-desktop-organization", variant: "shared" },
@@ -53,8 +63,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.remote-sender", variant: "machine-open" },
     { entry: "agent-pane.remote-sender", variant: "machine-open-quiet" },
     { entry: "agent-pane.remote-sender", variant: "machine-open-quiet-open" },
+    // A squeezed first line: the preview that is left must hold an ellipsis and the glyph, or go.
+    { entry: "agent-pane.incoming-message", variant: "files" },
   ];
-  const WIDTHS = [760, 420];
+  const WIDTHS = [760, 420, 240];
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -91,6 +103,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     gap: number | null;
     /** From the chip (a name's box) on its line to the glyph, when one stands before it. */
     chip: number | null;
+    /** The width of the first-line preview on the chevron's line when it shows words, else null. */
+    preview: number | null;
     /** Whether the words it follows are a trailing status or duration, not the label. */
     trail: boolean;
     width: number;
@@ -182,11 +196,17 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         }
         // A chip's box is the words' end when it is nearer than its label's text (its padding is the chip's).
         if (chip !== null && (gap === null || chip < gap)) gap = chip;
+        let preview: number | null = null;
+        const owner = chevron.closest(".cv-agentmsg__line");
+        const shown = owner?.querySelector(".cv-agentmsg__preview");
+        if (shown && shown.textContent?.trim() && laidOut(shown) && readable(shown))
+          preview = shown.getBoundingClientRect().width;
         const line = chevron.closest(".acpmux-row")!.getBoundingClientRect();
         out.push({
           row: `${row.className || row.tagName} | ${(row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
           gap,
           chip,
+          preview,
           trail,
           width: glyph.width,
           height: glyph.height,
@@ -249,6 +269,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       test(`${name}: a chevron after a chip starts at least ${MIN_CHIP_GAP}px from it`, async () => {
         const close = (await of(scene, width)).filter(({ chip }) => chip !== null && chip < MIN_CHIP_GAP - 0.5);
         expect(close).toEqual([]);
+      });
+      test(`${name}: a preview that shows keeps ${MIN_PREVIEW}px`, async () => {
+        const squeezed = (await of(scene, width)).filter(({ preview }) => preview !== null && preview < MIN_PREVIEW);
+        expect(squeezed.map(({ row, preview }) => `${row} (${preview}px)`)).toEqual([]);
       });
       test(`${name}: a closed chevron points right and an open one down`, async () => {
         const wrong = (await of(scene, width)).filter(({ width: wide, height, open }) =>

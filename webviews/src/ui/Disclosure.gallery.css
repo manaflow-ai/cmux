@@ -59,7 +59,7 @@
   border-inline-end: 1.5px solid currentColor;
   opacity: 0.6;
   transform: rotate(45deg) translateY(-2px);
-  transition: transform 120ms ease;
+  transition: transform var(--cmux-motion-micro, 120ms) var(--cmux-ease-out);
 }
 
 .disclosure-gallery .ui-disclosure-trigger[aria-expanded="true"] .disclosure-gallery-chevron {

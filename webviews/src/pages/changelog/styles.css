@@ -192,7 +192,7 @@ html[data-cmux-page="changelog"] body {
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-changes summary::-webkit-details-marker { display: none; }
-.cl-changes summary::before { content: "›"; display: inline-block; transition: transform 120ms ease; }
+.cl-changes summary::before { content: "›"; display: inline-block; transition: transform var(--cmux-motion-micro, 120ms) var(--cmux-ease-out); }
 .cl-changes[open] > summary::before,
 .cl-hood[open] > summary::before { transform: rotate(90deg); }
 .cl-changes summary:hover { color: var(--page-text); }
@@ -371,7 +371,7 @@ html[data-cmux-page="changelog"] {
   letter-spacing: var(--text-body--letter-spacing);
 }
 .cln-fixed summary::-webkit-details-marker { display: none; }
-.cln-fixed summary::after { content: "›"; display: inline-block; transition: transform 120ms ease; }
+.cln-fixed summary::after { content: "›"; display: inline-block; transition: transform var(--cmux-motion-micro, 120ms) var(--cmux-ease-out); }
 .cln-fixed[open] > summary::after { transform: rotate(90deg); }
 .cln-fixed summary:hover { color: var(--page-text); }
 .cln-fixed summary:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }

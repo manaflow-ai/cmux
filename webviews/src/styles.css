@@ -2581,7 +2581,7 @@ button.file-header-open:focus-visible {
   width: 12px;
   height: 12px;
   fill: currentcolor;
-  transition: transform 120ms ease;
+  transition: transform var(--cmux-motion-micro, 120ms) var(--cmux-ease-out);
 }
 .file-header[data-collapsed="true"] .file-header-caret svg {
   transform: rotate(-90deg);
