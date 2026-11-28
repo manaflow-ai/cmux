@@ -66,6 +66,12 @@ while IFS= read -r file; do
   if [[ "$dir" != */* && ! -f "$dir/Cargo.toml" ]] || ! grep -q '^\[package\]' "$dir/Cargo.toml" 2>/dev/null; then
     echo "--workspace"; exit 0
   fi
+  # A crate with its own [workspace] table (cmux-next-linux, cmux-rd-host, cmux-app-ffi) is not a member of
+  # cmux-tui's workspace, so `cargo test -p NAME` there refuses the whole run ("package ID specification ...
+  # did not match any packages"). Its tests run in its own workspace, not here. #64481 (2026-11-28 14:44Z) added
+  # cmux-next-linux with cmux_next_ in its sources, every cmux-tui-artifacts run failed this job after it, no
+  # tree published, and the nightly fell back to c6cd14b5's tree, then failed to find any (run 46157002388).
+  grep -q '^\[workspace\]' "$dir/Cargo.toml" && continue
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
