@@ -2,13 +2,26 @@
 // A time with no date means the occurrence nearest the message's own send time, within 12 hours
 // either way (Leo, 2026-11-07, on "08:36Z" in a message sent at 08:21Z hovering as "24 hr ago":
 // "It's too biased towards the past here."). Every time-only form follows the same rule.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./Markdown";
 import { timestampHoverLabel } from "./timeHoverModel";
+import { resetIntlCacheForTests } from "../../../ui/intl";
 
 // Local-zone rows read in the person's zone; this one is on standard time on 2026-11-07.
-process.env.TZ = "America/Los_Angeles";
+// The zone is set for this file alone, with the shared formatter cache (ui/intl.ts) dropped on the way
+// in and out: a formatter an earlier file made in its zone kept that zone here when the whole folder
+// ran (UTC hovers in place of PST), and this file's zone stayed set for the files after it.
+const zoneBefore = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/Los_Angeles";
+  resetIntlCacheForTests();
+});
+afterAll(() => {
+  if (zoneBefore === undefined) delete process.env.TZ;
+  else process.env.TZ = zoneBefore;
+  resetIntlCacheForTests();
+});
 
 const at = (iso: string) => Date.parse(iso);
 

@@ -44,6 +44,8 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
     tag?: { top: number; bottom: number };
     /// The tag is painted, not cut by the row's paint containment: the point at its centre hits it.
     tagHit?: boolean;
+    /// What the point at the tag's centre hit, for the failure message.
+    tagHitWhat?: string;
     /// The computed font sizes of the line's words and of the tag ("2 new messages", "New").
     font: { worked: string; tag?: string };
   };
@@ -81,6 +83,7 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
         rules,
         tag: tag && { top: tag.top, bottom: tag.bottom },
         tagHit: !!hit && !!hit.closest(".cv-since"),
+        tagHitWhat: hit ? `${hit.tagName.toLowerCase()}.${String(hit.className).replace(/\s+/g, ".")}` : "nothing",
         font: {
           worked: getComputedStyle(line).fontSize,
           tag: tagNode ? getComputedStyle(tagNode).fontSize : undefined,
@@ -117,7 +120,7 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
         expect(lit.font.tag).toBe(lit.font.worked);
         // And it is painted there: the mark lies past its 0 px row's box, and a row that clipped its
         // paint (styles.css .acpmux-row, contain: paint) cut it off, leaving only the lit divider.
-        expect(lit.tagHit).toBe(true);
+        expect(lit.tagHit, `the tag's centre hit ${lit.tagHitWhat}`).toBe(true);
       } finally {
         await page.close();
       }

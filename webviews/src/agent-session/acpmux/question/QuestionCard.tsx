@@ -724,9 +724,16 @@ function PendingQuestion({
         >
           {other ||
             // A page with no typed answer keeps its room when another question of the ask has one, so
-            // a narrow card wraps Skip and Send under it on every page or on none.
+            // a narrow card wraps Skip and Send under it on every page or on none. The room is the
+            // answer row's own words, unseen: an empty box shrank under the row's least width and kept
+            // Skip and Send beside it where the row wrapped them (28 px of shift at 340 px).
             (others.some((each) => each.allowsOther) && (
-              <span className="acpmux-question-other-room" aria-hidden="true" />
+              <span className="acpmux-question-row acpmux-question-other-room" aria-hidden="true" inert>
+                <EditMark />
+                <span className="acpmux-question-text">
+                  <span className="acpmux-question-label">{t("question.otherPlaceholder")}</span>
+                </span>
+              </span>
             ))}
           <div className="acpmux-question-actions">
             <button

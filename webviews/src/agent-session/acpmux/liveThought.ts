@@ -144,10 +144,12 @@ export function thoughtOnly(
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  // Under a closed "Working for" that had nothing to open, a thought that is no longer quiet gives it
-  // work to open (turns.ts `liveFoldHidesWork`): the pane draws, so the header shows its chevron.
+  // Under a closed "Working for" that had nothing to open, the chunk that takes a thought out of the
+  // quiet rule gives it work to open (turns.ts `liveFoldHidesWork`): the pane draws, so the header
+  // shows its chevron. Only that chunk: the ones after it found the fold still marked empty and drew
+  // the whole pane each (119 pane renders for a 111-chunk thought, agent-pane-stream-renders).
   if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) {
-    if (drewEmptyFold() && !isQuietThought(after)) return undefined;
+    if (drewEmptyFold() && isQuietThought(before) && !isQuietThought(after)) return undefined;
     return { id: now.id, before, after };
   }
   if (!sameThought(drawnNow, before)) return undefined;
