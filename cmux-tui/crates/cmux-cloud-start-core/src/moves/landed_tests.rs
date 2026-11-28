@@ -112,3 +112,58 @@ fn a_kind_it_does_not_know_goes_under_not_copied() {
     assert_eq!(got.skipped[0].group, Group::Other);
     assert_eq!(got.skipped[0].text, "Not copied: link, x");
 }
+
+#[test]
+fn the_native_toast_says_copied_and_groups_what_stayed() {
+    // The fleet run's folder (case c) as the app's done toast shows it, in look C.
+    let got = landed(
+        r#"{"ok":true,"mode":"copy","fallback_why":"This folder is not a git repository.","skipped_files":[
+            {"path":".env","kind":"secret","why":"a secret"},
+            {"path":"node_modules/","kind":"heavy","why":"heavy"},
+            {"path":"dist/","kind":"ignored","why":"ignored"},
+            {"path":"big.bin","kind":"big","why":"big"}]}"#,
+    );
+    let toast = toast("This chat now runs on dev.", got.as_ref()).unwrap();
+    assert_eq!(
+        toast.message,
+        "Copied, not cloned. This chat now runs on dev. Left on this Mac: 1 secret, 2 ignored paths, 1 big file."
+    );
+    assert_eq!(
+        toast.detail.as_deref(),
+        Some(
+            "This folder is not a git repository.\n\n\
+             Secrets, kept on this Mac\n.env\n\n\
+             Ignored and build output, rebuilt on the machine\nnode_modules/   dist/\n\n\
+             Big files, kept on this Mac\nbig.bin"
+        )
+    );
+}
+
+#[test]
+fn the_native_toast_shows_four_paths_then_how_many_more() {
+    let files: Vec<String> = (0..6)
+        .map(|n| format!(r#"{{"path":"keys/{n}.pem","kind":"secret","why":"a key"}}"#))
+        .collect();
+    let line = format!(
+        r#"{{"ok":true,"mode":"seed","skipped_files":[{}],"skipped_counts":{{"secret":10}}}}"#,
+        files.join(",")
+    );
+    let toast = toast("This chat now runs on dev.", landed(&line).as_ref()).unwrap();
+    assert_eq!(
+        toast.message, "This chat now runs on dev. Left on this Mac: 10 secrets.",
+        "a clone has no headline"
+    );
+    assert_eq!(
+        toast.detail.as_deref(),
+        Some("Secrets, kept on this Mac\nkeys/0.pem   keys/1.pem   keys/2.pem   keys/3.pem   +6")
+    );
+}
+
+#[test]
+fn a_clone_that_left_nothing_keeps_the_toast_it_always_had() {
+    assert_eq!(toast("This chat now runs on dev.", None), None);
+    let copied = landed(r#"{"ok":true,"mode":"copy","skipped_files":[]}"#);
+    let plain = toast("This chat now runs on dev.", copied.as_ref()).unwrap();
+    assert_eq!(plain.message, "Copied, not cloned. This chat now runs on dev.");
+    assert!(plain.detail.is_some_and(|why| why.contains("copied")), "says why, nothing stayed");
+}
