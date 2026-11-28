@@ -386,19 +386,3 @@ export class RunBoardApiSession {
     }
   }
 }
-
-/** A fixture transport keeps the gallery independent of the HTTP control plane. */
-export function createFixtureRunApiClient(initial: RunBoardSnapshot, replay?: RunBoardSnapshot): RunApiClient {
-  const events: RunApiEvent[] = [];
-  let snapshot = initial;
-  return {
-    async getSnapshot() {
-      const current = snapshot;
-      if (replay) snapshot = replay;
-      return current;
-    },
-    async getEvents() {
-      return { events, nextCursor: null };
-    },
-  };
-}

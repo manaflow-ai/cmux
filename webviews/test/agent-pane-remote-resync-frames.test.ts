@@ -16,10 +16,13 @@
 // chat that leaves the list for good still says so once the hold ends.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { resetKeptTailsForTests } = await importWithDom(() => import("../src/agent-session/acpmux/tailCache"));
 
 const START = Date.UTC(2026, 10, 7, 7, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

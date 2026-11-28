@@ -4122,10 +4122,10 @@ mod tests {
         assert!(underlay.learned.contains(&cell_old), "the old socket's cell address is learned");
         // The phone's new socket announces itself.
         underlay.apply(Control::PeerEndpoints {
+            hop: None,
             endpoints: vec![cell_new.to_string(), relayed_new.to_string()],
             relayed: vec![relayed_new.to_string()],
             relayed_tls: vec![],
-            hop: None,
         });
         let stale = |route: Option<Route>| route.is_some_and(|r| r.addr == cell_old || r.addr == wifi_old);
         assert!(!underlay.learned.contains(&cell_old), "the old socket's learned address is gone");
@@ -4168,10 +4168,10 @@ mod tests {
         underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
         assert!(underlay.learned.contains(&mapped));
         underlay.apply(Control::PeerEndpoints {
+            hop: None,
             endpoints: vec![relayed.to_string(), "198.51.100.30:9".to_string()],
             relayed: vec![relayed.to_string()],
             relayed_tls: vec![],
-            hop: None,
         });
         assert!(underlay.learned.contains(&mapped), "an unmoved peer's learned address stays");
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: mapped }));
