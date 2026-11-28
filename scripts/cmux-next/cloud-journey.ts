@@ -4204,6 +4204,9 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys, time, uuid
+t0 = time.monotonic()
+def mark(name):
+    print('@@mark ' + name + ' ' + str(int((time.monotonic() - t0) * 1000)), flush=True)
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -4248,10 +4251,13 @@ while True:
             except (ConnectionRefusedError, FileNotFoundError) as e:
                 raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
+            mark('connected')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            mark('initialized')
             try:
                 r = call(f, s, 2, 'session/new', params)
                 sid = (r or {}).get('sessionId')
+                mark('session_new')
             except RuntimeError as e:
                 # A start cut by acpmux's restart can have made the session before its answer was lost: the
                 # resend then finds its name taken. Only after such a cut is that name this start's own session.
@@ -4314,6 +4320,7 @@ if sid is not None:
                         text = 'session/prompt: ' + json.dumps(err)[:400]
                         raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
                     break
+            mark('prompt_accepted')
             print('@@prompted', flush=True)
             sys.exit(0)
         except Retryable as e:
@@ -4395,6 +4402,27 @@ export function guestTimed(command: string): string {
 export function guestMs(stdout: string): number | null {
   const m = /@@guest_ms (\d+)/.exec(stdout);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * The start program's own marks (`@@mark NAME MS`, ms since its python started): where the guest's start time goes,
+ * as start_<NAME> parts. The first of each name wins (a retried connect keeps its first time). Before these, the
+ * claude start read only as one harness_spawn of 12,797 ms (8,987 on the guest) in run 46099930567, with no split
+ * between acpmux's handshake, session/new (the harness spawn) and the prompt's accept.
+ */
+export function startMarks(stdout: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of stdout.matchAll(/^@@mark ([a-z_]+) (\d+)$/gm)) if (!(`start_${m[1]}` in out)) out[`start_${m[1]}`] = Number(m[2]);
+  return out;
+}
+
+/** Each start mark as a guest part, and a detail line naming them. */
+function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+  const marks = startMarks(stdout);
+  for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
+  timing.guest("start_total", guestMs(stdout));
+  const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
+  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -7081,7 +7109,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7098,7 +7126,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -7286,10 +7314,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
           if (!now || now === old) throw new Error(`no new daemon within 60 s of killing pid ${old}`);
           const back = Math.round((Date.now() - t0) / 100) / 10;
-          const ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
-          if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session}: ${ls.stdout.slice(-200)}`);
+          // A daemon names its pid in `daemon status` before it answers `ls`: on 11-28 prod twice (runs 46093719678,
+          // 46098236710) the first ls after the restart stalled ("request step stalled after 4s ... the daemon is not
+          // answering", retryable:true). So ls is asked again while the daemon says that answer is retryable, for up to
+          // 30 s; an ls that answers without the session fails at once, and the wait shows in the detail.
+          const l0 = Date.now();
+          let ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+          let asks = 1;
+          while (!ls.stdout.includes(session) && /"retryable":\s*true/.test(ls.stdout) && Date.now() - l0 < 30_000) {
+            await sleep(2_000);
+            ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+            asks++;
+          }
+          const listed = Math.round((Date.now() - l0) / 100) / 10;
+          if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session} (${asks} ls in ${listed} s): ${ls.stdout.slice(-200)}`);
           const turn = await laterTurn("Are you still there? Answer in one short sentence.");
-          return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
+          return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s, lists the session after ${listed} s (${asks} ls); ${turn.detail}` };
         });
       }
       // The agent itself does the GitHub cells, as a person would ask it in the chat: clone, branch, commit, push and a
