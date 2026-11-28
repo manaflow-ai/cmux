@@ -2,6 +2,7 @@
   "keychain": {
     "scripts/cmux-next/check-keychain-no-prompt.py": {"count": 1, "reason": "safe: the keychain no-prompt ratchet names SecItemCopyMatching as a pattern to find; it reads no keychain item"},
     "scripts/cmux-next/tests/test_check_keychain_no_prompt.py": {"count": 3, "reason": "safe: test fixture strings naming SecItemCopyMatching for the keychain no-prompt ratchet; it reads no keychain item"},
+    "cmux-tui/crates/cmux-tui/src/cli/vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): this device's vault key (service from cloud_secret::service())"},
     "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a key provider's bootstrap token (service cmux-key-provider)"},
     "plans/cmux-next/swift-logic-classes.tsv": {"count": 4, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
