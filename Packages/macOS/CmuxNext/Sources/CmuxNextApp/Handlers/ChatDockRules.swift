@@ -5,8 +5,8 @@ import CmuxNextWindowRules
 
 /// What the chat dock refuses (lawrence-call-1006 D): it is a docked
 /// region, not a split that happens to sit on the left. It never splits
-/// (every split, auto layout and split drop goes through `splitRoom`) and
-/// holds only agent chats, so tools dropped or moved into it are refused.
+/// (every split, auto layout and split drop goes through `splitRoom`); the
+/// tabs moved into it that it refuses are `chat::Dock::takes_only_chats`'s.
 enum ChatDockRules {
 
     /// The chat rules' read of `pane`'s column on its screen (zoomed as the screen shows it); nil for a pane no window shows.
