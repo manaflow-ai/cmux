@@ -96,6 +96,7 @@ impl Gauges {
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
+            "coldRehydrates": cold_rehydrates().status(),
             "peerLists": peer_lists().status(),
             "peerNotices": peer_notices().status(),
             "recordWrites": record_writes().status(),
@@ -605,14 +606,22 @@ fn host_overloaded() -> bool {
     false
 }
 
+/// This host's cores, read once: `available_parallelism` walks the cgroup's `cpu.max` files up
+/// to the root on Linux (a file open per level), too dear for a check a timer runs.
+#[cfg(unix)]
+fn host_cores() -> usize {
+    static CORES: OnceLock<usize> = OnceLock::new();
+    *CORES
+        .get_or_init(|| std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get))
+}
+
 /// This host now: its 1-minute load average against its cores (`getloadavg`, one sysctl).
 #[cfg(unix)]
 fn host_overloaded() -> bool {
     let mut load = [0f64; 1];
     // SAFETY: `load` holds the one sample asked for.
     let got = unsafe { libc::getloadavg(load.as_mut_ptr(), 1) } == 1;
-    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    overloaded(got.then_some(load[0]), cores)
+    overloaded(got.then_some(load[0]), host_cores())
 }
 
 /// The span `gauges.workerLag` summarizes, in seconds.
@@ -764,13 +773,19 @@ async fn canary_from(
             tokio::time::sleep(period).await;
             asked.elapsed().saturating_sub(period)
         };
+        // The workers' busy time is read at the wake, before this task's own work below: the
+        // load probe a late wake runs cost 3 ms of cgroup reads on Linux (8 file opens for
+        // `available_parallelism`), read as the runtime working, so a late wake kept the canary
+        // at 10 ms for good and an idle daemon woke about 60 times a second (fs-agent-lane-12,
+        // 2026-11-27).
+        let worked = busy().saturating_sub(busy_before);
         ring.record(late);
         ring.period_ms
             .store(u64::try_from(period.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
         // The load is read only for a wake late enough to count (a sysctl, not every wake).
         let judged =
             if late > CANARY_TIMER_SLACK { canary_late(late, host_overloaded()) } else { late };
-        (period, quiet) = canary_next(period, judged, busy().saturating_sub(busy_before), quiet);
+        (period, quiet) = canary_next(period, judged, worked, quiet);
     }
 }
 
@@ -903,6 +918,48 @@ pub fn memory() -> Value {
         "peakRssBytes": peak_rss_bytes(),
         "closedRows": closed_rows().status(),
     })
+}
+
+/// The cold archive's churn (`hub/cold_archive.rs` `Recent`): chats brought back from their
+/// archive, how many the hub remembers as brought back lately and its bound, the ones it let go
+/// to stay under it, and the archives the automatic passes held back for a chat brought back
+/// lately, since the daemon started.
+pub fn cold_rehydrates() -> &'static ColdRehydratesGauge {
+    static COLD: OnceLock<ColdRehydratesGauge> = OnceLock::new();
+    COLD.get_or_init(ColdRehydratesGauge::default)
+}
+
+#[derive(Default)]
+pub struct ColdRehydratesGauge {
+    rehydrates: AtomicU64,
+    recent: AtomicU64,
+    cap: AtomicU64,
+    evicted: AtomicU64,
+    held_back: AtomicU64,
+}
+
+impl ColdRehydratesGauge {
+    pub fn rehydrated(&self, recent: usize, cap: usize, evicted: u64) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.rehydrates.fetch_add(1, Ordering::Relaxed);
+        self.recent.store(n(recent), Ordering::Relaxed);
+        self.cap.store(n(cap), Ordering::Relaxed);
+        self.evicted.fetch_add(evicted, Ordering::Relaxed);
+    }
+
+    pub fn held_back(&self, chats: u64) {
+        self.held_back.fetch_add(chats, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "rehydrates": self.rehydrates.load(Ordering::Relaxed),
+            "recent": self.recent.load(Ordering::Relaxed),
+            "cap": self.cap.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+            "heldBack": self.held_back.load(Ordering::Relaxed),
+        })
+    }
 }
 
 /// The closed rows' cached bytes (`hub/closed_rows.rs`): the forms kept, their bytes, their

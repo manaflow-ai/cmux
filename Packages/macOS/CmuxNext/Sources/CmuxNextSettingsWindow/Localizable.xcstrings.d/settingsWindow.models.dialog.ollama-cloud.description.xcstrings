@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.ollama-cloud.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux حسابك لدى Ollama للوصول إلى النماذج السحابية. الصق مفتاح API من Ollama للاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj nalog za Ollama za pristup opciji modeli u oblaku. Zalijepi API ključ za Ollama da se povežeš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din konto hos Ollama til at tilgå modeller i skyen. Indsæt en API-nøgle til Ollama for at oprette forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Konto bei Ollama für den Zugriff auf Cloudmodelle. Füge einen API-Schlüssel für Ollama ein, um dich zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Ollama account to run cloud models. Paste an Ollama API key to connect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu cuenta de Ollama para acceder a modelos en la nube. Pega una clave de API de Ollama para conectarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre compte Ollama pour accéder à des modèles dans le cloud. Collez une clé API Ollama pour vous connecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo account Ollama per accedere a modelli nel cloud. Incolla una chiave API di Ollama per connetterti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのOllamaアカウントを使用してクラウドモデルにアクセスします。接続するにはOllamaのAPIキーを貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ គណនី Ollama របស់អ្នក ដើម្បីចូលប្រើ ម៉ូដែលលើពពក។ បិទភ្ជាប់សោ API សម្រាប់ Ollama ដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Ollama 계정로 클라우드 모델에 액세스합니다. 연결하려면 Ollama API 키를 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker kontoen din hos Ollama for å få tilgang til skymodeller. Lim inn en API-nøkkel for Ollama for å koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego konta w usłudze Ollama, aby uzyskać dostęp do modeli w chmurze. Wklej klucz API usługi Ollama, aby się połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua conta de Ollama para acessar modelos na nuvem. Cole uma chave de API de Ollama para conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш аккаунт Ollama для доступа к следующему: облачные модели. Вставьте ключ API для Ollama, чтобы подключиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้บัญชี Ollama ของคุณเพื่อเข้าถึงโมเดลบนคลาวด์ วางคีย์ API ของ Ollama เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bulut modellerine erişmek için Ollama hesabınızı kullanacak. Bağlanmak için Ollama API anahtarını yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш обліковий запис Ollama для доступу до такого: хмарні моделі. Вставте ключ API для Ollama, щоб підключитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng tài khoản Ollama của bạn để truy cập các mô hình đám mây. Dán khóa API Ollama để kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Ollama账号访问云端模型。粘贴Ollama API 密钥以连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Ollama帳號存取雲端模型。貼上Ollama API 金鑰以連接。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

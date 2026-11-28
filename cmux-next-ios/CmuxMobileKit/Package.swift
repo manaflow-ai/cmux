@@ -78,8 +78,10 @@ let package = Package(
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
         // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
         // CmuxMobileLinkFFI (iOS only): the cmux link grammar (CmuxLink) is Rust's cmux_link.
-        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions.
+        // CmuxMobileLinkFFI: New Workspace's rules (WorkspaceCreationRules) are Rust's workspace_creation.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions; RowSpill's pages on disk are RowSpillPages (row_spill.rs).
         // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
+        // CmuxMobileLinkFFI: the terminal sizing view's rules (TerminalSizingPresentation) are Rust's terminal_sizing_view.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
@@ -154,7 +156,7 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             // Toggle Terminal and Chat: which faces a tab offers and what a tap does are Rust's.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
-        ]),
+        ], resources: [.process("Resources")]),
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
@@ -217,6 +219,7 @@ let package = Package(
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             // A `cmux://mac-screen` link's cmux.rd/1 session: Rust's MacScreenRd on the streamed-surface model.
             "CmuxMobileBrowserStream", "CmuxMobileTransport",
+            .product(name: "CmuxEgress", package: "CmuxEgress"),
             // Follow mode's camera (FollowCamera).
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
@@ -382,7 +385,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     }
     try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
         "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
-        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
+        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "MacDiscoveryPoll.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
         "RetryBounds.swift",
     ], dependencies: [
         "CmuxMobileModel", "CmuxMobileTransport",
@@ -392,7 +395,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         "WorkspacesLaunchState.swift",
     ], dependencies: ["CmuxMobileModel"])
     try project("CmuxMobileLiveTests", directory: "Tests/CmuxMobileLiveTests", sources: [
-        "AwakeDeadline.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
+        "AwakeDeadline.swift", "BackgroundDiscoveryTests.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
         "LinkClockDriver.swift", "LinkTestClock.swift", "PairingRetryTests.swift", "TickRandom.swift",
     ], dependencies: ["CmuxMobileLive", "CmuxMobileModel", "CmuxMobileTransport"])
     try project("CmuxMobileWorkspacesTests", directory: "Tests/CmuxMobileWorkspacesTests", sources: [

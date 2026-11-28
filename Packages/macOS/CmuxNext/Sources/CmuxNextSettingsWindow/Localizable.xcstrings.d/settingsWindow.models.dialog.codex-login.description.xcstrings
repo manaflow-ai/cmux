@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.codex-login.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux اشتراكك في ChatGPT للوصول إلى Codex. تسجيل الدخول باستخدام ChatGPT في المتصفح للاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoju pretplatu na ChatGPT za pristup opciji Codex. Prijavi se putem ChatGPT u pregledniku za povezivanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger dit abonnement på ChatGPT til at tilgå Codex. Log ind med ChatGPT i din browser for at oprette forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Abo für ChatGPT für den Zugriff auf Codex. Mit ChatGPT anmelden, um dich im Browser zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your ChatGPT plan to run Codex. Sign in with ChatGPT in your browser to connect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu suscripción a ChatGPT para acceder a Codex. Iniciar sesión con ChatGPT en tu navegador para conectarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre abonnement ChatGPT pour accéder à Codex. Se connecter avec ChatGPT dans votre navigateur pour vous connecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo abbonamento a ChatGPT per accedere a Codex. Accedi con ChatGPT nel browser per connetterti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのChatGPTのサブスクリプションを使用してCodexにアクセスします。ブラウザでChatGPTでサインインして接続してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ ការជាវ ChatGPT របស់អ្នក ដើម្បីចូលប្រើ Codex។ ចូលដោយប្រើ ChatGPT ក្នុងកម្មវិធីរុករកដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 ChatGPT 구독로 Codex에 액세스합니다. 브라우저에서 ChatGPT로 로그인하여 연결하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker abonnementet ditt på ChatGPT for å få tilgang til Codex. Logg på med ChatGPT i nettleseren for å koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojej subskrypcji ChatGPT, aby uzyskać dostęp do Codex. Zaloguj się przez ChatGPT w przeglądarce, aby się połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua assinatura de ChatGPT para acessar Codex. Entrar com ChatGPT no navegador para conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать вашу подписку на ChatGPT для доступа к следующему: Codex. Войти через ChatGPT в браузере, чтобы подключиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้การสมัครใช้บริการ ChatGPT ของคุณเพื่อเข้าถึงCodex ลงชื่อเข้าใช้ด้วย ChatGPTในเบราว์เซอร์เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Codex kullanmak için ChatGPT aboneliğinizi kullanacak. Bağlanmak için tarayıcınızda ChatGPT ile oturum aç."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає вашу підписку на ChatGPT для доступу до такого: Codex. Увійти через ChatGPT у браузері, щоб підключитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng gói đăng ký ChatGPT của bạn để truy cập Codex. Đăng nhập bằng ChatGPT trong trình duyệt để kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的ChatGPT订阅访问Codex。在浏览器中使用ChatGPT登录以连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的ChatGPT訂閱存取Codex。在瀏覽器中使用ChatGPT登入以連接。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -7,28 +7,22 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerEditCommand, ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import {
-  inlineToken,
-  inlineTokenIds,
-  promptBlocks,
-  withoutInlineTokens,
-  type ComposerAttachment,
-} from "../src/agent-session/acpmux/attachments";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import {
-  PASTE_CHIP_CHARS,
-  PASTE_CHIP_WORDS,
-  isLargePaste,
-  pastedTextAttachment,
-  resentAttachments,
-  shownPrompt,
-} from "../src/agent-session/acpmux/pastedText";
 import { backspacedAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
-import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
-import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
+import type { AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { inlineToken, inlineTokenIds, promptBlocks, withoutInlineTokens } = await importWithDom(
+  () => import("../src/agent-session/acpmux/attachments"),
+);
+const { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, isLargePaste, pastedTextAttachment, resentAttachments, shownPrompt } =
+  await importWithDom(() => import("../src/agent-session/acpmux/pastedText"));
+const { keptChips } = await importWithDom(() => import("../src/agent-session/acpmux/composer/keptAttachments"));
+const { setComposerSettings } = await importWithDom(() => import("../src/agent-session/acpmux/composerSettings"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

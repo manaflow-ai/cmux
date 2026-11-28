@@ -26,6 +26,11 @@ on:
         required: false
         default: ''
         type: string
+      submittable:
+        description: "Build feat-cmux-next's head for App Review (the builder's `submittable`: no --internal-only, gated as an internal-submission, attached to the App Store version; nothing is submitted). Skips the nightly plan."
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -89,10 +94,18 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
+          SUBMITTABLE: ${{ inputs.submittable == true }}
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
           echo "head=$head" >> "$GITHUB_OUTPUT"
+          # A submittable build is asked for, not planned: the plan would answer "head already built" for a head
+          # whose nightly uploaded. Base empty: the builder finds the last upload in App Store Connect.
+          if [ "$SUBMITTABLE" = true ]; then
+            printf 'build=true\nbase=\n' >> "$GITHUB_OUTPUT"
+            echo "submittable: dispatching $head for App Review" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # A person's dispatch skips the failure backoff (never a running build of the head).
           force=()
           [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || force=(--force)
@@ -105,17 +118,28 @@ jobs:
           GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_SHA: ${{ steps.plan.outputs.head }}
           BASE_SHA: ${{ steps.plan.outputs.base }}
+          SUBMITTABLE: ${{ inputs.submittable == true }}
         run: |
           set -euo pipefail
           # ios-internal-nightly.yml on rc/cnx-ios-builder: the workflow token, then the App token, waiting out a
           # spent API limit instead of losing the head; a dispatch that never gets through fails the step.
-          python3 scripts/ci/ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA"
+          extra=()
+          [ "$SUBMITTABLE" != true ] || extra=(--submittable)
+          python3 scripts/ci/ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA" "${extra[@]}"
 
   # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
   yolo:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    # The dispatch waits up to 20 min for a spent GitHub API limit (run 46103940180, 2026-11-28, lost a pushed
+    # stack to one 403), plus the full clone, the stack and the push.
+    timeout-minutes: 45
+    # The release App secrets (CMUX_FFI_RELEASE_APP_*) live only in the ffi-release environment (deployment
+    # policy: feat-cmux-next only, the ref a YOLO dispatch runs on). Without it the mint below read an empty
+    # app id, fell back to the job token, and the ref create failed again (run 46085910676, 2026-11-28).
+    environment:
+      name: ffi-release
+      deployment: false
     permissions:
       # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;
       # pull-requests: write tells a PR it was left out.
@@ -131,9 +155,42 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      # The stack branch is created at the feat-cmux-next head, whose .github/workflows differ from main's, so
+      # GitHub refuses the job token without the workflows permission, which GITHUB_TOKEN cannot hold (run
+      # 46080212141, 2026-11-27: the ref create failed). The release App token holds contents + workflows write,
+      # as app-ffi-repin.yml mints it, for the branch create and push only; minting fails: the job token, as before.
+      - name: Mint the stack-push App token
+        id: push-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      # The dispatch's second quota, as the decide job mints it: when the job token's limit is spent the builder
+      # dispatch retries with the bot App token before it waits for the reset.
+      - name: Mint the dispatch fallback token
+        id: app-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
       - name: Stack the PRs and dispatch the build
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Only the stack branch's create and push take it; reads, the dispatch and comments stay on the job token.
+          YOLO_PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
           YOLO: ${{ inputs.yolo }}
         run: |
           set -euo pipefail

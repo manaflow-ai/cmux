@@ -31,7 +31,6 @@ struct ChatComposerField: UIViewRepresentable {
     static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -59,7 +58,6 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
-        markReadyIfShown()
         return view
     }
 
@@ -69,7 +67,6 @@ struct ChatComposerField: UIViewRepresentable {
 
     private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
-        markReadyIfShown()
         fieldRef?.view = view
         view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
@@ -102,13 +99,6 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
-    }
-
-    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
-    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
-    private func markReadyIfShown() {
-        guard !faceHidden else { return }
-        ChatReadyMark.take()
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -160,10 +150,11 @@ struct ChatComposerField: UIViewRepresentable {
     }
 }
 
-/// `chat_composer_ready`: the first frame showing the chat's answer control, the composer or the
-/// permission bar or sudo card that takes its place. A chat whose kept history is in its first frame
-/// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
-/// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
+/// `chat_composer_ready`: the first frame showing the chat's answer control: the composer, collapsed
+/// or open, or the permission bar or sudo card that takes its place. Taken on the control as a whole
+/// (``ChatReadyMarkOnShow``), not on the text field: a chat with turns opens on the collapsed capsule,
+/// which builds no field, so a chat waiting on a question (`ws-s0`, a Claude tab) never took the mark
+/// and LaunchTTIUITests' chat flow timed out.
 @MainActor
 enum ChatReadyMark {
     static func take() {
@@ -201,21 +192,38 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
-    /// A finger is scrolling a draft taller than the field (past `maxLines`). Both swipe-down-to-dismiss
-    /// paths (the bottom stack's drag and the dock's pan) read it and leave the keyboard up: a drag that
-    /// scrolls the draft scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios
-    /// it [...] swipes the entire thing down instead of scrolling through the composer").
+    /// A finger is on a draft taller than the field (past `maxLines`) and scrolled below its top, so
+    /// the drag is the draft's own scroll. Both swipe-down-to-dismiss paths (the bottom stack's drag and
+    /// the dock's pan) read it and leave the keyboard up (Leo, 2026-11-23: "when i try to scroll in the
+    /// composer in ios it [...] swipes the entire thing down instead of scrolling through the composer").
+    /// A draft at its top, or one that fits, leaves the swipe to lower the keyboard (`ChatDraftDragClaim`).
+    ///
+    /// Set at touch-down, not at the text's pan `.began`: the hosts' pans and the SwiftUI drag see the
+    /// same touch and can act before the text view's own pan begins, which the gesture suite caught
+    /// (`GestureConflictUITests`, 3 of 7 red with a `.began` claim).
     @MainActor static var isScrollingDraft = false
+
+    private lazy var touchDown = ChatDraftTouchObserver(owner: self)
 
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
         panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+        addGestureRecognizer(touchDown)
+    }
+
+    fileprivate func touchLanded() {
+        Self.isScrollingDraft = ChatDraftDragClaim.textOwnsDrag(
+            contentHeight: contentSize.height, visibleHeight: bounds.height,
+            offsetFromTop: contentOffset.y + adjustedContentInset.top)
+    }
+
+    fileprivate func touchLifted() {
+        // The draft's scroll outlives the touch's other recognizers: the claim lasts until it ends.
+        if panGestureRecognizer.state != .began, panGestureRecognizer.state != .changed { Self.isScrollingDraft = false }
     }
 
     @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
-        case .began:
-            Self.isScrollingDraft = contentSize.height > bounds.height + 1
         case .ended, .cancelled, .failed:
             Self.isScrollingDraft = false
         default:
@@ -232,5 +240,38 @@ final class ChatComposerTextView: ComposerReturnTextView {
         focusWhenInWindow = false
         becomeFirstResponder()
     }
+}
+/// Hears every touch on the chat composer's text the moment it lands, before any host's pan moves,
+/// without recognizing, preventing or delaying anything.
+private final class ChatDraftTouchObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private weak var owner: ChatComposerTextView?
+
+    init(owner: ChatComposerTextView) {
+        self.owner = owner
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLanded()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 #endif

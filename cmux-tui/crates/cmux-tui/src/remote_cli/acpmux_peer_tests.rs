@@ -4,7 +4,9 @@ use super::*;
 fn the_lease_asks_for_the_vm_boundary_only_when_told_the_caller_owns_the_vm() {
     let tokens = Tokens { token: "dash".into(), peer_token: Some("peer".into()), port: 1 };
     for vm_boundary in [true, false] {
-        let params = lease_params("cloud-a", "ws://127.0.0.1:2", &tokens, vm_boundary);
+        let params =
+            lease_params("cloud-a", "ws://127.0.0.1:2", &tokens, vm_boundary, Some("registry-a"));
+        assert_eq!(params["cloudRegistryId"], "registry-a");
         assert_eq!(params["vmBoundary"], vm_boundary, "{params}");
         assert_eq!(params["name"], "cloud-a");
         assert_eq!(params["peerToken"], "peer");

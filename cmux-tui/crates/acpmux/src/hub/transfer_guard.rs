@@ -84,6 +84,33 @@ impl Guard {
         Ok(Guard { control, roots, owner: false })
     }
 
+    /// The guard of a same-person hub move (`transfer_pull.rs` `hub_move_guard`), built from
+    /// this daemon's own config, never a request: `web_roots` under [`Guard::parse`]'s checks,
+    /// and with `home` the home folder itself, which `parse` refuses to any other caller. It
+    /// keeps the chat's origin (`owner`). Stored with the receive like any guard, so the write
+    /// and finish are held to the same roots; nothing outside the home folder is ever a root.
+    pub(super) async fn hub_move(web_roots: &[String], home: bool) -> Result<Guard, RpcError> {
+        let mut guard = if web_roots.is_empty() {
+            Guard { control: Control::Peer, roots: Vec::new(), owner: true }
+        } else {
+            let mut g = Guard::from_config_roots(web_roots).await?;
+            g.owner = true;
+            g
+        };
+        if home {
+            let h = dirs::home_dir()
+                .ok_or_else(|| guard_error("guard", "this daemon has no home folder"))?;
+            let h = spelled(&h).await.unwrap_or(h);
+            if !guard.roots.contains(&h) {
+                guard.roots.push(h);
+            }
+        }
+        if guard.roots.is_empty() {
+            return Err(guard_error("guard", "a hub move needs a root"));
+        }
+        Ok(guard)
+    }
+
     /// A hub move's guard (`transfer_pull.rs`, `transfer_hub_precopy.rs`), built from this
     /// daemon's own `webRoots`: each root that passes the same checks as `parse` is kept, and one
     /// that fails (a `/tmp` a probe wrote, a folder since deleted) is left out rather than
@@ -549,3 +576,48 @@ mod retired_root_tests;
 #[cfg(test)]
 #[path = "transfer_guard_config_root_tests.rs"]
 mod config_root_tests;
+
+#[cfg(test)]
+mod hub_move_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_hub_move_takes_home_only_on_a_vm_host_and_nothing_outside_it() {
+        let home = dirs::home_dir().unwrap();
+        let home = spelled(&home).await.unwrap_or(home);
+        // No webRoots and not a VM host: no root at all.
+        assert!(Guard::hub_move(&[], false).await.is_err());
+        // A VM host with no webRoots: the home folder, as the person's own (owner) chat.
+        let g = Guard::hub_move(&[], true).await.unwrap();
+        assert_eq!(g.roots, [home.clone()]);
+        assert!(g.owner && g.control == Control::Peer);
+        assert_eq!(g.folder(&home.to_string_lossy()).await, Some(home.clone()));
+        // Outside home stays refused, even with home as a root.
+        let tmp = std::env::temp_dir();
+        if !spelled(&tmp).await.is_some_and(|t| t.starts_with(&home)) {
+            assert_eq!(g.folder(&tmp.to_string_lossy()).await, None);
+        }
+        assert_eq!(g.folder("/").await, None);
+        assert_eq!(g.folder("relative").await, None);
+        // A hidden folder of home (a chat under `~/.local/state`) is inside the home root.
+        let hidden = home.join(format!(".acpmux-hub-move-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(hidden.join("state")).unwrap();
+        let inner = hidden.join("state");
+        assert!(g.folder(&inner.to_string_lossy()).await.is_some());
+        // Not a VM host: the same folder is refused, as `parse` refuses home's hidden folders.
+        let plain = home.join(format!("acpmux-hub-move-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&plain).unwrap();
+        let roots = [plain.to_string_lossy().into_owned()];
+        let g = Guard::hub_move(&roots, false).await.unwrap();
+        assert_eq!(g.folder(&inner.to_string_lossy()).await, None);
+        assert_eq!(g.folder(&home.to_string_lossy()).await, None);
+        assert!(g.owner);
+        // webRoots and a VM host: both, home once.
+        let g = Guard::hub_move(&roots, true).await.unwrap();
+        assert_eq!(g.roots.len(), 2);
+        // A bad webRoot still refuses, VM host or not.
+        assert!(Guard::hub_move(&["/".into()], true).await.is_err());
+        let _ = std::fs::remove_dir_all(&hidden);
+        let _ = std::fs::remove_dir_all(&plain);
+    }
+}
