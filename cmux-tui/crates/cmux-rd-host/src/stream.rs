@@ -333,8 +333,12 @@ impl Timing {
 
 /// Keep the ticket and session alive while a viewer reattaches after a network
 /// drop. The viewer's reconnect path can take longer than a short transport
-/// blip, including a phone waking from sleep; the session is still bounded.
-const REATTACH_GRACE_NS: u64 = 90_000_000_000;
+/// blip, including a phone waking from sleep or a 5 min full outage
+/// (cmuxterm-hq goals/screen-share-netem-1s-nightly.md: the probe's drop-300s
+/// row). At 90 s every 5 min drop ended the session ("viewer silent for 90 s")
+/// and needed Connect Again. The session is still bounded: 10 min of silence
+/// ends it, and a viewer that leaves sends Stop.
+const REATTACH_GRACE_NS: u64 = 600_000_000_000;
 
 /// How often a session whose screen is still (no new frame since the last stats line) still
 /// sends one: the viewer's proof that the host is alive and sent nothing new.
@@ -652,7 +656,7 @@ impl MediaSession {
             // The viewer sends feedback at least every second. Keep the ticket
             // alive through a full network drop so the viewer can reattach.
             if viewer_silent_too_long(self.engine.silent_for_us(now_us())) {
-                return "viewer silent for 90 s".into();
+                return format!("viewer silent for {} s", REATTACH_GRACE_NS / 1_000_000_000);
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
@@ -1242,9 +1246,13 @@ mod tests {
     }
 
     #[test]
-    fn viewer_silence_allows_the_ninety_second_reattach_window() {
-        assert!(!viewer_silent_too_long(90_000_000));
-        assert!(viewer_silent_too_long(90_000_001));
+    fn viewer_silence_outlasts_a_five_minute_drop() {
+        // The netem probe's drop-300s row: 5 min of nothing, then the link is back.
+        assert!(!viewer_silent_too_long(90_000_001));
+        assert!(!viewer_silent_too_long(300_000_000 + 30_000_000));
+        // Still bounded: 10 min of silence ends the session.
+        assert!(!viewer_silent_too_long(600_000_000));
+        assert!(viewer_silent_too_long(600_000_001));
     }
 
     #[test]
