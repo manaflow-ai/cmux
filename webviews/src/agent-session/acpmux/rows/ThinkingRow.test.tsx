@@ -12,7 +12,7 @@ import type { AcpmuxRow } from "../model";
 
 // Exercise the row's real hooks and startup line; the running turn's rendering has its own tests.
 const realThinking = { ...(await import("../conversation/Thinking")) };
-mock.module("../conversation/Thinking", () => ({ Thinking: () => <span data-running-turn /> }));
+void mock.module("../conversation/Thinking", () => ({ Thinking: () => <span data-running-turn /> }));
 afterAll(async () => {
   await mock.module("../conversation/Thinking", () => realThinking);
 });

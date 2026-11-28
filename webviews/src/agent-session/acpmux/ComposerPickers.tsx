@@ -111,7 +111,7 @@ import {
   MenuSeparator,
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -1339,6 +1339,8 @@ export function ComposerPickers({
   const quick: QuickMenuExtras = {
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
+    // The sign-in the chat's agent really runs on, on this Mac or a Cloud machine (cmux#63167).
+    ...(summary?.authSource ? { signIn: summary.authSource } : {}),
     ...(quickFast ? { fast: quickFast } : {}),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
@@ -1657,7 +1659,8 @@ function AccessMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   const modeShortcut = useShortcut(SHORTCUT_ACTIONS.composerSwitchMode);
   // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
   // answered) any other than the one the pick left, which the agent runs instead (it mapped the
@@ -2028,14 +2031,16 @@ export function ContextRing({
   const arcRadius = ring.radius;
   const meter = useRingMotion(chat, planShown ? "plan" : contextKnown ? "context" : undefined, fraction);
   const counts = meter.motion !== "ease-number-jumps" && meter.motion !== "instant";
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% card.
+    if (parked) return;
     const unregister = registerPicker(t("context.title"), () => {
       if (known) setPinned(true);
     });
     return unregister;
-  }, [known, t]);
+  }, [known, t, parked]);
   useEffect(() => {
     // Usage can disappear when a session resets: no pinned card over a stale reading.
     if (!known) closeCard();
@@ -2355,7 +2360,8 @@ export function Picker({
     },
     [open],
   );
-  useEffect(() => registerPicker(label, open), [label, open]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, open)), [label, open, parked]);
   // Past MENU_WINDOW_AT rows (the host's catalog rows are not bounded) only the rows near the
   // menu's viewport draw (menuWindow.tsx).
   const sizes = sections.map((section) => section.choices.length);

@@ -652,6 +652,7 @@
       "shutdown-daemon",
       "pairing-response",
       "url-open",
+      "offer-link-to-phone",
       "conversation-list",
       "conversation-create",
       "conversation-snapshot",
@@ -808,6 +809,12 @@
       "name": "client-detached",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "client-disconnected-by",
+      "streams": [
+        "control"
       ]
     },
     {
@@ -1191,6 +1198,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "phone-open-link",
       "streams": [
         "control"
       ]
