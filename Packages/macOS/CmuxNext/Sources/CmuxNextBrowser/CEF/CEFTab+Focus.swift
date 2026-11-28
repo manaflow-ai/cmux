@@ -181,7 +181,6 @@ extension CEFRuntime {
     /// and its parent becomes key when it closes.
     func windowBecameKey(_ window: NSWindow) {
         grantAsks(waitingFor: window)
-        if let parent = window.parent, WindowOverlayHost.isPageWindow(window) { grantAsks(waitingFor: parent) }
     }
 
     /// Grants, after this pass's frame commit, the asks that wait for `window`. Each is told once, then forgotten: a
@@ -190,7 +189,7 @@ extension CEFRuntime {
     /// page or window is gone is dropped on the way (nothing reports a gone window again); a page still asking is
     /// re-asked, and its grant records the window it is in now.
     private func grantAsks(waitingFor window: NSWindow) {
-        for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil || ask.window == nil {
+        for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil {
             asksAwaitingWindow[page] = nil
             guard let tab = ask.tab else { continue }
             AfterFrameCommit().run { [weak tab] in tab?.grantPendingFocusIfShown() }
