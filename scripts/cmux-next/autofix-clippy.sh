@@ -75,7 +75,10 @@ while IFS= read -r package; do
 done <<<"$packages"
 
 if ! (cd "$repo/cmux-tui" && cargo clippy --fix --allow-dirty --allow-staged --locked --all-targets "${args[@]}" >"$log" 2>&1); then
-  tail -n 40 "$log" >&2
+  # The errors first: with dozens of warnings, the last 40 lines held none
+  # of them (run 46161670618 showed "9 previous errors" and no error text).
+  awk '/^error(\[E[0-9]+\])?: /{show=1} show{print} /^$/{show=0}' "$log" | head -n 200 >&2
+  tail -n 5 "$log" >&2
   if stale_lock "$log"; then
     echo "left: cargo clippy --fix did not run on $(tr '\n' ' ' <<<"$packages")(a stale Cargo.lock; see the job log for the fix)"
   else
