@@ -111,7 +111,12 @@ while :; do
     # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
     # pin-cmux-tui.sh tree-publisher is the reading resolve-tree-pending.sh also uses.
     publisher="" stuck="" rebuilding=false
-    found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>/dev/null || echo unknown)"
+    # Its notes (a rate limit, a failed read) go to a file: an unknown answer prints the last one,
+    # so the log says why the runs could not be read (nightly 46095639816 printed only "waiting on").
+    publisher_notes="$(mktemp "${TMPDIR:-/tmp}/await-tree-notes.XXXXXX")"
+    found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>"$publisher_notes" || echo unknown)"
+    publisher_why="$(grep -v '^$' "$publisher_notes" | tail -1 || true)"
+    rm -f "$publisher_notes"
     case "$found" in
       building\ *) publisher="${found#building }" ;;
       rebuilding\ *) publisher="${found#rebuilding }" rebuilding=true ;;
@@ -120,7 +125,7 @@ while :; do
       *) publisher=unknown ;;
     esac
     case "$publisher" in
-      unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
+      unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}); waiting on" >&2 ;;
       "")
         idle_checks=$(( idle_checks + 1 ))
         if [[ -n "$stuck" ]]; then

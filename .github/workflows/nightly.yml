@@ -2812,6 +2812,9 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
+          # RATE_LIMIT_MOVES_TO_A_SPARE (pin-cmux-tui.sh github_get): the tree wait's runs reads move
+          # to the CI pool's tokens when the installation's hour is spent (nightly 46095639816).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
