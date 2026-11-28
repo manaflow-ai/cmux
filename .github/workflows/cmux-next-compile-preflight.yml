@@ -44,27 +44,83 @@ on:
         type: string
         required: false
         default: 'true'
+      force_web:
+        description: A consumer needs the bundle even when only test inputs changed.
+        type: boolean
+        default: false
+      validate_live_base:
+        description: Also validate the live-base tree while publishing the fixed consumer tree.
+        type: boolean
+        default: false
+      source_ref:
+        description: Exact consumer checkout; empty keeps the event merge commit.
+        type: string
+        default: ""
+      artifact_prefix:
+        description: Separate producers in one run use distinct artifact namespaces.
+        type: string
+        default: pr-web-bundles
+    outputs:
+      web_bundle_key:
+        value: ${{ jobs.web.outputs.key }}
+      web_bundle_transport:
+        value: ${{ jobs.web.outputs.transport }}
+      web_bundle_artifact:
+        description: Exact run-scoped artifact name, including the producer attempt.
+        value: ${{ jobs.web.outputs.artifact }}
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   web:
     name: web bundle build
     # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
-    if: ${{ inputs.web != 'false' }}
+    if: ${{ inputs.web != 'false' || inputs.force_web }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
     timeout-minutes: 8
+    outputs:
+      key: ${{ steps.web-bundle-key.outputs.key }}
+      transport: ${{ steps.artifact-transport.outputs.transport }}
+      artifact: ${{ steps.artifact-name.outputs.name }}
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CMUX_WEB_BUN_VERSION: "1.4.4"
+      CMUX_WEB_NODE_VERSION: "24.22.1"
+      WEB_SOURCE_ROOT: ${{ inputs.source_ref != '' && format('{0}/web-source', github.workspace) || github.workspace }}
     steps:
       # The merge commit (pull_request's default ref) and its first parent, the base it merged onto.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # pr-router.yml passes source_ref: github.sha, the merge commit the checkout above already holds, so the
+      # answer the touched step below reads from web-source is this tree's. Asking it here skips a second checkout of
+      # the same commit on a head that reaches no web bundle: 11-18 s of a 32-61 s no-op run (jobs 140780388922,
+      # 140779890347, 140779782571, 2026-11-27 22Z), the bulk of this job's 1030.7 runner-min in 19-22Z.
+      - name: Does this change reach a web bundle (checkout is the source)
+        id: touched-early
+        if: github.event_name == 'pull_request' && inputs.source_ref != '' && inputs.source_ref == github.sha && !inputs.force_web
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then
+            python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          fi
+
+      # Keep the current transport/manifest code at the workspace root when building an older base.
+      # The source tree owns the bundler and source-key inputs; it need not contain this newer CI helper.
+      - name: Checkout the requested bundle source
+        if: inputs.source_ref != '' && steps.touched-early.outputs.web != 'false'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 6
+        with:
+          ref: ${{ inputs.source_ref }}
+          path: web-source
           fetch-depth: 2
           persist-credentials: false
 
@@ -79,7 +135,7 @@ jobs:
       # GitHub's, built on base 2dae74e007e (05:23Z), 73 min and two web PRs (#46544, #60849: the second
       # `layoutGeometry` import) behind the live tip. So the head is merged onto the base as it is now.
       - name: Merge the head onto the live base
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && (inputs.source_ref == '' || inputs.validate_live_base)
         env:
           GIT_AUTH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -90,9 +146,13 @@ jobs:
         id: touched
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FORCE_WEB: ${{ inputs.force_web }}
+          EARLY: ${{ steps.touched-early.outputs.web }}
         run: |
-          if [ "$EVENT_NAME" = pull_request ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
-            python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          if [ -n "$EARLY" ]; then
+            echo "web=$EARLY" >> "$GITHUB_OUTPUT"
+          elif [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git -C "$WEB_SOURCE_ROOT" rev-parse -q --verify HEAD^2 >/dev/null; then
+            python3 -I scripts/ci/compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD >> "$GITHUB_OUTPUT"
           else
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
             echo "web=true" >> "$GITHUB_OUTPUT"
@@ -104,13 +164,13 @@ jobs:
       # web-bundle-key.py --routed here, in seconds, where such an import first appears.
       - name: No web bundle input is a path the router skips
         if: steps.touched.outputs.web == 'true'
-        run: python3 -I scripts/ci/compile_preflight.py never-web-check .
+        run: python3 -I scripts/ci/compile_preflight.py never-web-check "$WEB_SOURCE_ROOT"
 
       # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
       # job) passes after the diff alone (scripts/measure/ci140-pr-segment).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: steps.touched.outputs.web == 'true'
-        run: scripts/ci/reset-stale-submodules.sh
+        run: cd "$WEB_SOURCE_ROOT" && scripts/ci/reset-stale-submodules.sh
 
       # Seconds, before any install: the parse-class break (a binding imported twice in one statement) fails here, not
       # after the 2-3 min build.
@@ -121,7 +181,52 @@ jobs:
       - name: Source key of the web bundles
         id: web-bundle-key
         if: steps.touched.outputs.web == 'true'
-        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+        run: echo "key=$(python3 "$WEB_SOURCE_ROOT/scripts/cmux-next/web-bundle-key.py" "$WEB_SOURCE_ROOT" --source)" >> "$GITHUB_OUTPUT"
+
+      # A live-base validation tree can differ from the fixed tree consumed by browser/size tests.
+      # Equal keys share one build. Different keys require separate builds; never relabel their artifacts.
+      - name: Compare the live-base web sources with the consumer tree
+        id: live-web-key
+        if: steps.touched.outputs.web == 'true' && inputs.source_ref != '' && inputs.validate_live_base
+        env:
+          CONSUMER_KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: |
+          key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          if [ "$key" != "$CONSUMER_KEY" ]; then echo differs=true >> "$GITHUB_OUTPUT"; fi
+
+      # The live-base sources' build is a validation: an entry under their key means exactly these sources already
+      # built green (a save follows only a passing build), in this pull request's earlier run or as a consumer tree.
+      # The live-base validation rebuilt them anyway: 46 of 305 web bundle build jobs ran it for 94.9 runner-min in
+      # 11-27 22:00Z..11-28 00:08Z, 19 of them (38 min) on a head this pull request had already built. Lookup only:
+      # nothing is downloaded, and the consumer tree's bytes in web-bundles-out stay untouched. The path string is
+      # the consumer lookup's, which the GitHub cache's version hashes (Leo: "de facto, im asking for 99% fewer
+      # minutes of ci time, period.").
+      - name: Look up the live-base web sources' earlier build
+        id: live-web-cache
+        if: steps.live-web-key.outputs.differs == 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.live-web-key.outputs.key }}
+          enableCrossOsArchive: true
+          lookup-only: true
+
+      - name: Does the live-base tree still need a build
+        id: live-web
+        if: steps.live-web-key.outputs.differs == 'true'
+        env:
+          KEY: ${{ steps.live-web-key.outputs.key }}
+          HIT: ${{ steps.live-web-cache.outputs.cache-hit }}
+        run: |
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          if [ "$HIT" = true ]; then
+            echo "the live-base web sources ($KEY) already built green: validation reused" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo build=true >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Look up the web bundles in R2
         id: web-bundle-r2
@@ -135,14 +240,14 @@ jobs:
           CI_CACHE_R2_NAMESPACE: any
         with:
           backend: r2
-          path: web-bundles-out
+          path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       # R2 holds only the keys a feat-cmux-next push built. The GitHub cache holds the keys this pull request already
       # built: cmux-next.yml's web-bundles job and this job's own save below, under the same key. Every head of a pull
       # request with a web change reaches a web bundle (the diff is against the base), so its next push that moves no
       # web source, or a base merge, rebuilt the same sources: 67 of 186 preflight builds, 209 of 664 build minutes
-      # (11-26 22Z..11-27 05Z, ci140-pr-segment). A hit there passes the same way an R2 hit does, without a download.
+      # (11-26 22Z..11-27 05Z, ci140-pr-segment). Restore the bytes on a hit so consumers can reuse them.
       - name: Look up the web bundles this pull request already built
         id: web-bundle-cache
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
@@ -150,37 +255,36 @@ jobs:
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: web-bundles-out
+          path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-          lookup-only: true
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         shell: bash
         continue-on-error: true
         env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: true
 
       - name: Give this job its own bun
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         run: scripts/cmux-next/private-bun.sh
 
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -193,7 +297,7 @@ jobs:
       - name: Is this runner's own Bun package cache warm
         id: bun-warm
         timeout-minutes: 1
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         shell: bash
         run: |
           d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
@@ -207,7 +311,7 @@ jobs:
       # Restore only: a pull request never writes the shared Bun cache (cmux-next.yml's web-bundles job saves it on
       # the base branches).
       - name: Restore the webviews Bun package cache
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.bun-warm.outputs.warm != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true') && steps.bun-warm.outputs.warm != 'true'
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -221,42 +325,105 @@ jobs:
       # above reads import lists alone, so `import { a }` beside `const a`, or `const a` beside `let a`, passed it
       # (paneSends, #51093 after #61160, 2026-11-27). The install is the build script's own (no-op there after this).
       - name: Fast fail - no webviews module binds a name twice
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
-        working-directory: webviews
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
+        working-directory: ${{ env.WEB_SOURCE_ROOT }}/webviews
         run: |
           bun install --frozen-lockfile >/dev/null
           node scripts/check-duplicate-bindings.mjs
 
       - name: Build the web bundles (the build NIGHTLY runs)
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
-        run: python3 -I scripts/ci/compile_preflight.py web-build . "$GITHUB_WORKSPACE/web-bundles-out"
+        env:
+          CMUX_WEB_SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: python3 -I scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT" "$RUNNER_TEMP/web-bundles-out"
+
+      - name: Validate the different live-base web sources
+        if: steps.live-web.outputs.build == 'true'
+        env:
+          CMUX_WEB_SOURCE_KEY: ${{ steps.live-web.outputs.key }}
+        run: python3 -I scripts/ci/compile_preflight.py web-build . "$RUNNER_TEMP/live-web-bundles-out"
 
       # The build passed: keep it under its source key (the key and layout cmux-next.yml's web-bundles job saves), so
       # this pull request's next head with the same web sources passes on the lookup above. A pull request's save is
       # scoped to its own ref; R2 stays written by the feat-cmux-next push alone.
+      # When the live-base sources differed and built, this one save keeps those instead: the next run's consumer
+      # merge and its live base are both cut from a newer tip, so they meet this run's live-base sources, not its
+      # older consumer merge, and the live-base lookup above then skips the validation build. One save per run, as
+      # before (tests/ci_per_ref_cache_saves_baseline.txt is not grown). The live bytes sit in the lookup's path
+      # string (the GitHub cache's version hashes it) for the save alone and move back right after it.
+      - name: Put the live-base web bundles where the cache save reads
+        if: steps.live-web.outputs.build == 'true'
+        run: |
+          mv "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/consumer-web-bundles-out"
+          mv "$RUNNER_TEMP/live-web-bundles-out" "$RUNNER_TEMP/web-bundles-out"
       - name: Cache the web bundles under this source key
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           # The same path string as the lookup: the GitHub cache's version hashes it.
-          path: web-bundles-out
-          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          path: ${{ runner.temp }}/web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.live-web.outputs.build == 'true' && steps.live-web.outputs.key || steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
+      - name: Put the consumer tree's web bundles back
+        if: steps.live-web.outputs.build == 'true'
+        run: |
+          mv "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/live-web-bundles-out"
+          mv "$RUNNER_TEMP/consumer-web-bundles-out" "$RUNNER_TEMP/web-bundles-out"
+
+      - name: Bind the artifact to its source key and output bytes
+        if: steps.touched.outputs.web == 'true'
+        env:
+          KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: python3 -I scripts/ci/compile_preflight.py web-artifact write "$RUNNER_TEMP/web-bundles-out" "$KEY"
+
+      # Run-scoped artifacts never write the trusted base-branch cache. Forks without an Actions identity
+      # use GitHub; a failed R2 upload with an identity is an error, not a silent second transport.
+      - name: Select the run artifact transport
+        id: artifact-transport
+        if: steps.touched.outputs.web == 'true'
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo transport=r2 >> "$GITHUB_OUTPUT"
+          else
+            echo transport=github >> "$GITHUB_OUTPUT"
+          fi
+      - name: Name this run's web bundles
+        id: artifact-name
+        if: steps.touched.outputs.web == 'true'
+        run: echo "name=${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+      - name: Publish this run's web bundles to R2
+        if: steps.artifact-transport.outputs.transport == 'r2'
+        uses: ./.github/actions/r2-artifact/upload
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: ${{ runner.temp }}/web-bundles-out
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 3
+      - name: Publish this run's web bundles without a fleet identity
+        if: steps.artifact-transport.outputs.transport == 'github'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: ${{ runner.temp }}/web-bundles-out
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
 
       - name: Verdict
         env:
           WEB: ${{ steps.touched.outputs.web }}
           HIT: ${{ steps.web-bundle-r2.outputs.cache-hit }}
-          PR_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+          GITHUB_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
         run: |
           if [ "$WEB" != true ]; then
             echo "no web bundle source changed: nothing to build" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [ "$HIT" = true ]; then
             echo "this merged tree's web sources already built (R2 cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
-          elif [ "$PR_HIT" = true ]; then
-            echo "this merged tree's web sources already built on this pull request (cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "$GITHUB_HIT" = true ]; then
+            echo "this merged tree's web sources already built (GitHub cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "the web bundles built from this merged tree" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
