@@ -102,6 +102,8 @@ round() {  # PHASE
   "$P" capture-hw "$WID" "$O/$ph-after-hw.png" | tagged "$ph-after"
   "$P" capture-sck "$WID" "$O/$ph-after-sck.png" | tagged "$ph-after"
   rm -f "$O/$ph-cua-state.json"  # holds the base64 screenshot already written as PNG
+  # cmux's own engine (cmux-rd __computer-use-worker), computerUse.whileLocked off then on.
+  /usr/bin/python3 -I "$D/engine.py" "$D" "$ph" "$TE" "$WID" >>"$R" 2>>"$O/engine-py.err"
 }
 
 round A-unlocked

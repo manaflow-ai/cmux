@@ -58,6 +58,7 @@ for line in open(sys.argv[1]):
     print(" | ".join(str(b) for b in bits))
 EOF
     cat "$out/summary.txt"
+    grep -E '\| engine-verdict \|' "$out/summary.txt" | sed 's/^/LSC engine /'
   fi
   tar -czf "$root/artifacts/macos-locked-screen-cu.tgz" -C "$root/artifacts" macos-locked-screen-cu
 }
@@ -77,7 +78,7 @@ xcrun clang -fobjc-arc -O2 -arch arm64 -mmacosx-version-min=14.0 -Wno-deprecated
   "$here/lockprobe.m" -framework Foundation -framework AppKit -framework ApplicationServices -framework ScreenCaptureKit -framework CoreGraphics \
   -framework IOKit >"$b/lockprobe.log" 2>&1 || { cat "$b/lockprobe.log"; finish "lockprobe.m did not compile (build/lockprobe.log)"; exit 4; }
 codesign -s - -f "$b/lockprobe" >/dev/null 2>&1 || { finish "ad-hoc signing failed"; exit 4; }
-cp "$here/guest.sh" "$b/guest.sh"
+cp "$here/guest.sh" "$b/guest.sh" && cp "$here/engine.py" "$b/engine.py"
 printf '%s\n' "$late" >"$b/late"
 drv_sum=$(pin drivers cua-driver-0.38.0 sha256)
 drv_tgz="$lume_home/bin/$drv_sum.tar.gz"
@@ -86,6 +87,23 @@ drv_tgz="$lume_home/bin/$drv_sum.tar.gz"
 mkdir -p "$b/drv" && tar -xzf "$drv_tgz" -C "$b/drv" && cp "$b/drv/$(pin drivers cua-driver-0.38.0 binary)" "$b/cua-driver" ||
   { finish "could not unpack the pinned Cua Driver"; exit 4; }
 note "built lockprobe; Cua Driver 0.38.0 ($drv_sum)"
+
+# cmux's own engine: cmux-rd (cmux-tui/crates/cmux-rd-host) with its computer-use feature, whose
+# __computer-use-worker mode is the macOS Computer Use worker NIGHTLY's daemon starts. engine.py runs it
+# in the guest with computerUse.whileLocked off and on (Leo, c-cdd47d63a7).
+cargo_bin=$(command -v cargo || echo "$HOME/.cargo/bin/cargo")
+[[ -x "$cargo_bin" ]] || { finish "no cargo on this worker (PATH=$PATH): the engine cannot be built here"; exit 4; }
+target_dir="$lume_home/lsc/target"
+mkdir -p "$target_dir"
+build_rd() {
+  (cd "$root/cmux-tui/crates/cmux-rd-host" && MACOSX_DEPLOYMENT_TARGET=14.0 CARGO_TARGET_DIR="$target_dir" \
+    "$cargo_bin" build --release --locked "$@" --bin cmux-rd </dev/null) >>"$b/engine.log" 2>&1
+}
+t=$(date +%s)
+build_rd --no-default-features --features computer-use || { note "computer-use alone did not build; default features"; build_rd; } ||
+  { tail -30 "$b/engine.log"; finish "cmux-rd did not build (build/engine.log)"; exit 4; }
+cp "$target_dir/release/cmux-rd" "$b/cmux-rd" && codesign -s - -f "$b/cmux-rd" >/dev/null 2>&1 || { finish "could not sign cmux-rd"; exit 4; }
+note "built cmux-rd at $(git rev-parse --short=12 HEAD) in $(( $(date +%s) - t )) s"
 
 note "STAGE lume"
 lume_sum=$(pin lume sha256)
@@ -165,11 +183,11 @@ cat >"$b/agent.plist" <<'EOF'
 <key>ProcessType</key><string>Interactive</string>
 </dict></plist>
 EOF
-tar -c -C "$b" lockprobe cua-driver guest.sh late agent.plist -C "$ev" tcc-grant.sh | guest 'rm -rf ~/lsc && mkdir -p ~/lsc && tar -x -C ~/lsc' ||
+tar -c -C "$b" lockprobe cua-driver cmux-rd engine.py guest.sh late agent.plist -C "$ev" tcc-grant.sh | guest 'rm -rf ~/lsc && mkdir -p ~/lsc && tar -x -C ~/lsc' ||
   { finish "could not copy the probe into the guest"; exit 4; }
 # bash (the LaunchAgent's process, which TCC asks about), the probe and the driver get Screen
 # Recording, Accessibility and event posting, in this throwaway SIP-off clone only.
-guest_n 'bash ~/lsc/tcc-grant.sh /bin/bash ~/lsc/lockprobe ~/lsc/cua-driver' >"$out/grant.log" 2>&1 ||
+guest_n 'bash ~/lsc/tcc-grant.sh /bin/bash ~/lsc/lockprobe ~/lsc/cua-driver ~/lsc/cmux-rd /usr/bin/python3' >"$out/grant.log" 2>&1 ||
   { cat "$out/grant.log"; finish "tcc-grant.sh failed in the guest (grant.log)"; exit 4; }
 guest_n 'sw_vers; csrutil status; pmset -g | grep -E "displaysleep|sleep"; defaults read com.apple.screensaver 2>&1 | head -5' >"$out/guest/facts.txt" 2>&1
 started=0
