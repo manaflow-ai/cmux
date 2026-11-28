@@ -8569,6 +8569,21 @@ class RiskEvidenceQuotaJobRed(unittest.TestCase):
             with self.subTest(lines=lines):
                 self.assertNotIsInstance(self.judge(lines), excuse.JobRateLimited)
 
+    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
+        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
+        RATE_LIMIT_WAIT_S ended the step, and the classifier refused the quota red as a real failure."""
+        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
+                "rerun after it")
+        fallback = "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN"
+        for lines in ([self.marker(), past],
+                      [self.marker(endpoint="repos/o/r/issues/7/comments"), fallback, self.marker(), past]):
+            with self.subTest(lines=lines):
+                self.assertIsInstance(self.judge(lines), excuse.JobRateLimited)
+        for wrong in ("##[warning]risk evidence: ungraded, the soonest budget reset (soon) is past the 420s wait; "
+                      "rerun after it", past + " and also a real failure"):
+            with self.subTest(wrong=wrong):
+                self.assertNotIsInstance(self.judge([self.marker(), wrong]), excuse.JobRateLimited)
+
     def test_actual_producer_stdout_is_consumed(self):
         import risk_tier
         import argparse
