@@ -186,7 +186,9 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
             )
               .slice(-3)
               .map((r) => r.kind)
-              .join(",")}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}`
+              .join(
+                ",",
+              )}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}/same=${shape ? (rows ?? []).findLastIndex((r) => r.kind === "user" && r.id === shape.user.id) >= 0 : "-"}/sn=${shape?.shaped.length}`
           : !basis
             ? "nobasis"
             : !shape
@@ -253,7 +255,8 @@ function shapedMiss(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, Acpm
     if (row.kind === "user") continue;
     const drew = open.get(row.id);
     if (!drew) return `absent:${row.kind}${row.id === LIVE_THINKING ? "(line)" : ""}`;
-    if (!sameShape(drew, row, COMPARE_DEPTH)) return `differs:${row.kind}@${diffPath(drew, row, COMPARE_DEPTH)}`;
+    if (!sameShape(drew, row, COMPARE_DEPTH))
+      return `differs:${row.kind}@${diffPath(drew, row, COMPARE_DEPTH)}/v=${drew.version}:${row.version}/n=${(drew as { toolCount?: number }).toolCount}:${(row as { toolCount?: number }).toolCount}`;
     count += 1;
   }
   return `count:${count}/${open.size}`;
