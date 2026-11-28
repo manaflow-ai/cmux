@@ -5028,12 +5028,6 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
-      - name: Log the Mac fallback
-        env:
-          LINUX_RESULT: ${{ needs.generated-files-linux.result }}
-          PARITY: ${{ needs.generated-files-linux.outputs.parity }}
-        run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh fallback
-
       # Why: note-267
       - name: Give this job its own acpmux home
         run: |
@@ -5078,6 +5072,12 @@ jobs:
       # Why: note-269
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Log the Mac fallback
+        env:
+          LINUX_RESULT: ${{ needs.generated-files-linux.result }}
+          PARITY: ${{ needs.generated-files-linux.outputs.parity }}
+        run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh fallback
 
       # Why: note-60
       - name: Require the GUI session on a mini
