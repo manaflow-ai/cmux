@@ -928,7 +928,7 @@ body[data-status-only="true"] #files-sidebar {
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 1;
+  z-index: var(--layer-raised, 1);
   width: var(--cmux-diff-files-width);
   background: var(--cmux-diff-files-bg);
   pointer-events: none;
@@ -945,7 +945,7 @@ body[data-status-only="true"] #files-motion-curtain {
 /* The filter field: a search icon and the input in one rounded box. */
 #files-filter {
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised, 1);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -2615,7 +2615,7 @@ button.file-header-open:focus-visible {
   inset-inline-end: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1;
+  z-index: var(--layer-raised, 1);
   display: flex;
   align-items: center;
   gap: var(--file-header-gap);
