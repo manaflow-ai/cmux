@@ -19,7 +19,9 @@
 //!
 //! Each call in flight keeps when it started, its masked title and the bound it declared
 //! (`rawInput.timeout`, ms, as Claude Code's Bash sends): the oldest of them is the turn's
-//! `wchan` (RFD 0179 idea 12), what the turn sleeps on, read with no agent cooperation.
+//! `wchan` (RFD 0179 idea 12), what the turn sleeps on, read with no agent cooperation. A call
+//! still in flight past its declared bound stalls the turn from that bound (idea 15): the
+//! harness should have ended it, so a long build stalls only once it outlives its own timeout.
 
 use super::*;
 
@@ -139,6 +141,17 @@ impl TurnActivity {
             .map(|(id, c)| (id.clone(), c.clone()))
     }
 
+    /// Since when a call in flight has been past the bound it declared by `now`: the earliest
+    /// `started_at + bound_ms` at or before `now`; None while every call is within its bound.
+    /// The harness should have ended such a call, so the turn waits on nothing that will answer.
+    pub(super) fn past_bound_since(&self, now: u64) -> Option<u64> {
+        self.open_calls
+            .values()
+            .filter_map(|c| Some(c.started_at.saturating_add(c.bound_ms?)))
+            .filter(|due| *due <= now)
+            .min()
+    }
+
     /// Whether a tool call of the turn is in flight.
     pub(super) fn tool_in_flight(&self) -> bool {
         !self.open_tools.is_empty() || self.open_past_cap > 0
@@ -161,16 +174,24 @@ pub(super) fn activity_of(update: &Value) -> Option<String> {
 
 /// Since when a running turn that started at `started_at` has stalled, or None: its model's last
 /// sign was at `heard_at` (0: none; the prompt counts as one), no tool call is in flight
-/// (`in_flight`), and it has been quiet `after` ms or more by `now` (module docs).
+/// (`in_flight`), and it has been quiet `after` ms or more by `now` (module docs). A call in flight
+/// past the bound it declared stalls it too, from that bound (`past_bound`, RFD 0179 idea 15).
 pub(super) fn stalled_since(
     started_at: u64,
     heard_at: u64,
     in_flight: bool,
     now: u64,
     after: Option<u64>,
+    past_bound: Option<u64>,
 ) -> Option<u64> {
     let quiet_since = started_at.max(heard_at);
-    (!in_flight && now.saturating_sub(quiet_since) >= after?).then_some(quiet_since)
+    let quiet = after
+        .filter(|after| !in_flight && now.saturating_sub(quiet_since) >= *after)
+        .map(|_| quiet_since);
+    match (quiet, past_bound) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 impl Hub {

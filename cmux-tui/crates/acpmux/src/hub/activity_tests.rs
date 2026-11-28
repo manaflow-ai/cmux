@@ -92,16 +92,16 @@ fn tool_calls_past_the_cap_stay_in_flight_only_until_they_end() {
 fn a_turn_stalls_when_its_model_is_quiet_with_no_tool_in_flight() {
     let after = Some(600_000);
     // Heard a minute ago: not stalled.
-    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_060_000, after), None);
+    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_060_000, after, None), None);
     // Quiet ten minutes: stalled since it was last heard.
-    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_600_000, after), Some(2_000_000));
+    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_600_000, after, None), Some(2_000_000));
     // Never heard: quiet since the prompt.
-    assert_eq!(stalled_since(1_000, 0, false, 601_000, after), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, false, 601_000, after, None), Some(1_000));
     // Heard only in an earlier turn: quiet since this turn's prompt.
-    assert_eq!(stalled_since(5_000, 4_000, false, 300_000, after), None);
+    assert_eq!(stalled_since(5_000, 4_000, false, 300_000, after, None), None);
     // A tool call in flight (a long build) never stalls, and 0 turns it off.
-    assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after), None);
-    assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None), None);
+    assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after, None), None);
+    assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None, None), None);
 }
 
 #[test]
@@ -178,4 +178,36 @@ fn a_call_past_the_cap_keeps_no_wchan_entry() {
     }
     assert_eq!(doing.open_calls.len(), MAX_OPEN_TOOLS);
     assert_eq!(doing.wchan().unwrap().0, "t0000");
+}
+
+#[test]
+fn a_call_past_its_declared_bound_stalls_the_turn_from_that_bound() {
+    let mut t = TurnActivity::default();
+    let call = |id: &str, timeout: Option<u64>| {
+        let mut u = serde_json::json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "status": "in_progress", "title": "cargo test",
+        });
+        if let Some(ms) = timeout {
+            u["rawInput"] = serde_json::json!({ "timeout": ms });
+        }
+        u
+    };
+    t.note(&call("a", Some(600_000)), 10_000);
+    t.note(&call("b", None), 20_000);
+    t.note(&call("c", Some(60_000)), 30_000);
+    // Within every bound: no stall, even with calls in flight.
+    assert_eq!(t.past_bound_since(80_000), None);
+    // c is due at 90_000; a, started first, only at 610_000: the earliest due wins.
+    assert_eq!(t.past_bound_since(90_000), Some(90_000));
+    assert_eq!(t.past_bound_since(700_000), Some(90_000));
+    // c ends: a is the one past its bound; b, with no bound, never is.
+    t.note(&serde_json::json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}), 95_000);
+    assert_eq!(t.past_bound_since(500_000), None);
+    assert_eq!(t.past_bound_since(700_000), Some(610_000));
+    // A call in flight does not hide a stall past its bound; a quiet stall without one keeps its time.
+    let after = Some(600_000);
+    assert_eq!(stalled_since(1_000, 0, true, 700_000, after, Some(610_000)), Some(610_000));
+    assert_eq!(stalled_since(1_000, 0, false, 700_000, after, None), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, false, 700_000, after, Some(610_000)), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, true, 700_000, None, Some(610_000)), Some(610_000));
 }

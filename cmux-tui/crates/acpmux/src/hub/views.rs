@@ -926,28 +926,32 @@ impl Hub {
             steering: session.steering.load(Ordering::SeqCst),
             // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
             backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
-            turn: turn.map(|t| TurnSummary {
-                stalled_since: super::activity::stalled_since(
-                    t.started_at,
-                    heard_at,
-                    t.doing.tool_in_flight(),
-                    crate::store::now_ms(),
-                    stall_after,
-                ),
-                started_at: t.started_at,
-                client: t.client,
-                // Another agent's message as its sender and words, not its envelope; masked.
-                prompt: t.masked_preview,
-                turn_id: t.turn_id,
-                prompt_id: t.prompt_id,
-                turn_seq: t.turn_seq,
-                wchan: t.doing.wchan().map(|(id, c)| crate::protocol::session::Wchan {
-                    tool_call_id: id,
-                    title: c.title,
-                    started_at: c.started_at,
-                    bound_ms: c.bound_ms,
-                }),
-                activity: t.doing.activity,
+            turn: turn.map(|t| {
+                let now = crate::store::now_ms();
+                TurnSummary {
+                    stalled_since: super::activity::stalled_since(
+                        t.started_at,
+                        heard_at,
+                        t.doing.tool_in_flight(),
+                        now,
+                        stall_after,
+                        t.doing.past_bound_since(now),
+                    ),
+                    started_at: t.started_at,
+                    client: t.client,
+                    // Another agent's message as its sender and words, not its envelope; masked.
+                    prompt: t.masked_preview,
+                    turn_id: t.turn_id,
+                    prompt_id: t.prompt_id,
+                    turn_seq: t.turn_seq,
+                    wchan: t.doing.wchan().map(|(id, c)| crate::protocol::session::Wchan {
+                        tool_call_id: id,
+                        title: c.title,
+                        started_at: c.started_at,
+                        bound_ms: c.bound_ms,
+                    }),
+                    activity: t.doing.activity,
+                }
             }),
             queue: session
                 .queue()

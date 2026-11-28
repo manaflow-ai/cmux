@@ -666,7 +666,8 @@ pub struct TurnSummary {
     /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
-    /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+    /// model since then, for `stalledTurnMs` or more, or a call in flight
+    /// past the bound it declared, from that bound (`hub/activity.rs`);
     /// null while it has not.
     pub stalled_since: Option<u64>,
     /// What it sleeps on (RFD 0179 idea 12): its oldest tool call in flight; null while none is.

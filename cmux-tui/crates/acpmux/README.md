@@ -551,8 +551,9 @@ reached instead of "Thinking"; the model's next sign logs `turn_heard` {turnId}.
 `stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
 flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
-one tool call is in flight, so it never stalls. It is checked when a summary is read, with
-no timer.
+one tool call is in flight, so it stalls only once it runs past the bound it declared
+(`turn.wchan`'s `boundMs`; RFD 0179 idea 15): then `stalledSince` is that bound, whether or
+not the model spoke since. It is checked when a summary is read, with no timer.
 `turn.wchan` {toolCallId, title?, startedAt, boundMs?}: what a running turn waits on, its
 oldest tool call in flight (RFD 0179 idea 12): its id, its masked title, when acpmux first
 saw it and the bound it declared (`rawInput.timeout`, such as a Bash timeout); unset when no
