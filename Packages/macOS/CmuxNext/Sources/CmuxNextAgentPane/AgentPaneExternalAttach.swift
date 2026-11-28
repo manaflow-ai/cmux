@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextControl
 public import CmuxNextSettings
 public import Foundation
@@ -37,8 +38,23 @@ public final class AgentPaneExternalAttach {
     private var attempts = 0
     public nonisolated static let openingLimit: Duration = .seconds(10)
     private let now: () -> ContinuousClock.Instant
+    private let clock: any Clock<Duration>
 
-    public init() { now = { .now } }
+    /// How the App sends stranded files again (`ExternalOpenController.attachToChat(_:from:)`), so they
+    /// take the whole route again: a chat made since then takes them, else a new one opens. Without it
+    /// they wait for the next files. Before, the open door's image on a cold launch whose new chat was
+    /// not made reached the composer only with the next door's file (screenshot-into-chat "late",
+    /// "held: 1 stranded" on two of three runners with Nightly 59518be6c8a5).
+    public var retry: (@MainActor (_ urls: [URL], _ claimed: String?) -> Void)?
+    /// How many times stranded files go again (``retry``): after 0.5, 1, 2 and 4 s (``retrySpacing``),
+    /// 7.5 s in all, under the 15 s a person waits for an image to show. Files stranded after the last
+    /// one wait for the next files.
+    public nonisolated static let retryLimit = 4
+    private static let retrySpacing = Backoff(initial: .milliseconds(500), maximum: .seconds(4), multiplier: 2, jitter: 0)
+    private var spacing = AgentPaneExternalAttach.retrySpacing, retrying = false
+    private var retryTask: Task<Void, Never>?
+
+    public init() { now = { .now }; clock = ContinuousClock() }
 
     /// The files of routes the App parked before they reached this route, and why the oldest waits
     /// (no window, no pane, Home shown): `chat.composer.get`'s `waiting.parked` and `parked_why`.
@@ -53,7 +69,10 @@ public final class AgentPaneExternalAttach {
     }
 
     /// A test's clock, for files that waited past ``openingLimit``.
-    init(now: @escaping () -> ContinuousClock.Instant) { self.now = now }
+    init(now: @escaping () -> ContinuousClock.Instant, clock: any Clock<Duration> = ContinuousClock()) {
+        self.now = now
+        self.clock = clock
+    }
 
     /// Puts `urls` into `target`'s composer, or, with no target, a new chat's: `openChat` opens one
     /// and calls back with its page once it is made (nil when it is not), answering false when it
@@ -63,6 +82,8 @@ public final class AgentPaneExternalAttach {
                        openChat: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool,
                        show: @escaping @MainActor (AgentPaneView) -> Void) {
         guard !urls.isEmpty else { return }
+        // Files a person sent get the retries anew; a retry's own attach keeps counting them.
+        if !retrying { spacing.reset() }
         if let waiting = opening {
             if now() - waiting.since < Self.openingLimit {
                 opening = (waiting.urls + urls, waiting.claimed ?? claimed, waiting.since, waiting.attempt)
@@ -74,6 +95,8 @@ public final class AgentPaneExternalAttach {
         }
         let kept = stranded
         stranded = nil
+        retryTask?.cancel()
+        retryTask = nil
         let urls = (kept?.urls ?? []) + urls, claimed = kept?.claimed ?? claimed
         if let target { return deliver(urls, claimed: claimed, to: target, show: show) }
         attempts += 1
@@ -98,6 +121,28 @@ public final class AgentPaneExternalAttach {
 
     private func strand(_ urls: [URL], claimed: String?) {
         stranded = ((stranded?.urls ?? []) + urls, stranded?.claimed ?? claimed)
+        retryStranded()
+    }
+
+    /// Sends the stranded files again through ``retry`` after the next wait of ``retrySpacing``, one
+    /// wait at a time, at most ``retryLimit`` times. Files that go with later ones first cancel it.
+    private func retryStranded() {
+        guard retry != nil, retryTask == nil, spacing.attempt < Self.retryLimit else { return }
+        let wait = spacing // waits this attempt's delay; the route's own spacing moves to the next
+        _ = spacing.next()
+        // task-owner: this route; one wait at a time, cancelled when later files carry the stranded ones
+        retryTask = Task { [weak self, clock, wait] in
+            var wait = wait
+            do { try await wait.wait(owner: "agent-pane.external-attach.stranded", clock: clock) } catch { return } // concurrency-allow: Backoff.wait after a chat that was not made, cancelled by later files
+            guard let self else { return }
+            retryTask = nil
+            guard let kept = stranded, let retry else { return }
+            stranded = nil
+            Self.logger.info("external attach: \(kept.urls.count, privacy: .public) stranded file(s) go again (retry \(self.spacing.attempt, privacy: .public) of \(Self.retryLimit, privacy: .public))")
+            retrying = true
+            defer { retrying = false }
+            retry(kept.urls, kept.claimed)
+        }
     }
 
     /// Whether files wait for a new chat (``attach(_:claimed:target:openChat:show:)``).
