@@ -124,6 +124,7 @@ EOF
   if [[ ( "$suite" == input-ab || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency || "$suite" == cueval ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
     mkdir -p "$root/artifacts/cu-driver-eval"
     cp "$out/vm.json" "$root/artifacts/cu-driver-eval/"
+    [[ -f "$out/start.log" ]] && cp "$out/start.log" "$root/artifacts/cu-driver-eval/" # the blocked reason names it
     tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
   fi
 }
@@ -250,16 +251,30 @@ cleanup() {
 trap cleanup EXIT
 lume clone "$base" "$vm" >"$out/clone.log" 2>&1 || { finish "lume clone failed (clone.log)"; exit 4; }
 lume set "$vm" --cpu 6 --memory 12GB --display 1920x1080 >"$out/set.log" 2>&1 || { finish "lume set failed (set.log)"; exit 4; }
-# exec, so $! is Lume's own process, not a subshell around it.
-( exec "${lume_env[@]}" run "$vm" --no-display ) >"$out/run.log" 2>&1 &
-run_pid=$!
+# One boot that never answers SSH used to void the whole suite run (step 462455435aa3, 11-27): the clone gets a
+# second boot before the step gives up, and each failed try records whether Lume's run was alive and how many VM
+# processes the host had, as macos-cu-density.sh does.
 booted=0
-for _ in $(seq 1 90); do
-  kill -0 "$run_pid" 2>/dev/null || break
-  if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
-  sleep 5 # bounded wait for the guest's SSH (7.5 min)
+for try in 1 2; do
+  # exec, so $! is Lume's own process, not a subshell around it.
+  ( exec "${lume_env[@]}" run "$vm" --no-display ) >"$out/run.log" 2>&1 &
+  run_pid=$!
+  for _ in $(seq 1 90); do
+    kill -0 "$run_pid" 2>/dev/null || break
+    if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
+    sleep 5 # bounded wait for the guest's SSH (7.5 min)
+  done
+  [[ $booted == 1 ]] && break
+  run_state=$(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited)
+  vms=$(pgrep -f com.apple.Virtualization.VirtualMachine 2>/dev/null | wc -l | tr -d ' ')
+  cp "$out/run.log" "$out/run-try$try.log" 2>/dev/null || true
+  note "boot try $try: the guest's SSH never answered; lume run $run_state, $vms VM process(es) on the host"
+  lume stop "$vm" >/dev/null 2>&1 || true
+  kill "$run_pid" 2>/dev/null || true
+  wait "$run_pid" 2>/dev/null || true
+  run_pid=""
 done
-[[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered (run.log)"; exit 4; }
+[[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered on 2 boots: lume run $run_state, $vms VM process(es) on the host (run-try1.log, run-try2.log)"; exit 4; }
 
 note "STAGE guest"
 probe='
@@ -445,8 +460,38 @@ git archive "$rev" "${archive_paths[@]}" |
 if [[ ( "$suite" == arena || "$suite" == latency ) && -d "$engines_out" ]]; then
   tar -c -C "$engines_out" . | guest 'mkdir -p ~/cu-eval/engines && tar -x -C ~/cu-eval/engines' || { finish "could not copy the engines into the guest"; exit 4; }
 fi
-guest_n "${runner}bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >"$out/start.log" 2>&1 ||
-  { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
+start_ab() { guest_n "${runner}bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >>"$out/start.log" 2>&1; }
+start_status=0
+start_ab || start_status=$?
+if [[ $start_status == 5 ]]; then
+  # guest-start.sh found no login session after 5 minutes (2026-11-27: a fresh clone on a loaded host
+  # sat at loginwindow and the whole suite run was lost). The clone keeps its disk, the copied tree and
+  # the run's key, so one restart of the VM is a fresh auto-login; the guest may come back on a new IP.
+  cat "$out/start.log"
+  note "no login session in the guest: restarting the VM once"
+  setfact vm restarted "no login session"
+  lume stop "$vm" >/dev/null 2>&1 || true
+  kill "$run_pid" 2>/dev/null || true
+  wait "$run_pid" 2>/dev/null || true
+  ( exec "${lume_env[@]}" run "$vm" --no-display ) >>"$out/run.log" 2>&1 &
+  run_pid=$!
+  booted=0
+  for _ in $(seq 1 90); do
+    kill -0 "$run_pid" 2>/dev/null || break
+    if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
+    sleep 5
+  done
+  [[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered after the restart (run.log)"; exit 4; }
+  ip=$(lume get "$vm" -f json 2>/dev/null | python3 -I -c '
+import json, sys
+data = json.load(sys.stdin)
+row = data[0] if isinstance(data, list) else data
+print(row.get("ipAddress") or "")' 2>/dev/null)
+  [[ "$ip" =~ ^[0-9.]+$ ]] || { finish "lume reported no guest IP after the restart"; exit 4; }
+  start_status=0
+  start_ab || start_status=$?
+fi
+[[ $start_status == 0 ]] || { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
 cat "$out/start.log"
 note "the A/B is running in the guest"
 finished=0

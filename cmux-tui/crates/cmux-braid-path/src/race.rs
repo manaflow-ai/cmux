@@ -6,8 +6,12 @@
 //! keep the ones that connect after the winner as warm standbys ([`crate::Standby`], RFD 0164
 //! slice B3). A fast failure starts the next attempt at once.
 //!
-//! The last attempt has no timeout of its own: on a saturated uplink where every connect is
-//! slower than the timeout it still connects inside the caller's own budget.
+//! The last attempt gets the longer [`RacePolicy::last_attempt_timeout`]: on a saturated uplink
+//! where every connect is slower than [`RacePolicy::attempt_timeout`] it still connects slowly.
+//! It is still bounded, because a caller with no budget of its own (the direct TCP dialer under
+//! the terminal client) would otherwise wait out the operating system's connect timeout, over a
+//! minute, on a black-holed address. A caller with a shorter budget (the relay's 10 s connect)
+//! ends the race first.
 
 use std::future::Future;
 use std::io;
@@ -26,6 +30,8 @@ pub struct RacePolicy {
     pub stagger: Duration,
     /// How long one attempt but the last may take before it is dropped.
     pub attempt_timeout: Duration,
+    /// How long the last attempt may take, unless the caller's own budget ends the race first.
+    pub last_attempt_timeout: Duration,
     /// Attempts in flight at once.
     pub max_in_flight: usize,
     /// Attempts in all; the last one's failure is the answer once they ran out.
@@ -34,10 +40,13 @@ pub struct RacePolicy {
 
 impl RacePolicy {
     /// For a host that connects in 10 to 50 ms: a second attempt after 400 ms, at most three
-    /// at a time, each but the last given 3 s, six in all.
+    /// at a time, each but the last given 3 s, six in all. When every one is black-holed the
+    /// sixth starts after about 3.8 s and gets 8 s, so a race with no other budget fails after
+    /// about 11.8 s; the relay's 10 s connect budget ends sooner.
     pub const INTERNET: Self = Self {
         stagger: Duration::from_millis(400),
         attempt_timeout: Duration::from_secs(3),
+        last_attempt_timeout: Duration::from_secs(8),
         max_in_flight: 3,
         max_attempts: 6,
     };
@@ -87,12 +96,12 @@ where
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
-    run(targets, policy, connect).await.map(|(won, _)| won)
+    run(targets, policy, connect, &mut |_, _| {}).await.map(|(won, _)| won)
 }
 
 /// [`race`], with the attempts still in flight when the winner answered handed back as
-/// [`Losers`] instead of dropped. Each keeps its own timeout (the last attempt has none, so
-/// bound the wait on them).
+/// [`Losers`] instead of dropped. Each keeps its policy timeout, including
+/// [`RacePolicy::last_attempt_timeout`] for the final attempt.
 ///
 /// # Errors
 /// The race's error: the last attempt's.
@@ -106,7 +115,28 @@ where
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
-    let (won, running) = run(targets, policy, connect).await?;
+    race_keeping_losers_observed(targets, policy, connect, |_, _| {}).await
+}
+
+/// [`race_keeping_losers`], telling `on_failure` each attempt that failed before the race
+/// ended: the index of its target in `targets`, and its error (`TimedOut` for one that ran
+/// out of time). The feed for broken-route marks and the per-leg record ([`crate::legs`]).
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_keeping_losers_observed<A, T, F, Fut, O>(
+    targets: &[A],
+    policy: RacePolicy,
+    connect: F,
+    mut on_failure: O,
+) -> io::Result<(Won<T>, Losers<A, Fut>)>
+where
+    A: Clone,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+    O: FnMut(usize, &io::Error),
+{
+    let (won, running) = run(targets, policy, connect, &mut on_failure).await?;
     Ok((won, Losers { targets: targets.to_vec(), running }))
 }
 
@@ -130,6 +160,15 @@ impl<A: Clone, Fut> Losers<A, Fut> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.running.is_empty()
+    }
+
+    /// The targets still in flight, one per attempt.
+    #[must_use]
+    pub fn in_flight(&self) -> Vec<A> {
+        self.running
+            .iter()
+            .filter_map(|attempt| self.targets.get(attempt.target_index).cloned())
+            .collect()
     }
 
     /// The next loser that connects; `None` once every one has connected, failed or run out of
@@ -179,12 +218,16 @@ impl<T, Fut: Future<Output = io::Result<T>>> Future for Attempt<Fut> {
     }
 }
 
-async fn run<A, T, F, Fut>(
+// Generic in `on_failure` (not `&mut dyn FnMut`): the race's future is `Send` exactly when the
+// caller's closure is, so a race spawned on a multi-thread runtime still compiles.
+async fn run<A, T, F, Fut, O>(
     targets: &[A],
     policy: RacePolicy,
     mut connect: F,
+    on_failure: &mut O,
 ) -> io::Result<(Won<T>, FuturesUnordered<Attempt<Fut>>)>
 where
+    O: FnMut(usize, &io::Error),
     A: Clone,
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
@@ -207,10 +250,14 @@ where
             let Some(target) = targets.get(target_index).cloned() else {
                 return Err(io::Error::new(io::ErrorKind::NotFound, "no addresses to connect to"));
             };
-            // The last attempt may connect slowly: only the caller's budget ends it.
-            let deadline = (launched + 1 < max_attempts).then(|| {
-                (policy.attempt_timeout, Box::pin(tokio::time::sleep(policy.attempt_timeout)))
-            });
+            // Give the last attempt its longer bounded timeout; the caller's own
+            // budget may still end the race earlier.
+            let timeout = if launched + 1 < max_attempts {
+                policy.attempt_timeout
+            } else {
+                policy.last_attempt_timeout
+            };
+            let deadline = Some((timeout, Box::pin(tokio::time::sleep(timeout))));
             running.push(Attempt {
                 index: launched,
                 target_index,
@@ -237,6 +284,7 @@ where
                 // A failed attempt frees its place: the next starts at once (RFC 8305 section
                 // 5), not when the stagger since the last start runs out.
                 Err(error) => {
+                    on_failure(target_index, &error);
                     last_error = Some(error);
                     next_launch = Instant::now();
                 }

@@ -54,7 +54,12 @@ publish = step("Publish nightly release assets")
 if "nightly-next" not in publish or "x86_64" not in publish:
     failures.append("'Publish nightly release assets' must publish only arm64 on nightly-next and all variants elsewhere")
 assemble = step("Assemble legacy nightly names")
-if "nightly-next" not in assemble:
+# The step runs scripts/ci/nightly-steps/publish-assemble-legacy-names.sh; since #56983 every track but rc
+# (nightly-next with it) builds arm64 only and skips the universal legacy names.
+assemble_script = (Path(__file__).resolve().parents[1] / "scripts/ci/nightly-steps/publish-assemble-legacy-names.sh")
+if "publish-assemble-legacy-names.sh" in assemble:
+    assemble += assemble_script.read_text()
+if "nightly-next" not in assemble and 'if [ "$NIGHTLY_TRACK" != rc ]; then' not in assemble:
     failures.append("'Assemble legacy nightly names' must skip the universal legacy names on nightly-next")
 notes = step("Prepare nightly release notes and appcast summaries")
 if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes:
@@ -172,6 +177,11 @@ def compile_commands(outputs):
         # And the SourcePackages preflight; with no .spm-cache in this root it resolves nothing.
         (root / "scripts/ci/spm_artifact_preflight.py").write_text(
             (ROOT / "scripts/ci/spm_artifact_preflight.py").read_text())
+        # The Release step sources the direct-route helper (github-egress-direct.sh): a no-op here, nothing is fetched.
+        (root / "scripts/ci/github-egress-direct.sh").write_text(
+            "github_egress_probe() { :; }\ngithub_egress_retry_direct() { return 1; }\n")
+        # And the fleet's compilation-cache settings: none in the recorder (the loop reads no setting lines).
+        (root / "scripts/ci/fleet-compilation-cache.sh").write_text("exit 0\n")
         capture = root / "capture"
         capture.mkdir()
         steps = (
@@ -197,6 +207,7 @@ def compile_commands(outputs):
                    "CAPTURE": str(capture), "RUNNER_TEMP": str(root),
                    "GITHUB_ENV": str(root / "github-env"), "GITHUB_STEP_SUMMARY": str(root / "summary"),
                    "CHANNEL_ICON_NAME": "AppIcon-Nightly",
+                   "DECIDE_COLD_CACHE_DISABLE": "",  # needs.decide.outputs.cold_cache: not a cold measurement run
                    "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
             subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                            capture_output=True, text=True, check=True)

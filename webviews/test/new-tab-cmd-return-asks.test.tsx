@@ -6,11 +6,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
-import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { EMPTY_OMNIBAR } = await importWithDom(() => import("../src/agent-session/acpmux/omnibar"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -144,5 +146,5 @@ test("the Ask row has no action hint when another row leads", async () => {
   await render([]);
   await type("reddit");
   const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
-  expect(ask.querySelector("kbd")).toBeNull();
+  expect(ask.querySelector(".ui-key-hint")).toBeNull();
 });

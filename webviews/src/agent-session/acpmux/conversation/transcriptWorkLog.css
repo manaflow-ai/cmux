@@ -1,0 +1,70 @@
+/* Transcript Work Log (Settings > Advanced > Experiments, experiments.transcriptWorkLog, off by
+   default; taste build 9). The page root carries `data-transcript-work-log` while it is on (App.tsx,
+   from the switch). Every rule here only recolors: no size, padding or line changes, so each row keeps the height the estimator gives it
+   (model.ts `editedCardHeight`, `attachmentBox`) and switching it moves nothing.
+
+   Structure comes from very low-contrast hairlines instead of fills: the changes card is a
+   transparent box with a 1px rim at 8% of the text color, its file rows split by 5% rules; the
+   closed "Worked for" reads quieter than the reply under it; a sent file's chip is outlined, not
+   filled, and says "added to context" where its size went. */
+:root[data-transcript-work-log] {
+  --worklog-rim: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --worklog-rule: color-mix(in srgb, var(--agent-text) 5%, transparent);
+}
+
+/* The closed Worked for: muted, a step lighter than tool rows. */
+:root[data-transcript-work-log] .cv-worked {
+  color: color-mix(in srgb, var(--cv-activity-text) 78%, transparent);
+}
+:root[data-transcript-work-log] .cv-worked.has-divider::after {
+  background: var(--worklog-rule);
+}
+
+/* The changes card: no fill, one hairline rim. */
+:root[data-transcript-work-log] div.acpmux-edited {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--worklog-rim);
+}
+:root[data-transcript-work-log] .acpmux-edited .acpmux-edited-head {
+  background: transparent;
+}
+:root[data-transcript-work-log] .acpmux-edited .acpmux-edited-icon {
+  display: none;
+}
+:root[data-transcript-work-log] .acpmux-edited-entry + .acpmux-edited-entry,
+:root[data-transcript-work-log] .acpmux-edited-head + .acpmux-edited-entry {
+  box-shadow: inset 0 1px 0 var(--worklog-rule);
+}
+.acpmux-worklog-headline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.acpmux-worklog-headline > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-worklog-branch {
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-family: var(--cv-mono);
+}
+.acpmux-worklog-branch > bdi {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A sent file's chip: outlined, its note in the muted color. */
+:root[data-transcript-work-log] .cv-user__inline-file .acpmux-file-chip {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--worklog-rim);
+}
+:root[data-transcript-work-log] .cv-user__inline-file .acpmux-file-chip__size {
+  color: var(--agent-muted);
+}

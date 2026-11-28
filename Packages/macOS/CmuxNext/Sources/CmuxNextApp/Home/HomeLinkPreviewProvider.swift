@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextTabs
@@ -32,9 +33,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         }
         switch link.target {
         case .workspace(let id):
-            guard let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == id }) else {
-                return closed(kind, id)
-            }
+            guard let workspace = services.machines.daemons.workspace(resourceID: id)?.0 else { return closed(kind, id) }
             return workspacePreview(workspace, services: services)
         case .pane(let id):
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
@@ -55,7 +54,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .group(let id, let workspace):
             // A cloud group's record is in cmux Cloud; the card names the workspace when this Mac shows it.
-            guard let workspace, let open = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == workspace }) else {
+            guard let workspace, let open = services.machines.daemons.workspace(resourceID: workspace)?.0 else {
                 return closed(kind, id)
             }
             return workspacePreview(open, services: services)

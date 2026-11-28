@@ -19,6 +19,15 @@ struct WindowKeyEnvironment {
         MainRunLoopBlock.perform { check() }
     }
 
+    /// Tells `window`'s views that its key look changed while its own key state did not (AppKit's
+    /// forced key-state pass, `_sendForcedWindowChangedKeyState`, measured to reach every view on
+    /// macOS 26.5; nothing where AppKit lacks it): a page window of its own took or gave up the
+    /// keys (``PageWindowKeyLook``). Tests record the calls.
+    var refresh: @MainActor (NSWindow) -> Void = { window in
+        let selector = NSSelectorFromString("_sendForcedWindowChangedKeyState") // crash-allow: AppKit private method, called only when the window responds to it
+        if window.responds(to: selector) { window.perform(selector) }
+    }
+
     /// The running app.
     static var live: WindowKeyEnvironment { WindowKeyEnvironment() }
 }

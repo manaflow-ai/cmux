@@ -34,6 +34,7 @@ use super::super::customize::pr::Http;
 use super::super::{GlobalArgs, OutputMode, wire};
 
 /// How long one preview request may take.
+// timeout: one preview HTTP request; past it the preview says it failed and the verb can be retried.
 const PREVIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(super) const VERBS: &[&str] = &[
@@ -83,8 +84,8 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
                                                      installed setup top first (reads only: no network)
   cmux setup preview ID|REPO [--scheme light|dark]   A look's preview image on the golden sample (default dark),
                                                      fetched once and kept for 24 h
-  cmux setup export DIR --id OWNER/NAME [--name N] [--description D] [--repo OWNER/REPO] [--extension REF]...
-                                                     Write your customization as a setup repo (README with badge)
+  cmux setup export DIR --id OWNER/NAME [--name N] [--description D] [--repo OWNER/REPO] [--extension REF]... [--profile NAME]
+                                                     Write your customization (or the saved profile NAME) as a setup repo (README with badge)
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 Setups stack like dotfiles: each one is a layer of its own, the newest on top. Its views go to
@@ -146,6 +147,8 @@ pub(super) enum Request {
     Export {
         dir: PathBuf,
         header: ExportHeader,
+        /// `--profile NAME`: that saved profile, not what is live.
+        profile: Option<String>,
     },
     Check {
         dir: PathBuf,
@@ -310,6 +313,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "export" => {
             let mut dir = None;
             let mut header = ExportHeader::default();
+            let mut profile = None;
             let mut iter = words.into_iter();
             while let Some(word) = iter.next() {
                 let mut value = |name: &str| {
@@ -323,6 +327,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
                     "--description" => header.description = value("--description")?,
                     "--repo" => header.repo = value("--repo")?,
                     "--extension" => header.extensions.push(value("--extension")?),
+                    "--profile" => profile = Some(value("--profile")?),
                     other if other.starts_with('-') => {
                         return Err(format!("cmux setup export: unknown option {other:?}"));
                     }
@@ -339,7 +344,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             if header.name.is_empty() {
                 header.name = header.id.split('/').next_back().unwrap_or_default().to_owned();
             }
-            Ok(Request::Export { dir, header })
+            Ok(Request::Export { dir, header, profile })
         }
         other => Err(format!("cmux setup {other}: unexpected arguments")),
     }
@@ -430,7 +435,9 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         Request::Undo => undo_redo(&customize, &apps, false),
         Request::Redo => undo_redo(&customize, &apps, true),
-        Request::Export { dir, header } => export(&customize, &dir, &header),
+        Request::Export { dir, header, profile } => {
+            export(&customize, &dir, &header, profile.as_deref())
+        }
         Request::Gallery => gallery(&customize),
         Request::Preview { which, scheme } => {
             // The client (a network runtime) starts only when the cache cannot answer.
@@ -1145,8 +1152,28 @@ pub(super) fn install_as(
         receipt.source.key() == source.key() && as_id.is_none_or(|id| id == receipt.id)
     });
     if let Some(receipt) = same_source {
-        // Installed already: this is an update to the named ref (or folder).
-        return apply_update(customize, apps, output, receipt.clone(), Some(source), yes);
+        // Installed already: this is an update to the named ref (or folder),
+        // and an install still means what it says: the setup on, on top of
+        // the others. An update alone keeps its place and its off, so a look
+        // installed again from the gallery under looks put on since would
+        // leave theirs showing (hq feature flow `looks`: Linen after Basalt).
+        let id = receipt.id.clone();
+        let mut answer = apply_update(customize, apps, output, receipt.clone(), Some(source), yes)?;
+        let mut current = customize.setup(&id)?;
+        if current.as_ref().is_some_and(|receipt| !receipt.on) {
+            current = Some(customize.set_setup_on(&id, true, "cli", now_ms())?);
+        }
+        let on_top = customize.setups()?.first().map(|receipt| receipt.id.as_str()) == Some(&id);
+        if !on_top {
+            customize.order_setups(std::slice::from_ref(&id), "cli", now_ms())?;
+        }
+        apps.reload_layers();
+        if let (Some(answer), Some(current)) = (answer.as_object_mut(), current) {
+            let key = if answer.contains_key("installed") { "installed" } else { "current" };
+            answer.insert(key.to_owned(), json!(current));
+            answer.insert("on_top".to_owned(), json!(true));
+        }
+        return Ok(answer);
     }
     let opened = open(apps, &source, as_id)?;
     let read = &opened.read;
@@ -1361,8 +1388,16 @@ fn order(customize: &Customize, apps: &dyn Apps, which: &[String]) -> Result<Val
     Ok(json!({"ordered": true, "setups": setups}))
 }
 
-fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Value, Failure> {
-    let exported = customize.export_setup(dir, header, now_ms())?;
+fn export(
+    customize: &Customize,
+    dir: &Path,
+    header: &ExportHeader,
+    profile: Option<&str>,
+) -> Result<Value, Failure> {
+    let exported = match profile {
+        Some(name) => customize.export_profile_setup(name, dir, header)?,
+        None => customize.export_setup(dir, header, now_ms())?,
+    };
     let repo = if header.repo.is_empty() { header.id.clone() } else { header.repo.clone() };
     Ok(json!({
         "exported": exported,
@@ -1370,6 +1405,7 @@ fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Va
             format!("cd {} && git init && git add -A && git commit -m 'My cmux setup'", dir.display()),
             format!("push it to github.com/{repo} and add the topic {TOPIC}"),
             format!("cmux setup install github.com/{repo}"),
+            format!("or, where this folder is: cmux setup install {}", dir.display()),
         ],
     }))
 }

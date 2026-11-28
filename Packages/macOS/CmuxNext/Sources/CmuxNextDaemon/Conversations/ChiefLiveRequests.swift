@@ -1,19 +1,5 @@
 import Foundation
 
-/// `conversation-live {conversation}` (`chief-live-v1`): the local owner's
-/// `run.live` snapshot of a conversation, the text so far and the activity of
-/// every running run. Home asks when it opens a conversation and after a gap.
-public struct ConversationLiveRequest: DaemonRequest {
-    public typealias Response = ChiefLiveFrame
-    public static let command = "conversation-live"
-    public static let requiredCapability: String? = DaemonCapability.chiefLive.rawValue
-    public var conversation: String
-
-    public init(conversation: String) {
-        self.conversation = conversation
-    }
-}
-
 /// `cloud-conversation-live {conversation}` (`cloud-chief-live-v1`): asks a
 /// subscribed Cloud conversation's owner for its `run.live` snapshot; the
 /// answer comes later as a `cloud-conversation-live` event.

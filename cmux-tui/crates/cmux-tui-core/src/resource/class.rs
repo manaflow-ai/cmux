@@ -140,8 +140,10 @@ impl ResourceOperation {
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
                 | Self::CloudOwnerGithubRepos
+                | Self::CloudOwnerGithubList
                 | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
+                | Self::CloudArtifactsRead
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

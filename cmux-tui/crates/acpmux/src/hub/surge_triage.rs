@@ -819,7 +819,9 @@ impl Hub {
         }
     }
 
-    /// The decisions of `batch`, through `harness` (None: the default harness).
+    /// The decisions of `batch`, through `harness` (None: the default harness). With harness
+    /// magic `consensus` on, [`CONSENSUS_VOTES`] calls run at once and only what most of them
+    /// agree on is decided ([`triage::majority`]); the rest stays held for a later pass.
     pub(crate) async fn surge_triage_batch(
         self: &Arc<Self>,
         harness: Option<&str>,
@@ -829,37 +831,109 @@ impl Hub {
         if batch.messages.is_empty() {
             return Vec::new();
         }
-        let prompt = triage::prompt(batch);
-        let triager = self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let answer = match triager {
-            Some(triage_with) => triage_with(prompt),
-            None => {
-                let timeout = Duration::from_millis(triage::TIMEOUT_MS);
-                match self
-                    .complete_own(
-                        harness,
-                        prompt,
-                        triage::MAX_TOKENS,
-                        timeout,
-                        super::complete::ModelFallback::SmallOnly,
-                    )
-                    .await
-                {
-                    Ok(text) => Some(text),
-                    Err(e) => {
-                        tracing::info!(
-                            recipient = %batch.recipient,
-                            batch = %batch.batch_id,
-                            reason = e.reason(),
-                            "surge triage: no model answer; its messages stay held for a later pass"
-                        );
-                        None
-                    }
-                }
-            }
-        };
-        triage::decide(batch, answer.as_deref(), owners)
+        let votes = if consensus_enabled() { CONSENSUS_VOTES } else { 1 };
+        self.surge_triage_voted(harness, batch, owners, votes).await
     }
+
+    /// [`Self::surge_triage_batch`] with `votes` calls: one is the plain single call.
+    pub(crate) async fn surge_triage_voted(
+        self: &Arc<Self>,
+        harness: Option<&str>,
+        batch: &Batch,
+        owners: &Owners,
+        votes: usize,
+    ) -> Vec<Option<Decision>> {
+        let prompt = triage::prompt(batch);
+        if votes <= 1 {
+            let answer = self.surge_triage_answer(harness, prompt, batch).await;
+            return triage::decide(batch, answer.as_deref(), owners);
+        }
+        let calls = (0..votes).map(|_| self.surge_triage_answer(harness, prompt.clone(), batch));
+        let ballots: Vec<Vec<Option<Decision>>> = futures::future::join_all(calls)
+            .await
+            .iter()
+            .map(|a| triage::decide(batch, a.as_deref(), owners))
+            .collect();
+        let kept = triage::majority(&ballots);
+        tracing::info!(
+            recipient = %batch.recipient,
+            batch = %batch.batch_id,
+            votes,
+            messages = batch.messages.len(),
+            decided = kept.iter().filter(|d| d.is_some()).count(),
+            split = triage::split_count(&ballots, &kept),
+            "surge triage: consensus"
+        );
+        kept
+    }
+
+    /// One answer for `prompt`: the test triager's, or the harness's small model's (None: the
+    /// call failed or timed out).
+    async fn surge_triage_answer(
+        self: &Arc<Self>,
+        harness: Option<&str>,
+        prompt: String,
+        batch: &Batch,
+    ) -> Option<String> {
+        let triager = self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(triage_with) = triager {
+            return triage_with(prompt);
+        }
+        let timeout = Duration::from_millis(triage::TIMEOUT_MS);
+        match self
+            .complete_own(
+                harness,
+                prompt,
+                triage::MAX_TOKENS,
+                timeout,
+                super::complete::ModelFallback::SmallOnly,
+            )
+            .await
+        {
+            Ok(text) => Some(text),
+            Err(e) => {
+                tracing::info!(
+                    recipient = %batch.recipient,
+                    batch = %batch.batch_id,
+                    reason = e.reason(),
+                    "surge triage: no model answer; its messages stay held for a later pass"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// RFD 0158 §16's harness magic: surge triage decides by majority of [`CONSENSUS_VOTES`] cheap
+/// calls, not one. Its name in the setting, kill switch and stamp.
+pub(crate) const CONSENSUS_FEATURE: &str = "consensus";
+
+/// The calls a consensus decision takes (RFD 0158 §16: "three cheap votes ... majority wins").
+pub(crate) const CONSENSUS_VOTES: usize = 3;
+
+/// Whether consensus is on: the environment's `ACPMUX_HM_CONSENSUS` (`0` off, `1` on), then
+/// `agents.harnessMagic.consensus.enabled` (off unless `true`).
+pub(crate) fn consensus_enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("0" | "false" | "off" | "no") => return false,
+        Some("1" | "true" | "on" | "yes") => return true,
+        _ => {}
+    }
+    doc.and_then(|d| {
+        crate::user_settings::value(d, &super::harness_magic::setting_key(CONSENSUS_FEATURE))
+    })
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+}
+
+/// [`consensus_enabled_with`] now.
+pub(crate) fn consensus_enabled() -> bool {
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    let env = std::env::var(super::harness_magic::env_key(CONSENSUS_FEATURE)).ok();
+    consensus_enabled_with(doc.as_ref(), env.as_deref())
 }
 
 #[cfg(test)]

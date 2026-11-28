@@ -9,6 +9,24 @@
 // clear enough to fail (docs/cmux-next/modding-kit.md); the rest of its rules warn only on save.
 // Build output is not source; webviews' preview:build writes to dist/.
 const BUILD_OUTPUT = ["dist/**"];
+// The agent chat transcript and everything that moves its scroller (cmuxterm-hq
+// docs/design/agent-transcript-clean-slate.md, step 1). conversation/scrollController.ts is the writer.
+const TRANSCRIPT = "src/agent-session/acpmux";
+const TRANSCRIPT_SCROLL_FILES = [
+  `${TRANSCRIPT}/VirtualTranscript.tsx`,
+  `${TRANSCRIPT}/conversation/scrollAnchor.ts`,
+  `${TRANSCRIPT}/conversation/scrollCoordinates.ts`,
+  `${TRANSCRIPT}/conversation/olderScrollTarget.ts`,
+  `${TRANSCRIPT}/threadMinimap/*.ts`,
+  `${TRANSCRIPT}/threadMinimap/*.tsx`,
+  `${TRANSCRIPT}/chatMinimap/*.ts`,
+  `${TRANSCRIPT}/chatMinimap/*.tsx`,
+  `${TRANSCRIPT}/transcript/*.ts`,
+  `${TRANSCRIPT}/transcript/*.tsx`,
+];
+// The transcript's row components, which may not move themselves (cmuxterm-hq
+// docs/design/transcript-motion-model.md, "What a row may not do"); the list owns their motion.
+const TRANSCRIPT_ROW_FILES = [`${TRANSCRIPT}/conversation/*.tsx`, `${TRANSCRIPT}/transcript/*.tsx`];
 
 type LintPlugin = "eslint" | "typescript" | "unicorn" | "oxc" | "react" | "jsx-a11y" | "import";
 
@@ -48,11 +66,24 @@ export function cmuxCheckConfig({
           : {}),
       },
       // Tests and benches measure layout on purpose; the perf rules are for code that ships.
+      // The transcript's files write its offset only through its ScrollController.
       overrides: perfPlugin
         ? [
             {
               files: ["test/**", "bench/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx"],
               rules: { "cmux-perf/layout-thrash-in-loop": "off" as const, "cmux-perf/no-intl-construct": "off" as const },
+            },
+            {
+              files: TRANSCRIPT_SCROLL_FILES,
+              rules: { "cmux-perf/transcript-scroll-writer": "error" as const },
+            },
+            {
+              files: TRANSCRIPT_ROW_FILES,
+              rules: { "cmux-perf/transcript-row-motion": "error" as const },
+            },
+            {
+              files: ["**/*.test.tsx", "**/*.gallery.tsx", "**/*.harness.tsx"],
+              rules: { "cmux-perf/transcript-row-motion": "off" as const },
             },
           ]
         : [],

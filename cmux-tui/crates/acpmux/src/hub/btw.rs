@@ -421,6 +421,13 @@ impl Hub {
                     // A side chat never runs on its chat's Cloud credential.
                     credential: None,
                     create_key: None,
+                    placed_by: None,
+                    // Its chat's class (a Cloud chat the person started: `interactive`).
+                    // fleet-only-ok: every user's Cloud chat hits the gateway's class split.
+                    priority: meta
+                        .tags
+                        .get(crate::subrouter_priority::TAG) // fleet-only-ok: as above
+                        .map(|t| t.value.clone()),
                 };
                 let side = match with_inline_creation(
                     self.clone(),

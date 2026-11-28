@@ -1,5 +1,6 @@
 import type { Reject, ReduceContext } from "@cmux/ownership"
-import { SsoConnectionCreate, SsoConnectionDisable, type SsoConnection } from "@cmux/protocol"
+import { SsoConnectionCreate, SsoConnectionCreateSaml, SsoConnectionDisable, type SsoConnection } from "@cmux/protocol"
+import { parseCertificate } from "@cmux/saml"
 import { decodeParams, reject } from "./common.ts"
 import type { DomainState } from "./team-domains.ts"
 
@@ -44,7 +45,11 @@ export const issuerProblem = (issuer: string): string | undefined => {
 /** Why a connection cannot activate now, or undefined (checked before discovery and again in the commit). */
 export const activationProblem = (state: SsoState, c: Connection): string | undefined => {
   if (c.state === "active") return undefined
-  if (!c.secret_set) return "set the client secret first"
+  if (c.kind === "oidc" && !c.secret_set) return "set the client secret first"
+  if (c.kind === "saml") {
+    const bad = samlCertificateProblem(c.saml?.certificates ?? [])
+    if (bad) return bad
+  }
   const unverified = c.domains.filter((x) => state.domains?.[x]?.state !== "verified")
   if (unverified.length > 0) return `verify these domains first: ${unverified.join(", ")}`
   const clash = c.domains.filter((x) => domainTaken(state, x, c.id))
@@ -73,7 +78,47 @@ export const reduceConnectionCreate = <S extends SsoState>(state: S, params: unk
     created_at: ctx.now,
     updated_at: ctx.now
   }
-  return { ok: true, state: put(state, c), value: c, audit: { summary: `created OIDC connection ${c.id}`, detail: { connection: c.id, issuer, client_id: c.oidc.client_id, domains } } }
+  return { ok: true, state: put(state, c), value: c, audit: { summary: `created OIDC connection ${c.id}`, detail: { connection: c.id, issuer, client_id: d.value.client_id, domains } } }
+}
+
+/** Why the IdP certificates cannot verify an assertion now, or undefined. */
+export const samlCertificateProblem = (certificates: ReadonlyArray<string>): string | undefined => {
+  if (certificates.length === 0) return "add the identity provider's signing certificate"
+  for (const pem of certificates) {
+    try {
+      parseCertificate(pem)
+    } catch (e) {
+      return `the signing certificate is not usable: ${String((e as Error)?.message ?? e).slice(0, 120)}`
+    }
+  }
+  return undefined
+}
+
+/** sso.connection.create_saml: a SAML 2.0 connection in draft. Only public IdP certificates; no secret. */
+export const reduceConnectionCreateSaml = <S extends SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
+  const d = decodeParams<typeof SsoConnectionCreateSaml.params.Type>(SsoConnectionCreateSaml, params)
+  if (!d.ok) return d
+  if (Object.keys(state.sso_connections ?? {}).length >= MAX_CONNECTIONS) return reject("policy.invalid", `at most ${MAX_CONNECTIONS} SSO connections per team`)
+  const domains = [...new Set(d.value.domains)].sort()
+  const unknown = domains.filter((x) => !state.domains?.[x])
+  if (unknown.length > 0) return reject("policy.invalid", `claim these domains first: ${unknown.join(", ")}`)
+  const bad = issuerProblem(d.value.sso_url)?.replace("issuer", "sso_url")
+  if (bad) return reject("policy.invalid", bad)
+  const certificates = [...d.value.certificates]
+  const certBad = samlCertificateProblem(certificates)
+  if (certBad) return reject("policy.invalid", certBad)
+  const c: Connection = {
+    id: ctx.newId("ssoc"),
+    kind: "saml",
+    state: "draft",
+    domains,
+    saml: { idp_entity_id: d.value.idp_entity_id, sso_url: d.value.sso_url, certificates },
+    secret_set: false,
+    jit: d.value.jit ?? { enabled: true, default_role: "member" },
+    created_at: ctx.now,
+    updated_at: ctx.now
+  }
+  return { ok: true, state: put(state, c), value: c, audit: { summary: `created SAML connection ${c.id}`, detail: { connection: c.id, idp_entity_id: d.value.idp_entity_id, sso_url: d.value.sso_url, domains } } }
 }
 
 export const reduceConnectionDisable = <S extends SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
@@ -107,19 +152,30 @@ export const reduceActivated = <S extends SsoState>(state: S, params: unknown, c
   // Rechecked in the commit: state may have changed while discovery was fetched.
   const problem = activationProblem(state, c)
   if (problem) return reject("policy.invalid", problem)
+  if (c.kind === "saml") {
+    const next: Connection = { ...c, state: "active", updated_at: ctx.now }
+    return {
+      ok: true,
+      state: put(state, next),
+      value: next,
+      audit: { summary: `activated SSO connection ${c.id}`, detail: { connection: c.id, domains: c.domains, idp_entity_id: c.saml?.idp_entity_id ?? null, by: p.by ?? null } }
+    }
+  }
+  if (!c.oidc) return reject("validation.invalid", "the connection has no OIDC settings")
+  const oidc = c.oidc
   const https = (v: unknown) => typeof v === "string" && v.length <= 500 && v.startsWith("https://")
   if (!https(p.authorization_endpoint) || !https(p.token_endpoint) || !https(p.jwks_uri)) return reject("validation.invalid", "discovery endpoints missing or not https")
   const next: Connection = {
     ...c,
     state: "active",
-    oidc: { ...c.oidc, authorization_endpoint: p.authorization_endpoint as string, token_endpoint: p.token_endpoint as string, jwks_uri: p.jwks_uri as string },
+    oidc: { ...oidc, authorization_endpoint: p.authorization_endpoint as string, token_endpoint: p.token_endpoint as string, jwks_uri: p.jwks_uri as string },
     updated_at: ctx.now
   }
   return {
     ok: true,
     state: put(state, next),
     value: next,
-    audit: { summary: `activated SSO connection ${c.id}`, detail: { connection: c.id, domains: c.domains, issuer: c.oidc.issuer, endpoints: next.oidc, by: p.by ?? null } }
+    audit: { summary: `activated SSO connection ${c.id}`, detail: { connection: c.id, domains: c.domains, issuer: oidc.issuer, endpoints: next.oidc, by: p.by ?? null } }
   }
 }
 

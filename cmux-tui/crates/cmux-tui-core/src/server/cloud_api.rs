@@ -48,6 +48,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudVmProvisionApi
             | Op::CloudVmPublicationApiKeys
             | Op::CloudVmRevokePublicationApiKey
+            | Op::CloudVmAgentKeyCreate
             | Op::CloudRunsCreate
             | Op::CloudRunsStart
             | Op::CloudRunsWait
@@ -64,17 +65,25 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerGithubApp
             | Op::CloudOwnerGithubRepos
             | Op::CloudOwnerGithubConnect
+            | Op::CloudOwnerOp
+            | Op::CloudOwnerGithubComplete
+            | Op::CloudOwnerGithubList
+            | Op::CloudOwnerGithubCloneToken
+            | Op::CloudOwnerSlack
+            | Op::CloudOwnerSlackAwake
             | Op::CloudOwnerTurnCheckpoint
             | Op::CloudOwnerTurnRewind
             | Op::CloudOwnerTurns
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink
+            | Op::CloudArtifactsRead
             | Op::CloudMachineIo
             | Op::CloudMachineChatAccess
             | Op::CloudMachineShareChat
             | Op::CloudMachineChiefStart
             | Op::CloudMachineChiefResize
+            | Op::CloudMachineSetupDesktop
             | Op::CloudMachineFork
     )
 }

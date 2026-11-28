@@ -14,6 +14,8 @@ import {
   p95,
   divergenceVerdict,
   divergenceWriteCommand,
+  deadDrill,
+  DEAD_DRILL_RUNS,
 } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
@@ -98,5 +100,17 @@ describe("cloud fork placement", () => {
     expect(c).toContain("if=/dev/urandom");
     expect(c).toContain("count=64");
     expect(c).toContain("conv=fsync");
+  });
+
+  test("a drill whose first runs all failed stops; one that forked once keeps every run", () => {
+    // Jobs 140215233872 and 140362817873: 404 machine.not_found, then 401, every run, into the job's timeout.
+    const dead = (fork_status: number | null) => row({ child: null, parity: null, fork_status, fork_to_first_exec_ms: null, error: "fork: HTTP 404" });
+    expect(DEAD_DRILL_RUNS).toBe(2);
+    expect(deadDrill([dead(404)], 10)).toBeNull();
+    expect(deadDrill([dead(404), dead(null)], 10)).toBe("stopped after 2 of 10 runs: every run so far failed (fork HTTP 404, no fork call)");
+    expect(deadDrill([dead(404), dead(401), dead(404)], 10)).toContain("stopped after 3 of 10");
+    expect(deadDrill([row({}), dead(404), dead(404)], 10)).toBeNull();
+    expect(deadDrill([dead(404), dead(404)], 2)).toBeNull(); // every asked run ran: nothing left to stop
+    expect(verdict([dead(404), dead(401)], { runs_asked: 10, stopped: "x" }).pass).toBe(false);
   });
 });
