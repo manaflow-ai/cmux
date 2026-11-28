@@ -28,7 +28,7 @@ extension DockSplitStore {
                 presentingWindow: dockContextMenuWindow
             )
         case .clearName:
-            _ = setDockPanelCustomTitle(panelId: panelId, title: nil)
+            _ = setDockPanelCustomTitle(panelId: panelId, title: nil, origin: "ui")
         case .copyIdentifiers:
             copyDockIdentifiers(panelId: panelId, paneId: pane)
         case .close:
