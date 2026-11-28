@@ -744,7 +744,7 @@ fn cli_requests() -> Value {
     }
     serde_json::json!({
         "about": "action.run requests as the cmux CLI's own encoder builds them (cmux-tui cli/tests/action_argument_contract.rs \
-                  writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract \
+                  writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui-lib --lib action_argument_contract \
                   rewrites it). The app's ArgumentActionContractTests validate each against its catalog.",
         "requests": requests,
     })
@@ -762,7 +762,7 @@ fn the_cli_request_fixture_is_what_the_cli_encodes() {
     let have = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(
         have == want,
-        "{} is stale: CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract",
+        "{} is stale: CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui-lib --lib action_argument_contract",
         path.display()
     );
 }

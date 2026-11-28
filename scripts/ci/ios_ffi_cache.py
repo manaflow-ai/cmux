@@ -110,7 +110,9 @@ FLEET_MAX_FILE = 2 << 30
 FLEET_DOWNLOAD_SECONDS = 150  # a miss builds in ~230-600 s; a slower download is not worth waiting for
 CLAIM_WAIT_SECONDS = 1200  # how long a step waits for another step's claimed build (a miss: 140-1552 s, median 385)
 CLAIM_READ_SECONDS = 30  # one waiting read of a claim (the controller answers at once when the entry is written)
-CLAIM_FILE = ".ios-ffi-claim"  # in $CI_JOB_DIR: the key this step claimed (store releases it if it stores nothing)
+CLAIM_SUFFIX = ".claim"  # <key>.claim beside the exports: the key this step claimed (store releases it if it
+# stores nothing). Not $CI_JOB_DIR itself: a lent worker's job dir is read-only to the step (2026-11-28 probe:
+# "[Errno 13] Permission denied: .../steps/0f623e84.../.ios-ffi-claim"); the worker skips files there.
 WORKSPACE = "cmux-next-ios/rust"
 XCFRAMEWORK = "cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 SWIFT = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift"
@@ -459,12 +461,19 @@ def controller_base():
     return (os.environ.get("CMUX_CI_CONTROLLER") or DEFAULT_CONTROLLER).rstrip("/")
 
 
-def _open(url, timeout):
-    """GET. Inside a step the host's tailnet identity authorizes the read; no token is sent or needed."""
+def _deadline_http():
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import deadline_http
+    return deadline_http
+
+
+def _open(url, timeout, total=None):
+    """GET, as a stream: each wait ends after TIMEOUT s of silence and the whole call by TOTAL (default TIMEOUT)
+    (deadline_http.stream). Inside a step the host's tailnet identity authorizes the read; no token is sent."""
     import urllib.request
     # The artifact edge refuses urllib's default User-Agent.
-    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ios-ffi-cache"}),
-                                  timeout=timeout)
+    return _deadline_http().stream(urllib.request.Request(url, headers={"User-Agent": "cmux-ios-ffi-cache"}),
+                                   total or timeout, stall=timeout, raise_errors=True)
 
 
 def fleet_entry(key):
@@ -513,7 +522,7 @@ def download(name, digest, size, target):
         raise OSError("no download URL for " + name)
     h, total = hashlib.sha256(), 0
     deadline = time.monotonic() + FLEET_DOWNLOAD_SECONDS
-    with _open(url, 60) as res, open(target, "wb") as out:
+    with _open(url, 60, FLEET_DOWNLOAD_SECONDS) as res, open(target, "wb") as out:
         while True:
             if time.monotonic() > deadline:
                 raise TimeoutError("%s took longer than %d s; building is faster" % (name, FLEET_DOWNLOAD_SECONDS))
@@ -616,8 +625,9 @@ def _claim(method, key, body=None, wait=0):
     try:
         # A claim reads the step's commit at the controller (a cold fetch takes up to ~45 s); a waiting read
         # answers by its wait. Any other answer than 200 or 409 (an older controller's 400/405, a 503) builds.
-        with urllib.request.urlopen(req, timeout=wait + 15 if method == "GET" else 50) as res:
-            answer = json.loads(res.read(64 << 10))
+        _, raw, _ = _deadline_http().request(req, wait + 15 if method == "GET" else 50, max_bytes=64 << 10,
+                                             raise_errors=True)
+        answer = json.loads(raw)
     except urllib.error.HTTPError as e:
         if e.code != 409:
             print("ios-ffi cache: claim %s answered %d (%s)" % (key[:12], e.code, e.read(300).decode("utf-8", "replace").strip()))
@@ -639,11 +649,15 @@ def claim_job():
     return job if ok else ""
 
 
+def claim_file(key):
+    return pathlib.Path(os.environ["CI_JOB_DIR"]) / EXPORT_DIR / COMPONENT / (key + CLAIM_SUFFIX)
+
+
 def claimed(key):
     """Whether this step holds the claim of KEY."""
     try:
-        return (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).read_text().strip() == key
-    except (KeyError, OSError):
+        return claim_file(key).is_file()
+    except KeyError:
         return False
 
 
@@ -651,7 +665,10 @@ def release_claim(key, manifest):
     """Drop this step's claim of KEY (its build was not exported), so a waiting step builds it now."""
     if not claimed(key) or not isinstance(manifest, str):
         return
-    (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).unlink()
+    try:
+        claim_file(key).unlink()
+    except OSError:
+        pass
     answer = _claim("DELETE", key, {"manifest": manifest, "job": claim_job()})
     if answer is not None:
         print("ios-ffi cache: released the claim of %s" % key[:12])
@@ -679,7 +696,8 @@ def coalesce(cache, key, manifest):
         state = answer["state"]
         if state == "mine":
             try:
-                (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).write_text(key + "\n")
+                claim_file(key).parent.mkdir(parents=True, exist_ok=True)
+                claim_file(key).write_bytes(b"")
             except OSError as e:
                 print("ios-ffi cache: claim of %s not recorded (%s)" % (key[:12], e))
             print("ios-ffi cache: claimed %s; steps that miss it now wait for this build" % key[:12])

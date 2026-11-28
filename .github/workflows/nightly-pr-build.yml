@@ -70,6 +70,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/
+            /.gitmodules
           submodules: false
       # A pull request diffs its merge commit against the base; a tip push diffs every commit since the last tip this
       # ran on (the coalesce base; the push's own range when none is recorded).
@@ -100,9 +101,8 @@ jobs:
     name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
     if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}
-    # Use the gateway when configured, then the overflow pool, then the owned
-    # Linux pool. The job remains a thin cmux-ci client on every route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # A thin cmux-ci client: the fleet controller is tailnet-only, so it runs on the gateway runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone gateway)
     # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
     timeout-minutes: 90
     # checks: read lets the job see the fleet verdict already posted on its head (the step below).

@@ -189,7 +189,7 @@ FIRST_KEY_PREFIX = "terminal.first_key."
 # and without these the line could not say which step of it was slow or whether stage 0 showed.
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
                       "daemon.", FIRST_KEY_PREFIX, "main.", "dfl.", "window.", "services.", "launch.", "app.",
-                      "frame.", "launch_shell.", "layout_cache.")
+                      "frame.", "launch_shell.", "layout_cache.", "cloud_env.")
 KEPT_MARKS_MAX = 200  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 

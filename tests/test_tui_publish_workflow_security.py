@@ -135,10 +135,10 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     # The startup tests live in the cmux_tui library (src/main.rs since the
     # Windows thin-exe split); the cmux-tui bin's test binary has the same
     # cmux_tui-<hash> name and none of them.
-    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
-    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui-lib/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "../cmux-tui/src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
+        r"cargo test \\\s+-p cmux-tui-lib --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
@@ -422,7 +422,11 @@ def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> No
                                               "--no-checkout", "--branch", "feat-cmux-next")
         git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
         git("checkout", "-q", "--detach", requested, cwd=checkout)
-        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
+        # The older inputs list is not local and the script reads no object lazily, but it fetches that one blob
+        # itself: a revision keys by its own list, never the checkout's newer one (before, the newer list named an
+        # input the older revision lacks, and hot-verify plans of such commits stopped on "no cmux-tui tree key").
+        unfetched = key(checkout, older)
+        assert unfetched.returncode == 0 and unfetched.stdout == expected[older].stdout, unfetched.stderr
 
         subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
                         f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),
@@ -1599,10 +1603,17 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
                                 "run_attempt": attempt, "takeover": takeover, "repository": "manaflow-ai/cmux"}}
         )
 
+    # SPLIT_PAIR_STARVED: only the darwin `build` shares the feat-push group; build-linux keeps one group per
+    # run, so a newer window can never replace one leg of the pair publish needs while the other runs.
+    linux = jobs["build-linux"]["concurrency"]
+    assert feat(linux["group"]) == "cmux-tui-build-linux-" + "k" * 12 + "-7"
+    assert feat(linux["group"], run_id="8") != feat(linux["group"])
+    assert feat(linux["cancel-in-progress"]) == "False"
     for name, prefix in (("build", "cmux-tui-build-"), ("build-linux", "cmux-tui-build-linux-")):
         group = jobs[name]["concurrency"]["group"]
-        assert feat(group) == prefix + "feat-push", name
-        assert feat(group, run_id="8") == feat(group), name
+        if name == "build":
+            assert feat(group) == prefix + "feat-push", name
+            assert feat(group, run_id="8") == feat(group), name
         assert feat(jobs[name]["concurrency"]["cancel-in-progress"]) == "False", name
         assert feat(group, attempt=2) == prefix + "k" * 12 + "-7", name
         assert feat(group, takeover="true") == prefix + "k" * 12 + "-7", name
@@ -1713,7 +1724,14 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
+    # #64136: a nightly-ref rerun leaves the cmux-linux box that failed it for the reserved GCP Linux
+    # pool (tests/test_cmux_tui_daemon_tests_gate.py routes every context); still never the promote pool.
+    assert daemon_cells == [
+        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && "
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
+        "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+    ], daemon_cells
+    assert "PROMOTE" not in daemon_cells[0], daemon_cells
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])

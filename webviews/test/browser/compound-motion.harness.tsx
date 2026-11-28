@@ -8,10 +8,10 @@ import { createRoot } from "react-dom/client";
 import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import {
   CompoundPane,
-  playCompound,
   type CompoundCase,
   type PaneState,
 } from "../../src/agent-session/acpmux/conversation/compoundScenarios";
+import { playCompound } from "../../src/agent-session/acpmux/conversation/compoundPlay";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";

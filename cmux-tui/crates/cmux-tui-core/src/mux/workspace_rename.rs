@@ -281,7 +281,7 @@ impl Mux {
             // A replayed receipt carries the original, possibly older,
             // revision: the max above never moves the in-memory revisions back.
             let workspace_revision = commit.revision;
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceRenamed,

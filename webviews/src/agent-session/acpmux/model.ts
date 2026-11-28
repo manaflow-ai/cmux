@@ -280,6 +280,12 @@ export type AcpmuxBackgroundRun = {
   /// ended when they all ended alike: a run of only those reads "N subagents stopped".
   subagents?: number;
   subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
+  /// How many members are rows the harness wrote into the turn (backgroundRuns.ts `harnessWork`),
+  /// each folded as a tool call is: task notifications, messages from other agents (an inbox relay
+  /// counts its messages) and subagents' "Report from" lines.
+  notifications?: number;
+  messages?: number;
+  reports?: number;
   rows: string[];
 };
 
@@ -1567,6 +1573,10 @@ export type AcpmuxSnapshot = {
   /// Composer only: this new chat's first send starts it on a Cloud machine (Cloud picked as where
   /// it runs, `cloud.startChat`), not on this Mac. That machine decides the chat's start mode.
   startsOnCloud?: true;
+  /// Composer only: Auto is picked as where this new chat runs, and its first send may start it on a
+  /// Cloud machine. Its model picker is Cloud's (cloudAgentPick.ts), as with Cloud picked: one pick for
+  /// Cloud and Auto, apart from This Mac's; where Auto runs it here, it starts on that same pick.
+  cloudPicker?: true;
   /// Composer only, with `startsOnCloud`: the permission mode picked for that Cloud start
   /// (cloudModePick.ts), which the send carries (`CloudStart.mode`).
   cloudStartMode?: string;
@@ -1728,6 +1738,10 @@ export type AcpmuxSnapshot = {
       effort?: string;
       modelSource?: StartSource;
       effortSource?: StartSource;
+      /** New Tab's own start model when it differs from `model`: the same chain without the saved
+       * default a pick in a chat rewrites (Leo 2026-11-27: "it should purely just be new tab").
+       * Empty when nothing below that pick names a model. */
+      newTab?: { model?: string; modelSource?: StartSource };
     };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
@@ -3167,8 +3181,8 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // Empty child copy is measured on mount; start with two body lines.
-  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
+  // Empty child copy (blank while loading, one line after) is one body line.
+  if (row.kind === SUBAGENT_EMPTY) return finish(metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
