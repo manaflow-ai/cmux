@@ -431,7 +431,13 @@ export function AutoCloudStatusDesigns({
           footerRef={setFooter}
         />
         {isOpen && !footerOnly && (
-          <Popover f={shown} enabled={enabled} onToggle={toggleEnabled} anchor={footer} onClose={() => setOpen(false)} />
+          <Popover
+            f={shown}
+            enabled={enabled}
+            onToggle={toggleEnabled}
+            anchor={footer}
+            onClose={() => setOpen(false)}
+          />
         )}
       </div>
       {simulate && (
