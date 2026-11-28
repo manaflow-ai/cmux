@@ -10,7 +10,12 @@ In each launch it waits for CEF, lets the app settle, starts a whole-browser tra
 The chat is the renderer that fetched pane.js. Prints CHAT-COLD-OPEN lines and writes runs.json (every load) and
 summary.json (p50/p90 per arm of parseCompileMs, mainParseCompileMs, scriptBytes, cacheConsumed).
 
+With --set-storage KEY=VALUE (repeatable) one warm-up launch before the pairs opens a chat and sets that localStorage
+key on its page (the cmux-page origin; the profile keeps it across launches, and the pairs move aside only the
+`Code Cache` folders), e.g. --set-storage cmux.paneClassicChunks=1 for the classic lazy chunks (cmux#65619).
+
   chat-cold-open.py --app "<cmux DEV tag.app>" --out DIR [--runs 10] [--port 9334] [--settle 8000]
+                    [--set-storage KEY=VALUE ...]
 """
 from __future__ import annotations
 
@@ -92,6 +97,49 @@ def one_open(app, out, port, settle, label):
         bench.stop()
 
 
+SET_STORAGE_JS = r"""
+const [port, pairs] = [process.argv[1], JSON.parse(process.argv[2])];
+for (let i = 0; i < 600; i++) {
+  let targets = [];
+  try { targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch {}
+  const page = targets.find((t) => t.type === "page" && /^cmux-page:/.test(t.url) && t.webSocketDebuggerUrl);
+  if (page) {
+    const ws = new WebSocket(page.webSocketDebuggerUrl);
+    await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+    const expr = `(${JSON.stringify(pairs)}).map(([k, v]) => (localStorage.setItem(k, v), k + "=" + localStorage.getItem(k))).join(" ")`;
+    const reply = await new Promise((r) => {
+      ws.onmessage = (m) => { const msg = JSON.parse(String(m.data)); if (msg.id === 1) r(msg); };
+      ws.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: expr, returnByValue: true } }));
+    });
+    console.log(`${page.url} ${JSON.stringify(reply.result?.result?.value ?? reply)}`);
+    process.exit(0);
+  }
+  await new Promise((r) => setTimeout(r, 100));
+}
+console.error("no cmux-page target");
+process.exit(3);
+"""
+
+
+def set_storage(app, out, port, pairs):
+    """One launch that opens a chat and sets localStorage `pairs` on its cmux-page origin; True once it read them back."""
+    env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={port}:remote-allow-origins=*"}
+    bench = BenchApp(app, out=out, env=env)
+    try:
+        bench.launch()
+        deadline = time.time() + 90
+        while time.time() < deadline and (bench.rpc("debug.cef") or {}).get("state") != "ready":
+            time.sleep(0.5)
+        bench.rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
+        done = subprocess.run(["node", "--input-type=module", "-e", SET_STORAGE_JS, str(port), json.dumps(pairs)],
+                              capture_output=True, text=True, timeout=120)
+        print(f"CHAT-COLD-OPEN set-storage rc={done.returncode} {done.stdout.strip()} {done.stderr.strip()[-300:]}", flush=True)
+        time.sleep(2)  # localStorage reaches disk before the quit
+        return done.returncode == 0
+    finally:
+        bench.stop()
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--app", required=True)
@@ -99,8 +147,15 @@ def main():
     p.add_argument("--runs", type=int, default=10)
     p.add_argument("--port", type=int, default=9334)
     p.add_argument("--settle", type=int, default=8000)
+    p.add_argument("--set-storage", action="append", default=[], metavar="KEY=VALUE")
     o = p.parse_args()
     os.makedirs(o.out, exist_ok=True)
+    pairs = [kv.split("=", 1) for kv in o.set_storage]
+    if any(len(kv) != 2 for kv in pairs):
+        p.error("--set-storage takes KEY=VALUE")
+    if pairs and not set_storage(o.app, o.out, o.port, pairs):
+        print("CHAT-COLD-OPEN set-storage failed: no run", flush=True)
+        return 1
     runs = []
     for i in range(o.runs):
         bundle_id, dirs = code_cache_dirs(o.app)
@@ -118,7 +173,7 @@ def main():
             with open(os.path.join(o.out, "runs.json"), "w") as f:
                 json.dump(runs, f, indent=1)
         shutil.rmtree(aside, ignore_errors=True)  # this run's own copies
-    summary = {}
+    summary = {"setStorage": dict(pairs)}
     for arm in ("uncached", "cached"):
         rows = [r for r in runs if r["arm"] == arm and r["parseCompileMs"] is not None]
         summary[arm] = {"n": len(rows), **{f"{k}_p50": pct([r[k] for r in rows], 0.5) for k in METRICS},
