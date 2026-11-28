@@ -5782,7 +5782,7 @@ def side_linux_pick(state, tip, t, controller, has_script, supported=None):
     Mac parts left (its Mac pass keeps its host and its state), TIP is newer than it, the controller route is on and
     TIP has LINUX_SCRIPT; one side ask at a time (its answer window, linux_answer_minutes; the controller runs one Linux
     step at once), at most LINUX_REQUESTS_MAX per part and tip; the part's newest stored rows are not at TIP and older
-    than SIDE_STALE_HOURS (oldest first, a part with none last).
+    than SIDE_STALE_HOURS (oldest first, a part with none last, the shortest job on a tie).
 
     2026-11-28: tip cdf458ee held the Mac with 19 Mac parts on cmux20-bench from 10:25Z, its Linux parts done; a Linux
     part runs only for the measurement in flight, so no Linux part was planned for the rest of the day and the merged
@@ -5816,8 +5816,10 @@ def side_linux_pick(state, tip, t, controller, has_script, supported=None):
         ask = asks.get(name) if isinstance(asks.get(name), dict) else {}
         if ask.get("sha") == tip and int(ask.get("tries") or 0) >= LINUX_REQUESTS_MAX:
             continue
-        # Oldest rows first; a part that stored none (it may read no row at all) after those, PARTS order on a tie.
-        key = (0, iso(at)) if at else (1, "")
+        # Oldest rows first; a part that stored none (it may read no row at all) after those. On a tie the shortest
+        # job first (linux_job_minutes: its run_seconds, or the default cap): one Linux pass stores every part's rows
+        # at once, and in PARTS order web-ui-god's 145-minute job went ahead of the 40-55 minute goal parts.
+        key = (0, iso(at), linux_job_minutes(name)) if at else (1, "", linux_job_minutes(name))
         if best is None or key < best[0]:
             best = (key, name)
     return best[1] if best else ""
