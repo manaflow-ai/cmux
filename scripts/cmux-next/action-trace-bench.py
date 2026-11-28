@@ -113,13 +113,36 @@ def main():
         def chat_state():
             return pane("chat_state", pane=pane_id, timeout=10)
 
+        trust_clicks = []
+
+        def attached_or_trust():
+            """The attached chat's state; else answers the folder's trust ask when it shows (it can come after
+            new_chat's 1.5 s accept window, so a single click attempt right after `pending` missed it)."""
+            s = chat_state()
+            if s.get("connection") == "attached" and s.get("sessionId"):
+                return s
+            if pane("click", pane=pane_id, selector=".acpmux-trust-ask-action", timeout=10).get("clicked"):
+                trust_clicks.append(time.monotonic())
+            return None
+
+        def why_not_attached(made):
+            """The fields that say why a chat has no session (chat_state's dict is key-sorted, so a cut dump ends
+            in composer fields before reaching connection)."""
+            s = chat_state()
+            keep = ("connection", "sessionId", "harness", "isWorking", "rows", "missingSession", "unavailable", "error")
+            shown = pane("query", pane=pane_id, selector=".acpmux-trust-ask-action", timeout=10)
+            return json.dumps({"new_chat": made, "state": {k: s.get(k) for k in keep if k in s},
+                               "errors": {k: v for k, v in s.items() if "error" in k.lower() and v},
+                               "trust_ask_shown": bool(isinstance(shown, dict) and shown.get("elements")),
+                               "trust_clicks": len(trust_clicks)})[:1200]
+
         def new_chat():
             made = pane("new_chat", pane=pane_id, harness=bm.FAKE_AGENT_ID, cwd=work, timeout=90)
-            if made.get("pending"):
-                wait(lambda: pane("click", pane=pane_id, selector=".acpmux-trust-ask-action", timeout=10).get("clicked"), 10, 0.5)
-            state = wait(lambda: (lambda s: s if s.get("connection") == "attached" and s.get("sessionId") else None)(chat_state()), 60, 0.25)
+            if made.get("error"):
+                raise SystemExit(f"action-trace: new_chat: {made['error']}")
+            state = wait(attached_or_trust, 90, 0.25)
             if not state:
-                raise SystemExit(f"action-trace: the new chat never attached ({json.dumps(made)[:200]}; {json.dumps(chat_state())[:300]})")
+                raise SystemExit(f"action-trace: the new chat never attached {why_not_attached(made)}")
             time.sleep(opts.settle)  # test script: the action's paint spans land after its last frame
             return state["sessionId"]
 
@@ -145,11 +168,19 @@ def main():
         new_chat()
         facts["sessions"] = [first, second]
         facts["steps"]["total_s"] = round(time.monotonic() - started, 3)
+    except SystemExit as failed:
+        # The spans recorded before a failure (launch, the first chat) still go to the artifact.
+        facts["failed"] = str(failed)
+        raise
     finally:
         for load in loads:
             load.kill()
         if pid:
             bm.end_bundle(APP)
+        if opts.json and facts.get("failed"):
+            os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
+            with open(opts.json, "w") as handle:
+                json.dump({"facts": facts, "trace": read_trace(scratch_trace) if scratch_trace else []}, handle)
     events = read_trace(scratch_trace) if scratch_trace else []
     spans = [e for e in events if e.get("ph") == "X"]
     say("ACTION-TRACE-BEGIN")
