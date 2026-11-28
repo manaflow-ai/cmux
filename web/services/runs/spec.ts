@@ -106,59 +106,93 @@ function ensureNoSecretValues(value: unknown, path = "spec"): void {
   }
 }
 
+function normalizeSource(raw: Record<string, unknown>): RunSpec["source"] {
+  const repository = optionalString(raw.repository, "source.repository");
+  const ref = optionalString(raw.ref, "source.ref", 256);
+  const commit = optionalString(raw.commit, "source.commit", 64);
+  const archiveDigest = raw.archiveDigest === undefined ? undefined : digest(raw.archiveDigest, "source.archiveDigest");
+  if (!commit && !archiveDigest) throw new RunSpecValidationError("source.commit or source.archiveDigest is required");
+  if (commit && !COMMIT.test(commit)) throw new RunSpecValidationError("source.commit must be a 40-character commit SHA");
+  const setupManifestDigest = raw.setupManifestDigest === undefined ? undefined : digest(raw.setupManifestDigest, "source.setupManifestDigest");
+  // A cloud-vm attempt must be able to prove which checkout and setup recipe it
+  // ran. Archives are still accepted by the public contract for future
+  // providers, but the Freestyle adapter requires a repository checkout and a
+  // setup manifest digest before it will execute.
+  const imageDigest = raw.imageDigest === undefined ? undefined : digest(raw.imageDigest, "source.imageDigest");
+  return {
+    ...(repository ? { repository } : {}),
+    ...(ref ? { ref } : {}),
+    ...(commit ? { commit: commit.toLowerCase() } : {}),
+    ...(archiveDigest ? { archiveDigest } : {}),
+    ...(setupManifestDigest ? { setupManifestDigest } : {}),
+    ...(imageDigest ? { imageDigest } : {}),
+  };
+}
+
+function normalizeVariants(value: unknown): RunSpecVariant[] {
+  const values = Array.isArray(value) ? value : [];
+  const normalized = values.map((item, index) => {
+    const variant = record(item);
+    const id = string(variant.id, `variants[${index}].id`, 64).toLowerCase();
+    if (!SAFE_ID.test(id)) throw new RunSpecValidationError(`variants[${index}].id is invalid`);
+    return { id, label: string(variant.label, `variants[${index}].label`, 120), instructionDigest: digest(variant.instructionDigest, `variants[${index}].instructionDigest`) };
+  });
+  if (!normalized.length) throw new RunSpecValidationError("at least one variant is required");
+  if (new Set(normalized.map(({ id }) => id)).size !== normalized.length) throw new RunSpecValidationError("variant ids must be unique");
+  return normalized;
+}
+
+function normalizeResources(raw: Record<string, unknown>, variantCount: number): RunSpec["resources"] {
+  const maxAttempts = integer(raw.maxAttempts ?? variantCount, "resources.maxAttempts", 1, 32);
+  const maxConcurrent = integer(raw.maxConcurrent ?? Math.min(2, maxAttempts), "resources.maxConcurrent", 1, maxAttempts);
+  if (maxAttempts !== variantCount) throw new RunSpecValidationError("resources.maxAttempts must equal variants.length");
+  const spendCap = raw.spendCap === null || raw.spendCap === undefined ? null : raw.spendCap;
+  if (spendCap !== null && (typeof spendCap !== "number" || !Number.isFinite(spendCap) || spendCap < 0)) throw new RunSpecValidationError("resources.spendCap must be a non-negative number");
+  const memoryClass = raw.memoryClass === "small" || raw.memoryClass === "large" ? raw.memoryClass : "standard";
+  const cpuClass = raw.cpuClass === "small" || raw.cpuClass === "large" ? raw.cpuClass : "standard";
+  return { maxAttempts, maxConcurrent, memoryClass, cpuClass, wallTimeoutMs: integer(raw.wallTimeoutMs ?? 900_000, "resources.wallTimeoutMs", 1_000, 86_400_000), retainMs: integer(raw.retainMs ?? 600_000, "resources.retainMs", 0, 86_400_000), spendCap };
+}
+
+function normalizeWorkspace(raw: Record<string, unknown>): RunSpec["workspace"] {
+  return { kind: raw.kind === "persistent" ? "persistent" : "ephemeral", ...(raw.desiredKey ? { desiredKey: string(raw.desiredKey, "workspace.desiredKey", 128) } : {}), ...(raw.layoutDigest ? { layoutDigest: digest(raw.layoutDigest, "workspace.layoutDigest") } : {}) };
+}
+
+function normalizeCapabilities(raw: Record<string, unknown>): RunSpec["capabilities"] {
+  const secretRefs = Array.isArray(raw.secretRefs) ? raw.secretRefs.map((value, index) => string(value, `capabilities.secretRefs[${index}]`, 256)) : [];
+  return { secretRefs, ...(raw.networkProfile ? { networkProfile: string(raw.networkProfile, "capabilities.networkProfile", 128) } : {}) };
+}
+
+function normalizePolicy(raw: Record<string, unknown>): RunSpec["policy"] {
+  const defaultEvidenceKinds: RunSpec["policy"]["evidenceKinds"] = ["screenshot", "recording", "patch"];
+  const evidenceKinds = Array.isArray(raw.evidenceKinds) ? raw.evidenceKinds.filter((value): value is RunSpec["policy"]["evidenceKinds"][number] => value === "screenshot" || value === "recording" || value === "patch") : defaultEvidenceKinds;
+  return { mode: raw.mode === "fanout" ? "fanout" : "thunderdome", humanApprovalRequired: raw.humanApprovalRequired !== false, evidenceKinds };
+}
+
 /** Normalize and validate the public, secret-free RunSpec contract. */
 export function normalizeRunSpec(input: unknown): RunSpec {
   ensureNoSecretValues(input);
   const raw = record(input);
   if (raw.schema !== RUN_SPEC_SCHEMA) throw new RunSpecValidationError(`schema must be ${RUN_SPEC_SCHEMA}`);
-  const source = record(raw.source);
-  const repository = optionalString(source.repository, "source.repository");
-  const ref = optionalString(source.ref, "source.ref", 256);
-  const commit = optionalString(source.commit, "source.commit", 64);
-  const archiveDigest = source.archiveDigest === undefined ? undefined : digest(source.archiveDigest, "source.archiveDigest");
-  if (!commit && !archiveDigest) throw new RunSpecValidationError("source.commit or source.archiveDigest is required");
-  if (commit && !COMMIT.test(commit)) throw new RunSpecValidationError("source.commit must be a 40-character commit SHA");
-  const setupManifestDigest = source.setupManifestDigest === undefined ? undefined : digest(source.setupManifestDigest, "source.setupManifestDigest");
-  const imageDigest = source.imageDigest === undefined ? undefined : digest(source.imageDigest, "source.imageDigest");
+  const variants = normalizeVariants(raw.variants);
   const intent = record(raw.intent);
   const recipe = record(raw.recipe);
-  const resources = record(raw.resources);
-  const workspace = record(raw.workspace);
+  const resources = normalizeResources(record(raw.resources), variants.length);
+  const source = normalizeSource(record(raw.source));
+  const workspace = normalizeWorkspace(record(raw.workspace));
   const routing = record(raw.routing);
-  const capabilities = record(raw.capabilities);
-  const policy = record(raw.policy);
-  const variants = Array.isArray(raw.variants) ? raw.variants : [];
-  const normalizedVariants = variants.map((value, index) => {
-    const variant = record(value);
-    const id = string(variant.id, `variants[${index}].id`, 64).toLowerCase();
-    if (!SAFE_ID.test(id)) throw new RunSpecValidationError(`variants[${index}].id is invalid`);
-    return {
-      id,
-      label: string(variant.label, `variants[${index}].label`, 120),
-      instructionDigest: digest(variant.instructionDigest, `variants[${index}].instructionDigest`),
-    };
-  });
-  if (!normalizedVariants.length) throw new RunSpecValidationError("at least one variant is required");
-  if (new Set(normalizedVariants.map((variant) => variant.id)).size !== normalizedVariants.length) throw new RunSpecValidationError("variant ids must be unique");
-  const maxAttempts = integer(resources.maxAttempts ?? normalizedVariants.length, "resources.maxAttempts", 1, 32);
-  const maxConcurrent = integer(resources.maxConcurrent ?? Math.min(2, maxAttempts), "resources.maxConcurrent", 1, maxAttempts);
-  if (maxAttempts !== normalizedVariants.length) throw new RunSpecValidationError("resources.maxAttempts must equal variants.length");
-  const spendCap = resources.spendCap === null || resources.spendCap === undefined ? null : resources.spendCap;
-  if (spendCap !== null && (typeof spendCap !== "number" || !Number.isFinite(spendCap) || spendCap < 0)) throw new RunSpecValidationError("resources.spendCap must be a non-negative number");
-  const secretRefs = Array.isArray(capabilities.secretRefs) ? capabilities.secretRefs.map((value, index) => string(value, `capabilities.secretRefs[${index}]`, 256)) : [];
   return {
     schema: RUN_SPEC_SCHEMA,
     operationId: string(raw.operationId, "operationId", 128),
-    source: { ...(repository ? { repository } : {}), ...(ref ? { ref } : {}), ...(commit ? { commit: commit.toLowerCase() } : {}), ...(archiveDigest ? { archiveDigest } : {}), ...(setupManifestDigest ? { setupManifestDigest } : {}), ...(imageDigest ? { imageDigest } : {}) },
+    source,
     intent: { digest: digest(intent.digest, "intent.digest") },
     recipe: { id: string(recipe.id, "recipe.id", 64), version: integer(recipe.version ?? 1, "recipe.version", 1, 1000) },
-    variants: normalizedVariants,
-    workspace: { kind: workspace.kind === "persistent" ? "persistent" : "ephemeral", ...(workspace.desiredKey ? { desiredKey: string(workspace.desiredKey, "workspace.desiredKey", 128) } : {}), ...(workspace.layoutDigest ? { layoutDigest: digest(workspace.layoutDigest, "workspace.layoutDigest") } : {}) },
-    resources: { maxAttempts, maxConcurrent, memoryClass: resources.memoryClass === "small" || resources.memoryClass === "large" ? resources.memoryClass : "standard", cpuClass: resources.cpuClass === "small" || resources.cpuClass === "large" ? resources.cpuClass : "standard", wallTimeoutMs: integer(resources.wallTimeoutMs ?? 900_000, "resources.wallTimeoutMs", 1_000, 86_400_000), retainMs: integer(resources.retainMs ?? 600_000, "resources.retainMs", 0, 86_400_000), spendCap },
+    variants,
+    workspace,
+    resources,
     routing: { executionProvider: "cloud-vm", backend: routing.backend === "freestyle" || routing.backend === "huge-blue" ? routing.backend : "auto" },
-    capabilities: { secretRefs, ...(capabilities.networkProfile ? { networkProfile: string(capabilities.networkProfile, "capabilities.networkProfile", 128) } : {}) },
+    capabilities: normalizeCapabilities(record(raw.capabilities)),
     checks: Array.isArray(raw.checks) ? raw.checks.map((value, index) => string(value, `checks[${index}]`, 128)) : [],
-    policy: { mode: policy.mode === "fanout" ? "fanout" : "thunderdome", humanApprovalRequired: policy.humanApprovalRequired !== false, evidenceKinds: Array.isArray(policy.evidenceKinds) ? policy.evidenceKinds.filter((value): value is RunSpec["policy"]["evidenceKinds"][number] => value === "screenshot" || value === "recording" || value === "patch") : ["screenshot", "recording", "patch"] },
+    policy: normalizePolicy(record(raw.policy)),
   };
 }
 

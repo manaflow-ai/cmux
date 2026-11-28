@@ -1,5 +1,16 @@
 # cmux agent notes
 
+## Backlog recovery and exact-head ownership
+
+When clearing a conflicted PR backlog, assign one owner per PR and work from an
+isolated worktree or temporary index. Capture the live base and PR head before
+each rebase or push; a moving remote head invalidates the previous lease, so
+stop and refresh rather than force-pushing stale work. Treat the god-file limit
+as a ratchet: extract new behavior into a smaller helper or separate type and
+do not baseline-launder or weaken the guard. A dispatch, acknowledgement, or
+green run from an older SHA is not completion; merge only after the prescribed
+helper reports required checks green on the exact current head.
+
 ## Database provider
 
 cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.

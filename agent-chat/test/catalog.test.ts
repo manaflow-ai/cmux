@@ -73,6 +73,13 @@ test("catalog validation, provider merges, persistence, and ETag", async () => {
   expect(remoteOnly.defaultEffort).toBe("xhigh");
   expect(remoteOnly.serviceTiers[0]?.name).toBe("Priority");
 
+  const fastOnly = validateAgentModelCatalog({
+    schemaVersion: 1,
+    updatedAt: "2026-07-09T00:00:00Z",
+    providers: { codex: { defaultModel: "gpt-fast", models: [{ id: "gpt-fast", label: "GPT Fast", fast: true }] } },
+  }).providers.codex!;
+  expect(mergeCodexModels([], fastOnly)[0]?.serviceTiers).toEqual([{ id: "priority", name: "Fast" }]);
+
   const catchOptions = mergeRemoteModelOptionsForTest("codex", [
     { id: "model", label: "Model", kind: "select", value: "", choices: [] },
     { id: "effort", label: "Effort", kind: "select", value: "medium", choices: [{ value: "medium", label: "medium" }] },

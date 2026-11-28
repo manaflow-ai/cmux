@@ -92,6 +92,7 @@ export const runs = pgTable("runs", {
   recipe: text("recipe").notNull(),
   provider: text("provider").notNull().default("cloud-vm"),
   desiredAttempts: integer("desired_attempts").notNull().default(1),
+  maxConcurrent: integer("max_concurrent").notNull().default(1),
   status: runStatus("status").notNull().default("queued"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   error: text("error"),
@@ -102,6 +103,7 @@ export const runs = pgTable("runs", {
     .on(table.userId, table.idempotencyKey)
     .where(sql`${table.idempotencyKey} is not null`),
   index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+  check("runs_max_concurrent_check", sql`${table.maxConcurrent} between 1 and 32`),
 ]);
 
 export const runAttempts = pgTable("run_attempts", {
