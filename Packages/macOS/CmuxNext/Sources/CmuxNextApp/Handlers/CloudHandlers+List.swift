@@ -67,7 +67,8 @@ extension CloudHandlers {
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                     "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any, "diskAllocatedMb": machine.size?.storageMb as Any,
-                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.diskFacts as Any].compacted
+                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any,
+                    "pendingError": machine.pendingError.map { ["code": $0.code, "message": $0.text] } as Any, "disk": machine.diskFacts as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
             var failed: String?

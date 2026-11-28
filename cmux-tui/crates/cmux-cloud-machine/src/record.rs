@@ -353,6 +353,11 @@ pub struct Machine {
     /// Why the last pause, resume or resize failed; the next change clears it on the server.
     #[serde(default, rename = "error", alias = "lastChangeFailure")]
     pub last_change_failure: Option<ChangeFailure>,
+    /// A create the server is still retrying (the next record's `pending_error`): its last
+    /// provider error, `text` naming the failed tries and the wait, so a client waiting on the
+    /// machine says why; nil once it binds or fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_error: Option<ChangeFailure>,
     /// The newest unresolved Pause, Resume or Kill sent from this app (never read from a server).
     #[serde(default)]
     #[serde(deserialize_with = "optional_status_compat")]
@@ -417,6 +422,7 @@ impl Machine {
             disk_evicted: None,
             size_pick: None,
             last_change_failure: None,
+            pending_error: None,
             pending_change: None,
             pending_mutation_id: None,
             failed_mutation_id: None,
@@ -536,6 +542,29 @@ pub fn from_classic(value: &Value) -> Strict<Machine> {
     Ok(machine)
 }
 
+/// The next record's `pending_error` (`{code, message, attempts, retry_after_ms, at}`): a create
+/// the server retries. Its `text` says so: "the provider's create is retrying (2 failed tries,
+/// next in 4 s): <message>". None without a code.
+fn pending_error(value: &Value) -> Option<ChangeFailure> {
+    let error = value.as_object()?;
+    let code = error.get("code")?.as_str().filter(|code| !code.is_empty())?;
+    let message = json::text(error.get("message")).unwrap_or_default();
+    let mut failure =
+        ChangeFailure::new(code.to_owned(), message, error.get("at").and_then(Value::as_f64));
+    let tries = error.get("attempts").and_then(Value::as_u64);
+    let wait = error.get("retry_after_ms").and_then(Value::as_u64);
+    let mut facts = Vec::new();
+    if let Some(n) = tries {
+        facts.push(format!("{n} failed {}", if n == 1 { "try" } else { "tries" }));
+    }
+    if let Some(ms) = wait {
+        facts.push(format!("next in {} s", ms.div_ceil(1000)));
+    }
+    let facts = if facts.is_empty() { String::new() } else { format!(" ({})", facts.join(", ")) };
+    failure.text = format!("the provider's create is retrying{facts}: {}", failure.text);
+    Some(failure)
+}
+
 /// Whether `value` is an auto-size pick the app reads (`{vcpus, memoryGb, pick, reason}`).
 fn size_pick(value: &Value) -> bool {
     let Some(pick) = value.as_object() else { return false };
@@ -609,6 +638,7 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         let message = json::text(error.get("message")).unwrap_or_default();
         Some(ChangeFailure::new(code.to_owned(), message, error.get("at").and_then(Value::as_f64)))
     });
+    machine.pending_error = fields.get("pending_error").and_then(pending_error);
     // The machine's size (protocol `CloudMachineSize`: `cpu`, `memory_mb`, `disk_mb`), which the
     // classic record names `cpu`, `memoryMb`, `storageMb`. A field that is not a whole number drops
     // only itself; a size with none of the three is no size.
