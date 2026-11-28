@@ -3,9 +3,9 @@ import Sentry
 extension Breadcrumb {
     /// Replaces all data using the API shared by the Mac and iOS SDK pins.
     func replaceData(_ data: [String: Any]) {
-        // macOS pins Sentry 9.3.0, which has no per-key setter. Newer SDKs
-        // deprecate this setter but retain it; keep that compatibility here.
-        // Whole-dictionary replacement also removes keys erased by scrubbing.
+        // Sentry 9.24.0 deprecates this setter in favor of per-key
+        // `setData(value:key:)` but retains it. Whole-dictionary replacement
+        // is kept because it also removes keys erased by scrubbing.
         self.data = data
     }
 }
