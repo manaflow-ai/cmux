@@ -681,6 +681,11 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
             subagent_call_starts(home, session, &input);
             return None;
         }
+        // Harness magic `router` (RFD 0158 §6, `model_router.rs`): a subagent start with no
+        // model names the one its kind is routed to.
+        Some("PreToolUse") if crate::model_router::starts_subagent(&input) => {
+            return crate::model_router::route(&input);
+        }
         _ => {}
     }
     input.pointer("/tool_input/command").and_then(Value::as_str)?;

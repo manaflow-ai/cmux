@@ -798,6 +798,7 @@ impl Peer {
         }
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
+        crate::peer_starved::ensure_started();
         // The stamped pings still out and when each left, on the runtime's clock, so their pongs
         // time the link's round trip (`peer_link_quality.rs`). Bounded: the oldest goes first.
         let mut pinged: std::collections::VecDeque<(Vec<u8>, tokio::time::Instant)> =
@@ -1143,6 +1144,9 @@ impl Peer {
                     let now = tokio::time::Instant::now();
                     // A gap this daemon made by not reading teaches the budget nothing.
                     let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap).min(reader.reading());
+                    // Nor a gap this process was starved through (`peer_starved.rs`).
+                    let starved_now = std::time::Instant::now();
+                    let gap = gap.saturating_sub(crate::peer_starved::global().within(starved_now, gap));
                     let (was, silence) = self.with_silence(|b| {
                         let was = b.current();
                         b.answered_after(gap, now);
@@ -1160,9 +1164,12 @@ impl Peer {
                     // meanwhile wait unread. cosmic-gray at load 100 dropped 493 links in 3 h for
                     // 6 to 19 s of such "silence".
                     let late = now.saturating_duration_since(due);
-                    if silent.saturating_sub(late) >= silence {
+                    // Nor the time this process was starved over the silence, tick by tick: each
+                    // tick a little late sums past a 2 s floor (`peer_starved.rs`).
+                    let starved = crate::peer_starved::global().within(starved_now, silent);
+                    if crate::peer_starved::past_budget(silent, late, starved, silence) {
                         out_of_silence!(silent, silence, now);
-                    } else if replacing.is_none() && silent.saturating_sub(late) >= timings.replace_at(silence) {
+                    } else if replacing.is_none() && crate::peer_starved::past_budget(silent, late, starved, timings.replace_at(silence)) {
                         replace_early!(silent, silence, now);
                     } else {
                         // The next deadline: the replace setting's while no replacement dials,
