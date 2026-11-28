@@ -66,8 +66,8 @@ import { actionTrace } from "../actionTrace";
 import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
-import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { drawsAsIs, streamingRow, streamingRowBlocked, textBesideOneRow } from "../streamingRow";
+import { liveToolOutput, toolOutputAt, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
@@ -1376,7 +1376,9 @@ export function paneSnapshotEffect({
           // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
           const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
           if (hiddenChange) acpmuxPerf.render("record:row-hidden");
-          const at = drawn ? streamedOnly(drawn, next) : -1;
+          // After a command's output or a thought went to its own store, `received` holds it and
+          // `drawn` does not; the chunk that follows is still only text (`textOnlyRowPast`).
+          const at = drawn ? streamedOnly(drawn, next, pendingPaneDraw.pending ? undefined : received) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
             liveCallLine.follow(received, next);
@@ -1391,6 +1393,20 @@ export function paneSnapshotEffect({
               : undefined;
           if (call) {
             liveToolOutput.set(call.id, call.output, call.before);
+            liveCallLine.follow(received, next);
+            return;
+          }
+          // A running command's output and the reply's next chunk in one snapshot: each goes to
+          // the store that draws it, as when they come apart (streamingRow.ts `textBesideOneRow`).
+          const both =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? textBesideOneRow(drawn.rows, received.rows, next.rows)
+              : undefined;
+          const bothCall =
+            both && drawsAsIs(drawn!.rows[both.at]!) ? toolOutputAt(received!, next, both.other) : undefined;
+          if (both && bothCall) {
+            liveToolOutput.set(bothCall.id, bothCall.output, bothCall.before);
+            streamingRow.set(next.rows[both.at]!, drawn!.rows[both.at]!);
             liveCallLine.follow(received, next);
             return;
           }
