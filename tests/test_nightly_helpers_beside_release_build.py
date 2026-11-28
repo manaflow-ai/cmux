@@ -167,7 +167,13 @@ class WorkflowStructureTests(unittest.TestCase):
                 status = 1 if script == failing else 0
                 stub.write_text(f'#!/bin/bash\necho "{script} $*" >> "$RUNNER_TEMP/calls"\nexit {status}\n')
                 stub.chmod(0o755)
-            env = {**os.environ, "RUNNER_TEMP": str(work / "temp")}
+            # The step seeds its job's CEF cache from the host root cef-cache-root.sh prints, then hands the
+            # job root on through GITHUB_ENV: the real script, an empty home and no fleet cache.
+            root_script = work / "scripts/cmux-next/cef-cache-root.sh"
+            root_script.write_bytes((ROOT / "scripts/cmux-next/cef-cache-root.sh").read_bytes())
+            root_script.chmod(0o755)
+            env = {**os.environ, "RUNNER_TEMP": str(work / "temp"), "GITHUB_ENV": str(work / "github_env"),
+                   "HOME": str(work / "home"), "CMUX_CEF_FLEET_CACHE_PARENT": str(work / "no-fleet-cache")}
             (work / "temp").mkdir()
             started = subprocess.run(["bash", "-e", "-c", self.step(CEF)["run"]], cwd=work, env=env,
                                      capture_output=True, text=True)
