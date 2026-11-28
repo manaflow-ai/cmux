@@ -494,8 +494,41 @@ def _crate_name(root: Path, crate_dir: str) -> str:
         return crate_dir.rsplit("/", 1)[-1]
 
 
+def _crate_deps(root: Path, crate_dir: str) -> set[str]:
+    """The package names a crate's Cargo.toml depends on: normal, dev and build, any target, renames resolved."""
+    try:
+        doc = tomllib.loads((root / crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return set()
+    out: set[str] = set()
+    for table in [doc, *(doc.get("target") or {}).values()]:
+        for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for name, spec in (table.get(key) or {}).items():
+                out.add(spec.get("package", name) if isinstance(spec, dict) else name)
+    return out
+
+
+def reverse_dependents(root: Path, crate_dirs: list[str]) -> dict[str, list[str]]:
+    """crate name -> the crates of its own workspace that depend on it directly (a change to it can break them).
+
+    Direct only: a crate's own tests plus its direct dependents' tests catch the API and format breaks the
+    folder layout misses (cmux-history's Visit field broke cmux-tui-core; a new cmux-action-catalog action
+    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200."""
+    by_ws: dict[str, dict[str, set[str]]] = {}
+    for d in crate_dirs:
+        by_ws.setdefault(d.rsplit("/crates/", 1)[0], {})[_crate_name(root, d)] = _crate_deps(root, d)
+    out: dict[str, list[str]] = {}
+    for crates in by_ws.values():
+        for name in crates:
+            out[name] = sorted(c for c, deps in crates.items() if name in deps and c != name)
+    return out
+
+
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
-    """One unit per testable folder of the repo layout, with the command that tests just that folder."""
+    """One unit per testable folder of the repo layout, with the command that tests just that folder.
+
+    A Rust crate's unit also runs the tests of the crates that depend on it directly, so a unit follows the
+    import graph, not only the folder."""
     files = files if files is not None else _tracked(root)
     dirs: set[str] = set()
     for f in files:
@@ -503,9 +536,16 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         for depth in range(1, min(len(parts), 6)):
             dirs.add("/".join(parts[:depth]))
     units: list[dict] = []
+    crate_dirs = [d for d in sorted(dirs) if len(d.split("/")) >= 2 and d.split("/")[-2] == "crates"
+                  and (root / d / "Cargo.toml").is_file()]
+    rdeps = reverse_dependents(root, crate_dirs)
 
-    def add(name: str, path: str, tests: list[str] | None = None):
-        units.append({"name": name, "paths": [path + "/**"], "tests": tests or []})
+    def add(name: str, path: str, tests: list[str] | None = None, dependents: list[str] | None = None):
+        units.append({"name": name, "paths": [path + "/**"], "tests": tests or [], "dependents": dependents or []})
+
+    # Top-level tests/*.py and friends: each is its own test (self_test), and the folder is mapped, not default.
+    if any(f.startswith("tests/") and f.count("/") == 1 for f in files):
+        units.append({"name": "tests:(top level)", "paths": ["tests/*"], "tests": [], "dependents": []})
 
     for d in sorted(dirs):
         parts = d.split("/")
@@ -513,7 +553,11 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         if len(parts) >= 2 and parts[-2] == "crates" and (root / d / "Cargo.toml").is_file():
             workspace = "/".join(parts[:-2])
             crate = _crate_name(root, d)
-            add(f"rust:{crate}", d, [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"])
+            deps = rdeps.get(crate, [])
+            tests = [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"]
+            if deps:
+                tests.append(f"cargo test --manifest-path {workspace}/Cargo.toml " + " ".join(f"-p {c}" for c in deps))
+            add(f"rust:{crate}", d, tests, deps)
         # Swift packages: <pkg>/Sources/<Module> and <pkg>/Tests/<Target> with a Package.swift beside them.
         elif len(parts) >= 3 and parts[-2] in ("Sources", "Tests") and (root / "/".join(parts[:-2]) / "Package.swift").is_file():
             pkg = "/".join(parts[:-2])
@@ -548,6 +592,8 @@ def render_units(units: list[dict]) -> str:
         out.append("paths = [" + ", ".join(q(p) for p in u["paths"]) + "]")
         if u["tests"]:
             out.append("tests = [" + ", ".join(q(t) for t in u["tests"]) + "]")
+        if u.get("dependents"):
+            out.append("dependents = [" + ", ".join(q(t) for t in u["dependents"]) + "]")
         out.append("")
     return "\n".join(out)
 
