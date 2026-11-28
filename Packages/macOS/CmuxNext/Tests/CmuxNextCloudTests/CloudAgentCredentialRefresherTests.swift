@@ -325,7 +325,7 @@ struct CloudAgentCredentialRefresherTests {
         reads = 0
         failures = .max
         #expect(try await credentials.launchCredential(chat: "tab", machine: "m", harness: "claude") == nil)
-        #expect(reads == CloudAgentCredentials.unavailableRetryPauses.count + 1, "bounded: then the machine's own route")
+        #expect(reads == CloudAgentCredentials.unavailableRetries + 1, "bounded: then the machine's own route")
 
         reads = 0
         await #expect(throws: CloudAgentCredentials.Failure.unavailable(connection: "gemini-key")) {

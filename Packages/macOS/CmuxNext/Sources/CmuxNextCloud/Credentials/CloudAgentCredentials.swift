@@ -466,16 +466,18 @@ public final class CloudAgentCredentials {
         return try? await credential(forConnection: picked, model: model, harness: harness)
     }
 
-    /// The pauses between reads of a picked connection that answered `.unavailable` (the person line did not
-    /// open, the daemon was restarting): three reads within about a second, then the caller's fallback.
-    nonisolated static let unavailableRetryPauses: [Duration] = [.milliseconds(250), .milliseconds(750)]
+    /// How many more reads a picked connection gets after one answered `.unavailable` (the person line did
+    /// not open, the daemon was restarting): 250 then 750 ms apart, about a second in all, then the caller's fallback.
+    nonisolated static let unavailableRetries = 2
 
-    /// Runs `read`, again after each of ``unavailableRetryPauses`` while it throws `.unavailable`; a refusal or
-    /// the last failure is thrown as is.
+    /// Runs `read`, again after a backoff each time it throws `.unavailable`, up to ``unavailableRetries`` more
+    /// times; a refusal or the last failure is thrown as is.
     static func retryingUnavailable<T>(_ read: () async throws -> T) async throws -> T {
-        for pause in unavailableRetryPauses {
+        var backoff = Backoff(initial: .milliseconds(250), maximum: .milliseconds(750), multiplier: 3, jitter: 0.2)
+        for _ in 0..<unavailableRetries {
             do { return try await read() } catch Failure.unavailable(_) {
-                try await Task.sleep(for: pause)
+                // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a blocking wait.
+                try await backoff.wait(owner: "cloud-credentials.launch-read")
             }
         }
         return try await read()
