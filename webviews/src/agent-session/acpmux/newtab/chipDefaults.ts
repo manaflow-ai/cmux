@@ -56,7 +56,7 @@ export function newTabStart(
           (kept && harness === picked && remembered && !isDefaultChoice({ id: remembered.model })
             ? remembered.model
             : undefined) ??
-          defaultModel(harness, snapshot.catalog, undefined, folder) ??
+          defaultModel(harness, snapshot.catalog, undefined, folder, true) ??
           "default",
       },
     },

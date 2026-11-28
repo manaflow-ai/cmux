@@ -567,7 +567,11 @@ export function ComposerPickers({
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
   // A pick for a Cloud machine is the machine's (cloudAgentPick.ts), never this Mac's remembered pick.
-  const remembers = !summary?.host && summary?.hostKind !== "cloud" && !onCloud;
+  // Only a New Tab's pick is New Tab's (lastPick.ts): a started chat's pick is that chat's, which
+  // acpmux saves as the next chat's start (Leo 2026-11-27: "it should purely just be new tab"). A
+  // New Tab's chips name no session (newTabStart), and neither does its chat before it starts.
+  const remembers =
+    !summary?.host && summary?.hostKind !== "cloud" && !onCloud && (onNewTab || !summary?.sessionId);
   // Before the chat has a session (a New Tab's deferred chat, a harness still starting) the switch
   // holds every pick and applies it before the first prompt (harnessSwitch.ts): a combo's effort and
   // Fast go to it at once, so a prompt sent right after the pick runs on the whole combo. An option
@@ -799,7 +803,7 @@ export function ComposerPickers({
   // pick here, else its profile's, else its first listed model, else the catalog's default.
   const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
-    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
+    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd, onNewTab);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
     return id && !isDefaultChoice({ id }) ? id : undefined;
   };

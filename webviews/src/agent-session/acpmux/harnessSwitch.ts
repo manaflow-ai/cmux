@@ -1132,15 +1132,19 @@ export class HarnessSwitch {
 /// saved default or the profile's own model (`start`, acpmux start_defaults.rs), else the one last
 /// picked on it here (lastPick.ts) while the harness still offers it, else acpmux's catalog
 /// default, else what a session acpmux last started there reported, else its last session's, else
-/// the catalog's first.
+/// the catalog's first. For New Tab (`newTab`), acpmux's New Tab start (`start.newTab`) stands in
+/// for `start`: a pick in a chat saves acpmux's default, and New Tab is no chat (Leo 2026-11-27:
+/// "it should purely just be new tab"). Its last pick here is then New Tab's own (ComposerPickers).
 export function defaultModel(
   harness: string,
   catalog: Catalog,
   profiles: HarnessProfiles = harnessProfiles,
   folder?: string,
+  newTab = false,
 ): string | undefined {
   const profile = profiles.get(harness);
-  const start = catalog.find((entry) => entry.id === harness)?.start;
+  const started = catalog.find((entry) => entry.id === harness)?.start;
+  const start = newTab && started?.newTab ? started.newTab : started;
   // A saved default (acpmux defaults, or a pick acpmux saved) or the profile's own model wins over
   // this page's last pick: acpmux starts the chat on it.
   const decided = start?.modelSource === "saved" || start?.modelSource === "profile" ? start.model : undefined;
