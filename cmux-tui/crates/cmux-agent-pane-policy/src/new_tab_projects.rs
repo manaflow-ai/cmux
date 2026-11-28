@@ -29,11 +29,11 @@ fn agent_home(cwd: &str) -> bool {
 }
 
 pub fn snapshot(request: &Value) -> Value {
-    let warm: Value = field(&request, "warm")
+    let warm: Value = field(request, "warm")
         .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(Value::Null);
-    let seed: Vec<Value> = field(&request, "seed")
+    let seed: Vec<Value> = field(request, "seed")
         .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -58,7 +58,7 @@ pub fn snapshot(request: &Value) -> Value {
         }
         rows.push(row);
     };
-    if let Some(projects) = field(&request, "projects").as_array() {
+    if let Some(projects) = field(request, "projects").as_array() {
         for cwd in projects.iter().filter_map(Value::as_str) {
             add(cwd);
         }
@@ -67,22 +67,22 @@ pub fn snapshot(request: &Value) -> Value {
         for (index, session) in sessions.iter().enumerate() {
             if ["startedBy", "spawnedBy"]
                 .iter()
-                .any(|key| field(&session, key).as_str().is_some_and(|s| !s.is_empty()))
+                .any(|key| field(session, key).as_str().is_some_and(|s| !s.is_empty()))
                 || ["chiefChild", "chiefTurn"]
                     .iter()
-                    .any(|key| field(&session, key).as_bool() == Some(true))
-                || field(&session, "peer").as_str().is_some_and(|s| !s.is_empty())
-                || field(&session, "hostKind").as_str().is_some_and(|s| s != "local")
-                || field(&session, "archived").as_bool() == Some(true)
-                || field(&session, "side").as_bool() == Some(true)
+                    .any(|key| field(session, key).as_bool() == Some(true))
+                || field(session, "peer").as_str().is_some_and(|s| !s.is_empty())
+                || field(session, "hostKind").as_str().is_some_and(|s| s != "local")
+                || field(session, "archived").as_bool() == Some(true)
+                || field(session, "side").as_bool() == Some(true)
             {
                 continue;
             }
-            if let Some(cwd) = field(&session, "cwd").as_str() {
+            if let Some(cwd) = field(session, "cwd").as_str() {
                 add(cwd);
-                let at = field(&session, "activityAt")
+                let at = field(session, "activityAt")
                     .as_i64()
-                    .or_else(|| field(&session, "updatedAt").as_i64())
+                    .or_else(|| field(session, "updatedAt").as_i64())
                     .unwrap_or(0);
                 if cwd != "~" && path(cwd) != "/" {
                     recency
@@ -97,11 +97,11 @@ pub fn snapshot(request: &Value) -> Value {
             }
         }
     }
-    if let Some(cwd) = field(&request, "cwd").as_str() {
+    if let Some(cwd) = field(request, "cwd").as_str() {
         add(cwd);
     }
     rows.sort_by_key(|row| {
-        let recent = recency.get(field(&row, "cwd").as_str().unwrap_or_default());
+        let recent = recency.get(field(row, "cwd").as_str().unwrap_or_default());
         (
             recent.is_none(),
             std::cmp::Reverse(recent.map_or(0, |r| r.0)),
@@ -110,7 +110,7 @@ pub fn snapshot(request: &Value) -> Value {
     });
     let mut remaining: HashMap<String, Value> = rows
         .iter()
-        .map(|row| (field(&row, "cwd").as_str().unwrap_or_default().to_owned(), row.clone()))
+        .map(|row| (field(row, "cwd").as_str().unwrap_or_default().to_owned(), row.clone()))
         .collect();
     let mut ordered = Vec::new();
     for row in seed {
@@ -127,7 +127,7 @@ pub fn snapshot(request: &Value) -> Value {
             ordered.push(row);
         }
     }
-    super::new_tab_project_groups::freeze(&mut ordered, field(&request, "cwd").as_str());
+    super::new_tab_project_groups::freeze(&mut ordered, field(request, "cwd").as_str());
     json!({"rows": serde_json::to_string(&ordered).ok()})
 }
 
