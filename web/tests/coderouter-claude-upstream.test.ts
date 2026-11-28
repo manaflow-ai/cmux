@@ -427,6 +427,25 @@ describe("claude upstream routes", () => {
     expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }, 70_000))).status).toBe(413);
   });
 
+  test("refuses a new long-lived Bedrock key and links temporary credentials (RFD 0222)", async () => {
+    const { collection, svc } = handlers();
+    const bedrock = { kind: "bedrock", region: "us-west-2", secretAccessKey: SECRET_ACCESS_KEY };
+    for (const body of [
+      { ...bedrock, accessKeyId: ACCESS_KEY_ID },
+      { ...bedrock, accessKeyId: ACCESS_KEY_ID, sessionToken: "FwoGZXIvYXdzEBYaDExampleSession" },
+      { ...bedrock, accessKeyId: "ASIAIOSFODNN7EXAMPLE" },
+    ]) {
+      const refused = await collection.POST(json("POST", body));
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: "bedrock_long_lived_key" });
+    }
+    expect(await svc.list("team_1")).toEqual([]);
+    const linked = await collection.POST(
+      json("POST", { ...bedrock, accessKeyId: "ASIAIOSFODNN7EXAMPLE", sessionToken: "FwoGZXIvYXdzEBYaDExampleSession" }),
+    );
+    expect(linked.status).toBe(201);
+  });
+
   test("adds, lists, patches and removes accounts", async () => {
     const { collection, single } = handlers();
     const first = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "work" }));

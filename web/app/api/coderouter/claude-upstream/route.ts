@@ -6,6 +6,9 @@ import { defaultImportVisibility } from "@/services/coderouter/accountAccess";
 // carry masked identifiers only.
 import {
   addClaudeAccount,
+  BEDROCK_LONG_LIVED_KEY_ERROR,
+  BEDROCK_LONG_LIVED_KEY_MESSAGE,
+  isLongLivedBedrockKey,
   listClaudeAccounts,
   parseClaudeUpstreamInput,
   removeAllClaudeAccounts,
@@ -71,6 +74,9 @@ export function makeClaudeUpstreamHandlers(
     if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     const visibility = access.kind === "vm" ? "team" : requestedVisibility;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    if (isLongLivedBedrockKey(body.value)) {
+      return Response.json({ error: BEDROCK_LONG_LIVED_KEY_ERROR, message: BEDROCK_LONG_LIVED_KEY_MESSAGE }, { status: 400 });
+    }
     const input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
