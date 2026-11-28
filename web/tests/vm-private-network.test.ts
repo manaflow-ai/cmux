@@ -5,7 +5,6 @@ import {
   enrollVmTunnel,
   isWireGuardPublicKey,
   networkSlugForTeam,
-  teamNetworkCidr,
   networkSlugForUser,
   privateNetworkErrorDescription,
   readVmTunnel,
@@ -606,7 +605,6 @@ describe("resolveOwnerNetwork", () => {
     expect(ensureOptions).toEqual({
       slug: networkSlugForTeam("team-1"),
       displayName: networkSlugForTeam("team-1"),
-      cidr: teamNetworkCidr("team-1"),
       membersRule: false,
     });
     expect(upserts).toBe(0);
