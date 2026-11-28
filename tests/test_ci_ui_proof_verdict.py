@@ -95,6 +95,17 @@ class VerdictTest(unittest.TestCase):
     def v(self, need="app", body="", records=None, ui=(), off=False):
         return u.verdict(need, body, records or {}, list(ui), 7, off=off)
 
+    def test_fix_title_without_new_ui_needs_no_look(self) -> None:
+        # Leo, 2026-11-28 (c-601949839a): "you dont need to be waiting for screenshots in these cases if logically it
+        # shoul go as you expect".
+        for title in ("fix(next): preserve New Tab composer through lazy screen loading", "fix: row gap",
+                      "Fix sidebar caret jump"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        self.assertEqual(u.verdict("app", "", {}, [], 7, title="Split New Tab: composer pre-rendered")[0], "pending")
+        self.assertEqual(u.verdict("app", "", {}, ["webviews/src/New.tsx"], 7, title="fix: add panel")[0], "pending")
+        failed = {"verdict": "fail", "suite": "gui-flows", "runs": [{"name": "tabs", "result": "fail"}]}
+        self.assertEqual(u.verdict("app", "", {"gui-flows": failed}, [], 7, title="fix: row gap")[0], "failure")
+
     def test_nothing_visual_passes_at_once(self) -> None:
         self.assertEqual(self.v(need="")[0], "success")
 
