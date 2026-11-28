@@ -28,6 +28,9 @@ mod agent_pairs;
 pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod app_exit;
+pub(crate) mod approval_review;
+#[cfg(test)]
+mod approval_review_tests;
 pub mod approvers;
 mod aside;
 pub(crate) mod ask_choices;
@@ -131,6 +134,8 @@ pub mod forum;
 mod forum_held_turn_tests;
 pub mod forum_hosted;
 mod forward_wait;
+/// RFD 0158 §5: a fresh-context reviewer of a task's diff before "done" (harness magic).
+mod fresh_review;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
@@ -171,6 +176,8 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+pub(super) mod residency;
+pub use residency::IdlePolicyKind;
 mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
@@ -221,6 +228,7 @@ mod loop_goal;
 mod loop_goal_tests;
 pub mod mac_approvers;
 mod machine_info;
+mod match_cap;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 pub mod media_handles;
@@ -237,6 +245,7 @@ mod model_lists;
 mod model_options;
 mod model_probe;
 mod models_view;
+pub(crate) mod move_authority;
 mod moved_forward;
 mod moved_prompt_fence;
 pub(crate) mod native_history;
@@ -490,6 +499,8 @@ pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
+// RFD 0158 §2: rules over whole turns that steer with no tokens: spin, done without push.
+mod sidecars_turn;
 pub(crate) mod turn_shots;
 mod turn_usage;
 mod turns;
@@ -506,6 +517,7 @@ mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod sidecars;
+mod speculative;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
@@ -519,7 +531,7 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
-mod wake_place;
+pub(crate) mod wake_place;
 mod warm;
 mod watch;
 pub(crate) mod watch_events;
@@ -650,6 +662,8 @@ pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
 pub(crate) use crate::questions;
+pub(crate) use match_cap::cap_match;
+pub use match_cap::{MAX_MATCH_BYTES, validate_match};
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
@@ -659,37 +673,6 @@ pub(crate) use permissions::drop_display_lines;
 pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
-
-/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
-/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
-pub const MAX_MATCH_BYTES: usize = 2 * 1024;
-
-/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
-/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
-/// bound.
-pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
-    match pattern {
-        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
-            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
-/// it was cut.
-pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
-    let Some(p) = pattern else { return false };
-    if p.len() <= MAX_MATCH_BYTES {
-        return false;
-    }
-    let mut end = MAX_MATCH_BYTES;
-    while !p.is_char_boundary(end) {
-        end -= 1;
-    }
-    p.truncate(end);
-    true
-}
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -1440,6 +1423,8 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// Which policy picks each chat's idle period (`residency.rs`, `ACPMUX_IDLE_POLICY`).
+    pub(super) idle_policy: std::sync::atomic::AtomicU8,
     /// How long a start that waits on its harness lets it do no work (`start_watch.rs`
     /// `START_HUNG`; tests shorten it).
     pub(super) start_hung: StdMutex<std::time::Duration>,
@@ -1981,6 +1966,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_policy: std::sync::atomic::AtomicU8::new(IdlePolicyKind::Static as u8),
             start_hung: StdMutex::new(start_watch::START_HUNG),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
@@ -2295,6 +2281,7 @@ impl Hub {
             }
             return;
         };
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let read = Self::read_live_host_sessions();
         // Records that can not be read may hide a host whose lines adoption holds again: an off
@@ -2746,6 +2733,7 @@ impl Hub {
             evict_tried_at: AtomicU64::new(0),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
+            idle_rhythm: StdMutex::new(Default::default()),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
             launch_backoff: Default::default(),
