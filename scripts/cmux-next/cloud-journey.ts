@@ -6327,7 +6327,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS);
+            // The failure names the machine: a stall lane reads which create never got a host (run 46043990826 a3).
+            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS).catch((e) => {
+              const msg = String((e as Error)?.message ?? e);
+              throw msg.includes(id) ? e : new Error(`${id}: ${msg}`);
+            });
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");

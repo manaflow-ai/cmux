@@ -28,6 +28,8 @@ export type JourneyFixture = {
    * Without one the run passes `--skip cold`.
    */
   cold?: string;
+  /** What cloud.machine.get says the cold machine's status is; unset, running. */
+  coldStatus?: string;
   /** What cloud.machine.get says the machine's size is; without one, the size the create asked. */
   recordedSize?: { cpu: number; memory_mb: number; disk_mb: number };
   /** What cloud.machine.get says once the reply came (AutoSize grew it under the agent's start); before it, recordedSize. */
@@ -162,6 +164,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     return json({ ok: true, value: { machine: { id: COLD, status: "creating" } } });
   }
   if (op === "cloud.machine.get" && body.params.machine === COLD) {
+    if (fixture.coldStatus && fixture.coldStatus !== "running") return json({ ok: true, value: { id: COLD, status: fixture.coldStatus, host: null } });
     return json({ ok: true, value: { id: COLD, status: "running", host: "host-cold.internal", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } } });
   }
   if (op === "cloud.machine.delete" && body.params.machine === COLD) { log("delete cold"); return json({ ok: true, value: {} }); }
