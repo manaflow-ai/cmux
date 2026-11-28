@@ -116,6 +116,20 @@ public enum SettingsPageAnchor: String, CaseIterable, Sendable {
 
 
 class SpecTests(unittest.TestCase):
+    def test_the_oh_my_zsh_clip_installs_only_into_the_tours_shell_home(self):
+        # Its before is a real Oh My Zsh asking to update on an app from before the fix; the install
+        # writes a .zshrc, so it must stop unless ZDOTDIR is tour.py's own shell-home, never a Mac's.
+        spec = clips.load_spec("oh-my-zsh-never-asks-to-update")
+        self.assertEqual(clips.spec_problems(spec), [])
+        typed = [s["cmux"][-1] for s in spec["steps"] if s.get("cmux", [])[-2:-1] == ["--text"]]
+        install = next(t for t in typed if "ohmyzsh" in t)
+        self.assertTrue(install.startswith("[[ $ZDOTDIR == */shell-home ]] && "), install)
+        self.assertNotIn("~", install)
+        self.assertNotIn("$HOME", install)
+        # A stale update stamp and a commit behind upstream: what makes Oh My Zsh ask.
+        self.assertIn("LAST_EPOCH=1", install)
+        self.assertIn("reset -q --hard HEAD~1", install)
+
     def test_a_good_spec_has_no_problems(self):
         self.assertEqual(clips.spec_problems(SPEC), [])
 
