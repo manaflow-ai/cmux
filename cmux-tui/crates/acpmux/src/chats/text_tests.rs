@@ -518,8 +518,7 @@ fn a_pass_split_across_cores_finds_what_one_thread_finds() {
     let words = needle("DEPLOY fail");
     let matcher = Matcher::new(&words);
     let search = |key: &String, doc: &Arc<Doc>| {
-        let matched = doc.find(&words, &matcher)?;
-        Some((key.clone(), Found { doc: doc.clone(), matched }))
+        doc.holds(&words, &matcher).then(|| (key.clone(), Found { doc: doc.clone() }))
     };
     let one: HashMap<String, Found> =
         docs.iter().filter_map(|(key, doc)| search(key, doc)).collect();
@@ -533,7 +532,7 @@ fn a_pass_split_across_cores_finds_what_one_thread_finds() {
     assert_eq!(keys, want);
     assert_eq!(keys.len(), 11);
     for (key, found) in &split {
-        assert_eq!(found.matched, one[key].matched);
+        assert_eq!(found.doc.find(&words, &matcher), one[key].doc.find(&words, &matcher));
     }
     // Under the bound, or one chat: one thread, the same answer.
     assert_eq!(par_filter_map(&refs[..1], |&(key, doc)| search(key, doc)).len(), 1);
@@ -704,6 +703,32 @@ fn an_older_builds_json_copy_is_read_then_written_anew_and_removed() {
     again.load();
     assert!(again.search(&needle("legacy answer")).contains_key("codex:a"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A query's first two keys (a word too short for a trigram) skip a chat that lacks the word's
+/// bytes without reading it, and a hit still reports the newest message and how many hold the
+/// word, though the search stopped at the first.
+#[test]
+fn a_short_word_skips_chats_without_it_and_its_hit_counts_every_message() {
+    let text = index();
+    let said = |id: &str| match id {
+        "a" => vec![turn("zq first", "plain"), turn("more zq", "zq again")],
+        _ => vec![turn("nothing", "here at all")],
+    };
+    text.update(&[chat("a", 1), chat("b", 1), chat("c", 1)], &|entry| {
+        Some(said(&entry.session_id))
+    });
+    for word in ["z", "zq"] {
+        let at = text.read();
+        let found = text.search(&needle(word));
+        assert_eq!(found.keys().collect::<Vec<_>>(), ["codex:a"], "{word}");
+        assert_eq!(text.read() - at, 1, "{word}: only the chat holding its bytes is read");
+    }
+    let found = text.search(&needle("zq"));
+    let hit = ChatText::hit(&found["codex:a"], &needle("zq")).expect("hit");
+    assert_eq!(hit["matches"], 3, "every message holding the word: {hit}");
+    assert_eq!(hit["snippet"], "zq again", "the newest one: {hit}");
+    let _ = std::fs::remove_file(&text.path);
 }
 
 /// A credential pasted into a chat never reaches `chat-index/text-v2.bin` in clear (card

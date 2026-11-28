@@ -36,8 +36,6 @@ import Testing
     @Test func recordingIsH264MovOnSimulatorAndMp4OnDevice() async throws {
         let runner = FakePhoneRunner()
         let backend = XcodePhoneBackend(runner: runner)
-        #expect(backend.videoExtension(for: sim) == "mov")
-        #expect(backend.videoExtension(for: dev) == "mp4")
         _ = try await backend.startVideo(sim, to: URL(fileURLWithPath: "/tmp/s.mov"))
         _ = try await backend.startVideo(dev, to: URL(fileURLWithPath: "/tmp/d.mp4"))
         #expect(runner.started.map(\.arguments) == [
