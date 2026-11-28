@@ -14,7 +14,7 @@ use bytes::Bytes;
 use cmux_deadline::Deadline;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
-    RelayTicketClaims,
+    RelayTicketClaims, VERSION_INCOMPATIBLE,
 };
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{Sink, SinkExt, StreamExt};
@@ -1472,6 +1472,9 @@ async fn read_until_allocation(
             {
                 return Ok(Allocation::Inline(circuit));
             }
+            RelayControl::Error { code, message, .. } if code == VERSION_INCOMPATIBLE => {
+                return Err(AllocationError::Terminal(relay_version_refusal(&message)));
+            }
             RelayControl::Error { code, message, retryable } => {
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
@@ -1547,6 +1550,9 @@ async fn join_circuit(
                     && ready_generation == generation =>
                 {
                     return Ok(());
+                }
+                RelayControl::Error { code, message, .. } if code == VERSION_INCOMPATIBLE => {
+                    return Err(relay_version_refusal(&message));
                 }
                 RelayControl::Error { code, retryable, .. } => {
                     return Err(relay_operation_rejection(
@@ -2084,6 +2090,9 @@ async fn authenticate_daemon_control(
             {
                 retried_authentication = true;
             }
+            RelayControl::Error { code, message, .. } if code == VERSION_INCOMPATIBLE => {
+                return Err(relay_version_refusal(&message));
+            }
             RelayControl::Error { code, retryable, .. } => {
                 return Err(relay_operation_rejection(
                     &code,
@@ -2360,6 +2369,12 @@ fn sanitize_relay_code(code: &str) -> &str {
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     if word { code } else { "other" }
+}
+
+/// The relay's typed refusal of this build's remote protocol (hq RFD 0224): kept with its code and
+/// its "update <side>" words, never folded into a generic rejection. No redial cures it.
+fn relay_version_refusal(message: &str) -> ProviderError {
+    ProviderError::Transport(format!("{VERSION_INCOMPATIBLE}: {message}"))
 }
 
 fn relay_rejection() -> ProviderError {

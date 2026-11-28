@@ -24,6 +24,7 @@ mod frame;
 mod relay;
 pub mod reliable;
 mod rpc;
+mod version;
 
 pub use frame::{
     FrameDecodeError, FrameFlags, Lane, LanePolicy, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES,
@@ -49,6 +50,9 @@ pub use rpc::{
     StructuredDiffLineKind, StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceId, WorkspaceRequest, WorkspaceResponse,
+};
+pub use version::{
+    ProtocolRange, REMOTE_PROTOCOL_MIN, UpdateSide, VERSION_INCOMPATIBLE, VersionIncompatible,
 };
 
 /// Maximum serialized server-to-client message accepted by remote session

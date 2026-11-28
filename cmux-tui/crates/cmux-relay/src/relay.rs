@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, REMOTE_PROTOCOL_VERSION, RelayControl, RelayPermission, RelayRole,
+    CircuitId, LaneToken, ProtocolRange, RelayControl, RelayPermission, RelayRole,
     RelayTicketClaims,
 };
 use futures_util::stream::{SplitSink, SplitStream};
@@ -1745,15 +1745,12 @@ fn remove_circuit(state: &mut RelayState, circuit_id: &CircuitId) -> Vec<Peer> {
     peers
 }
 
+/// A peer names the one remote protocol it speaks; the relay serves any inside its range and
+/// refuses the rest with the typed `version.incompatible`, naming the side to update (hq RFD 0224).
 fn validate_protocol(protocol: u8) -> Result<(), RelayError> {
-    if protocol == REMOTE_PROTOCOL_VERSION {
-        Ok(())
-    } else {
-        Err(RelayError::protocol(
-            "unsupported-protocol",
-            format!("relay protocol {protocol} is unsupported, expected {REMOTE_PROTOCOL_VERSION}"),
-        ))
-    }
+    ProtocolRange::ours().negotiate(ProtocolRange::exactly(protocol)).map(|_| ()).map_err(
+        |refusal| RelayError::protocol(refusal.code(), refusal.message("the peer", "the relay")),
+    )
 }
 
 fn validate_slot(slot: &str) -> Result<(), RelayError> {
@@ -1813,6 +1810,7 @@ mod tests {
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
     use super::*;
+    use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 
     const RELAY_CONTROL_CONFORMANCE: &str =
         include_str!("../../cmux-remote-protocol/tests/fixtures/relay-control-v1.jsonl");

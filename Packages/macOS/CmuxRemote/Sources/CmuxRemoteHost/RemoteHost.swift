@@ -314,7 +314,13 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         channel.setReadTimeout(0)
         let minimum = hello["min"] as? Int ?? 1, maximum = hello["max"] as? Int ?? 1
         guard let version = RemoteWire.negotiate(peerMinimum: minimum, peerMaximum: maximum) else {
-            channel.write(RemoteWire.failure(id: nil, code: "protocol", message: "no common protocol (host speaks \(RemoteWire.minimumProtocol)...\(RemoteWire.maximumProtocol))"))
+            // hq RFD 0224: a typed refusal that names the side to update.
+            let update = maximum < RemoteWire.minimumProtocol ? "peer" : "self"
+            channel.write(RemoteWire.line(["id": NSNull(), "ok": false, "error": [
+                "code": "version.incompatible",
+                "message": "no common protocol (host speaks \(RemoteWire.minimumProtocol)...\(RemoteWire.maximumProtocol), daemon \(minimum)...\(maximum))",
+                "details": ["update": update, "min": RemoteWire.minimumProtocol, "max": RemoteWire.maximumProtocol],
+            ] as [String: Any]]))
             channel.close()
             return
         }
@@ -325,7 +331,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         }
         for old in replaced { old.close() }
         Task { @MainActor in self.host?.daemonArrived() }
-        var reply: [String: Any] = ["type": "hello", "protocol": version]
+        var reply: [String: Any] = [
+            "type": "hello", "protocol": version,
+            "min": RemoteWire.minimumProtocol, "max": RemoteWire.maximumProtocol,
+        ]
         for (key, value) in status() { reply[key] = value }
         channel.write(RemoteWire.line(reply))
         logger.notice("daemon connected (protocol \(version, privacy: .public))")
