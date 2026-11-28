@@ -525,6 +525,8 @@ impl Hub {
                 )
             }
             "preflight" => self.transfer_preflight(params).await,
+            // What a move of the chat would interrupt (RFD 0063 item 6, `move_interrupts.rs`).
+            "interrupts" => self.transfer_interrupts(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,

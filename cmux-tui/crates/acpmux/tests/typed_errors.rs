@@ -259,3 +259,56 @@ async fn typed_error_daemon_status_names_a_low_disk() {
     let recovery = v.pointer("/disk/recovery").and_then(Value::as_str).unwrap_or_default();
     assert!(recovery.contains("nearly full"), "{recovery}");
 }
+
+/// A start whose agent dies before it answers says why in a short `data.reason`, the only part
+/// of acpmux's error the cmux daemon passes on: the notify-banner-click probe's stub crashed at
+/// import and every start read `acpmux refused the request` with no cause (run 46065488561).
+#[tokio::test]
+async fn typed_error_a_start_whose_agent_dies_names_a_reason() {
+    let dir = scratch("dies-at-start");
+    let mut c = C::new(hub_with(|cfg| {
+        cfg.harnesses.insert(
+            "dies".into(),
+            harness(vec!["python3".into(), "-c".into(), "raise SystemExit(1)".into()]),
+        );
+    }))
+    .await;
+    let e = c.session("dies", &dir).await.expect_err("the agent exits before session/new");
+    let reason = data(&e)["reason"].as_str().map(str::to_owned);
+    assert_eq!(reason.as_deref(), Some("agent.exited"), "{e:?}");
+}
+
+/// Every `session/new` refusal carries a reason, a validation one too.
+#[tokio::test]
+async fn typed_error_every_start_refusal_has_a_reason() {
+    let dir = scratch("unknown-harness");
+    let mut c = C::new(hub_with(|_| {})).await;
+    let e = c.session("no-such-harness", &dir).await.expect_err("no such harness");
+    let reason = data(&e)["reason"].as_str().unwrap_or_default().to_owned();
+    assert!(
+        !reason.is_empty()
+            && reason.len() <= 64
+            && reason.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)),
+        "{e:?}"
+    );
+}
+
+/// The fleet probes check out `tests/fake_agent.py` alone and run it as the `fake` harness: a
+/// lone copy starts a chat (a sibling `guidance_sources.json` it read at import did not exist
+/// there, cmuxterm-hq notify-banner-click, run 46065488561).
+#[tokio::test]
+async fn a_lone_copy_of_the_fake_agent_starts_a_chat() {
+    let alone = scratch("lone-fake");
+    let fake = alone.join("fake_agent.py");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py"), &fake).unwrap();
+    let chat = scratch("lone-fake-chat");
+    let mut c = C::new(hub_with(|cfg| {
+        cfg.harnesses.insert(
+            "lone".into(),
+            harness(vec!["python3".into(), fake.to_string_lossy().into_owned()]),
+        );
+    }))
+    .await;
+    let id = c.session("lone", &chat).await.expect("a lone fake starts");
+    c.prompt(&id, "hello").await.expect("and answers");
+}

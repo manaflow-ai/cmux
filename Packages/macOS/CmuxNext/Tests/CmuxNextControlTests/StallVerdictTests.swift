@@ -26,6 +26,22 @@ struct StallVerdictTests {
         #expect(StallVerdict.classify(wall: .seconds(3), mainThreadCPU: .milliseconds(20), host: nil) == .blocked)
     }
 
+    /// A stall is judged by the most load seen while it ran: a NIGHTLY's 1517 s hang of
+    /// 2026-11-27T01:25Z began at load 501.7 on 10 cores and ended at 6.9, and read as our code
+    /// (cmuxterm-hq#8670) when only the end was read.
+    @Test func aStallIsJudgedByItsPeakLoadNotItsEnd() {
+        let storm = HostLoad(one: 501.7, five: 227.9, fifteen: 101.3, cores: 10)
+        let after = HostLoad(one: 6.9, five: 11.3, fifteen: 44.4, cores: 10)
+        #expect(HostLoad.peak(storm, after) == storm)
+        #expect(HostLoad.peak(after, storm) == storm)
+        #expect(HostLoad.peak(nil, after) == after)
+        #expect(HostLoad.peak(after, nil) == after)
+        #expect(HostLoad.peak(nil, nil) == nil)
+        let wall = Duration.seconds(1517.574), cpu = Duration.milliseconds(8)
+        #expect(StallVerdict.classify(wall: wall, mainThreadCPU: cpu, host: after) == .blocked)
+        #expect(StallVerdict.classify(wall: wall, mainThreadCPU: cpu, host: HostLoad.peak(storm, after)) == .starved)
+    }
+
     @Test func aNestedRunLoopIsAnIdleWait() {
         #expect(StallVerdict.classify(wall: .seconds(3), mainThreadCPU: .milliseconds(5), host: overloaded, idleWait: true) == .waiting)
         #expect(StallVerdict.classify(wall: .seconds(3), mainThreadCPU: nil, host: calm, idleWait: true) == .waiting)

@@ -88,6 +88,36 @@ class NightlyGateTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaisesRegex(ci_steps.TableError, "nightly"):
                 table(f'[step.a]\njob = "linux"\n{bad}\nrun = "true"')
 
+    def test_a_land_gate_step_runs_on_a_landing_head_with_every_input(self) -> None:
+        t = table('''
+            [step.typecheck]
+            job = "linux"
+            inputs = ["web/**/*.ts"]
+            land_gate = true
+            run = "true"
+            [step.plain]
+            job = "linux"
+            inputs = ["web/**/*.ts"]
+            run = "true"
+        ''')
+        paths = ["web/tests/x.test.ts"]
+        self.assertEqual(ci_steps.route(t, paths, pr_scope=True), {"linux": ["typecheck"]})
+        self.assertEqual(ci_steps.nightly_gate_steps(t, paths), ["typecheck"])
+        self.assertEqual(ci_steps.nightly_gate_steps(t, ["docs/x.md"]), [])
+        for bad in ('land_gate = "yes"', 'land_gate = true\nblocks = false\nclass = "idle"'):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ci_steps.TableError, "land_gate"):
+                table(f'[step.a]\njob = "linux"\n{bad}\nrun = "true"')
+
+    def test_a_landing_head_that_touches_web_ts_runs_web_typecheck(self) -> None:
+        # cmux#61511: a web test file with type errors landed on the affected tier, pr-pipeline.yml never ran, and
+        # web-typecheck stayed red on feat-cmux-next until #62788.
+        start, why, (jobs, only) = self.landing(["web/tests/vm-image-pin-cmux-tui.test.ts"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("runs only web-typecheck", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["web-typecheck"]))
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("web-typecheck", only)
+
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
         for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
@@ -102,13 +132,14 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
-        self.assertEqual(only, ["rust-notices"])
+        # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
+        self.assertEqual(only, ["web-typecheck", "rust-notices"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
-        start, _, (jobs, only) = self.landing(["web/app/page.tsx"])
+        start, _, (jobs, only) = self.landing(["web/app/page.css"])
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual((jobs, only), ([], []))
 
@@ -905,6 +936,46 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertGreaterEqual(time.monotonic() - start, 2.0)
 
+    def test_the_pr_tier_leaves_push_steps_to_the_push_tier(self) -> None:
+        t = table('''
+            [step.fast]
+            job = "linux"
+            run = "true"
+            [step.slow]
+            job = "linux"
+            tier = "push"
+            run = "true"
+            ''')
+        self.assertEqual(ci_steps.route(t, None)["linux"], ["fast", "slow"])
+        self.assertEqual(ci_steps.route(t, None, tier="full")["linux"], ["fast", "slow"])
+        self.assertEqual(ci_steps.route(t, None, tier="pr")["linux"], ["fast"])
+        self.assertEqual(ci_steps.route(table('[step.slow]\njob = "linux"\ntier = "push"\nrun = "true"'), None, tier="pr"), {})
+        with self.assertRaisesRegex(ci_steps.TableError, "`tier` is one of"):
+            table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
+
+    def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
+        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
+        pr_tier_tool_steps = {"web-tests-affected"}
+        for step in ci_steps.load().steps.values():
+            if step.job == "linux" and step.needs:
+                self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
+        text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
+        self.assertIn('ci/run run --job linux --tier "$TIER"', text)
+        self.assertIn("CI_PR_PIPELINE_TIER", text)
+        self.assertIn("full-ci", text)
+
+    def test_the_router_counts_only_the_pr_tier_steps(self) -> None:
+        import pr_router
+        callees = pr_router.load_manifest()
+        files = ["cmux-tui/crates/acpmux/src/lib.rs"]
+        self.assertEqual(pr_router.pipeline_tier(set()), "pr")
+        self.assertEqual(pr_router.pipeline_tier({"full-ci"}), "full")
+        full = pr_router.table_steps(callees["pr-pipeline.yml"], files, tier="full")
+        pr = pr_router.table_steps(callees["pr-pipeline.yml"], files, tier="pr")
+        self.assertIn("cmux-next-daemon-tests", full)
+        self.assertNotIn("cmux-next-daemon-tests", pr)
+
     def test_alone_is_true_or_false(self) -> None:
         self.assertTrue(table('[step.a]\njob = "linux"\nalone = true\nrun = "true"').steps["a"].alone)
         self.assertFalse(table('[step.a]\njob = "linux"\nrun = "true"').steps["a"].alone)
@@ -1446,16 +1517,16 @@ class PipelineTest(unittest.TestCase):
             fake.chmod(0o755)
 
             def ran(red: str, route: str) -> str:
-                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route)
+                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route, TIER="pr")
                 env.pop("PATHS_FILE", None)
                 return subprocess.run(["bash", "-e", "-c", run["run"]], cwd=tmp, env=env, capture_output=True,
                                       text=True, check=True).stdout
 
             routed = json.dumps({"linux": ["shellcheck", "tooling-tests-1", "web-tests-1", "tooling-tests-12"]})
-            self.assertIn("ran: run --job linux --only shellcheck web-tests-1\n", ran("true", routed))
-            self.assertEqual(ran("false", routed), "ran: run --job linux\n")
-            self.assertEqual(ran("", routed), "ran: run --job linux\n")
-            self.assertEqual(ran("true", ""), "ran: run --job linux\n", "an unread route runs every step")
+            self.assertIn("ran: run --job linux --tier pr --only shellcheck web-tests-1\n", ran("true", routed))
+            self.assertEqual(ran("false", routed), "ran: run --job linux --tier pr\n")
+            self.assertEqual(ran("", routed), "ran: run --job linux --tier pr\n")
+            self.assertEqual(ran("true", ""), "ran: run --job linux --tier pr\n", "an unread route runs every step")
             self.assertNotIn("ran:", ran("true", json.dumps({"linux": ["tooling-tests-1"]})))
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
@@ -1605,7 +1676,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-production-build", "cmux-vm-cloud"}
+                     "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
                       "webviews-typecheck", "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
