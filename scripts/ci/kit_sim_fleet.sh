@@ -104,12 +104,15 @@ PY
   # that stay on the Mac). Exit 3: every bundle stays on the Mac, so there is no pool run and no verdict.
   local skips=() brc=0
   python3 -I "$(dirname "${BASH_SOURCE[0]}")/ios_sim_bundles.py" pool > "$dir/skips" || brc=$?
-  mapfile -t skips < "$dir/skips"
+  # No mapfile: an owned Mac runs this under /bin/bash 3.2, where mapfile does not exist and the empty array then
+  # tripped set -u (kit run 46082499576, cmux30, 00:31Z 11-28: every pool submit from an owned Mac died in 7 s).
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do [[ -n "$line" ]] && skips+=("$line"); done < "$dir/skips"
   if [[ "$brc" == 3 ]]; then verdict_out none 0 0 "every simulator test bundle stays on the Mac"; return 0; fi
   [[ "$brc" == 0 ]] || { verdict_out none 0 0 "ios_sim_bundles.py failed (exit $brc)"; return 0; }
   python3 "$client" run --class simulator --os linux --script scripts/ci/ios-sim-linux-test.sh \
     --ref "$HEAD_SHA" --repo manaflow-ai/cmux --env "CMUX_IOS_PRODUCTS=$PRODUCTS" \
-    --arg suite=kit "${skips[@]}" --arg timeout=1800 \
+    --arg suite=kit ${skips[@]+"${skips[@]}"} --arg timeout=1800 \
     --artifact artifacts/ios-sim-linux/result.tgz --timeout 2400 --queue-timeout 900 > "$dir/step.log" 2>&1 || rc=$?
   seconds=$(( $(date +%s) - start ))
   step="$(grep -o -E 'step [0-9a-f]{24}' "$dir/step.log" | head -1 | cut -d' ' -f2 || true)"

@@ -1257,9 +1257,9 @@ for (const [why, routes, signIn, shown] of [
     "API key (ANTHROPIC_API_KEY, from route Max)",
     "Max",
   ],
-] as const) {
+] satisfies [string, ChatAccountList, string | undefined, string][]) {
   test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
-    await openMenu(false, { routes: routes as ChatAccountList, ...(signIn ? { signIn } : {}) });
+    await openMenu(false, { routes, ...(signIn ? { signIn } : {}) });
     await settle();
     const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
     expect(account.textContent).toContain(shown);

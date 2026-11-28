@@ -4,6 +4,7 @@ import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
+import { htmlText, pastedPlainText } from "./pasteText";
 import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
@@ -411,34 +412,6 @@ const withoutBreakPlaceholders = (text: string) =>
     .replace(/^<br \/>\n\n/, "\n")
     .replace(/\n\n<br \/>\n?$/, "\n");
 
-const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
-
-/** HTML pasted with no plain text, as its text: each `<br>` and block (a `<p>`) ends a line. */
-function htmlText(html: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  let out = "";
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += (node.textContent ?? "").replace(/\s+/g, " ");
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const tag = (node as Element).tagName;
-    if (tag === "BR") {
-      out += "\n";
-      return;
-    }
-    if (tag === "STYLE" || tag === "SCRIPT" || tag === "META" || tag === "TITLE") return;
-    const block = BLOCK_TAG.test(tag);
-    if (block && out && !out.endsWith("\n")) out += "\n";
-    for (const child of node.childNodes) walk(child);
-    if (block) out += "\n";
-  };
-  for (const child of template.content.childNodes) walk(child);
-  return out.replace(/[ \t]+\n/g, "\n").replace(/^\n+|\n+$/g, "");
-}
-
 /** Plain text as the field shows it: one paragraph whose newlines are line breaks, a blank line
  * two of them. A paste is never parsed as markdown or HTML, so its lines and characters stay. */
 function plainFragment(view: EditorView, text: string): Fragment {
@@ -642,8 +615,9 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
 }
 
 /// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
-/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
-const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// mid-line, starting with a letter, digit or that punctuation, never a space. It may end in spaces:
+/// the serializer keeps a paragraph's trailing spaces, and every word typed ends in one.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!][A-Za-z0-9 ,'?!.]*$/;
 /// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
 /// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
 const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
@@ -980,6 +954,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // normally provides these is removed with formatting shortcuts in plain mode.
     "Mod-a": selectAll,
     "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
+    "Alt-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
     "Mod-z": undo,
     "Shift-Mod-z": redo,
     "Mod-y": redo,
@@ -1121,6 +1096,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const drawnFor = useRef(selectionKey);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
+  /// Shift-Return and Option-Return: the caret at the start of a new line (a new list item inside a
+  /// list, a new paragraph in a quote), scrolled into view. Without `multiline`, the key does nothing.
+  const newLine = useCallback((state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView) => {
+    if (!lines.current) return true;
+    const item = state.schema.nodes.list_item;
+    const enter = baseKeymap.Enter!;
+    return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
+  }, []);
   const empty = useRef<HTMLSpanElement>(null);
   // The field's text as plain lines until the editor is made (markdownField.css `.acpmux-md-standin`):
   // the field has the editor's height from its first frame, so the composer around it does not grow
@@ -1364,6 +1347,29 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     returnInput();
                     return true;
                   }
+                  // Shift-Return or Option-Return right after an input method committed: ProseMirror's
+                  // WebKit guard drops any key within 500 ms of compositionend (its keydown returns before
+                  // the keymaps), so the browser broke the line itself and `beforeinput` sent the prompt.
+                  // The keymaps run here instead, and the guard is spent, as ProseMirror spends it on
+                  // the key it drops.
+                  if (
+                    isReturnKey(event) &&
+                    (event.shiftKey || event.altKey) &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !isImeKeyEvent(event) &&
+                    !composing.current &&
+                    !_view.composing &&
+                    event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS
+                  ) {
+                    // ProseMirror's own guard (prosemirror-view `inOrNearComposition`), spent as it spends it.
+                    const guard = (_view as unknown as { input?: { compositionEndedAt?: number } }).input;
+                    if (guard) guard.compositionEndedAt = -2e8;
+                    compositionEndedAt = -Infinity;
+                    event.preventDefault();
+                    _view.someProp("handleKeyDown", (handle) => handle(_view, event));
+                    return true;
+                  }
                   const submit = latest.current.onSubmit;
                   if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                     event.preventDefault();
@@ -1395,6 +1401,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     return true;
                   }
                   event.preventDefault();
+                  // A line break the browser makes is Shift-Return's (or Option-Return's) that no keymap
+                  // took: a new line, never a send.
+                  if (input.inputType === "insertLineBreak") {
+                    returnTaken = false;
+                    newLine(_view.state, _view.dispatch, _view);
+                    return true;
+                  }
                   if (returnTaken) returnTaken = false;
                   else if (returnKeyDown || !lines.current) returnInput();
                   else {
@@ -1506,7 +1519,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // Text past what a prompt carries goes to the surface whole, before anything reads
                   // or parses it (ProseMirror would lay out every line of it first): the composer
                   // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
-                  const whole = data.getData("text/plain");
+                  // With files beside it WebKit withholds the plain text: the HTML's is the paste's
+                  // (pasteText.ts, issue 59851).
+                  const whole = pastedPlainText(data);
                   // A surface without a file intake (Home Channels) takes it as before.
                   if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
                     event.preventDefault();
@@ -1755,12 +1770,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               return false;
             return lift(state, dispatch);
           },
-          "Shift-Enter": (state, dispatch, editorView) => {
-            if (!lines.current) return true;
-            const item = state.schema.nodes.list_item;
-            const enter = baseKeymap.Enter!;
-            return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
-          },
+          "Shift-Enter": newLine,
+          // Option-Return is a new line too, as in Claude desktop and every chat composer; unbound, the
+          // browser's own paragraph reached `beforeinput` as a Return and sent the prompt.
+          "Alt-Enter": newLine,
         }),
       );
       void Editor.make()
@@ -1846,7 +1859,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         richPlugins.current = [];
       };
     },
-    [configureLiteral],
+    [configureLiteral, newLine],
   );
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),

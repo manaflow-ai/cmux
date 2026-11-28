@@ -76,6 +76,7 @@ impl JsonSchema for AcpmuxRequestMeta {
 
 /// [`AcpmuxRequestMeta`]'s keys.
 pub const ACPMUX_REQUEST_META: &[&str] = &[
+    "abi",
     "adopt",
     "agentSessionId",
     "answeredBy",
@@ -85,6 +86,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "autoPlace",
     "beforePromptId",
+    "build",
     "callerKind",
     "callerProtocol",
     "callerSession",
@@ -92,6 +94,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "chunkDeltas",
     "class",
     "cliHost",
+    "cloudRegistryId",
     "compression",
     "context",
     "createKey",
@@ -221,6 +224,7 @@ keyed! {
     AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
+    PullRequestActionParams: ["sessionId", "url", "headSha", "action"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
