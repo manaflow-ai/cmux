@@ -561,7 +561,7 @@ class LookFailedTest(unittest.TestCase):
         sha = "a" * 40
         good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
         with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
-                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b: (
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b, can_write=None: (
                     {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
             self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
             self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
