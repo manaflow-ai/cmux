@@ -20,6 +20,16 @@
     // app's in the sidebar and transcript, and the reference transcript column is wider.
     "agentPane.display.font.size": 12,
     "agentPane.display.width": 1200,
+    // The transcript's parts (the reference app's thread): a right-aligned rounded bubble for your
+    // messages, borderless cards with a 10 pt corner, no times. The width, face and size above win.
+    "agentPane.display.transcriptTokens": {
+      "density": "cozy",
+      "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.75,
+      "userMessage.radius": 10, "userMessage.paddingBlock": 7, "userMessage.paddingInline": 12,
+      "userMessage.fill": 0.05,
+      "toolCards": "minimal", "toolCard.radius": 10, "toolCard.border": "none", "codeCard.radius": 10,
+      "timestamps": "off", "toolOutput.textSize": 0.92
+    },
     "agentPane.display.minimap": "off",
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.attachmentView": "strip",
@@ -92,9 +102,13 @@
     // Pending: "agentPane.display.sendPop": "off" (cmux#50293) and "agentPane.sendPlacement": "top"
     // (no pull request yet; the room-and-spring send in ../send-parity/README.md).
 
-    // Motion. The reference app moves little and fast; no public recording of it exists to time, so
-    // this look keeps cmux's fast speed and every animation on rather than invent durations. A look
-    // cannot set durations or easings yet (README.md, Gaps).
+    // Motion. The look's durations and curves are the reference app's own, read from its shipped
+    // stylesheets and motion module (agent-pane/theme.css; README.md, Motion). cmux's fast speed and
+    // every animation stay on.
+    // Its working line ("Working for 12s") shines one band half the line wide across it every 2 s.
+    "agentPane.display.thinking.shimmer": "continuous",
+    "agentPane.display.thinking.shimmerPeriod": 2000,
+    "agentPane.display.thinking.shimmerBand": 0,
     "ui.animationSpeed": "fast",
     "ui.paneAnimations": true,
     "ui.animations.enabled": true

@@ -358,6 +358,9 @@ class Verify(unittest.TestCase):
         self.assertEqual(ci_receipt.audited("42", HEAD, 10), ci_receipt.audited("42", HEAD, 10))
 
 
+SAVED_PRODUCE_FAST_GATES = ci_receipt.produce_fast_gates
+
+
 class Produce(unittest.TestCase):
     def repo(self, scratch: str) -> tuple[Path, "Callable[..., str]"]:
         repo = Path(scratch) / "repo"
@@ -380,8 +383,10 @@ class Produce(unittest.TestCase):
         import os  # noqa: PLC0415
 
         out = io.StringIO()
-        saved_cwd, saved = Path.cwd(), ci_receipt.produce_fast_gates
+        saved_cwd, saved, saved_records = Path.cwd(), ci_receipt.produce_fast_gates, ci_receipt.lane_records
         ci_receipt.produce_fast_gates = runner
+        # Off a runner lane_records is true, and a test on a lane VM recorded a real receipt with the controller.
+        ci_receipt.lane_records = lambda args, env=None: False
         try:
             os.chdir(repo)
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -389,7 +394,32 @@ class Produce(unittest.TestCase):
         finally:
             os.chdir(saved_cwd)
             ci_receipt.produce_fast_gates = saved
+            ci_receipt.lane_records = saved_records
         return code, out.getvalue()
+
+    def test_a_red_lane_run_tells_the_controller_why(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            repo, _ = self.repo(scratch)
+            notes, saved_cwd = [], Path.cwd()
+            saved_miss, saved_records = ci_receipt.record_miss, ci_receipt.lane_records
+            ci_receipt.record_miss = lambda job, **kw: notes.append((job, kw))
+            try:
+                # run_produce stubs lane_records off; the red path checks it through the module, so turn it on here.
+                import contextlib, io, os  # noqa: E401, PLC0415
+                os.chdir(repo)
+                ci_receipt.produce_fast_gates = lambda work, head, base: 3
+                ci_receipt.lane_records = lambda args, env=None: True
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    code = ci_receipt.produce(SimpleNamespace(job="fast-gates", remote=str(repo)))
+            finally:
+                os.chdir(saved_cwd)
+                ci_receipt.record_miss, ci_receipt.lane_records = saved_miss, saved_records
+                ci_receipt.produce_fast_gates = SAVED_PRODUCE_FAST_GATES
+            self.assertEqual(code, 3)
+            (job, kw), = notes
+            self.assertEqual(job, "fast-gates")
+            self.assertIn("red on the lane (exit 3)", kw["reason"])
+            self.assertTrue(ci_receipt.SHA.match(kw["head_tree"]) and ci_receipt.SHA.match(kw["base"]))
 
     def test_a_failed_execution_mints_no_receipt(self):
         # A real command that runs and fails in the merge worktree, not an argv mismatch refused before it runs.
@@ -415,13 +445,24 @@ class Produce(unittest.TestCase):
                                  .split("=", 1)[1])
             self.assertEqual(receipt["job"], "fast-gates")
 
-    def test_a_dirty_tracked_tree_mints_no_receipt(self):
+    def test_a_dirty_tracked_tree_tests_and_names_the_commit_not_the_edit(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo, _ = self.repo(scratch)
+            committed = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip()
             (repo / "a").write_text("edited, not committed")
-            code, out = self.run_produce(repo, lambda work, head, base: 0)
-            self.assertEqual(code, 2)
-            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+            seen = []
+
+            def gates(work, head, base):
+                seen.append(((work / "a").read_text(), head))
+                return 0
+            code, out = self.run_produce(repo, gates)
+            self.assertEqual(code, 0)
+            self.assertNotEqual(seen[0][0], "edited, not committed")
+            self.assertEqual(seen[0][1], committed)
+            receipt = json.loads(next(line for line in out.splitlines() if line.startswith("CMUX_CI_RECEIPT="))
+                                 .split("=", 1)[1])
+            self.assertEqual(receipt["head"], committed)
 
     def test_tested_head_is_the_snapshot_parent_with_the_same_tree(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -497,19 +538,21 @@ def lane_receipt(**overrides) -> dict:
 
 def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, audit_percent: int = 0,
                 body: str = "Change.\n", pr: int | None = None,
-                merge_tree: str = MERGE_TREE) -> tuple[dict, list[dict]]:
+                merge_tree: str = MERGE_TREE, parent_tree: str = "") -> tuple[dict, list[dict]]:
     asked: list[dict] = []
 
     def ask(payload):
         asked.append(payload)
         if isinstance(receipts, Exception):
             raise receipts
+        if isinstance(receipts, dict):
+            return {"receipts": receipts.get(payload["head_tree"], [])}
         return {"receipts": receipts}
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
     args = SimpleNamespace(job="fast-gates", repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE,
                            merge_tree=merge_tree, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
-                           pr=pr, lane=True)
+                           pr=pr, lane=True, lane_parent_tree=parent_tree)
     try:
         return ci_receipt.verify(args, fetch=fake or FakeGitHub(), lane_ask_fn=ask), asked
     finally:
@@ -585,6 +628,44 @@ class LaneReceipts(unittest.TestCase):
         self.assertEqual(result["valid"], "false")
         self.assertIn("did not answer", result["reason"])
 
+    # An update-branch head (GitHub's "Merge branch 'feat-cmux-next' into lane/..."): no lane tested its tree; its
+    # first parent is the lane's commit. 4 of 11 lane misses on 2026-11-27 11:35-12:45Z.
+    PARENT_TREE = "e" * 40
+
+    def test_an_update_branch_head_takes_its_lane_commits_receipt_on_an_older_base(self):
+        parent = lane_receipt(head="d" * 40, head_tree=self.PARENT_TREE, base=OLD_BASE)
+        result, asked = lane_verify({self.PARENT_TREE: [parent]}, merge_tree="", parent_tree=self.PARENT_TREE)
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertEqual([each["head_tree"] for each in asked], [HEAD_TREE, self.PARENT_TREE])
+
+    def test_the_lane_commits_receipt_still_needs_an_ancestor_base(self):
+        parent = lane_receipt(head="d" * 40, head_tree=self.PARENT_TREE, base=OLD_BASE)
+        result, _ = lane_verify({self.PARENT_TREE: [parent]}, merge_tree="", parent_tree=self.PARENT_TREE,
+                                fake=FakeGitHub(compare="diverged"))
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not an ancestor", result["reason"])
+
+    def test_on_the_receipts_own_base_the_lane_commit_counts_only_when_its_merge_is_this_heads_tree(self):
+        tested = lane_receipt(head="d" * 40, head_tree=self.PARENT_TREE, tree=HEAD_TREE)
+        result, _ = lane_verify({self.PARENT_TREE: [tested]}, merge_tree="", parent_tree=self.PARENT_TREE)
+        self.assertEqual(result["valid"], "true", result["reason"])
+        other = lane_receipt(head="d" * 40, head_tree=self.PARENT_TREE, tree="9" * 40)
+        result, _ = lane_verify({self.PARENT_TREE: [other]}, merge_tree="", parent_tree=self.PARENT_TREE)
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not this run's", result["reason"])
+
+    def test_the_head_trees_own_receipt_is_asked_first_and_no_parent_means_one_lookup(self):
+        result, asked = lane_verify({HEAD_TREE: [lane_receipt(base=OLD_BASE)]}, merge_tree="",
+                                    parent_tree=self.PARENT_TREE)
+        self.assertEqual((result["valid"], len(asked)), ("true", 1))
+        result, asked = lane_verify({}, merge_tree="")
+        self.assertEqual((result["valid"], len(asked)), ("false", 1))
+
+    def test_a_malformed_parent_tree_is_not_asked_for(self):
+        result, asked = lane_verify({}, merge_tree="", parent_tree="nope")
+        self.assertEqual((result["valid"], len(asked)), ("false", 1))
+        self.assertIn("unresolved lane parent tree", result["reason"])
+
     def test_without_a_lane_receipt_discovery_still_runs(self):
         result, _ = lane_verify([], pr=5)
         self.assertEqual(result["valid"], "true", result["reason"])  # FakeGitHub's run is a real receipt
@@ -654,6 +735,60 @@ class LaneRecord(unittest.TestCase):
                                               now=lambda: later), 0)
             self.assertEqual(list(Path(folder).glob("*.json")), [])
 
+
+
+class LaneMiss(unittest.TestCase):
+    """2026-11-27: 2 of 17 lane-receipt misses (cmux#61440, #61590) had no reason any host could read."""
+
+    def test_a_miss_is_posted_with_its_reason_and_never_raises(self):
+        import json as j  # noqa: PLC0415
+        sent = []
+
+        def post(url, data):
+            sent.append((url, j.loads(data)))
+            return 200, b"{}"
+        ci_receipt.record_miss("fast-gates", head=HEAD, head_tree=HEAD_TREE, base="", reason="the fast gates were red",
+                               post=post, env={"CMUX_CI_CONTROLLER": "http://c:1/"})
+        url, body = sent[0]
+        self.assertEqual(url, "http://c:1/v1/ci/lane-receipt/miss")
+        self.assertEqual((body["check"], body["head_tree"], body["base"], body["reason"]),
+                         ("fast-gates", HEAD_TREE, "", "the fast gates were red"))
+
+        def down(url, data):
+            raise OSError("unreachable")
+        for answer in (down, lambda u, d: (404, b"not found"), lambda u, d: (400, b"bad")):  # an older controller
+            ci_receipt.record_miss("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, reason="x", post=answer,
+                                   env={})
+        # Inside Actions, for another job, or with no tree, nothing is sent.
+        for job, env, tree in (("fast-gates", {"GITHUB_ACTIONS": "true"}, HEAD_TREE), ("rust-workspaces", {}, HEAD_TREE),
+                               ("fast-gates", {}, "")):
+            ci_receipt.record_miss(job, head=HEAD, head_tree=tree, base=BASE, reason="x", post=post, env=env)
+        self.assertEqual(len(sent), 1)
+
+    def test_a_refused_record_and_a_given_up_spool_say_why(self):
+        import json as j  # noqa: PLC0415
+        urls = []
+
+        def refuse(url, data):
+            urls.append((url, j.loads(data).get("reason")))
+            return 403, b"no"
+        ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                               seconds=1, post=refuse, env={"CMUX_CI_CONTROLLER": "http://c:1"})
+        self.assertEqual([u for u, _ in urls], ["http://c:1/v1/ci/lane-receipt", "http://c:1/v1/ci/lane-receipt/miss"])
+        self.assertIn("refused", urls[1][1])
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"CI_RECEIPT_SPOOL": folder, "CMUX_CI_CONTROLLER": "http://c:1"}
+            ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                   seconds=1, post=lambda u, d: (502, b""), env=env, spawn=lambda: None)
+            later = time.time() + ci_receipt.SPOOL_FOR_S + 1
+            urls.clear()
+
+            def gone(url, data):
+                urls.append((url, j.loads(data).get("reason")))
+                return (502, b"") if url.endswith("/lane-receipt") else (200, b"{}")
+            ci_receipt.flush(env=env, post=gone, sleep=lambda s: None, now=lambda: later)
+            self.assertEqual(urls[-1][0], "http://c:1/v1/ci/lane-receipt/miss")
+            self.assertIn("unanswered", urls[-1][1])
 
 
 class GitCompareTest(unittest.TestCase):
