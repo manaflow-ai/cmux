@@ -17,7 +17,7 @@ import { useAutoRetry } from "./autoRetry";
 /// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
 /// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
 /// ON LOAD"). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
-/// not routed to): "Can't find this chat", never "deleted". Every case but loading keeps what MissingChat.tsx
+/// not routed to): the pane reports that the device could not find it. Every case but loading keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
 /// More than one chat here goes by the id the tab recorded (its name, or a harness's own session id),
 /// and none by acpmux's id: "This session no longer exists", never "Reconnecting…" forever.
