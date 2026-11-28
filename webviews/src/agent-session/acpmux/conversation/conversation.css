@@ -3144,6 +3144,12 @@ body {
   white-space: nowrap;
   color: var(--cv-text-muted);
 }
+/* The subagents' live count in the line (summary/LiveCount.tsx, #61696) leads with its 12 px mark: the
+   mark centres in the 16 px glyph slot on the icon column, as every transcript row's glyph does, so
+   its box's left edge is the column, not 2 px left of it (gallery icon-column, invariants.ts leadEdge). */
+.cv-thinking > .acpmux-live-count > svg {
+  margin-inline-start: calc((var(--cv-glyph-slot) - 12px) / 2);
+}
 /* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
