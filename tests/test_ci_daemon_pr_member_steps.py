@@ -170,5 +170,14 @@ class IdleWakeupsLandGate(unittest.TestCase):
             self.assertIn(script_input, self.step.inputs)
 
 
+class MemberTestsOomRerun(unittest.TestCase):
+    """cmux-next-member-tests.sh reruns an OOM-killed build once at one job (tests/test_ci_member_tests_oom_rerun.sh)."""
+
+    def test_an_oom_killed_rustc_reruns_once_at_one_job(self) -> None:
+        run = subprocess.run(["bash", str(ROOT / "tests/test_ci_member_tests_oom_rerun.sh")], cwd=ROOT,
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

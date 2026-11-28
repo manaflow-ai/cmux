@@ -38,7 +38,11 @@ log="$(mktemp /tmp/cmux-next-member-tests.XXXXXX.txt)"
 echo "cmux_next_ tests of $member: ${args[*]}"
 start=$SECONDS
 status=1
+# oom_kills: the kernel's OOM kill count (/proc/vmstat oom_kill), or nothing off Linux (cargo-groups.sh's reader).
+oom_kills() { awk '$1 == "oom_kill" { print $2; exit }' "${MEMBER_TESTS_VMSTAT:-/proc/vmstat}" 2>/dev/null || true; }
+oom_rerun_done=0
 for attempt in 1 2 3; do
+  oom_before=$(oom_kills)
   # set -e would end the script on a failing pipeline: keep it off for the test so the retry, the timing line and the
   # daemon cleanup below still run.
   set +e
@@ -51,6 +55,20 @@ for attempt in 1 2 3; do
     echo "::error::cargo test ran no cmux_next_ test of $member (the filter matched nothing)"
     status=1
     break
+  fi
+  # OOM_RERUN_ONE_JOB: acpmux (936k lines) and cmux-tui-core (674k) compile at once when a change reaches both (a
+  # Cargo.lock change does), and at CARGO_BUILD_JOBS=2 their two rustc outgrow a w4b pool slot's memory: the kernel
+  # SIGKILLed the acpmux rustc twice on cmux#59165 (run 46165310642, jobs 141041525983 and 141052004120, 2026-11-28),
+  # and "could not compile" below read it as a compile error. cargo lets the survivor finish, so one rerun at one job
+  # keeps its units and compiles the killed crate alone (cargo-groups.sh's OOM_RERUN_ALONE). Once; a second kill fails.
+  if [ "$oom_rerun_done" -eq 0 ] && grep -q 'signal: 9, SIGKILL' "$log"; then
+    oom_now=$(oom_kills)
+    if [ -z "$oom_before" ] || [ -z "$oom_now" ] || [ "$oom_now" -gt "$oom_before" ]; then
+      echo "::warning::cmux_next_ tests of $member: the kernel OOM-killed a rustc (oom_kill ${oom_before:-?} -> ${oom_now:-?}); rerunning once at CARGO_BUILD_JOBS=1, its finished units kept"
+      export CARGO_BUILD_JOBS=1
+      oom_rerun_done=1
+      continue
+    fi
   fi
   if grep -qE 'test result: FAILED|error(\[E[0-9]+\])?: could not compile|^error\[E[0-9]+\]' "$log" \
     || ! grep -qiE 'spurious network error|failed to download|unable to update registry|failed to (fetch|get|query)|could not resolve host|couldn.t resolve host|connection (reset|refused|timed out)|operation timed out|ssl (connect )?error|http2 error|early eof|download of .* failed|registry index .*(failed|error)' "$log"; then
