@@ -81,10 +81,12 @@ jobs:
           done
           echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
 
-  verify:
+  # -fleet: the gateway runner's hook takes only job ids ending in it.
+  verify-fleet:
     name: cmux ios verify
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
-    runs-on: cmux-linux
+    # It fetches the fleet client, and the cmux-linux pool has no route to the tailnet-only controller (#64245).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # Two simulator shards in parallel (their own bounds in ios_verify.py), plus queue time for a simulator worker.
     timeout-minutes: 150
     permissions:
