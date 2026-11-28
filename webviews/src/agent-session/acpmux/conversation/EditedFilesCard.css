@@ -144,6 +144,10 @@ div.acpmux-edited {
 }
 .acpmux-edited-hover-label {
   visibility: hidden;
+  opacity: 0;
+  /* The counts and "View changes" cross on the pointer's dwell, as a message's hover row does (conversation.css
+     --cv-actions-*): visibility flips at the fade's start going in and at its end going out. */
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease), visibility 0s linear var(--cv-actions-out);
   color: var(--agent-muted);
   white-space: nowrap;
 }
@@ -152,6 +156,8 @@ div.acpmux-edited {
 }
 .acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-edited-hover-label {
   visibility: visible;
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease), visibility 0s;
 }
 
 /* A file's own actions in its sticky name: Open (a Markdown file's page) and Open in Changes. */
