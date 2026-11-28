@@ -38,10 +38,11 @@ class HookSocketServer:
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
-        self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-")
+        self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-", dir="/tmp")
         self.socket_path = os.path.join(self.root.name, "cmux.sock")
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.server: socket.socket | None = None
+        self.handlers: list[threading.Thread] = []
 
     def __enter__(self) -> "HookSocketServer":
         self.thread.start()
@@ -73,7 +74,9 @@ class HookSocketServer:
                         continue
                     except OSError:
                         return
-                    threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+                    handler = threading.Thread(target=self._handle, args=(conn,), daemon=True)
+                    self.handlers.append(handler)
+                    handler.start()
         except Exception as exc:
             self.error = exc
             self.ready.set()
@@ -106,6 +109,16 @@ class HookSocketServer:
                         return
 
     def _response_for(self, line: str) -> str:
+        if line == "test_drain":
+            # The CLI has exited before drain() connects. Accept ordering puts
+            # this barrier after all of its one-way telemetry connections.
+            for handler in self.handlers:
+                if handler is threading.current_thread():
+                    break
+                handler.join(timeout=8)
+                if handler.is_alive():
+                    return "ERROR: handler did not finish"
+            return "OK"
         if not line.startswith("{"):
             return "OK"
         try:
@@ -158,6 +171,16 @@ class HookSocketServer:
             result = {"terminals": []}
 
         return json.dumps({"id": request.get("id"), "ok": True, "result": result})
+
+    def drain(self) -> None:
+        """Wait for earlier CLI connections to finish before inspecting commands."""
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(10)
+            conn.connect(self.socket_path)
+            conn.sendall(b"test_drain\n")
+            response = conn.makefile("rb").readline()
+            if response != b"OK\n":
+                raise RuntimeError(f"socket drain failed: {response!r}")
 
 
 def run_claude_hook(
