@@ -255,7 +255,7 @@ class LookTests(unittest.TestCase):
     def test_a_needs_build_change_says_so_and_builds_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
-            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
@@ -659,7 +659,7 @@ class SpeedTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
             jobs = w.queue.Queue()
             web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
-            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]),
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/A.swift"]),
                        seq=43)
             tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
             _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
@@ -677,7 +677,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
-                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/A.swift"]))
             self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
             self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
             self.assertIn("needs an app build", receipt["error"])
