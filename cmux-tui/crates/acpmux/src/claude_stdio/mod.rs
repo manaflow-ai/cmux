@@ -453,6 +453,17 @@ pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 /// under `-p` it never does.
 pub const RECAP: &str = "_acpmux/claude/recap";
 
+/// The internal ACP request that warms a pooled Claude Code before a chat takes it
+/// (`hub/pool/start.rs`): one tiny `side_question` on the idle process, so its first API
+/// connection and first-call setup happen while it waits, not on the person's first prompt. A
+/// side question adds nothing to the transcript, so the chat that takes it starts empty. On a
+/// lane VM (Claude Code 2.1.332, haiku, n=10) the taken chat's first reply was 2081 ms at p50
+/// against 2495 ms unwarmed (hq#35604).
+pub const WARM: &str = "_acpmux/claude/warm";
+
+/// What [`WARM`] asks: the shortest question with a one-word answer.
+pub(crate) const WARM_QUESTION: &str = "Reply with the single word ok.";
+
 /// The internal ACP request that gives the running Claude Code the session's new name
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
@@ -646,6 +657,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `continue` (`hub/stop_condition.rs`): this turn's stops.
+    stop_continue: Mutex<crate::hub::stop_condition::Continuation>,
     /// Harness magic `pathRules` (path_rules.rs).
     path_rules: Arc<path_rules::PathRules>,
     /// Harness magic `dirRules` (dir_rules.rs).
@@ -873,6 +886,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            stop_continue: Default::default(),
             path_rules: Default::default(),
             dir_rules: Default::default(),
             next_control: AtomicI64::new(1),

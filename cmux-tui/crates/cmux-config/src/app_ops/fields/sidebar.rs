@@ -243,6 +243,10 @@ fn order(cx: &mut Ctx, key: &str) -> Option<Vec<Value>> {
 /// `fields.workspace_row`: `{values: {shown, secondLineOrder, overrides, statusPlacement}}`. `shown` lists
 /// the elements on (in element order), `overrides` maps a kind to `{elements: {name: bool}, secondLineOrder?}`
 /// (only kinds with a change). The `lines` layouts stay with `cmux-layout-reducer`.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(super) fn workspace_row(root: &Value) -> (Value, Vec<Value>) {
     let mut cx = Ctx::new(root);
     let base = "sidebar.workspaceRow";

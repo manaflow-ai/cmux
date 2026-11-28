@@ -95,6 +95,9 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// the same pixels as the card).
     func resumeLiveContent(_ id: TabsKitTab.ID)
 
+    /// Additional items in the tab overview's More menu. Default: none.
+    func overviewMenuContent() -> AnyView
+
     /// A row above the toolbar for the active tab. Default: none.
     @ViewBuilder func accessory(for tab: TabsKitTab, context: TabsKitContentContext) -> Accessory
     /// What fills the band behind a top bar over `tab`'s page (from the screen's top to the
@@ -169,6 +172,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 }
 
 extension TabsDataSource {
+    public func overviewMenuContent() -> AnyView { AnyView(EmptyView()) }
     public func topBarGround(for tab: TabsKitTab) -> AnyView? { nil }
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
