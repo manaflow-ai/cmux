@@ -177,11 +177,6 @@ public actor VNCClient {
         await send(bytes)
     }
 
-    /// Sends the local clipboard to the server (Latin-1).
-    public func setClipboard(_ text: String) async {
-        await send(RFBClientMessage.clientCutText(text))
-    }
-
     /// Asks for a full, non-incremental refresh.
     public func refresh() async {
         guard size.width > 0 else { return }

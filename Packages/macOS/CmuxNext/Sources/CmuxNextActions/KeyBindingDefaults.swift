@@ -168,11 +168,6 @@ public nonisolated struct KeyBindingDefaults {
     /// diff tab (`diffViewerFocused`).
     public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
-    /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
-    static let notWebPage = WhenClause.and([
-        .notEquals(KeyContext.surfaceKind, .string("page")), .not(.has(KeyContext.codeEditorFocusedKey)),
-    ])
-
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
     public static var actionAliases: [KeyBinding] { tabCycleAliases + paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases + spaceAliases }

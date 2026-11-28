@@ -45,13 +45,4 @@ struct RFBClientMessage {
         message.u16(UInt16(clamping: max(0, y)))
         return message.bytes
     }
-
-    /// Latin-1 only (RFC 6143): other characters become `?`.
-    static func clientCutText(_ text: String) -> [UInt8] {
-        let latin1 = text.unicodeScalars.map { $0.value > 0xFF ? UInt8(ascii: "?") : UInt8($0.value) }
-        var message = RFBClientMessage(bytes: [6, 0, 0, 0])
-        message.u32(UInt32(latin1.count))
-        message.bytes.append(contentsOf: latin1)
-        return message.bytes
-    }
 }

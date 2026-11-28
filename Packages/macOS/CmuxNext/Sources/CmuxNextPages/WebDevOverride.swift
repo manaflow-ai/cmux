@@ -184,9 +184,6 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// ignore it (``ignoreThisRun()``).
     public static var isAllowed: Bool { state.withLock { $0.allowed && !$0.ignoredThisRun } }
 
-    /// Whether this run ignores every layer (`--no-customizations`, ``ignoreThisRun()``).
-    public static var isIgnoredThisRun: Bool { state.withLock { $0.ignoredThisRun } }
-
     /// The override in force: what the watcher read from `web-dev.json`, or empty while cmux Live is
     /// off or this run ignores it. An install a page did not start from is refused.
     public static var current: WebDevOverride {

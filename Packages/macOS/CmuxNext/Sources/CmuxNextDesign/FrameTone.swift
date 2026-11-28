@@ -20,8 +20,6 @@ public nonisolated struct FrameTone {
     public nonisolated init() {}
     /// The ink ladder's frame rung: the least share.
     public static let frameRung = 0.04
-    /// The hover rung (and a multi-selected tab's).
-    public static let hoverRung = 0.08
     /// The selected rung: the most a frame takes. A press takes it too (Leo, 2026-10-18: no brighter press tone that
     /// flashes on a click).
     public static let selectedRung = 0.12

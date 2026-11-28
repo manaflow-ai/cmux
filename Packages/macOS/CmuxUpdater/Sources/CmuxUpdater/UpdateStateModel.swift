@@ -136,12 +136,6 @@ public final class UpdateStateModel {
         setState(newState)
     }
 
-    /// Cancels whatever phase is active and returns the model to ``UpdateState/idle``,
-    /// clearing any override. Used when starting a fresh check.
-    public func cancelActiveStateForNewCheck() {
-        replaceActiveState(with: .idle)
-    }
-
     /// Replaces the visible phase before causally ending the old Sparkle prompt/check.
     ///
     /// The order matters: Sparkle is allowed to synchronously call back while its cancellation
@@ -172,33 +166,7 @@ public final class UpdateStateModel {
     }
 
     #if DEBUG
-    /// Sets the detected-update version directly without an appcast item. DEBUG-only, for UI
-    /// test scaffolding that wants to surface the passive banner without a real appcast.
-    public func debugSetDetectedVersion(_ version: String?) {
-        detectedUpdateItem = nil
-        detectedUpdateVersion = version
-    }
     #endif
-
-    /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of
-    /// ``state``/``overrideState`` is carrying it, and clearing the detected-update banner.
-    public func dismissDetectedAvailableUpdate() {
-        clearDetectedUpdate()
-
-        var didDismissUpdate = false
-        if case .updateAvailable(let update) = state {
-            update.reply(.dismiss)
-            didDismissUpdate = true
-            setState(.idle)
-        }
-
-        if let overrideState, case .updateAvailable(let update) = overrideState {
-            if !didDismissUpdate {
-                update.reply(.dismiss)
-            }
-            setOverrideState(nil)
-        }
-    }
 
     // MARK: - Derived display state
 
@@ -211,11 +179,6 @@ public final class UpdateStateModel {
     /// the foreground flow is idle.
     public var showsDetectedBackgroundUpdate: Bool {
         effectiveState.isIdle && detectedUpdateVersion != nil
-    }
-
-    /// Whether cached appcast details exist for the detected background update.
-    public var hasCachedDetectedUpdateDetails: Bool {
-        detectedUpdateItem != nil
     }
 
     /// Whether the update pill should be visible.
@@ -267,22 +230,6 @@ public final class UpdateStateModel {
             return Self.userFacingErrorTitle(for: err.error)
         case .startingDownload:
             return String(localized: "update.startingDownload", defaultValue: "Starting Download…")
-        }
-    }
-
-    /// The widest title text the pill can show for the current phase, used to reserve layout
-    /// width so the pill does not resize as progress ticks.
-    public var maxWidthText: String {
-        if let detectedText = detectedUpdateText {
-            return detectedText
-        }
-        switch effectiveState {
-        case .downloading:
-            return "Downloading: 100%"
-        case .extracting:
-            return "Preparing: 100%"
-        default:
-            return text
         }
     }
 

@@ -95,10 +95,6 @@ public actor CmuxConfigFile {
         return file("cmux.json", under: override ?? BuildStatePaths.current.classicImportDirectory ?? home)
     }
 
-    /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
-    /// when that fails, the reason in the log and ``defaultURL(home:environment:)``.
-    public static func launchURL() -> URL { launchFile().url }
-
     /// ``launchURL()`` and whether this launch made the file from nothing (``LaunchFile``).
     public static func launchFile() -> LaunchFile {
         do {

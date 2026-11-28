@@ -258,9 +258,6 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         }
     }
 
-    /// The marks the record waits for before it is written: the first window frame and Home's reveal.
-    public static let awaitedMarks = ["first_window_frame_committed", "reveal.home"]
-
     /// The launch marks a row keeps under ``phases``, in launch order (`cmux app launch-times --phases`).
     /// Every launch mark a stage splits into is here, so a stage's regression names its step from the file alone,
     /// outside a harness's marks pipe too (startup-tti, 2026-11-21).

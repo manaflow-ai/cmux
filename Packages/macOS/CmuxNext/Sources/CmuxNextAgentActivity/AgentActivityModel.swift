@@ -189,9 +189,6 @@ public final class AgentActivityModel {
         scrub(to: events[min(max(target, 0), events.count - 1)].seq)
     }
 
-    public func scrubToStart() { scrub(to: selectedEvents.first?.seq) }
-    public func scrubToEnd() { scrub(to: nil) }
-
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {

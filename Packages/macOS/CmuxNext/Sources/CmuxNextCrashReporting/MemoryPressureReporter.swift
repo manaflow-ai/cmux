@@ -176,15 +176,6 @@ public final class MemoryPressureReporter: Sendable {
                                          topOwners: snapshot.topOwners, uptimeNanos: snapshot.uptimeNanos))
     }
 
-    /// Reports a high-footprint sample even when the kernel has not changed
-    /// pressure level.
-    @discardableResult
-    public func noteFootprint(_ snapshot: MemoryPressureSnapshot) -> Bool {
-        guard snapshot.footprintMegabytes >= highFootprintMegabytes else { return false }
-        return send(MemoryPressureReport(kind: .highFootprint, footprintMegabytes: snapshot.footprintMegabytes,
-                                         topOwners: snapshot.topOwners, uptimeNanos: snapshot.uptimeNanos))
-    }
-
     /// Reports a signal-less, high-footprint previous run discovered at launch.
     @discardableResult
     public func notePreviousOOM(_ snapshot: MemoryPressureSnapshot) -> Bool {

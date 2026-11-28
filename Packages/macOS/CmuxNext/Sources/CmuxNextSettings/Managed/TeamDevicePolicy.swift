@@ -20,16 +20,6 @@ extension TeamPolicyLayer {
 }
 
 extension ManagedPreferences {
-    /// What `team.device.enroll` takes for the MDM `EnrollmentToken`:
-    /// base64url(SHA-256(token)) without padding. The raw token never leaves
-    /// the device. The backend test uses the same vector.
-    public static func enrollmentTokenHash(_ token: String) -> String {
-        Data(SHA256.hash(data: Data(token.utf8))).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
     /// The forced `EnrollmentToken`, trimmed; nil when absent or empty. A
     /// non-forced value is ignored: any local user could have written it.
     public var enrollmentToken: String? {

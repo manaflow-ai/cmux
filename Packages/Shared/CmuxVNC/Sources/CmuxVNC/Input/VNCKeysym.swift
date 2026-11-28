@@ -24,16 +24,12 @@ public struct VNCKeysym: RawRepresentable, Sendable, Hashable {
     public static let end = VNCKeysym(rawValue: 0xFF57)
     public static let insert = VNCKeysym(rawValue: 0xFF63)
     public static let shift = VNCKeysym(rawValue: 0xFFE1)
-    public static let shiftRight = VNCKeysym(rawValue: 0xFFE2)
     public static let control = VNCKeysym(rawValue: 0xFFE3)
-    public static let controlRight = VNCKeysym(rawValue: 0xFFE4)
     public static let capsLock = VNCKeysym(rawValue: 0xFFE5)
     /// Option on a Mac host, Alt elsewhere.
     public static let option = VNCKeysym(rawValue: 0xFFE9)
-    public static let optionRight = VNCKeysym(rawValue: 0xFFEA)
     /// Command on a Mac host, the Windows/Super key elsewhere.
     public static let command = VNCKeysym(rawValue: 0xFFEB)
-    public static let commandRight = VNCKeysym(rawValue: 0xFFEC)
 
     /// F1 to F24.
     public static func function(_ number: Int) -> VNCKeysym {

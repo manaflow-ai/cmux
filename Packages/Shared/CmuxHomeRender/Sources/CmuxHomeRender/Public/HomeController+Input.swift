@@ -65,11 +65,6 @@ extension HomeController {
     public var caretRect: CGRect { toHost(scene.compose.caretRect) }
     /// The compose field in viewport points; hosts place their buttons beside it.
     public var fieldRect: CGRect { toHost(scene.hostedField ?? scene.compose.fieldRect) }
-    /// Hide while the host's text input is not focused.
-    public var showsCaret: Bool {
-        get { scene.compose.showsCaret }
-        set { scene.compose.showsCaret = newValue }
-    }
 
     // MARK: Internals
 

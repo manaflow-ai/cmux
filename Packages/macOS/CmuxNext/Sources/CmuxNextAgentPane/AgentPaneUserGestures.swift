@@ -431,16 +431,6 @@ import CmuxNextCompat
         return true
     }
 
-    /// The finish of an upload holding a send ticket began: until it is released, the host awaits its
-    /// transfer and the hold no longer stalls out (a newer Send, the connection's end or Turn Off still
-    /// end it). False when its hold ended: the finish is refused.
-    public func uploadFinishing(_ upload: String) -> Bool {
-        dropEndedHolds()
-        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
-        tickets[key]?.finishing.insert(upload)
-        return true
-    }
-
     /// An upload holding a send ticket finished or was cancelled: its hold ends, and when it was
     /// the last, the ticket's clock runs again from where it stopped. False when it held none.
     @discardableResult

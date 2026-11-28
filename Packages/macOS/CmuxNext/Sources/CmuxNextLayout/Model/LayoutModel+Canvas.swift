@@ -9,11 +9,6 @@ extension LayoutModel {
         canvases[screen]
     }
 
-    /// The active screen's canvas.
-    public var activeCanvas: CanvasScreen? {
-        activeScreenID.flatMap { canvases[$0] }
-    }
-
     /// The active screen shows as a canvas now: in canvas mode, with no
     /// zoomed pane (a zoom shows its pane full size over the canvas).
     public var isCanvasActive: Bool {

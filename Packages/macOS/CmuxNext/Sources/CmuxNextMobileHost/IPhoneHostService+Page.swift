@@ -46,9 +46,6 @@ extension IPhoneHostService {
         ]
     }
 
-    /// `mobile.allowIPhoneConnections` as the service follows it (Settings > Accounts > iPhone's switch).
-    public var allowsConnections: Bool { allowed }
-
     /// hostd's phase (Settings > Accounts > iPhone's status line).
     public var phase: MobileHostState.Phase { state.phase }
 

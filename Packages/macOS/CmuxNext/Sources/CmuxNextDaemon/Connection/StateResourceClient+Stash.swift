@@ -70,12 +70,6 @@ extension StateResourceClient {
         try await stateMutation("stash.create", ["tabs": Self.ids(tabs)], as: StashCreated.self)
     }
 
-    /// Closes workspace `workspace`'s unpinned web pages into one stash; its other tabs stay.
-    @discardableResult
-    public func stashWorkspace(_ workspace: ResourceID) async throws -> StashCreated {
-        try await stateMutation("stash.create", ["workspace": .string(workspace.rawValue)], as: StashCreated.self)
-    }
-
     /// Closes workspaces `workspaces` whole (every tab, ending their terminals) into one stash
     /// named `name` (else the workspace's name for one, none for several). Needs
     /// `DaemonCapability.stashWorkspaces`.

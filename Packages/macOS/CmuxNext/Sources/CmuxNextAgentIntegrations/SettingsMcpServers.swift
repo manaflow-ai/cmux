@@ -35,9 +35,6 @@ public final class SettingsMcpServers: PageProvider {
         var error: String?
     }
 
-    /// One line of a sign-in: `waiting` with its page, then `connected` or `failed` with why.
-    public typealias SignInLine = JSONValue
-
     private(set) var rows: [Row] = []
     private(set) var loading = false
     /// `unavailable` (no executable optchat-chief beside the CLI) or `failed` (the list did not answer).

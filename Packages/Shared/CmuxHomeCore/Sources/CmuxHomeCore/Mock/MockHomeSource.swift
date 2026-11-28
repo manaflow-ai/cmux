@@ -474,9 +474,6 @@ public actor MockHomeSource: HomeSource {
         for submit in waiting { submit.resume() }
     }
 
-    /// Submits waiting for `releaseSubmits` now.
-    public var heldSubmitCount: Int { heldSubmits.count }
-
     /// Changes a mock conversation's owner for local-versus-cloud UI fixtures, through the
     /// same summary event as the owner. This source never reaches a real conversation service.
     public func setOwner(_ owner: ConversationSummary.Owner, in conversation: ConversationID) {

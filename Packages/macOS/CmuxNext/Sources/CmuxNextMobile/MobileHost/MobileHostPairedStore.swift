@@ -212,9 +212,6 @@ public final class MobileHostPairedStore: Sendable {
         await read(retry: nil)
     }
 
-    /// Whether the seal stayed refused past the waits in this run (``State/memoryOnly``).
-    public var isMemoryOnly: Bool { state.withLock { $0.memoryOnly } }
-
     /// Reads the selected account's list. `retry`: the pending wait for a refused seal ended; any other
     /// read while that wait is pending is left to it, so one refusal never starts two chains of waits.
     private func read(retry: UUID?) async {

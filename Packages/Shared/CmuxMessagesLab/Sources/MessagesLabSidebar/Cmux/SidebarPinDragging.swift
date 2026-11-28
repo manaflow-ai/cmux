@@ -5,9 +5,6 @@ import AppKit
 /// A tile dropped on the list is unpinned; a row dropped on the grid is pinned there; Escape
 /// puts everything back. Drags are off while searching (the grid is hidden then).
 extension SidebarController {
-    /// The grid's order as drawn during a drag (nil: no drag). Tests read it.
-    var pinDragOrder: [ConversationID]? { pinDragState.drag?.order }
-
     private var placer: SidebarPinPlacing? { delegate as? SidebarPinPlacing }
     private var tileSize: CGSize { CGSize(width: metrics.tileWidth, height: metrics.tileHeight) }
 

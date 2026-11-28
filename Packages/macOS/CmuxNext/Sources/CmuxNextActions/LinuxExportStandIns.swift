@@ -43,7 +43,6 @@ public nonisolated let NSLeftArrowFunctionKey = 0xF702
 public nonisolated let NSRightArrowFunctionKey = 0xF703
 public nonisolated let NSF1FunctionKey = 0xF704
 public nonisolated let NSF35FunctionKey = 0xF726
-public nonisolated let NSInsertFunctionKey = 0xF727
 public nonisolated let NSDeleteFunctionKey = 0xF728
 public nonisolated let NSHomeFunctionKey = 0xF729
 public nonisolated let NSEndFunctionKey = 0xF72B

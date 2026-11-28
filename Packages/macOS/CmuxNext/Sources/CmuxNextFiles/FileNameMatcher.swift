@@ -17,9 +17,6 @@ public struct FileNameMatcher: Sendable {
         asciiNeedle = bytes.allSatisfy { $0 < 0x80 } ? bytes.map(Self.lower) : nil
     }
 
-    /// True when every name matches (empty text).
-    public var matchesAll: Bool { folded.isEmpty }
-
     /// Whether `name` contains the text.
     public func matches(_ name: String) -> Bool {
         if folded.isEmpty { return true }

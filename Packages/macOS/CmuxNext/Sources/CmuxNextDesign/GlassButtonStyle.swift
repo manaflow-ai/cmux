@@ -197,8 +197,6 @@ public nonisolated struct ThemedInkStyle: ShapeStyle {
 nonisolated extension ShapeStyle where Self == ThemedInkStyle {
     /// The theme's secondary text fit to the ground of the ``ThemedHostingView`` the view is in.
     public static var cmuxSecondary: ThemedInkStyle { ThemedInkStyle(level: .secondary) }
-    /// The theme's tertiary text fit to the ground of the ``ThemedHostingView`` the view is in.
-    public static var cmuxTertiary: ThemedInkStyle { ThemedInkStyle(level: .tertiary) }
 }
 
 /// The theme's text inks a ``ThemedHostingView`` gives its content, each fit to the ground the view sits on.

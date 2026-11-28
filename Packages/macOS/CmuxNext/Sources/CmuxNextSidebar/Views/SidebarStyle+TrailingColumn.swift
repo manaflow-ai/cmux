@@ -122,18 +122,6 @@ extension SidebarStyle {
     /// One tenth of a button between adjacent hover squares.
     static var trailingControlGap: CGFloat { trailingSlotSide / 10 }
 
-    /// The center x of trailing slot `slot` (0 is the column) in a row of `rowWidth`.
-    static func trailingSlotCenterX(rowWidth: CGFloat, slot: Int) -> CGFloat {
-        trailingColumnCenterX(rowWidth: rowWidth) - CGFloat(slot) * trailingSlotPitch
-    }
-
-    /// Where the controls left of a column mark end: one slot gap left of the column's slot, so the next control
-    /// centers on slot 1. A mark wider than the slot (a badge stack) pushes them left of its own start instead.
-    static func trailingAfterColumnMark(markMinX: CGFloat, rowWidth: CGFloat) -> CGFloat {
-        let start = trailingColumnStart(rowWidth: rowWidth)
-        return markMinX >= start - 0.01 ? start - Metrics.space1 : markMinX - Metrics.space2
-    }
-
     /// `value` on the nearest backing pixel: a mark centered on the column stays within half a pixel of it. Flooring
     /// to whole points (the row badge did) put the unread dot up to a point left of the ✕ and the status above it.
     static func pixelSnapped(_ value: CGFloat, scale: CGFloat) -> CGFloat { (value * scale).rounded() / scale }

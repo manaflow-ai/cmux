@@ -45,12 +45,6 @@ public final class MacScreenTab {
         if view.isShown { pane.resume() }
     }
 
-    /// Nothing yet.
-    func showLoading() {
-        clear()
-        view.fill(with: nil, focus: { nil })
-    }
-
     func rename(_ name: String) { pane?.model.name = name }
 
     /// The tab closed or shows something else: its session ends now.

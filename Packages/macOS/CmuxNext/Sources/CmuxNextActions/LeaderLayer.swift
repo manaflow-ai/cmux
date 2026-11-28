@@ -16,16 +16,6 @@ public struct LeaderLayer {
         self.registry = registry
     }
 
-    /// The first key of a chord a key-down arms: one whose action could run
-    /// now, else the leader when some binding sits under it, even one that
-    /// cannot run in this focus, so the overlay says what Cmd-J offers.
-    /// Reads the event's keys once.
-    public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        let shortcuts = registry.shortcuts(for: event)
-        if let first = shortcuts.first(where: registry.startsChord) { return first }
-        return shortcuts.contains(Self.prefix) && hasChords(after: Self.prefix) ? Self.prefix : nil
-    }
-
     /// Every binding under `prefix` (the which-key overlay), whether or not
     /// its action can run now; numbered families keyed by their `1`.
     public func chords(after prefix: Shortcut = Self.prefix) -> [ChordBinding] {
@@ -33,12 +23,6 @@ public struct LeaderLayer {
         return [index.chords[prefix], index.chordDigitFamilies[prefix]].compactMap { $0 }.flatMap { table in
             table.flatMap { second, ids in ids.map { ChordBinding(second: second, id: $0) } }
         }
-    }
-
-    /// Whether any binding sits under `prefix`.
-    public func hasChords(after prefix: Shortcut = Self.prefix) -> Bool {
-        let index = registry.currentShortcutIndex()
-        return index.chords[prefix]?.isEmpty == false || index.chordDigitFamilies[prefix]?.isEmpty == false
     }
 
     /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (the key

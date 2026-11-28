@@ -168,12 +168,3 @@ public struct ChiefPlanPullRequest: Hashable, Sendable, Identifiable {
         return "\(path[0].lowercased())/\(path[1].lowercased())#\(number)"
     }
 }
-
-/// The live plan the host publishes for the views that draw it (the inspector and the transcript's
-/// plan cards). Observable: a view reads ``plan`` inside an observation and redraws when it changes.
-@Observable @MainActor
-public final class ChiefPlanBoard {
-    public var plan: ChiefPlan = .empty
-
-    public init() {}
-}

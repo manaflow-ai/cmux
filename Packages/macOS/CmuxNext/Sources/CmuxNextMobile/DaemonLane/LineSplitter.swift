@@ -16,9 +16,6 @@ public struct LineSplitter: Sendable {
         self.maximumLineBytes = maximumLineBytes
     }
 
-    /// Bytes held for an unfinished line.
-    public var pendingByteCount: Int { buffer.count }
-
     /// Appends `chunk` and returns every completed line without its `\n`
     /// (a trailing `\r` is kept; v12 never sends one).
     public mutating func append(_ chunk: Data) throws(Failure) -> [Data] {

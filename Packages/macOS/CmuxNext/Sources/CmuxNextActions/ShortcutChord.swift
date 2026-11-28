@@ -47,13 +47,6 @@ extension ActionRegistry {
         chordOverrides[id] = chord
     }
 
-    /// Whether `shortcut` starts a chord whose action could run now.
-    public func startsChord(_ shortcut: Shortcut) -> Bool {
-        let index = currentShortcutIndex()
-        let seconds = Array((index.chords[shortcut] ?? [:]).values) + Array((index.chordDigitFamilies[shortcut] ?? [:]).values)
-        return seconds.joined().contains { canPerform($0) }
-    }
-
     /// The action the second key of a chord started by `prefix` runs, plus
     /// the digit for a numbered family (`ctrl+b` then `3`).
     public func resolveChord(after prefix: Shortcut, _ second: Shortcut) -> (id: ActionID, argument: String?)? {
@@ -64,11 +57,6 @@ extension ActionRegistry {
             return (id, String(digit))
         }
         return nil
-    }
-
-    /// The first key of a chord a key-down starts, or nil.
-    public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        shortcuts(for: event).first(where: startsChord)
     }
 
     /// The action a key-down completes after `prefix`, with its tier.

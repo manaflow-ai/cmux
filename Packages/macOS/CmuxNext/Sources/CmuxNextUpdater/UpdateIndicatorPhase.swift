@@ -109,5 +109,4 @@ extension UpdateIndicatorPhase {
 
     /// The circle menu's titles.
     public static var installTitle: String { UpdaterStrings.install }
-    public static var releaseNotesTitle: String { UpdaterStrings.releaseNotes }
 }

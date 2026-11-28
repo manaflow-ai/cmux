@@ -89,9 +89,6 @@ public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
 
     public var isBuiltIn: Bool { tier == .firstParty && Self.builtInIDs.contains(id) }
 
-    /// Whether the store has any permission to show (requested or optional).
-    public var requestsScopes: Bool { !scopes.isEmpty || !optionalScopes.isEmpty }
-
     /// The first implementation the store can preview live (a section or status item).
     public var previewable: AppImplementation? { implementations.first(where: \.isPreviewable) }
 
