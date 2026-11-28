@@ -1,0 +1,180 @@
+name: chat-size ladder
+
+# The infinite-chats goal's ratio (cmuxterm-hq goals/infinite-chats.md: the 1 GB chat within 1.2x of the 1 MB chat on
+# idle RSS, promptPage, sendFirstToken, scroll and restart), measured on every change that can move it, before and
+# after in one job: scripts/measure/chat-size-sweep.sh 1M,1G on the change's base and on the change, the same runner,
+# one release build at a time, then scripts/measure/chat-size-compare.py prints both and the change in each ratio to
+# the job summary. A lane sees its own delta when its push's run ends, not at the next board read.
+#
+# Leo, 2026-11-19: "we need to be able to have infinite chats, infinitely long chats, that sort of thing on, you
+# know, current day hardware".
+#
+# Advisory: not a required check; a slower head never fails the job (the numbers are the product). The job fails
+# only when a run measures nothing.
+
+on:
+  pull_request:
+    paths:
+      - "cmux-tui/crates/acpmux/**"
+      - "cmux-tui/crates/coord-sim/**"
+      - "cmux-tui/Cargo.lock"
+      - "scripts/measure/chat-size-sweep.sh"
+      - "scripts/measure/chat-size-compare.py"
+      - ".github/workflows/chat-size-ladder.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/acpmux/**"
+      - "cmux-tui/crates/coord-sim/**"
+      - "cmux-tui/Cargo.lock"
+      - "scripts/measure/chat-size-sweep.sh"
+      - "scripts/measure/chat-size-compare.py"
+      - ".github/workflows/chat-size-ladder.yml"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Commit or branch to compare against (empty: the dispatched ref's parent)"
+        required: false
+        default: ""
+        type: string
+      sizes:
+        description: "Sizes, comma separated, first must be 1M"
+        required: false
+        default: "1M,1G"
+        type: string
+
+concurrency:
+  # A newer push to the same pull request or branch replaces its older ladder.
+  group: chat-size-ladder-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ladder:
+    name: chat-size ladder (base vs head, advisory)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Resolve the base commit
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          INPUT_BASE: ${{ inputs.base }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A pull request's checkout is its merge with the base tip: the base tip is the before.
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$PUSH_BEFORE" ;;
+            *) base="${INPUT_BASE:-$(git rev-parse HEAD^1)}" ;;
+          esac
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^1)"; fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ steps.base.outputs.sha }}
+          path: .chat-size-base
+
+      # Two release builds of acpmux and two 1 GB chats; the same room the acpmux sweep asks for, and more.
+      - name: Make room on the pool host
+        if: runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-')
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          if [ -x scripts/ci/pool-make-room.sh ]; then
+            scripts/ci/pool-make-room.sh "$((40 * 1024 * 1024 * 1024))" 120
+          else
+            df -h "$GITHUB_WORKSPACE" || true
+          fi
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-chat-size-ladder-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name == 'push' }}
+
+      # One target folder for both trees: the base's build reuses the head's compiled dependencies. The base runs
+      # the head's copy of the sweep script, so both sides are driven the same way (the harness itself, god_daemon.rs
+      # chat_size_sweep, is each tree's own).
+      - name: Ladder on the base
+        id: base_run
+        continue-on-error: true
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
+          FAST_CHECKS_OUT: ${{ runner.temp }}/chat-size/base
+          SIZES: ${{ inputs.sizes || '1M,1G' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/measure/chat-size-sweep.sh .chat-size-base/scripts/measure/chat-size-sweep.sh
+          mkdir -p "$FAST_CHECKS_OUT"
+          bash .chat-size-base/scripts/measure/chat-size-sweep.sh "$SIZES" > "$FAST_CHECKS_OUT/run.out" 2>&1 || {
+            code=$?; tail -n 80 "$FAST_CHECKS_OUT/run.out"; exit "$code"; }
+          grep -E '^(CHAT-SIZE-RATIO|infinite_chat_size_ratio_max|CHAT-SIZE-ROW)' "$FAST_CHECKS_OUT/run.out" || true
+
+      - name: Ladder on the head
+        id: head_run
+        continue-on-error: true
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
+          FAST_CHECKS_OUT: ${{ runner.temp }}/chat-size/head
+          SIZES: ${{ inputs.sizes || '1M,1G' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$FAST_CHECKS_OUT"
+          bash scripts/measure/chat-size-sweep.sh "$SIZES" > "$FAST_CHECKS_OUT/run.out" 2>&1 || {
+            code=$?; tail -n 80 "$FAST_CHECKS_OUT/run.out"; exit "$code"; }
+          grep -E '^(CHAT-SIZE-RATIO|infinite_chat_size_ratio_max|CHAT-SIZE-ROW)' "$FAST_CHECKS_OUT/run.out" || true
+
+      - name: Before and after
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/chat-size
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          HEAD_SHA: ${{ steps.base.outputs.head }}
+          BASE_OUTCOME: ${{ steps.base_run.outcome }}
+          HEAD_OUTCOME: ${{ steps.head_run.outcome }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/measure/chat-size-compare.py "$OUT/base/run.out" "$OUT/head/run.out" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" | tee "$OUT/compare.md" >> "$GITHUB_STEP_SUMMARY"
+          printf '\nbase run: %s, head run: %s\n' "$BASE_OUTCOME" "$HEAD_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HEAD_OUTCOME" != success ]; then
+            echo "::error title=chat-size ladder::the head's ladder did not finish (see the Ladder on the head step)"
+            exit 1
+          fi
+
+      - name: Keep both runs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chat-size-ladder-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/chat-size/*/run.out
+            ${{ runner.temp }}/chat-size/*/chat-size-row.json
+            ${{ runner.temp }}/chat-size/compare.md
+          if-no-files-found: warn
+          retention-days: 14
