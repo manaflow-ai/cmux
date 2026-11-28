@@ -231,12 +231,36 @@ def file_groups(disks):
 KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
 
 
+# The largest PROT_NONE mapping below a stack that still reads as its guard page.
+STACK_GUARD_MAX = 64 << 10
+
+
+def thread_stack_pointers(pid):
+    """Each thread's user stack pointer, from /proc/PID/task/TID/syscall (a thread blocked in a syscall, as an idle one
+    is): the second-to-last field. Empty where the kernel refuses the read."""
+    sps = []
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return sps
+    for tid in tids:
+        try:
+            with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                fields = f.read().split()
+            if len(fields) >= 3:
+                sps.append(int(fields[-2], 16))
+        except (OSError, ValueError):
+            continue
+    return sps
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
-    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a malloc arena (glibc maps each at a 64 MB boundary), a
+    thread's stack (the mapping a thread's stack pointer is in, or one above a guard page) and the rest."""
     kinds, name = {}, None
-    prev_end, prev_guard = None, False
+    prev_end, prev_guard = None, 0
+    sps = thread_stack_pointers(pid)
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -245,8 +269,13 @@ def smaps_kinds(pid):
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
                     start, end = (int(x, 16) for x in head[0].split("-"))
-                    anon = ("thread-stack" if prev_guard and prev_end == start else
-                            "arena" if start % (64 << 20) == 0 else "anon")
+                    # The arena test first: glibc maps arenas side by side, each one's writable start on a 64 MB
+                    # boundary right after the previous arena's PROT_NONE tail, which reads as a guard page too.
+                    # A guard is a page or two (glibc's default, Rust's); an allocator's reserved tail (a mimalloc
+                    # segment's, a glibc arena's) is far larger, and the mapping above it is heap, not a stack.
+                    anon = ("arena" if start % (64 << 20) == 0 else
+                            "thread-stack" if any(start <= sp < end for sp in sps) else
+                            "thread-stack" if 0 < prev_guard <= STACK_GUARD_MAX and prev_end == start else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
@@ -254,7 +283,7 @@ def smaps_kinds(pid):
                             # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
                             "heap:" + path[6:-1] if path.startswith("[anon:") else
                             anon if path.startswith("[") else "file:" + os.path.basename(path))
-                    prev_end, prev_guard = end, not path and head[1].startswith("---")
+                    prev_end, prev_guard = end, (end - start) if not path and head[1].startswith("---") else 0
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
@@ -831,6 +860,11 @@ ROWS = []  # every PERF_ROW, printed again at the end as one {"rows": [...]} rep
 
 
 def perf_row(name, value, unit, floor=None):
+    # --row-arm ARM names the rows infinite_items.ARM.nN.* so a second arm (the all-live one, --lazy-start=off) sits
+    # beside the product arm's infinite_items.nN.* rows in one report instead of replacing them.
+    arm = getattr(ARGS, "row_arm", "") if ARGS is not None else ""
+    if arm and name.startswith("infinite_items."):
+        name = f"infinite_items.{arm}." + name[len("infinite_items."):]
     row = {"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}
     if floor is not None:
         row["floor"] = floor
@@ -1064,8 +1098,13 @@ def main():
                    help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
     p.add_argument("--heap-profile-at", type=float, default=0.0,
                    help="a Unix time at which to ask for the heap profile even if the run has not ended (dhat is slow)")
+    p.add_argument("--row-arm", default="",
+                   help="name this arm's PERF_ROWs infinite_items.ARM.nN.* (e.g. all_live with --lazy-start=off), so "
+                        "perf-cron keeps them beside the product arm's infinite_items.nN.* rows; empty (default): no arm")
     p.add_argument("--out")
     args = p.parse_args()
+    if args.row_arm and not re.fullmatch(r"[a-z0-9_]+", args.row_arm):
+        raise SystemExit(f"infinite-items: --row-arm takes [a-z0-9_]+, not {args.row_arm!r}")
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args

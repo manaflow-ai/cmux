@@ -275,10 +275,14 @@ def diff_ratio(before: bytes, after: bytes, tolerance: int = 8) -> float | None:
 # --- the record of a hot-verify look -------------------------------------------------------------------------------
 
 def suite_of(plan: dict | None) -> str:
-    """gui-flows when the look put Rust in (NEXT's daemon and GUI), web-flows for a web-only layer, else mac-flows."""
+    """gui-flows when the look put Rust in (NEXT's daemon and GUI), web-flows for a web-only layer, else mac-flows. A
+    look that built the head app for its Swift (plan "build") shot that app: mac-flows, though its hot-swap layers
+    read ["web"]; as web-flows a Swift change's gate, which reads only gui-flows and mac-flows, never saw it (#61705)."""
     layers = (plan or {}).get("layers") or []
     if "rust" in layers:
         return "gui-flows"
+    if (plan or {}).get("build"):
+        return "mac-flows"
     return "web-flows" if layers == ["web"] else "mac-flows"
 
 

@@ -220,6 +220,8 @@ export type MachineResult = {
   name: string;
   /** Why this pair's first bring-up failed on staging load and was retried once on new machines, or unset. */
   pair_retried?: string;
+  /** The vm id of this slot's first bring-up when the pair was retried (that machine is deleted before the retry). */
+  first_id?: string | null;
   /** Why the first machine of this slot was replaced (a transient failed create), or unset. */
   replaced?: string;
   id: string | null;
@@ -1022,7 +1024,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         console.log(`pair ${pair} retrying once: ${first}`);
         await Promise.all(ms.map((r) => (r.id ? api.deleteMachine(r.id, `pab-${tag}-delete-retry-${r.name}`).catch((e: Error) => console.log(`running: delete of ${r.id} before retry: ${String(e?.message ?? e).slice(0, 200)}`)) : null)));
         for (const r of ms) {
-          Object.assign(r, { id: null, name: `${r.name}r`, replaced: undefined, effective_policy: null, policy_refused: null, pair_retried: first.slice(0, 600) });
+          Object.assign(r, { first_id: r.id, id: null, name: `${r.name}r`, replaced: undefined, effective_policy: null, policy_refused: null, pair_retried: first.slice(0, 600) });
         }
         up = await Promise.allSettled(ms.map(bringUp));
         why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));

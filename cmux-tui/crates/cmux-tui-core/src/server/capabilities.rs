@@ -64,6 +64,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
+        // Advertised like login-machine; the handler refuses anything but the owner's Cloud machine.
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
@@ -90,6 +92,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
         // The start takes `permission_mode` wherever it is served; only a start on the caller's
         // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
@@ -106,8 +109,15 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY);
+        capabilities.push(agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY);
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
+        capabilities.extend_from_slice(mux.endpoint_start_harnesses());
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
         // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
