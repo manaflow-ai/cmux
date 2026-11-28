@@ -27244,6 +27244,17 @@ public func setLanMemoryDir(dir: String?)  {try! rustCall() {
 }
 }
 /**
+ * This phone's `transport.tailnetCarrier` (`off`, `direct-only`, `on`; anything else is off).
+ * Not `off`: [`race`] adds the Mac's reported tailnet addresses as direct candidates beside
+ * the LAN ones and the relay. Call at launch and whenever the setting changes.
+ */
+public func setTailnetCarrier(mode: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_tailnet_carrier(
+        FfiConverterString.lower(mode),$0
+    )
+}
+}
+/**
  * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
  * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
  * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
@@ -28556,6 +28567,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_tailnet_carrier() != 33287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
