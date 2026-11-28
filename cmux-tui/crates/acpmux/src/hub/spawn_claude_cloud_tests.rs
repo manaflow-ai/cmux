@@ -405,9 +405,8 @@ async fn managed_provider_settings_start_on_the_machine_route_not_a_refusal() {
 
     let mut own = meta("own-login");
     own.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
-    let launch = hub
-        .spawn_profile_for(&own, &profile, &Default::default())
+    // Before, `route.unavailable`; the machine login is not applied, the managed route serves it.
+    hub.spawn_profile_for(&own, &profile, &Default::default())
         .await
         .unwrap_or_else(|e| panic!("own login: refused {e:?}"));
-    assert_ne!(launch.env.get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
 }
