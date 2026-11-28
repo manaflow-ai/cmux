@@ -1320,6 +1320,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc danh sách máy Cloud của bạn nên %2$@ chưa khởi động: có thể đã có một máy tên %1$@. Kiểm tra `cmux cloud list-machines`, rồi chạy lại `%3$@`."}}
       }
     },
+    "cloud.startSession.listFailed": {
+      "comment": "The machine list read itself failed, so the start stopped before any create; %4$@ is that failure. %1$@ machine name, %2$@ agent, %3$@ the command (keep it in backticks), %4$@ the list error.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシンの一覧を読み込めなかったため、%2$@ は %1$@ で開始されませんでした: %4$@。`cmux cloud list-machines` で確認してから、`%3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Deine Cloud-Maschinen konnten nicht gelesen werden, daher wurde %2$@ auf %1$@ nicht gestartet: %4$@. Prüfe `cmux cloud list-machines` und führe dann `%3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de lire vos machines Cloud : %2$@ n'a pas démarré sur %1$@ : %4$@. Vérifiez `cmux cloud list-machines`, puis relancez `%3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudieron leer tus máquinas de Cloud, así que %2$@ no se inició en %1$@: %4$@. Revisa `cmux cloud list-machines` y vuelve a ejecutar `%3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت قراءة أجهزة Cloud الخاصة بك، لذا لم يبدأ %2$@ على %1$@: %4$@. تحقّق من `cmux cloud list-machines` ثم شغّل `%3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 머신 목록을 읽지 못해 %2$@이(가) %1$@에서 시작되지 않았습니다: %4$@. `cmux cloud list-machines`를 확인한 다음 `%3$@`를 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法读取你的 Cloud 机器，因此 %2$@ 没有在 %1$@ 上启动：%4$@。请检查 `cmux cloud list-machines`，然后再次运行 `%3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法讀取你的 Cloud 機器，因此 %2$@ 沒有在 %1$@ 上啟動：%4$@。請檢查 `cmux cloud list-machines`，然後再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće pročitati vaše Cloud mašine, pa se %2$@ nije pokrenuo na %1$@: %4$@. Provjerite `cmux cloud list-machines`, pa ponovo pokrenite `%3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke læse dine Cloud-maskiner, så %2$@ startede ikke på %1$@: %4$@. Tjek `cmux cloud list-machines`, og kør derefter `%3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile leggere le tue macchine Cloud, quindi %2$@ non è partito su %1$@: %4$@. Controlla `cmux cloud list-machines`, poi esegui di nuovo `%3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចអានម៉ាស៊ីន Cloud របស់អ្នកបានទេ ដូច្នេះ %2$@ មិនបានចាប់ផ្ដើមនៅលើ %1$@ ទេ៖ %4$@។ សូមពិនិត្យ `cmux cloud list-machines` រួចដំណើរការ `%3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke lese Cloud-maskinene dine, så %2$@ startet ikke på %1$@: %4$@. Sjekk `cmux cloud list-machines`, og kjør deretter `%3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można odczytać Twoich maszyn Cloud, więc %2$@ nie uruchomił się na %1$@: %4$@. Sprawdź `cmux cloud list-machines`, a potem ponownie uruchom `%3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível ler suas máquinas do Cloud, então %2$@ não iniciou em %1$@: %4$@. Verifique `cmux cloud list-machines` e execute `%3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось прочитать ваши машины Cloud, поэтому %2$@ не запустился на %1$@: %4$@. Проверьте `cmux cloud list-machines`, затем снова выполните `%3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อ่านรายการเครื่อง Cloud ของคุณไม่ได้ %2$@ จึงไม่ได้เริ่มบน %1$@: %4$@ ตรวจสอบ `cmux cloud list-machines` แล้วเรียกใช้ `%3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Cloud makineleriniz okunamadı, bu yüzden %2$@ %1$@ üzerinde başlamadı: %4$@. `cmux cloud list-machines` komutunu kontrol edin, sonra `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося прочитати ваші машини Cloud, тому %2$@ не запустився на %1$@: %4$@. Перевірте `cmux cloud list-machines`, потім знову виконайте `%3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc danh sách máy Cloud của bạn nên %2$@ chưa khởi động trên %1$@: %4$@. Hãy kiểm tra `cmux cloud list-machines`, rồi chạy lại `%3$@`."}}
+      }
+    },
     "cloud.startSession.askPending": {
       "comment": "An agent's start-session run once its card asks the person. %1$@ machine, %2$@ agent, %3$@ the command (keep it in backticks), %4$@ the dialog id (keep the command in backticks).",
       "extractionState": "manual",

@@ -263,6 +263,12 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.targetUnread", defaultValue: "Couldn't read the Cloud machines of the account signed in now, so %2$@ didn't start on %1$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command)
     }
 
+    /// The list read itself failed (`reason`), so the start stopped before any create: name that failure, not a guess
+    /// that a machine by the name exists.
+    public static func listFailed(_ asked: Asked, reason: String) -> String {
+        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
+    }
+
     public static func listUnread(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.listUnread", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start: a machine named %1$@ may already exist. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command)
     }
