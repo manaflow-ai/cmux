@@ -155,7 +155,7 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         expectFace(app, "chat", "12-claude-on-chat")
 
         // The regular chat's composer, under the View Only chat.
-        let bar = app.buttons["Reply to Claude"].firstMatch
+        let bar = app.buttons["agentChat.composer.collapsed"].firstMatch
         let field = app.textViews["chat.composer.field"].firstMatch
         if !field.waitForExistence(timeout: 5) {
             XCTAssertTrue(bar.waitForExistence(timeout: 15), "the Chat face shows a composer\n\(app.debugDescription)")
