@@ -457,3 +457,16 @@ fn the_agent_home_ask_is_one_line_with_no_fields() {
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_dir(&dir);
 }
+
+/// cloud-chat-replies-production, 2026-11-28 02:49Z: a chat started on a Cloud VM ran
+/// `background` (this daemon's unix socket proves no person to acpmux) and the gateway refused its
+/// turns from the interactive reserve with a 429. Every start on a Cloud machine, and a phone's,
+/// asks acpmux for `interactive`; a Mac's start leaves the class to acpmux's own person proof.
+#[test]
+fn a_cloud_start_asks_for_the_interactive_class() {
+    let tags = json!({"priority": "interactive"});
+    assert_eq!(person_priority_tags(true, false), Some(tags.clone()));
+    assert_eq!(person_priority_tags(false, true), Some(tags.clone()));
+    assert_eq!(person_priority_tags(true, true), Some(tags));
+    assert_eq!(person_priority_tags(false, false), None);
+}

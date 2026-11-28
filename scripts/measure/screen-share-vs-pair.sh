@@ -23,9 +23,11 @@
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
 # host=nightly  the shared Mac serves from the NIGHTLY's Screen Sharing helper (its
-#             Contents/Library/cmux NIGHTLY Helper.app, what the app's `cmux rd serve` runs) through
-#             --host-bin, not the cmux-rd built at this commit: the installed /Applications/cmux NIGHTLY.app
-#             (the granted copy), else the newest DMG in the appcast; probe.txt names which and its version.
+#             cmux NIGHTLY Helper.app, what the app's `cmux rd serve` runs) through --host-bin, not the
+#             cmux-rd built at this commit: the copy the NIGHTLY stages at ~/Library/Application Support/
+#             cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/ (the granted copy), else the one in
+#             /Applications/cmux NIGHTLY.app/Contents/Library, else the newest DMG in the appcast; probe.txt
+#             names the helper picked and its version.
 #             Default host=commit.
 # scene=      bars|text|noise|churn is --synthetic-scene for source=synthetic (default: none sent, bars);
 # stats-ms=N  is --host-arg=--stats-every-ms=N, how often the host reports its target and sent rate (the
@@ -234,9 +236,28 @@ scripts/measure/screen-stream-eval.sh tools-only=1 >"$work/tools.log" 2>&1 \
 
 host_args=()
 if [[ "$host" == nightly ]]; then
-  # The installed NIGHTLY first: its helper is the copy macOS granted Screen Recording and Accessibility.
-  app="/Applications/cmux NIGHTLY.app" dmg="installed"
-  if [[ ! -d "$app" ]]; then
+  # The granted copy first: the NIGHTLY runs its helper from a copy outside the app, at
+  # ~/Library/Application Support/cmux-next/helper/<helper bundle id>/<its name>.app (SignedHelperStaging.swift
+  # screenSharing, cmux_signed_bundle::helper_folder), and macOS keeps Screen Recording per executable path, so
+  # that copy holds the grants. Then the installed app's own Contents/Library copy, then the newest DMG.
+  # The step's HOME may not be the login user's (chat-probe.sh), so both homes are tried.
+  real_home="$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+  staged_rel="Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/cmux NIGHTLY Helper.app"
+  # The helper's executable, named by its Info.plist (CFBundleExecutable); fails when it is not there.
+  helper_exe() {
+    local exe; exe="$(plutil -extract CFBundleExecutable raw -o - "$1/Contents/Info.plist" 2>/dev/null)"
+    [[ -n "$exe" && "$exe" != */* && -x "$1/Contents/MacOS/$exe" ]] && printf '%s\n' "$1/Contents/MacOS/$exe"
+  }
+  app="/Applications/cmux NIGHTLY.app" dmg="installed" helper="" helper_app=""
+  candidates=("$HOME/$staged_rel")
+  [[ -n "$real_home" && "$real_home" != "$HOME" ]] && candidates+=("$real_home/$staged_rel")
+  candidates+=("$app/Contents/Library/cmux NIGHTLY Helper.app")
+  for c in "${candidates[@]}"; do
+    helper="$(helper_exe "$c")" && { helper_app="$c"; break; }
+  done
+  [[ -n "$helper_app" && "$helper_app" != "$app"/* ]] && dmg="staged"
+  if [[ -z "$helper_app" ]]; then
+    echo "SSVP no Screen Sharing helper at ${candidates[*]}; trying the newest DMG" | tee -a "$work/probe.txt"
     dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
       | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     [[ "$dmg" == https://* ]] || { echo "SSVP no NIGHTLY installed and no DMG in the feed" | tee -a "$work/probe.txt"; pack; exit 3; }
@@ -245,13 +266,15 @@ if [[ "$host" == nightly ]]; then
       && hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null \
       && ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$app"
     hdiutil detach "$mnt" >/dev/null 2>&1
+    helper_app="$app/Contents/Library/cmux NIGHTLY Helper.app"
+    helper="$(helper_exe "$helper_app")" \
+      || { echo "SSVP no Screen Sharing helper in $app ($dmg)" | tee -a "$work/probe.txt"; pack; exit 3; }
   fi
-  helper="$app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
-  [[ -x "$helper" ]] || { echo "SSVP no Screen Sharing helper in $app ($dmg)" | tee -a "$work/probe.txt"; pack; exit 3; }
   version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null)"
+  helper_version="$(plutil -extract CFBundleVersion raw -o - "$helper_app/Contents/Info.plist" 2>/dev/null)"
   printf '#!/bin/sh\nexec %q "$@"\n' "$helper" >"$work/nightly-host"; chmod +x "$work/nightly-host"
   host_args=(--host-bin "$work/nightly-host")
-  echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
+  echo "SSVP host NIGHTLY ${version:-?} $dmg helper=$helper helper_version=${helper_version:-?}" | tee -a "$work/probe.txt"
 fi
 
 # source=screen over the peer route: the rig (it starts the host and posts the input) runs in the launcher app's
