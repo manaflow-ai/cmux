@@ -280,35 +280,6 @@ struct UpdatedCardHoverPreviewTests {
         host.configure(nil)
     }
 
-    /// Through the App's real island and page provider: the page hears the pointer (now, then each
-    /// change) and the room its preview asks for reaches the host.
-    @Test func theAppsIslandStreamsThePointerAndTakesThePreviewsRoom() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let island = UpdateSurfaceIsland(kind: .updated, services: services)
-        defer { island.close() }
-        var events: [JSONValue] = []
-        let context = PageCallContext(page: PageDescriptor.changelog.id)
-        let subscription = try await island.provider.subscribe("cmux.changelog.surface.pointer", filter: .object([:]),
-                                                               context: context) { events.append($0) }
-        island.setPointerInside(true)
-        island.setPointerInside(true)
-        island.setPointerInside(false)
-        #expect(events == [.object(["inside": .bool(false)]), .object(["inside": .bool(true)]), .object(["inside": .bool(false)])])
-        subscription.cancel()
-        island.setPointerInside(true)
-        #expect(events.count == 3, "a cancelled subscription hears nothing more")
-
-        var changes = 0
-        island.onHeightChange = { changes += 1 }
-        _ = try await island.provider.call("cmux.changelog.surface.size",
-                                           params: .object(["height": .number(48), "width": .number(0), "overlay": .number(248)]),
-                                           context: context)
-        #expect(changes == 1)
-        #expect(island.overlayHeight >= 248, "the preview's room reaches the host (in points, at the page's zoom)")
-        #expect(island.contentHeight >= 48)
-    }
-
     /// Leo 2026-11-08: "flicker upon hovering over what's new". The host's hover is where the pointer is
     /// now: the open preview handing its room back under a still pointer ends the hover once, and the
     /// room above the glass never counts. A tracking area on the whole view sent no exit when it shrank,

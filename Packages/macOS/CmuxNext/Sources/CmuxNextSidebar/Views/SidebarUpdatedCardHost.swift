@@ -528,9 +528,10 @@ final class SidebarUpdatedCardHost: NSView {
         didSet { if standsOffRest != oldValue { needsLayout = true } }
     }
 
-    /// Whether the native frost shows under the page: only while the card or its open preview stands over the
+    /// Whether the native frost shows under the page: always under a native card (it paints no glass of its
+    /// own), else only while the card or its open preview stands over the
     /// rows, which the page's own blur cannot reach (Leo 2026-11-08: "we should be able to keep it as glass").
-    func frosts(preview: CGFloat) -> Bool { preview > 0 || closingHeight != nil || heldOffset != nil || standsOffRest }
+    func frosts(preview: CGFloat) -> Bool { island?.paintsOwnGlass == false || preview > 0 || closingHeight != nil || heldOffset != nil || standsOffRest }
 
     /// Whether the card's glass covers `windowPoint`: the rows under it light nothing and open no card
     /// (``SidebarListView/hoverOccluded``).

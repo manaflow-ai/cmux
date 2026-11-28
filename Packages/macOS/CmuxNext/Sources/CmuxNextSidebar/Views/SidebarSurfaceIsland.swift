@@ -45,6 +45,9 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var contentSettled: Bool { get }
     /// Points per CSS px of the page (its interface scale); 1 for a surface that is not zoomed.
     var zoom: CGFloat { get }
+    /// The surface paints its own glass at rest (a web page's CSS material). False for a native card: the
+    /// host's glass is then its one glass always, so its edge is the Swift glass's edge.
+    var paintsOwnGlass: Bool { get }
     /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
     /// page no pointer moves while another of the app's windows, a Chromium page's, has the key.
     func setPointerInside(_ inside: Bool)
@@ -62,6 +65,7 @@ extension SidebarSurfaceIsland {
     public var titleLineMid: CGFloat { 0 }
     public var contentSettled: Bool { false }
     public var zoom: CGFloat { 1 }
+    public var paintsOwnGlass: Bool { true }
     public func setPointerInside(_ inside: Bool) {}
     public var onDrag: ((SidebarCardDrag) -> Void)? {
         get { nil }

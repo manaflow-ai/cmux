@@ -6,9 +6,10 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 
-/// The React update surfaces in the sidebar (cx-urd.61.2): the changelog page's bundle, opened on
-/// `#/surface/ready` (the staged update's highlights), `#/surface/updated` (the "cmux Updated!"
-/// card) or `#/surface/updated-notes` (its changes in a popover). The page reads
+/// The update surfaces in the sidebar (cx-urd.61.2). The "cmux Updated!" card and its notes popover are
+/// native (``UpdatedCardIsland``, ``UpdatedNotesIsland``; Lawrence 2026-12: no React in small things like
+/// popovers). The staged update's highlights (`ready`) stay the changelog page's bundle on
+/// `#/surface/ready`. That page reads
 /// ``UpdateHighlights`` and sends its buttons back through `cmux.changelog.surface.*`.
 @MainActor
 final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
@@ -16,7 +17,13 @@ final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
 
     init(services: AppServices) { self.services = services }
 
-    func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland { UpdateSurfaceIsland(kind: kind, services: services) }
+    func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland {
+        switch kind {
+        case .updated: UpdatedCardIsland(services: services)
+        case .updatedNotes: UpdatedNotesIsland(services: services)
+        case .ready: UpdateSurfaceIsland(kind: kind, services: services)
+        }
+    }
 }
 
 @MainActor
