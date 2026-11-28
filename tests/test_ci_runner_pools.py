@@ -2001,5 +2001,47 @@ class SlowSpill(unittest.TestCase):
         self.assertIn("slow marks kept", out.getvalue())
 
 
+class SlowSpillReplay(unittest.TestCase):
+    """The data behind SLOW_SPILL_MINUTES (cmux#65148): 29 janitor snapshots, 2026-11-27 18:17Z to 11-28 16:15Z,
+    replayed through reconcile() by scripts/ci/macos_pool_replay.py. A change to the slow rule that moves these
+    numbers must restate them here and in the rule's comment."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import macos_pool_replay
+        self.replay = macos_pool_replay
+        self.data = macos_pool_replay.load()
+
+    def test_the_fixture_holds_no_runner_names_or_other_labels(self) -> None:
+        self.assertEqual(len(self.data["snapshots"]), 29)
+        for snapshot in self.data["snapshots"]:
+            self.assertNotIn("running", snapshot)
+            for label in snapshot["pools"]:
+                self.assertRegex(label, runner_pools.SLOW_SPILL)
+
+    def test_the_fixture_pool_is_the_declared_macos_15_pool(self) -> None:
+        declared = runner_pools.members(runner_pools.load_pools()["macos_15"])
+        self.assertEqual(self.data["pools"]["macos_15"]["members"], declared)
+
+    def test_the_bound_brings_the_median_swift_check_wait_under_10_min(self) -> None:
+        result = self.replay.replay(self.data["snapshots"], self.data["pools"], runner_pools.SLOW_SPILL_MINUTES)
+        self.assertEqual(runner_pools.SLOW_SPILL_MINUTES, 20.0)
+        self.assertEqual((result["spilled"], result["median_before"], result["median_after"]), (11, 21.0, 3.0))
+        self.assertLess(result["median_after"], 10)
+        self.assertEqual((round(result["mean_before"]), round(result["mean_after"])), (38, 15))
+
+    def test_a_spill_lands_only_on_macos_26_under_10_min(self) -> None:
+        result = self.replay.replay(self.data["snapshots"], self.data["pools"], 20.0)
+        previous = None
+        for row in result["rows"]:
+            if row["chosen"] == self.replay.OTHER and previous != self.replay.OTHER:
+                self.assertLess(row["other"], 10, row)
+            previous = row["chosen"]
+
+    def test_the_replay_leaves_the_module_bound_unchanged(self) -> None:
+        self.replay.replay(self.data["snapshots"], self.data["pools"], 30.0)
+        self.assertEqual(runner_pools.SLOW_SPILL_MINUTES, 20.0)
+
+
 if __name__ == "__main__":
     unittest.main()
