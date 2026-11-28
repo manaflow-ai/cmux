@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Claude Code's long-lived token from `claude setup-token` (`sk-ant-oat…`), as Settings > Models,
 /// Settings > Cloud and the chat's Add account take it pasted (webviews' `claudeSetupToken.ts` checks
