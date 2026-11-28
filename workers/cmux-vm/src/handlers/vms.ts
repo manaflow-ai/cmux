@@ -208,19 +208,23 @@ const createRecorded = <C, S, M = never>(
       Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "admitWaitMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
-            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null, failure: createFailureOf(exit),
+            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null, failure: createFailureOf(exit, providerFailures.get(phases)),
           })))
         : Effect.void),
     );
   });
 
+/** The create path's UpstreamError, by its phases, kept before it is mapped to the API error the caller gets. */
+const providerFailures = new WeakMap<TimedPhases, UpstreamError>();
+
 /**
  * Which step failed a create, for its vm_create line: the UpstreamError's operation (an internal name, never provider
- * text) and the provider's HTTP status, or the error's tag. Production 2026-11-28 17:25-17:55Z logged 111 admitted
+ * text) and the provider's HTTP status, kept before onCreate maps it, or else the error's tag. Production 2026-11-28 17:25-17:55Z logged 111 admitted
  * creates failing in under a second with no field naming why; the send fence (createSendUncertain) was read off code.
  */
-const createFailureOf = (exit: Exit.Exit<unknown, unknown>): { readonly step: string; readonly status: number | null } | null => {
+const createFailureOf = (exit: Exit.Exit<unknown, unknown>, provider: UpstreamError | undefined): { readonly step: string; readonly status: number | null } | null => {
   if (Exit.isSuccess(exit)) return null;
+  if (provider !== undefined) return { step: provider.operation, status: provider.status };
   const failure = Cause.failureOption(exit.cause);
   if (Option.isNone(failure)) return { step: Cause.isInterruptedOnly(exit.cause) ? "interrupted" : "defect", status: null };
   const error = failure.value;
@@ -375,6 +379,7 @@ const createRecordedTimed = <C, S, M>(
       .pipe(Effect.either);
     if (Either.isLeft(attempted)) {
       const error = attempted.left;
+      providerFailures.set(phases, error);
       if (error.operation === "createGone") {
         // The uncommitted VM was deleted provider-side (e.g. by autoDeleteSeconds) only if its recorded id is gone
         // too; any other answer keeps it pending. Then tombstone it and settle its intent once, so the retry

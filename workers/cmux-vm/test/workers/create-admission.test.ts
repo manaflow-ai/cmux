@@ -124,3 +124,33 @@ it("refuses a create with a retryable 503 when the queue cannot be reached, and 
     log.restore();
   }
 });
+
+it("refuses a same-key retry the send fence will refuse before it takes a slot, and names the failed step on vm_create", async () => {
+  // Production 2026-11-28 17:25-17:55Z: 111 of 153 admitted creates failed in under 1 s at the send fence, each
+  // holding one of the 3 slots first. A patch: the root is provider latency holding sends to the 45 s cut.
+  const inner = admission({ cap: 1, queueWaitMs: QUEUE_WAIT_MS, leaseMs: 130_000 });
+  let admits = 0;
+  const counted = { ...inner, admit: (...args: Parameters<typeof inner.admit>) => { admits++; return inner.admit(...args); } };
+  const t = (current = await makeHarness({ createAdmission: counted }));
+  const key = await t.addKey("team_alpha", ["vm:write"]);
+  // The provider answers a 5xx: the outcome is unknown, so the dispatch stays sent inside the resend window.
+  t.upstream.hooks.beforeCreate = () => Promise.resolve(new Response(JSON.stringify({ message: "provider busy" }), { status: 500, headers: { "content-type": "application/json" } }));
+  const create = () => t.request("/v1/vms", { ...bearer(key), "idempotency-key": "fenced" }, { method: "POST", body: { labels: { role: "burst" } } });
+  const log = lines("vm_create");
+  try {
+    const first = await create();
+    expect(first.status).toBeGreaterThanOrEqual(500);
+    expect(admits).toBe(1);
+    const retry = await create();
+    expect(retry.status).toBe(503);
+    // The retry never asked the queue for a slot, and nothing more was sent.
+    expect(admits).toBe(1);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+    expect(log.seen).toHaveLength(2);
+    expect(log.seen[0]).toMatchObject({ ok: false, failedStep: "createVm", failedStatus: 500 });
+    expect(log.seen[1]).toMatchObject({ ok: false, failedStep: "createSendUncertain", failedStatus: null });
+    expect(log.seen[1]?.["admitWaitMs"] ?? null).toBeNull();
+  } finally {
+    log.restore();
+  }
+});
