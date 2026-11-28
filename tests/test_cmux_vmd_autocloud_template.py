@@ -2,7 +2,7 @@
 """scripts/cmux-vmd/autocloud-template.sh keeps up with what cmux-host's first bind needs.
 
 The template's machines failed bind twice in a row on dev: no `wg` (wireguard-tools) and no recorded
-/etc/cmux/daemon.json. The regular Cloud image bake (web/scripts/cmux-vm-image/bake.ts) has both; this
+/etc/cmux/daemon.json. A third would have followed: the running daemon's per-machine files in the snapshot. The regular Cloud image bake (web/scripts/cmux-vm-image/bake.ts) has both; this
 test holds the cmux-vmd template script to the same sources, so the two cannot drift apart again.
 """
 
@@ -19,6 +19,7 @@ SCRIPT = ROOT / "scripts/cmux-vmd/autocloud-template.sh"
 LOCK = ROOT / "images/cmux-vm/inputs.lock.json"
 BAKE = ROOT / "web/scripts/cmux-vm-image/bake.ts"
 WIRE = ROOT / "cmux-tui/crates/cmux-host/src/cloud/wire.rs"
+JOURNEY = ROOT / "scripts/cmux-next/cloud-journey.ts"
 CONFIG = ROOT / "cmux-tui/crates/cmux-host/src/config.rs"
 
 
@@ -66,6 +67,34 @@ class AutocloudTemplateTest(unittest.TestCase):
         for step in ("install-key", "wg-key", "daemon-socket", "daemon-json", "json-poster", "noise-key", "updater"):
             self.assertRegex(text, rf"step {step} ", step)
         self.assertLess(text.index("step updater"), text.index("/snapshot"))
+
+    def test_disk_is_the_chat_start_size(self) -> None:
+        size = re.search(r"CHAT_START_SIZE = Object\.freeze\(\{[^}]*disk_mb: (\d+)", JOURNEY.read_text())
+        assert size, "cloud-journey.ts CHAT_START_SIZE not found"
+        self.assertEqual(int(re.search(r'DISK_GIB="\$\{DISK_GIB:-(\d+)\}"', script()).group(1)) * 1024, int(size.group(1)))
+        self.assertLess(script().index("resize2fs"), script().index('"$VMD/v1/machines"'))
+        for step in ("disk", "fork-disk"):
+            self.assertRegex(script(), rf"step {step} ", step)
+
+    def test_parks_the_daemon_like_bake_ts(self) -> None:
+        park = re.search(r"function parkCommand\(\).*?'rm -rf ([^']+)'", BAKE.read_text(), re.S)
+        assert park, "bake.ts parkCommand rm list not found"
+        self.assertEqual(shell_var_single("PARK_PATHS"), park.group(1))
+        self.assertIn("rm -rf $PARK_PATHS $PER_MACHINE_FILES", script())
+        self.assertLess(script().index("rm -rf $PARK_PATHS"), script().index("step noise-key"))
+
+    def test_a_fork_is_checked_before_the_templates_move(self) -> None:
+        text = script()
+        for step in ("fork-clock", "fork-cmux-host", "fork-wg-key", "fork-daemon-info"):
+            self.assertRegex(text, rf"step {step} ", step)
+        self.assertLess(text.index("/fork"), text.index("/v1/templates/"))
+        self.assertIn('api -X DELETE "$VMD/v1/snapshots/$sid"', text)
+
+
+def shell_var_single(name: str) -> str:
+    match = re.search(rf"^{name}='([^']*)'", script(), re.M)
+    assert match, f"{name} not set in {SCRIPT.name}"
+    return match.group(1)
 
 
 def lock_value(node: object, key: str) -> str:

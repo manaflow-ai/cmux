@@ -654,6 +654,11 @@ pub struct ClientRuntimeOptions {
     pub providers: Arc<cmux_remote::provider::ProviderRegistry>,
     pub identity: StaticIdentity,
     pub expected_daemon: Option<[u8; 32]>,
+    /// The pinned daemon offered IK on its last connection ([`KnownDaemon::takes_ik`]): the
+    /// first connect runs IK instead of XX, one round trip shorter.
+    ///
+    /// [`KnownDaemon::takes_ik`]: cmux_remote::identity::KnownDaemon::takes_ik
+    pub daemon_took_ik: bool,
     pub auth: ClientAuthMode,
     pub device_name: String,
     pub session: SessionId,
@@ -696,6 +701,12 @@ pub struct ClientRuntimeHandle {
 impl ClientRuntimeHandle {
     pub fn info(&self) -> &ClientRuntimeInfo {
         &self.info
+    }
+
+    /// Whether the daemon offered IK on every link of this connection, to keep for the next cold
+    /// connect ([`ClientRuntimeOptions::daemon_took_ik`]).
+    pub fn daemon_takes_ik(&self) -> bool {
+        self.connection.daemon_takes_ik()
     }
 
     pub fn multiplexer(&self) -> &Arc<ServiceMultiplexer> {
@@ -1055,12 +1066,14 @@ fn initial_route_order(
         && !options.ssh_bootstrap.upgrade
         && options.routes.len() > 1
         && route_race_enabled();
+    // A route broken on this network is dialed after the others, not skipped.
+    let late = last_good.map_or(0, |memory| memory.late(&options.routes));
     if !raceable {
-        return RouteOrder::serial(first);
+        return RouteOrder::serial(first).with_late(late);
     }
     // The stagger follows the leading route's last connect time when it is the remembered one.
     let lead = first.and(last_good.and_then(LastGoodRoute::connect_time));
-    RouteOrder::raced(first, RouteRace::after(lead))
+    RouteOrder::raced(first, RouteRace::after(lead)).with_late(late)
 }
 
 /// `CMUX_REMOTE_ROUTE_RACE=0` dials the routes one at a time again (the A/B for the race's
@@ -1212,6 +1225,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         .map_err(|error| {
             if let Some(memory) = self.last_good {
                 memory.failed(endpoint);
+                memory.leg(endpoint, cmux_braid_path::Outcome::of_text(&format!("{error:#}")));
             }
             InitialRouteAttemptError::Route {
                 retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
@@ -1227,16 +1241,40 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
         let endpoint = request.endpoint.clone();
         let started = tokio::time::Instant::now();
+        // A dial the race drops (another route won first) counts as outrun.
+        let mut leg = LegOutcome { memory: self.last_good, endpoint: &endpoint, outcome: None };
         let result = self.connect_route(index, request).await;
         if let Some(memory) = self.last_good {
             match &result {
-                Ok(_) => memory.connected_in(&endpoint, started.elapsed()),
-                Err(InitialRouteAttemptError::Route { .. }) => memory.failed(&endpoint),
+                Ok(_) => {
+                    memory.connected_in(&endpoint, started.elapsed());
+                    leg.outcome = Some(cmux_braid_path::Outcome::Won);
+                }
+                Err(InitialRouteAttemptError::Route { error, .. }) => {
+                    memory.failed(&endpoint);
+                    leg.outcome = Some(cmux_braid_path::Outcome::of_text(&format!("{error:#}")));
+                }
                 // A refusal or a cancel says nothing about the route.
-                Err(InitialRouteAttemptError::Fatal(_)) => {}
+                Err(InitialRouteAttemptError::Fatal(_)) => leg.memory = None,
             }
         }
         result
+    }
+}
+
+/// How one route's dial ended, counted when the dial ends or is dropped
+/// ([`LastGoodRoute::leg`]).
+struct LegOutcome<'a> {
+    memory: Option<&'a LastGoodRoute>,
+    endpoint: &'a Url,
+    outcome: Option<cmux_braid_path::Outcome>,
+}
+
+impl Drop for LegOutcome<'_> {
+    fn drop(&mut self) {
+        if let Some(memory) = self.memory {
+            memory.leg(self.endpoint, self.outcome.unwrap_or(cmux_braid_path::Outcome::Outrun));
+        }
     }
 }
 
@@ -1294,7 +1332,7 @@ impl RuntimeInitialRouteAttempt<'_> {
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
                 connection_deadline,
-                ClientConnection::connect_with_reconnect_groups(
+                ClientConnection::connect_with_ik_hint(
                     group.clone(),
                     ClientConnectionConfig {
                         identity: self.options.identity.clone(),
@@ -1314,6 +1352,7 @@ impl RuntimeInitialRouteAttempt<'_> {
                         },
                     },
                     Some(reconnect_groups),
+                    self.options.daemon_took_ik,
                 ),
             ) => match result {
                 Ok(connection) => connection,

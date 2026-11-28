@@ -821,7 +821,7 @@ const TOKEN: &str = "sk-ant-oat01-moved-owner-token";
 /// the owner's login now. The owner's word on the owner's own Cloud VM forwards it to acpmux's
 /// finish, as `agent-session-credentials` takes one.
 #[test]
-fn an_owner_finish_forwards_the_login_to_acpmux() {
+fn an_owner_finish_forwards_the_setup_token_and_binding_to_acpmux() {
     let fake = FakeAcpmux::start("xcred");
     let home = Home::new("cred");
     let mux = transfer_mux(&fake, "atx-cred", &home, true);
@@ -831,16 +831,17 @@ fn an_owner_finish_forwards_the_login_to_acpmux() {
                        "cwd":home.text("work/project"),"vm_kind":"owner"});
     ok_data(&client.request(owner));
     let _ = fake.frame();
+    let binding = format!("claude-token:{}", "a".repeat(64));
+    let credentials = json!({"env":{"ANTHROPIC_AUTH_TOKEN":TOKEN},"connection":binding});
     let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
-        "vm_kind":"owner","credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+        "vm_kind":"owner","credentials":credentials}));
     ok_data(&finish);
     assert!(!finish.to_string().contains(TOKEN), "{finish}");
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_finish"));
     assert_eq!(
         sent["params"],
-        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),
-               "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}})
+        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),"credentials":credentials})
     );
 }
 

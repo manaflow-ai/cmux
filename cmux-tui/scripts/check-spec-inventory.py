@@ -770,6 +770,10 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
             function_event_names(server, "complete_daemon_shutdown_after_ack"),
             "control",
         )
+    # kick_client's connection-wide notice reaches the kicked client on whatever
+    # stream it holds, so it is a control-connection event like the shutdown one.
+    if re.search(r"\bfn\s+kick_client(?:\s*<[^>]*>)?\s*\(", server):
+        add(function_event_names(server, "kick_client"), "control")
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",

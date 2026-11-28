@@ -19,6 +19,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
+fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(git_fixture_env)
+
 spec = importlib.util.spec_from_file_location("string_catalogs", ROOT / "scripts/cmux-next/string_catalogs.py")
 sc = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
@@ -85,7 +89,7 @@ class Layout(unittest.TestCase):
     def test_two_branches_that_each_add_a_key_merge_with_no_conflict(self):
         repo = self.dir / "repo"
         repo.mkdir()
-        git(repo, "init", "-q", "-b", "main")
+        git_fixture_env.init_repo(repo, "-b", "main")
         git(repo, "config", "user.email", "t@example.com")
         git(repo, "config", "user.name", "t")
         directory = repo / "T.xcstrings.d"
@@ -110,7 +114,7 @@ class Layout(unittest.TestCase):
     def test_adopt_carries_a_branch_that_edited_the_old_file_into_the_directory_on_rebase(self):
         repo = self.dir / "repo"
         repo.mkdir()
-        git(repo, "init", "-q", "-b", "main")
+        git_fixture_env.init_repo(repo, "-b", "main")
         git(repo, "config", "user.email", "t@example.com")
         git(repo, "config", "user.name", "t")
         # Enough keys that no one key's file reads as the table renamed (git's rename detection), as in the real

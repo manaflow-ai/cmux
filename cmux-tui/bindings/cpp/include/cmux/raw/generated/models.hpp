@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4";
+inline constexpr std::string_view kProtocolIrSha256 = "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -665,6 +665,7 @@ struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
+struct ClientDisconnectedByEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
@@ -1629,6 +1630,18 @@ struct ClientDetachedEvent {
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
 };
 
+struct SizeDetachActor {
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
+};
+
+struct ClientDisconnectedByEvent {
+    std::optional<SizeDetachActor> by{};
+    friend bool operator==(const ClientDisconnectedByEvent&, const ClientDisconnectedByEvent&) = default;
+};
+
 struct ClientFocusRequest {
     std::string client_id{};
     friend bool operator==(const ClientFocusRequest&, const ClientFocusRequest&) = default;
@@ -1656,6 +1669,7 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
+    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
@@ -3033,13 +3047,6 @@ struct DetachAttachedViewRequest {
 struct DetachClientTarget {
     Json value{};
     friend bool operator==(const DetachClientTarget&, const DetachClientTarget&) = default;
-};
-
-struct SizeDetachActor {
-    Field<std::string> device_name{};
-    Field<std::string> display_name{};
-    Field<std::string> user_id{};
-    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
 };
 
 struct DetachClientRequest {
@@ -10923,6 +10930,12 @@ template <>
 struct Codec<ClientDetachedEvent> {
     static Result<Json> encode(const ClientDetachedEvent& value);
     static Result<ClientDetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientDisconnectedByEvent> {
+    static Result<Json> encode(const ClientDisconnectedByEvent& value);
+    static Result<ClientDisconnectedByEvent> decode(const Json& value);
 };
 
 template <>

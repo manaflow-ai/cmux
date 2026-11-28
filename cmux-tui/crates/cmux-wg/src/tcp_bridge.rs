@@ -319,6 +319,9 @@ impl TcpStack {
                     }
                     match socket.send_slice(pending) {
                         Ok(written) => {
+                            if let Some(local) = socket.local_endpoint() {
+                                crate::stall_trace::tcp_write(local.port, &socket.state(), written);
+                            }
                             conn.send.moved(written);
                             pending.advance(written);
                             progressed |= written > 0;

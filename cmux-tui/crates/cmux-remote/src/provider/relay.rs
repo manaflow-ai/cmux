@@ -464,8 +464,9 @@ impl RelayTls {
         self.outer.snapshot()
     }
 
-    fn connector(&self) -> Option<Connector> {
-        self.client_config.clone().map(Connector::Rustls)
+    pub(crate) fn connector(&self) -> Option<Connector> {
+        // No roots of its own: the platform's, read once (`websocket::native_tls`).
+        self.client_config.clone().map(Connector::Rustls).or_else(super::websocket::native_tls)
     }
 }
 

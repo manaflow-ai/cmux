@@ -58,9 +58,12 @@ fn ssh_shim(dir: &Path, source_home: &Path) -> PathBuf {
 import os, sys
 orig = {orig}
 args = sys.argv[1:]
+# session_move.rs PLAIN_SCRIPT, the folder a move makes on the target, by its exact text:
+# other scripts (the carry's APPLY_SCRIPT) also read `d` and `mkdir -p`.
+PLAIN = 'read -r d || exit 2; mkdir -p -- "$d"'
 cmd = args[-1] if args else ''
 known = ('-L' in args or '-W' in args or 'acpmux daemon status --json' in cmd
-         or 'cat ~/.acpmux/config.json' in cmd or ('mkdir -p' in cmd and 'read -r d' in cmd))
+         or 'cat ~/.acpmux/config.json' in cmd or PLAIN in cmd)
 if known:
     os.execv(orig, [orig] + args)
 # The target's clone of GITHUB fetches the bare origin.

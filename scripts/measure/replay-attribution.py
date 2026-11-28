@@ -49,7 +49,11 @@ class _Stream:
     CHUNK = 1 << 20
 
     def __init__(self, path: str) -> None:
-        self.f = gzip.open(path, "rt", encoding="utf-8") if path.endswith(".gz") else open(path, encoding="utf-8")
+        # The bytes decide, not the name: `--trace run.json.gz` gets plain JSON from the bench, and a suffix check
+        # crashed the attribution on it (BadGzipFile), failing the whole run.
+        with open(path, "rb") as head:
+            gzipped = head.read(2) == b"\x1f\x8b"
+        self.f = gzip.open(path, "rt", encoding="utf-8") if gzipped else open(path, encoding="utf-8")
         self.buf, self.pos, self.eof = "", 0, False
         self.dec = json.JSONDecoder()
 

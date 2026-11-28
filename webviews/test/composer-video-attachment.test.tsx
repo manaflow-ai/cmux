@@ -553,6 +553,77 @@ try {
     expect(calls.filter((call) => call.method === "video.transcript")).toHaveLength(1);
   });
 
+  // Leo, 2026-11-08: "there was a problem loading thse two videos together in the composer for some
+  // reason i added one after the other really quickly and the whole thing lagged/froze?". Two videos
+  // added back to back are read side by side: the second is asked at once, never behind the first's
+  // chain, either answer may come first, each read goes on its own chip only, and every read is asked
+  // once per video, so nothing is read twice and no answer repaints the other chip.
+  test("two videos added one after the other are read side by side, each once, each answer on its own chip", async () => {
+    const SECOND = "/Users/dev/Desktop/Screen Recording 2026-11-08 at 2.29.39 AM.mov";
+    const second = () => ({ ...linkAttachment(SECOND, false), mimeType: "video/quicktime", size: 61_000_000 });
+    const cells = (gray: number) => btoa(String.fromCharCode(...new Uint8Array(24 * 24).fill(gray)));
+    const probes = Array.from({ length: 48 }, (_, index) => ({
+      atMs: 400 + index * 880,
+      cells: cells(index < 20 ? 0 : 255),
+    }));
+    await render([video()]);
+    await act(async () => state!.add(second()));
+    // Both asked now, the second before the first answered.
+    expect(calls.map(({ method, params }) => [method, params.src])).toEqual([
+      ["video.info", PATH],
+      ["video.info", SECOND],
+    ]);
+    expect(state?.reading).toBe(2);
+    const of = (method: string, src: string) =>
+      calls.filter((call) => call.method === method && call.params.src === src);
+    // The second answers first: its poster shows while the first is still read.
+    await act(async () =>
+      of("video.info", SECOND)[0]!.answer({
+        ...INFO,
+        poster: "data:image/jpeg;base64,/9j/EE==",
+        frames: [],
+        more: true,
+      }),
+    );
+    const posters = () =>
+      [...host.querySelectorAll(".acpmux-attachment-video")].map(
+        (tile) => tile.querySelector("img")?.getAttribute("src") ?? null,
+      );
+    expect(posters()).toEqual([null, "data:image/jpeg;base64,/9j/EE=="]);
+    const firstChip = state!.attachments[0]!;
+    await act(async () => of("video.info", PATH)[0]!.answer({ ...INFO, frames: [], more: true }));
+    expect(posters()).toEqual([POSTER, "data:image/jpeg;base64,/9j/EE=="]);
+    // Each video's key frames, picked frames and speech, in any order across the two.
+    await act(async () => of("video.probes", SECOND)[0]!.answer({ frames: INFO.frames, probes }));
+    await act(async () => of("video.probes", PATH)[0]!.answer({ frames: INFO.frames, probes }));
+    await act(async () => of("video.transcript", PATH)[0]!.answer(SPEECH));
+    for (const src of [PATH, SECOND]) {
+      const asked = of("video.frames", src)[0]!;
+      await act(async () =>
+        asked.answer({ frames: (asked.params.times as number[]).map((atMs) => ({ atMs, data: "/9j/FF==" })) }),
+      );
+    }
+    await act(async () =>
+      of("video.transcript", SECOND)[0]!.answer({ ...SPEECH, segments: [{ startMs: 0, endMs: 900, text: "second" }] }),
+    );
+    expect(state?.reading).toBe(0);
+    // Each read once per video: nothing asked again by the other's answers.
+    for (const src of [PATH, SECOND])
+      expect(
+        calls
+          .filter((call) => call.params.src === src)
+          .map((call) => call.method)
+          .sort(),
+      ).toEqual(["video.frames", "video.info", "video.probes", "video.transcript"]);
+    const [a, b] = state!.attachments;
+    expect(a?.id).toBe(firstChip.id);
+    expect(a?.video?.picked).toBe(true);
+    expect(b?.video?.picked).toBe(true);
+    expect(a?.transcript).toEqual(SPEECH);
+    expect(b?.transcript?.segments[0]?.text).toBe("second");
+    expect(posters()).toEqual([POSTER, "data:image/jpeg;base64,/9j/EE=="]);
+  });
+
   test("an older host that has no video.frames keeps the answer's four frames, and the send goes", async () => {
     const still = btoa("\u0000\u0000\u0000\u0000");
     const probes = [0, 1, 2].map((index) => ({ atMs: 1000 + index * 1000, cells: still }));

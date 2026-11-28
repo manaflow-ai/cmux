@@ -18,16 +18,23 @@
 // Its length is one line in the bottom-right corner, or not drawn where the tile has no room for it
 // clear of the play glyph (videoLengthFit.ts; Leo, 2026-11-11: "this preview, the time is on the
 // wrong place ... we should never be able to see this").
+// While its poster is on its way it wears the one loading look a video has from its drop on: the
+// pending chip's glass (pasteLoadingLook.ts) with this play glyph, so a drop goes loading, then
+// loaded, never through a neutral square between (Leo, 2026-11-08: "it is bad that there are 2+
+// loading states it goes from themed opaque (which is frequently ugly) into unthemed then to
+// loaded"). The square stays only for a video the host could not read, or never asked.
 import { type ReactNode, useRef } from "react";
 
 import { formatDuration } from "../chips/replyMediaModel";
 import { PlayTriangle } from "../conversation/icons";
 import { useT } from "../i18n";
-import type { VideoInfo } from "./videoAttachments";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { useVideoPosterLoading, type VideoInfo } from "./videoAttachments";
 import { useVideoLengthFit } from "./videoLengthFit";
 import { videoShapeStyle } from "./videoShape";
 
 export function VideoAttachmentTile({
+  id,
   name,
   title = name,
   video,
@@ -36,6 +43,8 @@ export function VideoAttachmentTile({
   onPlay,
   unplayable = false,
 }: {
+  /// Its chip's id: while the host reads its poster (videoAttachments.ts), the tile is loading.
+  id?: string;
   name: string;
   /// The poster's tooltip: its name, with the line naming where it came from (SourceBadge.tsx).
   title?: string;
@@ -51,11 +60,14 @@ export function VideoAttachmentTile({
   const t = useT();
   const length = video ? (formatDuration(video.durationMs / 1000) ?? "") : "";
   const open = useRef<HTMLButtonElement>(null);
+  const look = usePasteLoadingLook();
+  const loading = useVideoPosterLoading(id) && !video;
   useVideoLengthFit(open, length ? `${length}${unplayable ? " unplayable" : ""}` : undefined);
   return (
     <div
-      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-video${video ? "" : " acpmux-attachment-video-unread"}`}
+      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-video${loading ? ` ${PASTE_LOADING_CLASS}` : video ? "" : " acpmux-attachment-video-unread"}`}
       data-video-shape=""
+      {...(loading ? { "data-paste-look": look, "aria-busy": "true" as const } : {})}
       style={videoShapeStyle(shape)}
       /* tooltip-allow: a video's poster shows no name */ title={title}
     >

@@ -5,6 +5,10 @@
 #   cmux-next-ios/scripts/try.sh <PR number|PR URL|branch|sha|.> [--device-id UDID] [--target-worker W]
 #       [--backend ORIGIN] [--sign-in] [--urgent] [--dry-run]
 #   cmux-next-ios/scripts/try.sh status      what cmux Dev runs on each phone, and the last tries' times
+#   cmux-next-ios/scripts/try.sh list        the open iPhone pull requests to try, as JSON (cmux.ios-try.list.v1):
+#       number, title, author, head, updated_at, draft, and build: ahead (built ahead by
+#       cmux-next-ios-try-ahead.yml), building, failed, cached (on this Mac) or none. The Try a pull request
+#       picker in cmux Dev (Settings > Developer) reads it through the paired Mac's hostd (`try-pr` service).
 #
 # Leo, 2026-11-21: "what is a dev build of iPhone? ... if I want to just have a bunch of fucking YOLO
 # patches in to my fucking app? Like how do I get them in?"
@@ -164,7 +168,16 @@ try_get_app() {
   if [[ "$mode" == handoff ]]; then
     TRY_NOTE="built by the handoff mode (this commit's cmux-next-ios-sim.sh predates the try mode): cloud build space dev:dev, not your real data, until the PR takes feat-cmux-next"
   fi
-  if ! try_fleet "$mode"; then
+  local sent=0
+  try_fleet "$mode" && sent=1
+  # A key that names another step (the ahead build's, cancelled by a newer head's run: "409: step_key already names a
+  # different step") is refused outright: the tap goes out once more under the next key instead of failing.
+  if [[ $sent -eq 0 ]] && grep -q "already names a different step" "$STATE/fleet-$mode.err" 2>/dev/null; then
+    try_bump_attempt "$mode"
+    echo "==> the fleet key for $TRY_LABEL names an earlier step; sending it again under the next key"
+    try_fleet "$mode" && sent=1
+  fi
+  if [[ $sent -eq 0 ]]; then
     try_bump_attempt "$mode"
     if grep -q "is not the reviewed version" "$STATE/fleet-$mode.err" "$STATE/fleet-$mode.log" 2>/dev/null; then
       TRY_FAIL="the fleet runs only a reviewed cmux-next-ios-sim.sh, and this commit's is not one (it changes the script); merge feat-cmux-next into the PR or try a commit whose script is on feat-cmux-next"
@@ -265,6 +278,50 @@ for name, sel in (("built ahead or cached", [r for r in ok if r["how"].startswit
 PY
 }
 
+# The checks cmux-next-ios-try-ahead.yml reports on each iPhone PR head: the fleet job, and the verdict. Detached
+# (the default) the controller posts the verdict when the step ends (report_check.go): success built, failure did
+# not build, neutral no verdict; between the fleet job's end and that post the row reads "none", and a tap attaches
+# to the same step under its key. Waiting, the workflow's verdict job posts it only for built or failed.
+TRY_AHEAD_CHECK="cmux Dev try build (ahead)"
+TRY_FLEET_CHECK="cmux Dev try build (fleet)"
+
+# Open pull requests into feat-cmux-next that touch the iPhone app, newest first, with each head's build state.
+try_list() {
+  local raw
+  raw="$(gh pr list -R "$TRY_REPO" --base feat-cmux-next --state open -L "${CNX_TRY_LIST_LIMIT:-100}" \
+    --json number,title,author,headRefOid,updatedAt,isDraft,files,statusCheckRollup 2>/dev/null)" ||
+    { echo '{"schema":"cmux.ios-try.list.v1","error":"could not list pull requests (gh pr list; is gh signed in on this Mac?)","prs":[]}'; return 1; }
+  printf '%s' "$raw" | /usr/bin/python3 -I -c "$TRY_LIST_PY" "$TRY_HOME" "$TRY_AHEAD_CHECK" "$TRY_FLEET_CHECK"
+}
+
+# stdin: gh pr list's JSON. argv: the cache folder, the verdict check's name, the fleet job's check name.
+TRY_LIST_PY='
+import json, os, sys
+home, check, fleet = sys.argv[1], sys.argv[2], sys.argv[3]
+PENDING = ("QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "")
+IOS = ("cmux-next-ios/", "Packages/iOS/")
+rows = []
+for pr in json.load(sys.stdin):
+    files = [f.get("path", "") for f in pr.get("files") or []]
+    runs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == check]
+    jobs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == fleet]
+    if not runs and not jobs and not any(f.startswith(IOS) for f in files):
+        continue
+    head = pr.get("headRefOid") or ""
+    if os.path.isdir(os.path.join(home, head, "device", "CmuxMobileApp.app")):
+        build = "cached"
+    else:
+        state = lambda c: (c.get("conclusion") or c.get("status") or "").upper()
+        # Only the verdict says built: the fleet job ends green with no build when the fleet gives no verdict.
+        build = {"SUCCESS": "ahead", "FAILURE": "failed", "TIMED_OUT": "failed"}.get(state(runs[-1])) if runs else None
+        if build is None:
+            build = "building" if any(state(c) in PENDING for c in runs[-1:] + jobs[-1:]) else "none"
+    rows.append({"number": pr["number"], "title": pr.get("title", ""), "author": (pr.get("author") or {}).get("login", ""),
+                 "head": head, "updated_at": pr.get("updatedAt", ""), "draft": bool(pr.get("isDraft")), "build": build})
+rows.sort(key=lambda r: r["updated_at"], reverse=True)
+print(json.dumps({"schema": "cmux.ios-try.list.v1", "prs": rows}, separators=(",", ":")))
+'
+
 try_main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -276,6 +333,7 @@ try_main() {
       --dry-run) TRY_DRY_RUN=1; shift ;;
       -h|--help|help) try_usage; exit 0 ;;
       status) try_status; exit 0 ;;
+      list) try_list; exit $? ;;
       -*) echo "try.sh: unknown flag $1" >&2; try_usage >&2; exit 2 ;;
       *) [[ -z "$TRY_TARGET" ]] || try_die "one target at a time (got '$TRY_TARGET' and '$1')"; TRY_TARGET="$1"; shift ;;
     esac

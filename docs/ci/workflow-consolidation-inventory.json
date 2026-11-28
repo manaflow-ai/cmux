@@ -1,0 +1,2414 @@
+{
+  "repository": "manaflow-ai/cmux",
+  "snapshot": "230b66b08dd88ab66fea47a6827b26d92d593e5e",
+  "measurement": "repo_tree(repo=cmux, ref=230b66b08dd88ab66fea47a6827b26d92d593e5e, path=.github/workflows), include every .yml/.yaml entry",
+  "before": 316,
+  "target_budget": 119,
+  "implemented_after": null,
+  "runner_minutes_per_day": {
+    "before": null,
+    "after": null,
+    "measured_savings": null,
+    "note": "No complete duration census; first file-only consolidations claim 0 scheduled runner-minute savings, manual/runtime totals unknown."
+  },
+  "protected_static_roots": [
+    "accounts-nightly-probe.yml",
+    "app-ffi-release.yml",
+    "app-store-shelf.yml",
+    "auto-resume-nightly-notarization.yml",
+    "billing-nightly.yml",
+    "cloud-mvp-nightly-readback.yml",
+    "cloud-vm-image-promote.yml",
+    "cmux-art-publish.yml",
+    "cmux-browser-host-release.yml",
+    "cmux-next-dev-daily-dispatch.yml",
+    "cmux-next-dev-daily.yml",
+    "cmux-next-dev-kick.yml",
+    "cmux-next-ios-energy-nightly.yml",
+    "cmux-next-web-bundle-publish.yml",
+    "cmux-rd-release.yml",
+    "cmux-tui-release-cut.yml",
+    "cmux-tui-release-delivery.yml",
+    "cmux-tui-release.yml",
+    "ios-app-store.yml",
+    "ios-appstore-upload.yml",
+    "ios-internal-nightly-trigger.yml",
+    "ios-internal-nightly.yml",
+    "ios-internal-submit.yml",
+    "ios-testflight.yml",
+    "iroh-release-gate.yml",
+    "nightly-interaction-latency.yml",
+    "nightly-next-canary.yml",
+    "nightly-next-feed-watch.yml",
+    "nightly-next-health.yml",
+    "nightly-next-launch-smoke.yml",
+    "nightly-next-rollback-drill.yml",
+    "nightly-next-rollback.yml",
+    "nightly-next-supersede.yml",
+    "nightly-next-tick.yml",
+    "nightly-next-train.yml",
+    "nightly-next-verdict.yml",
+    "nightly-pr-build.yml",
+    "nightly-sign.yml",
+    "nightly-speed.yml",
+    "nightly-tag-permission-probe.yml",
+    "nightly.yml",
+    "relay-publish-npm.yml",
+    "release-rails.yml",
+    "release.yml",
+    "repair-nightly-appcast-content-types.yml",
+    "resume-nightly-notarization.yml",
+    "sdk-publish-crates.yml",
+    "sdk-publish-go.yml",
+    "sdk-publish-java.yml",
+    "sdk-publish-npm.yml",
+    "sdk-publish-python.yml",
+    "stable-next-rollback.yml",
+    "stable-next.yml",
+    "tui-publish-npm.yml",
+    "tui-publish-pypi.yml",
+    "update-homebrew.yml"
+  ],
+  "groups": {
+    "delivery-protected": {
+      "before": 70,
+      "target_budget": 70,
+      "owner": "release/nightly owners; no edits in this lane",
+      "migration": "Retain byte-identical entrypoints and static reusable closure. Includes dev and publication paths. Expand on dynamic/external caller discovery before any cut.",
+      "files": [
+        "accounts-nightly-probe.yml",
+        "app-ffi-release.yml",
+        "app-store-shelf.yml",
+        "auto-resume-nightly-notarization.yml",
+        "backend-migrations.yml",
+        "billing-nightly.yml",
+        "billing.yml",
+        "ci-cloud-overflow-probe.yml",
+        "cloud-devbox-image-rebake.yml",
+        "cloud-journey-prod.yml",
+        "cloud-mvp-nightly-readback.yml",
+        "cloud-vm-image-bake.yml",
+        "cloud-vm-image-promote.yml",
+        "cloud-vm-image-roll.yml",
+        "cmux-art-publish.yml",
+        "cmux-browser-host-release.yml",
+        "cmux-next-dev-daily-dispatch.yml",
+        "cmux-next-dev-daily.yml",
+        "cmux-next-dev-kick.yml",
+        "cmux-next-ios-energy-nightly.yml",
+        "cmux-next-source-archive.yml",
+        "cmux-next-web-bundle-publish.yml",
+        "cmux-rd-release.yml",
+        "cmux-tui-build-package.yml",
+        "cmux-tui-release-cut.yml",
+        "cmux-tui-release-delivery.yml",
+        "cmux-tui-release.yml",
+        "docs-deploy-reusable.yml",
+        "ios-app-store.yml",
+        "ios-appstore-upload.yml",
+        "ios-internal-nightly-trigger.yml",
+        "ios-internal-nightly.yml",
+        "ios-internal-submit.yml",
+        "ios-review-gate.yml",
+        "ios-screenshots.yml",
+        "ios-testflight.yml",
+        "iroh-release-gate.yml",
+        "nightly-interaction-latency.yml",
+        "nightly-next-canary.yml",
+        "nightly-next-feed-watch.yml",
+        "nightly-next-health.yml",
+        "nightly-next-launch-smoke.yml",
+        "nightly-next-rollback-drill.yml",
+        "nightly-next-rollback.yml",
+        "nightly-next-supersede.yml",
+        "nightly-next-tick.yml",
+        "nightly-next-train.yml",
+        "nightly-next-verdict.yml",
+        "nightly-pr-build.yml",
+        "nightly-sign.yml",
+        "nightly-speed.yml",
+        "nightly-tag-permission-probe.yml",
+        "nightly.yml",
+        "relay-publish-npm.yml",
+        "release-rails.yml",
+        "release.yml",
+        "repair-nightly-appcast-content-types.yml",
+        "resolve-dispatch-ref.yml",
+        "resolve-runners.yml",
+        "resume-nightly-notarization.yml",
+        "sdk-publish-crates.yml",
+        "sdk-publish-go.yml",
+        "sdk-publish-java.yml",
+        "sdk-publish-npm.yml",
+        "sdk-publish-python.yml",
+        "stable-next-rollback.yml",
+        "stable-next.yml",
+        "tui-publish-npm.yml",
+        "tui-publish-pypi.yml",
+        "update-homebrew.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "classic-frozen": {
+      "before": 1,
+      "target_budget": 1,
+      "owner": "frozen classic owner",
+      "migration": "Retain unchanged: frozen-path contract.",
+      "files": [
+        "classic-frozen-guard.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "app-platform": {
+      "before": 25,
+      "target_budget": 7,
+      "owner": "app/platform helper",
+      "migration": "Native checks, iOS validation, fleet manual build gateways, platform build and cache seed dispatchers; protected iOS entrypoints stay in delivery group. Delete fleet-test-compile only with exact caller/coverage proof.",
+      "files": [
+        "auth-refresh-tests.yml",
+        "cmux-next-ios-kit.yml",
+        "cmux-next-shell-integration.yml",
+        "cmux-next-shim-cpp.yml",
+        "cmux-rd-windows-host-build.yml",
+        "cmux-rd-windows.yml",
+        "cmux-tui-windows-check.yml",
+        "first-user-journey-ios.yml",
+        "fleet-compile-check.yml",
+        "fleet-rd-host-macos.yml",
+        "fleet-test-compile.yml",
+        "ios-base-bisect.yml",
+        "ios-e2e.yml",
+        "ios-launch-tti-hosted.yml",
+        "ios-link-ffi-cache-seed.yml",
+        "ios-link-ffi-linux.yml",
+        "ios-reliability-matrix.yml",
+        "ios-sim-linux-build.yml",
+        "ios-streamed-validate.yml",
+        "macos-cross-parity.yml",
+        "main-compile-probe.yml",
+        "measure-swift-typecheck.yml",
+        "swift-linux-packages.yml",
+        "terminal-hang-diagnostics.yml",
+        "test-ios.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "cloud-backend": {
+      "before": 35,
+      "target_budget": 8,
+      "owner": "backend/cloud helper",
+      "migration": "Separate dispatchers for backend checks, chief, cloud journeys, app proofs, operations, VM static checks, fleet operations and mobile deployments. Keep credentials/job permissions distinct; image-graduate moves into operations only after promotion caller audit.",
+      "files": [
+        "backend.yml",
+        "billing-e2e.yml",
+        "cloud-capture-provision.yml",
+        "cloud-chat-proof.yml",
+        "cloud-chief-machine.yml",
+        "cloud-chief-start.yml",
+        "cloud-chief-turn-proof.yml",
+        "cloud-claude-matrix.yml",
+        "cloud-composer-journey.yml",
+        "cloud-fork-placement.yml",
+        "cloud-harness-matrix.yml",
+        "cloud-journey-pr.yml",
+        "cloud-journey-teammate.yml",
+        "cloud-machine-channel-journey.yml",
+        "cloud-machine-count-probe.yml",
+        "cloud-rd-link-readback.yml",
+        "cloud-resume-matrix.yml",
+        "cloud-staging-test-sweep.yml",
+        "cloud-surge-proof.yml",
+        "cloud-vm-dogfood.yml",
+        "cloud-vm-guest-install.yml",
+        "cloud-vm-image-graduate.yml",
+        "cloud-vm-migrate.yml",
+        "cloud-wake-echo.yml",
+        "cloudflare-relay.yml",
+        "cmux-cloud-cli.yml",
+        "cmux-vm-clients.yml",
+        "cmux-vm-cloud.yml",
+        "cmux-vm-secrets-seal.yml",
+        "fleet-artifact-cdn.yml",
+        "mobile-worker-dev-deploy.yml",
+        "mobile-worker-prod-deploy.yml",
+        "platform-billing-test-secrets.yml",
+        "platform-fleet-inventory.yml",
+        "vm-hassle.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "performance-gallery-docs": {
+      "before": 15,
+      "target_budget": 7,
+      "owner": "hygiene/bench helper",
+      "migration": "One manual performance selector, one gallery selector; retain performance scheduler, docs fallback and distinct protected/runtime report contracts. Combine report entrypoints only with event/job equivalence proof.",
+      "files": [
+        "chat-open-perf-report.yml",
+        "cmux-codecs-windows-bench.yml",
+        "cmux-next-frame-pacing.yml",
+        "cmux-next-perf-bench.yml",
+        "cmux-next-perf-budgets.yml",
+        "cmux-next-stress-bench.yml",
+        "cmux-next-web-perf.yml",
+        "customize-prompts-cold-model.yml",
+        "docs-only-fallback.yml",
+        "gallery-advisory.yml",
+        "gallery-health.yml",
+        "indexnow.yml",
+        "shotdiff.yml",
+        "transcript-replay-perf-report.yml",
+        "whats-new-gallery.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "storage": {
+      "before": 5,
+      "target_budget": 1,
+      "owner": "storage helper",
+      "migration": "One storage-maintenance dispatcher; paired main/NEXT changes preserve cron task selection and per-job credentials. 5\u21921 has concrete implementation and offline routing proof.",
+      "files": [
+        "actions-artifact-prune.yml",
+        "pr-media-prune.yml",
+        "r2-binaries-prune.yml",
+        "r2-cache-prune.yml",
+        "r2-storage-census.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "pr-routing-guards": {
+      "before": 29,
+      "target_budget": 6,
+      "owner": "PR/guards helper",
+      "migration": "Retain classic entrypoint, NEXT router, step pipeline, PR advisory dispatcher, merge-queue policy entrypoint, and guard reusable. Move check bodies into ci/steps.toml or selected guard jobs while preserving status context names and read-only/base-code trust boundaries. Swift 2\u21921 is first cut.",
+      "files": [
+        "ci-guards.yml",
+        "ci.yml",
+        "classic-api-guard.yml",
+        "cmux-next-car-guards.yml",
+        "cmux-next-crash-class.yml",
+        "cmux-next-fast-gates.yml",
+        "cmux-next-guards.yml",
+        "cmux-next-notices.yml",
+        "cmux-next-payload-advisories.yml",
+        "cmux-next-quality-report.yml",
+        "cmux-next-react-doctor.yml",
+        "cmux-next-size-budget.yml",
+        "cmux-next-split-table.yml",
+        "feature-flag-review-drift.yml",
+        "head-fail-fast.yml",
+        "language-boundaries.yml",
+        "merge-freeze.yml",
+        "merge-group-policy-checks.yml",
+        "pr-body-checks.yml",
+        "pr-checks.yml",
+        "pr-pipeline.yml",
+        "pr-red-checks-comment.yml",
+        "pr-router.yml",
+        "pr-status.yml",
+        "private-names.yml",
+        "required-checks-drift.yml",
+        "risk-tier-tests.yml",
+        "swift-acpmux-protocol.yml",
+        "swift-logic-ratchet.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "next-build-batch": {
+      "before": 24,
+      "target_budget": 4,
+      "owner": "NEXT build/batch helper (assign owner)",
+      "migration": "Keep platform build reusable, compile gateway, post-merge batch orchestrator and verification dispatcher. Move platform variants into selected jobs/matrices; existing three batch wrappers become one platform selector. Required checks, caller permissions and delivery references are migration blockers until tested.",
+      "files": [
+        "app-platform.yml",
+        "build-ghosttykit.yml",
+        "ci-macos.yml",
+        "cmux-next-base-linux.yml",
+        "cmux-next-base-tier-kick.yml",
+        "cmux-next-batch.yml",
+        "cmux-next-compile-preflight.yml",
+        "cmux-next-daemon-macos-shadow.yml",
+        "cmux-next-fast-tier-batch.yml",
+        "cmux-next-fast-tier-seed.yml",
+        "cmux-next-head-compile.yml",
+        "cmux-next-hot-verify.yml",
+        "cmux-next-hourly-full-tier.yml",
+        "cmux-next-post-merge.yml",
+        "cmux-next-pr-pipeline-ios-batch.yml",
+        "cmux-next-pr-pipeline-linux-batch.yml",
+        "cmux-next-pr-pipeline-mac-batch.yml",
+        "cmux-next-tip-test-compile.yml",
+        "cmux-next-tooling-tests-batch.yml",
+        "cmux-next.yml",
+        "fast-checks.yml",
+        "full-ci-idle-sweep.yml",
+        "post-merge-drill.yml",
+        "reload-build.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "web-validation": {
+      "before": 9,
+      "target_budget": 2,
+      "owner": "web helper",
+      "migration": "One web build reusable and one web validation dispatcher; migrate lint/complexity/asset checks into selected pipeline steps. Publish remains protected.",
+      "files": [
+        "agent-brands.yml",
+        "ci-web.yml",
+        "cmux-next-web-bundles.yml",
+        "cmux-next-web-lint.yml",
+        "cmux-next-web-pieces.yml",
+        "cmux-next-web.yml",
+        "cmux-web-layer-fork.yml",
+        "web-complexity.yml",
+        "web-validation.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "rust-build-cache": {
+      "before": 24,
+      "target_budget": 4,
+      "owner": "Rust/build owner (coordinate build-once-test-many)",
+      "migration": "Build reusable, platform packaging dispatcher, Rust verification dispatcher, cache/diagnostic dispatcher. Keep protected reusable build-package unchanged. Audit channel and signing dynamic callers first; no duplicated build jobs removed without artifact equivalence proof.",
+      "files": [
+        "agent-pane-acpmux-cache.yml",
+        "app-ffi-repin.yml",
+        "cmux-actions.yml",
+        "cmux-browser-host-chromium.yml",
+        "cmux-browser.yml",
+        "cmux-machine-channel-cargo-seed.yml",
+        "cmux-machine-channel.yml",
+        "cmux-mobile-ffi.yml",
+        "cmux-next-remote-daemon.yml",
+        "cmux-next-terminal.yml",
+        "cmux-tui-artifacts.yml",
+        "cmux-tui-channel-heal.yml",
+        "cmux-tui-clippy-seed.yml",
+        "cmux-tui-headless-debug.yml",
+        "cmux-tui-sdks.yml",
+        "cmux-tui-spec.yml",
+        "cmux-tui-team-signed.yml",
+        "cmux-tui-testbox-warmup.yml",
+        "cmux-tui-tree-request.yml",
+        "cmux-tui.yml",
+        "pool-build-path.yml",
+        "remote-daemon.yml",
+        "rust-workspaces.yml",
+        "seed-swiftpm-manifests.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "service-validation": {
+      "before": 11,
+      "target_budget": 1,
+      "owner": "cloud/services helper (assign owner)",
+      "migration": "One service workflow with workflow_call and explicit dispatch selectors, separate service jobs, environments and event filters. No blanket permission union; do not migrate any production caller without owner review.",
+      "files": [
+        "cmux-vm.yml",
+        "cmux-vnc.yml",
+        "device-hub.yml",
+        "gateway-e2e.yml",
+        "internal-token-staging.yml",
+        "iroh-v2.yml",
+        "mux.yml",
+        "presence.yml",
+        "relay-tls.yml",
+        "runnable-link.yml",
+        "vercel-auth-health.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "journeys-reliability": {
+      "before": 33,
+      "target_budget": 3,
+      "owner": "journey/reliability helper (assign owner)",
+      "migration": "Separate Linux/service journey, native/UI journey and evaluation dispatchers. Preserve suite identities, per-suite routing, runner labels, artifacts and concurrency. Nightly consumers require compatibility names until migrated; budget is conditional on that audit.",
+      "files": [
+        "acpmux-sim-sweep.yml",
+        "auto-journey.yml",
+        "cas-replay.yml",
+        "chief-evals.yml",
+        "classic-migration-staging.yml",
+        "cmux-cas-replay.yml",
+        "cmux-duress.yml",
+        "cmux-mobile-link-stats.yml",
+        "cmux-next-degenerate-lab.yml",
+        "cmux-next-ios-keyboard-motion.yml",
+        "cmux-next-iphone-clips.yml",
+        "cmux-next-media.yml",
+        "cmux-next-motion-golden.yml",
+        "cmux-next-pair-e2e-vm.yml",
+        "cmux-next-tab-switch.yml",
+        "executor-journey.yml",
+        "first-user-journey-web.yml",
+        "fresh-chief-eval.yml",
+        "intro-walk-check.yml",
+        "machine-join-e2e.yml",
+        "machine-vault-e2e.yml",
+        "migrate-journey-pr.yml",
+        "pair-machine-join-check.yml",
+        "pause-ab.yml",
+        "repro-capsule-journey.yml",
+        "rfd0135-gates.yml",
+        "screen-share-drop-gate.yml",
+        "screen-stream-eval.yml",
+        "self-edit-sweep.yml",
+        "session-move-tests.yml",
+        "test-feed-reply-providers.yml",
+        "vault-edge-e2e.yml",
+        "zero-to-going.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "ci-maintenance": {
+      "before": 24,
+      "target_budget": 3,
+      "owner": "maintenance/guards helper",
+      "migration": "Separate PR lifecycle cleanup, CI health/repair, and generated/base repair dispatchers. Preserve cancellation-group semantics: merging skipped closed-PR workflows is unsafe without equivalent cancellation of all original groups. #61914 is first proven 2\u21921 shape.",
+      "files": [
+        "auto-triage.yml",
+        "base-coalesce.yml",
+        "ci-compile-attribution.yml",
+        "ci-health-report.yml",
+        "ci-owned-pool-rescue.yml",
+        "ci-pr-closed-cancel.yml",
+        "ci-pr-superseded-cancel.yml",
+        "ci-queue-janitor.yml",
+        "ci-shed-superseded-runs.yml",
+        "ci-stale-run-janitor.yml",
+        "cmux-next-base-autofix.yml",
+        "cmux-next-chromium-currency.yml",
+        "cmux-next-chromium-staleness.yml",
+        "cmux-next-closes-issues.yml",
+        "cmux-next-generated-catch-up.yml",
+        "cmux-next-package-deps-heal.yml",
+        "cmux-next-pr-autofix-closed-cancel.yml",
+        "cmux-next-pr-autofix.yml",
+        "cmux-next-pr-closed-cancel.yml",
+        "fixit-handoff.yml",
+        "ios-fast-verdict-dispatch.yml",
+        "labels-sync.yml",
+        "stale-agent-prs.yml",
+        "triage-radar.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    },
+    "infrastructure-operations": {
+      "before": 11,
+      "target_budget": 2,
+      "owner": "operations helper (assign owner)",
+      "migration": "One read-only diagnostics and one explicitly selected maintenance dispatcher; preserve job-level environments, credentials and destructive-input defaults. Signing-keychain is protected on any delivery reachability finding.",
+      "files": [
+        "cmux-api-prod-logs.yml",
+        "cmux-platform-prod-logs.yml",
+        "device-hub-logs.yml",
+        "git-mirror-bundle.yml",
+        "helm-chart.yml",
+        "ios-asc-subscription-records.yml",
+        "leo-session-archive-bucket.yml",
+        "pinned-files-mirror.yml",
+        "repo-archive-store.yml",
+        "signing-keychain-macos.yml",
+        "tailnet-stable-node-move.yml"
+      ],
+      "status": "proposed; semantics and caller migration not yet proven"
+    }
+  },
+  "workflows": [
+    {
+      "path": ".github/workflows/accounts-nightly-probe.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/acpmux-sim-sweep.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/actions-artifact-prune.yml",
+      "area": "storage",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/agent-brands.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/agent-pane-acpmux-cache.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/app-ffi-release.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/app-ffi-repin.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/app-platform.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/app-store-shelf.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/auth-refresh-tests.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/auto-journey.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/auto-resume-nightly-notarization.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/auto-triage.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/backend-migrations.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/backend.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/base-coalesce.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/billing-e2e.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/billing-nightly.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/billing.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/build-ghosttykit.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cas-replay.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/chat-open-perf-report.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/chief-evals.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-cloud-overflow-probe.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-compile-attribution.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-guards.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-health-report.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-macos.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-owned-pool-rescue.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-pr-closed-cancel.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-pr-superseded-cancel.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-queue-janitor.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-shed-superseded-runs.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-stale-run-janitor.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci-web.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/classic-api-guard.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/classic-frozen-guard.yml",
+      "area": "classic-frozen",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/classic-migration-staging.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-capture-provision.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-chat-proof.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-chief-machine.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-chief-start.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-chief-turn-proof.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-claude-matrix.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-composer-journey.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-devbox-image-rebake.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-fork-placement.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-harness-matrix.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-journey-pr.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-journey-prod.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-journey-teammate.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-machine-channel-journey.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-machine-count-probe.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-mvp-nightly-readback.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-rd-link-readback.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-resume-matrix.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-staging-test-sweep.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-surge-proof.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-dogfood.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-guest-install.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-image-bake.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-image-graduate.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-image-promote.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-image-roll.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-vm-migrate.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloud-wake-echo.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cloudflare-relay.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-actions.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-api-prod-logs.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-art-publish.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-browser-host-chromium.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-browser-host-release.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-browser.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-cas-replay.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-cloud-cli.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-codecs-windows-bench.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-duress.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-machine-channel-cargo-seed.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-machine-channel.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-mobile-ffi.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-mobile-link-stats.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-base-autofix.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-base-linux.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-base-tier-kick.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-car-guards.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-chromium-currency.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-chromium-staleness.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-closes-issues.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-compile-preflight.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-crash-class.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-daemon-macos-shadow.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-degenerate-lab.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-dev-daily-dispatch.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-dev-daily.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-dev-kick.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-fast-gates.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-fast-tier-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-fast-tier-seed.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-frame-pacing.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-generated-catch-up.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-guards.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-head-compile.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-hot-verify.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-hourly-full-tier.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-ios-energy-nightly.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-ios-keyboard-motion.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-ios-kit.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-iphone-clips.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-media.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-motion-golden.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-notices.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-package-deps-heal.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pair-e2e-vm.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-payload-advisories.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-perf-bench.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-perf-budgets.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-post-merge.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-autofix.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-closed-cancel.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-pipeline-linux-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-pr-pipeline-mac-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-quality-report.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-react-doctor.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-remote-daemon.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-shell-integration.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-shim-cpp.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-size-budget.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-source-archive.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-split-table.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-stress-bench.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-tab-switch.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-terminal.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-tip-test-compile.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-tooling-tests-batch.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web-bundle-publish.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web-bundles.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web-lint.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web-perf.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web-pieces.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next-web.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-next.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-platform-prod-logs.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-rd-release.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-rd-windows-host-build.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-rd-windows.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-artifacts.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-build-package.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-channel-heal.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-clippy-seed.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-headless-debug.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-release-cut.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-release-delivery.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-release.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-sdks.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-spec.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-team-signed.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-testbox-warmup.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-tree-request.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui-windows-check.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-tui.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-vm-clients.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-vm-cloud.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-vm-secrets-seal.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-vm.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-vnc.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/cmux-web-layer-fork.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/customize-prompts-cold-model.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/device-hub-logs.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/device-hub.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/docs-deploy-reusable.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/docs-only-fallback.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/executor-journey.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fast-checks.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/feature-flag-review-drift.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/first-user-journey-ios.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/first-user-journey-web.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fixit-handoff.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fleet-artifact-cdn.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fleet-compile-check.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fleet-rd-host-macos.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fleet-test-compile.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/fresh-chief-eval.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/full-ci-idle-sweep.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/gallery-advisory.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/gallery-health.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/gateway-e2e.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/git-mirror-bundle.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/head-fail-fast.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/helm-chart.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/indexnow.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/internal-token-staging.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/intro-walk-check.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-app-store.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-appstore-upload.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-asc-subscription-records.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-base-bisect.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-e2e.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-fast-verdict-dispatch.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-internal-nightly-trigger.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-internal-nightly.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-internal-submit.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-launch-tti-hosted.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-link-ffi-cache-seed.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-link-ffi-linux.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-reliability-matrix.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-review-gate.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-screenshots.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-sim-linux-build.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-streamed-validate.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/ios-testflight.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/iroh-release-gate.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/iroh-v2.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/labels-sync.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/language-boundaries.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/leo-session-archive-bucket.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/machine-join-e2e.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/machine-vault-e2e.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/macos-cross-parity.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/main-compile-probe.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/measure-swift-typecheck.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/merge-freeze.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/merge-group-policy-checks.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/migrate-journey-pr.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/mobile-worker-dev-deploy.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/mobile-worker-prod-deploy.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/mux.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-interaction-latency.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-canary.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-feed-watch.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-health.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-launch-smoke.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-rollback-drill.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-rollback.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-supersede.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-tick.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-train.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-next-verdict.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-pr-build.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-sign.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-speed.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly-tag-permission-probe.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pair-machine-join-check.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pause-ab.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pinned-files-mirror.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/platform-billing-test-secrets.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/platform-fleet-inventory.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pool-build-path.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/post-merge-drill.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-body-checks.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-checks.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-media-prune.yml",
+      "area": "storage",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-red-checks-comment.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-router.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/pr-status.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/presence.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/private-names.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/r2-binaries-prune.yml",
+      "area": "storage",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/r2-cache-prune.yml",
+      "area": "storage",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/r2-storage-census.yml",
+      "area": "storage",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/relay-publish-npm.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/relay-tls.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/release-rails.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/reload-build.yml",
+      "area": "next-build-batch",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/remote-daemon.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/repair-nightly-appcast-content-types.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/repo-archive-store.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/repro-capsule-journey.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/required-checks-drift.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/resolve-dispatch-ref.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/resolve-runners.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/resume-nightly-notarization.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/rfd0135-gates.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/risk-tier-tests.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/runnable-link.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/rust-workspaces.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/screen-share-drop-gate.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/screen-stream-eval.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/sdk-publish-crates.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/sdk-publish-go.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/sdk-publish-java.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/sdk-publish-npm.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/sdk-publish-python.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/seed-swiftpm-manifests.yml",
+      "area": "rust-build-cache",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/self-edit-sweep.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/session-move-tests.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/shotdiff.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/signing-keychain-macos.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/stable-next-rollback.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/stable-next.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/stale-agent-prs.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/swift-acpmux-protocol.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/swift-linux-packages.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/swift-logic-ratchet.yml",
+      "area": "pr-routing-guards",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/tailnet-stable-node-move.yml",
+      "area": "infrastructure-operations",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/terminal-hang-diagnostics.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/test-feed-reply-providers.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/test-ios.yml",
+      "area": "app-platform",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/transcript-replay-perf-report.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/triage-radar.yml",
+      "area": "ci-maintenance",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/tui-publish-npm.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/tui-publish-pypi.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/update-homebrew.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/vault-edge-e2e.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/vercel-auth-health.yml",
+      "area": "service-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/vm-hassle.yml",
+      "area": "cloud-backend",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/web-complexity.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/web-validation.yml",
+      "area": "web-validation",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/whats-new-gallery.yml",
+      "area": "performance-gallery-docs",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/zero-to-going.yml",
+      "area": "journeys-reliability",
+      "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    }
+  ]
+}
