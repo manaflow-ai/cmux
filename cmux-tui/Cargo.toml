@@ -75,6 +75,7 @@ members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-browser-grants",
     "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
@@ -285,6 +286,7 @@ default-members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-browser-grants",
     "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
@@ -581,6 +583,7 @@ cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-browser-grants = { path = "crates/cmux-browser-grants" }
 cmux-intent = { path = "crates/cmux-intent" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }

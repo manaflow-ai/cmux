@@ -231,8 +231,12 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     page.attach(&t).await;
     page.watch(true).await;
     // The pause builds no list: the page keeps its rows and follows from its cursor when it turns
-    // the watch on again (webviews sessionPages.ts `pause`).
-    assert_eq!(page.watch(false).await, json!({}), "a paused watch answers without the list");
+    // the watch on again (webviews sessionPages.ts `pause`). It names the list's position only.
+    let paused = page.watch(false).await;
+    assert!(paused.get("sessions").is_none(), "a paused watch answers without the list: {paused}");
+    let (head, epoch) = hub.list_cursor();
+    assert_eq!(paused["listEpoch"], json!(epoch), "a paused watch names this run's list: {paused}");
+    assert!(paused["listSeq"].as_u64().is_some_and(|at| at <= head), "and a position: {paused}");
     let before = page.wakes();
     let busy = session(&hub, &s);
     for n in 0..CHANGES {
@@ -248,6 +252,38 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     hub.append(&session(&hub, &t), "in", "agent_message_chunk", chunk(&t, "resumed-end"));
     let resumed = page.until("resumed-end").await;
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
+}
+
+/// A paged list reader stamps the list's position with
+/// a paused one-row watch before it reads the pages, caches the rows at it, and later calls follow
+/// from it. Answered `{}` (#55402) the stamp had no position: no cache was kept and every call read
+/// each page of the list again (1,938 rows, 4.0 MB a call, 2026-11-28). Counted in
+/// rows: the stamp sends none, and the follow after one chat changed sends that one row, not the
+/// list.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_paused_watch_stamps_a_position_a_later_call_follows_from() {
+    const ROWS: usize = 200;
+    let hub = hub_of(ROWS);
+    let mut reader = Client::connect(&hub, "ls-paged").await;
+    let stamp = reader.call(method::MUX_WATCH, json!({"enabled": false, "limit": 1})).await;
+    assert!(stamp.get("sessions").is_none(), "the stamp builds no rows: {stamp}");
+    let (epoch, seq) = (stamp["listEpoch"].clone(), stamp["listSeq"].clone());
+    assert!(epoch.is_string() && seq.is_u64(), "the stamp names the list's position: {stamp}");
+    let whole = reader.call(method::MUX_SESSIONS, json!({"limit": ROWS})).await;
+    assert_eq!(whole["sessions"].as_array().map(Vec::len), Some(ROWS));
+
+    hub.append(&session(&hub, &sid(7)), "mux", "titled", json!({"title": "moved"}));
+    let mut later = Client::connect(&hub, "ls-paged-next").await;
+    let followed = later
+        .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": seq, "listEpoch": epoch}))
+        .await;
+    assert_eq!(followed["follow"], json!(true), "a later call follows the stamp: {followed}");
+    assert!(followed.get("reset").is_none(), "the stamp's position is this run's: {followed}");
+    let rows: Vec<&str> = followed["sessions"]
+        .as_array()
+        .map(|rows| rows.iter().filter_map(|r| r["sessionId"].as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(rows, vec![sid(7).as_str()], "the follow sends the one changed row of {ROWS}");
 }
 
 #[cfg(unix)]

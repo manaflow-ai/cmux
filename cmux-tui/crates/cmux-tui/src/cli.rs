@@ -131,6 +131,7 @@ mod cloud_secret;
 mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_team_keys;
+#[cfg(unix)]
 mod cloud_wire_watch;
 #[cfg(unix)]
 mod cloud_workspaces;
