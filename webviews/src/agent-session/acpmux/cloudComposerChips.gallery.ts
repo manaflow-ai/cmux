@@ -281,7 +281,15 @@ const moved = (box: Box | null, rest: Box) =>
 const shown = (box: Box | null) =>
   box ? `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone";
 /// What the model chip reads, so a move names what changed in it (a longer label, a new detail), not only its box.
-const reads = (element: Element | null) => (element ? `“${textOf(element)}”` : "nothing");
+const reads = (element: Element | null) => {
+  if (!element) return "nothing";
+  // The row's fit form for the model (composerRowFit.ts: no attribute is the full form) and its step.
+  const bar = element.closest<HTMLElement>(
+    "[data-fit-extra], [data-fit-model], .acpmux-composer-bar, .acpmux-composer-foot",
+  );
+  const form = bar?.getAttribute("data-fit-model") ?? "full";
+  return `“${textOf(element)}” (form ${form}, step ${bar?.dataset.fitExtra ?? 0}, composer ${element.ownerDocument.defaultView?.innerWidth} px)`;
+};
 
 const modelHoldsStill: Play = async (ctx) => {
   const view = ctx.document.defaultView as Frame;
