@@ -83,6 +83,29 @@ export function isFreestyleTransient(error: unknown): boolean {
 }
 
 /**
+ * How many size rows of one derive ladder may fail for a reason other than a
+ * 429 and still be asked again, alone, after the concurrent pass. A row is
+ * independent (its own VMs, its own snapshot) and cleans up after itself, so
+ * running it again is safe. Rebake runs 46090591544 (md: the guest session
+ * did not answer while preparing the template terminal) and 46094043731 (2xl:
+ * the daemon wait on the verify VM came back with no status and no output)
+ * each lost one row of six beside five that passed, and promoted nothing. A
+ * real regression fails every row, so past this many the ladder fails fast.
+ */
+export const DERIVE_MAX_RETRIED_ROWS = 2;
+
+/**
+ * What the derive ladder does with a row that threw: `defer` runs it again
+ * alone after the concurrent pass, `fail` ends the ladder. A 429 always
+ * defers (no VM ever started); any other failure defers while fewer than
+ * {@link DERIVE_MAX_RETRIED_ROWS} rows have been retried for one.
+ */
+export function deriveRowFailureAction(error: unknown, retriedRows: number): "defer" | "fail" {
+  if (isFreestyleOverload(error)) return "defer";
+  return retriedRows < DERIVE_MAX_RETRIED_ROWS ? "defer" : "fail";
+}
+
+/**
  * A VM start Freestyle gave up on: the 429 overload, or 409 VM_NON_RESPONSIVE
  * ("vm stopped responding: timed out reading from guest agent"), a fresh VM
  * that never answered its guest agent. Either way no VM came back, so asking
