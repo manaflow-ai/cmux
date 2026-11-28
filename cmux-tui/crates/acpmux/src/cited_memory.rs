@@ -79,20 +79,22 @@ pub fn citations(text: &str) -> Vec<Citation> {
     let path_byte = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-' | b'/');
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] != b':' {
+        if bytes.get(i) != Some(&b':') {
             i += 1;
             continue;
         }
         let mut start = i;
-        while start > 0 && path_byte(bytes[start - 1]) {
+        while start > 0 && bytes.get(start - 1).is_some_and(|&b| path_byte(b)) {
             start -= 1;
         }
         let mut end = i + 1;
-        while end < bytes.len() && bytes[end].is_ascii_digit() {
+        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
-        let path = &text[start..i];
-        let digits = &text[i + 1..end];
+        // Both ends sit next to ASCII bytes (`:`, path bytes, digits), so these are char
+        // boundaries; `get` keeps it panic-free all the same.
+        let path = text.get(start..i).unwrap_or_default();
+        let digits = text.get(i + 1..end).unwrap_or_default();
         i = end.max(i + 1);
         if digits.is_empty() || !path.contains('/') {
             continue;
@@ -189,8 +191,9 @@ impl Index {
         for f in files {
             let mut at = 0;
             loop {
-                by_suffix.entry(f[at..].to_owned()).or_default().push(f.clone());
-                match f[at..].find('/') {
+                let rest = f.get(at..).unwrap_or_default();
+                by_suffix.entry(rest.to_owned()).or_default().push(f.clone());
+                match rest.find('/') {
                     Some(i) => at += i + 1,
                     None => break,
                 }
