@@ -19,6 +19,7 @@
 //! | `browser_rules_tab_state_security` | `{url}` | the scheme-level [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_input_*` | see [`crate::input`] | |
 //! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
+//! | `browser_rules_restored_history_*` | see [`crate::restored_history`] | |
 //! | `browser_rules_automation_*` | see [`crate::automation_ops`] | |
 
 use crate::links::{
@@ -151,6 +152,9 @@ pub fn serves(op: &str) -> bool {
 pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
     let request = if request.is_null() { json!({}) } else { request };
     if let Some(answer) = crate::input::call(op, request.clone()) {
+        return answer;
+    }
+    if let Some(answer) = crate::restored_history::call(op, request.clone()) {
         return answer;
     }
     if let Some(answer) = crate::automation_ops::call(op, request.clone()) {

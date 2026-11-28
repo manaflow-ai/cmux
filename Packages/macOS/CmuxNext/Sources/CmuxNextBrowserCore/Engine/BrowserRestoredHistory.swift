@@ -79,18 +79,23 @@ public nonisolated struct BrowserRestoredHistory: Hashable, Sendable {
     }
 
     /// The saved entries, with their scroll positions, around the engine's
-    /// own list (`native`, else just the shown page), for saving.
+    /// own list (`native`, else just the shown page), for saving. The order
+    /// is Rust's (`BrowserRestoredHistoryRules`).
     public func session(around native: BrowserNavigationList?, shown: BrowserNavigationEntry) -> BrowserSavedSession {
         let own = native ?? BrowserNavigationList(entries: [shown], current: 0)
         // An entry without a URL (nothing committed) cannot be saved.
         let saved = own.entries.map { entry in entry.url.map { BrowserSavedEntry(url: $0, title: entry.title) } }
-        var arranged: [BrowserSavedEntry?] = back.map(Optional.some)
-        arranged += saved.prefix(1)
-        arranged += forward.map(Optional.some)
-        arranged += saved.dropFirst()
-        let entries = arranged.compactMap(\.self)
-        let before = arranged.prefix(position(of: own)).filter { $0 != nil }.count
-        return BrowserSavedSession(entries: entries, current: min(before, max(entries.count - 1, 0)))
+        guard let plan = BrowserRestoredHistoryRules.session(
+            back: back.count, forward: forward.count, hasUrl: saved.map { $0 != nil }, current: own.current
+        ) else { return BrowserSavedSession(entries: saved.compactMap(\.self), current: 0) }
+        let entries = plan.slots.compactMap { slot -> BrowserSavedEntry? in
+            switch slot.source {
+            case .back: back.indices.contains(slot.index) ? back[slot.index] : nil
+            case .forward: forward.indices.contains(slot.index) ? forward[slot.index] : nil
+            case .own: saved.indices.contains(slot.index) ? saved[slot.index] : nil
+            }
+        }
+        return BrowserSavedSession(entries: entries, current: plan.current)
     }
 
     /// The saved entries around the engine's own list (`native`, else just
@@ -100,15 +105,21 @@ public nonisolated struct BrowserRestoredHistory: Hashable, Sendable {
     /// entries passed over sit between it and the engine's next one.
     public func merged(with native: BrowserNavigationList?, shown: BrowserNavigationEntry) -> BrowserNavigationList {
         let own = native ?? BrowserNavigationList(entries: [shown], current: 0)
-        var entries = back.map(\.navigationEntry)
-        entries += own.entries.prefix(1)
-        entries += forward.map(\.navigationEntry)
-        entries += own.entries.dropFirst()
-        return BrowserNavigationList(entries: entries, current: position(of: own))
+        guard let plan = BrowserRestoredHistoryRules.merged(
+            back: back.count, forward: forward.count, count: own.entries.count, current: own.current
+        ) else { return own }
+        let entries = plan.slots.compactMap { slot -> BrowserNavigationEntry? in
+            switch slot.source {
+            case .back: back.indices.contains(slot.index) ? back[slot.index].navigationEntry : nil
+            case .forward: forward.indices.contains(slot.index) ? forward[slot.index].navigationEntry : nil
+            case .own: own.entries.indices.contains(slot.index) ? own.entries[slot.index] : nil
+            }
+        }
+        return BrowserNavigationList(entries: entries, current: plan.current)
     }
 
     /// Where the engine's current entry sits in `merged`.
     public func position(of own: BrowserNavigationList) -> Int {
-        back.count + (own.current == 0 ? 0 : forward.count + own.current)
+        BrowserRestoredHistoryRules.position(back: back.count, forward: forward.count, current: own.current) ?? own.current
     }
 }
