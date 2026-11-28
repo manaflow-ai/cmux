@@ -1,5 +1,5 @@
 import { isCloudChatFolder } from "./folderlessCloud";
-import { githubFolder, githubFolderRepo, type GitHubPickerState } from "./githubRepos";
+import { githubFolder, githubFolderRepo, isGitURLFolder, type GitHubPickerState } from "./githubRepos";
 import { githubRepository } from "./githubRepository";
 import type { StringKey } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -95,6 +95,7 @@ export function cloudSourceFolders(
 
 /** The selected repository is portable across machines. A Mac path is not. */
 export function cloudRepositoryPick(folder: string | undefined, remote?: string): string | undefined {
+  if (isGitURLFolder(folder)) return folder;
   const repo = githubFolderRepo(folder) ?? githubRepository(remote);
   return repo ? githubFolder(repo) : undefined;
 }

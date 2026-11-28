@@ -1,8 +1,8 @@
 public import CmuxNextCloud
 import Foundation
 
-/// A Cloud start in a GitHub repository with no folder on this Mac (the page's `cwd` is
-/// `github:owner/name`, ``AgentPaneGitHubFolder``): nothing is copied from this Mac. The machine clones
+/// A Cloud start in a repository with no folder on this Mac (the page's `cwd` is `github:owner/name` or
+/// `git:URL` on any host, ``AgentPaneGitHubFolder``): nothing is copied from this Mac. The machine clones
 /// the repository with the GitHub access it has (the cmux GitHub App's git helper) through New Cloud
 /// Workspace's From repository step (``CloudMachineBootstrap`` with only its repo step, into `~/work/NAME`),
 /// and the chat starts in the clone.
@@ -13,12 +13,10 @@ extension AgentPaneCloudStart {
     @MainActor public func cloneRepository(on machine: CloudMachineBootstrap.Machine, machineName: String, size: String?,
                                            gitHubLogin: AgentPaneGitHubLogin = .none,
                                            report: @MainActor (Step) -> Void) async throws -> String? {
-        guard let repository, let slash = repository.firstIndex(of: "/") else { return nil }
-        let name = String(repository[repository.index(after: slash)...])
-        let row = { (state: String) in Step(name: "folder", folder: name, machine: machineName, size: size, cloneState: state) }
+        guard let repository, let repo = Self.machineRepo(repository) else { return nil }
+        let row = { (state: String) in Step(name: "folder", folder: repo.name, machine: machineName, size: size, cloneState: state) }
         report(row("running"))
-        let bootstrap = CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript,
-                                              repo: CloudMachineRepo(owner: String(repository[..<slash]), name: name))
+        let bootstrap = CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: repo)
         // `running` is another start's run (a reused machine): this start's files were dropped, and that run's
         // answer names its own repository or none. Wait it out, then start this clone once more; a machine
         // still busy after that fails here, with Retry.
@@ -31,11 +29,20 @@ extension AgentPaneCloudStart {
             ? await bootstrap.waitForRun(on: machine, bound: Self.cloneBound) : .repoFailed(repo: repository)
         guard case .finished(let path?) = ended else {
             report(row("failed"))
-            if case .needsGitHub = ended { throw AgentPaneCloudRepositoryRefusal.needsGitHub(repository, login: gitHubLogin) }
+            // Connect GitHub helps only a GitHub repository; another host's clone failing is a failed clone.
+            if case .needsGitHub = ended, repo.isGitHub { throw AgentPaneCloudRepositoryRefusal.needsGitHub(repository, login: gitHubLogin) }
             throw AgentPaneCloudRepositoryRefusal.failed(repository)
         }
         report(row("done"))
         return path
+    }
+
+    /// The repository a start's `repository` names (`owner/name`, or a `git:` folder's URL on any host), as Rust's
+    /// `cloud_machine_repo_parse` reads it; `owner/name` split here when that reader is not there.
+    nonisolated static func machineRepo(_ repository: String) -> CloudMachineRepo? {
+        if let repo = try? CloudMachineRepo.parse(repository) { return repo }
+        guard let slash = repository.firstIndex(of: "/") else { return nil }
+        return CloudMachineRepo(owner: String(repository[..<slash]), name: String(repository[repository.index(after: slash)...]))
     }
 
     /// Whether a bootstrap start's status means the run to wait for is this start's own clone: `started`, or
