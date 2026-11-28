@@ -59,7 +59,8 @@ jobs:
             echo "$TAG has no published stable release; skipping"
             exit 0
           fi
-          if ! previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$TAG^" 2>/dev/null)"; then
+          # shortcut: git globs cannot anchor the stable-tag regex above, so 4-part hotfix tags and any tag with a character other than digits and dots (v0.65.3-rc1) are excluded; a future 4-part stable needs this revisited
+          if ! previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*.*.*.*' --exclude 'v*[!0-9.]*' "$TAG^" 2>/dev/null)"; then
             echo "No earlier stable tag below $TAG; nothing to comment."
             exit 0
           fi
