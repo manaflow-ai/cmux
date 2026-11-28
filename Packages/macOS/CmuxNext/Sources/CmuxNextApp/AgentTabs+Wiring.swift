@@ -135,7 +135,7 @@ extension AgentTabStore {
             bar.switchToTab = { [weak services] key in if let services { NewTabPage.jump(.tab, id: key, services: services) } }
             bar.moreMenu = { [weak services, weak view] in
                 guard let services, let view, let pane = services.windows.controllers.lazy.compactMap({ $0.content?.panes.values.first { if case .agent(let shown)? = $0.currentContent { shown === view } else { false } } }).first else { return nil }
-                return services.registry.makePaneMoreMenu(pane: ActionTargetRef(kind: .pane, id: pane.paneKey), trimming: [], machineID: pane.daemon.machineID)
+                return services.registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: pane.paneKey), machineID: pane.daemon.machineID)
             }
             view.topBar.set(bar, height: bar.preferredHeight)
         }
