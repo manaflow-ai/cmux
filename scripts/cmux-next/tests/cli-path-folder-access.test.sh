@@ -66,4 +66,18 @@ if [[ "$out" != *"turn on Desktop Folder for cmux NEXT NIGHTLY."* ]]; then
 else
   echo "PASS: the hint names the app the terminal runs in"
 fi
+# First-run findings N8: after a pane resize the hint line went blank. The terminal's zsh integration marks where the
+# prompt starts (OSC 133;A;redraw=1), and on a resize the terminal clears from that mark for zsh to draw the prompt
+# again. When its precmd hook is not the last one it prints the mark at once, so a hint printed by a later hook sat
+# inside the prompt and the resize erased it. The hint prints before every other precmd hook: before the mark.
+cat >>"$TMP/user/.zshrc" <<'EOF2'
+_ghostty_precmd() { print -nu2 -- '<133;A>' }
+precmd_functions+=(_ghostty_precmd)
+EOF2
+out=$(run 'ls ~/Desktop' 'echo end')
+if [[ "$out" == *'<133;A>cmux: macOS blocks'* || "$out" != *'for cmux.'$'\n''<133;A>'* ]]; then
+  echo "FAIL: the hint prints before the prompt's start mark" >&2; printf '%s\n' "$out" | tail -6 >&2; fail=1
+else
+  echo "PASS: the hint prints before the prompt's start mark"
+fi
 exit "$fail"
