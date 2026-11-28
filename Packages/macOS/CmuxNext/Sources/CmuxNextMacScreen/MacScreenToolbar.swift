@@ -777,4 +777,6 @@ extension MacScreenToolbarView {
 }
 
 extension MacScreenColors {
+    /// The View Only badge's capsule: the attention color, faint.
+    var attentionWash: NSColor { attention.withAlphaComponent(attention.alphaComponent * 0.14) }
 }
