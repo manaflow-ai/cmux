@@ -268,10 +268,11 @@ class NightlyGateTest(unittest.TestCase):
                             ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids, and
-                # cmux-next-idle-wakeups (a land_gate step) takes the workspace manifests (a notify bump).
+                # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
+                # scripts/cmux-next/*.sh for Classic ids; cmux-next-idle-wakeups reads Cargo.lock, cmux#63822): only
+                # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
-                                  if n not in ("next-state-roots", "cmux-next-idle-wakeups")], [name])
+                                  if steps[n].nightly], [name])
 
     def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
         # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key

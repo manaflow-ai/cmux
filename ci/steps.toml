@@ -520,8 +520,8 @@ python3 -I scripts/ci/workflow_twins.py --other-dir "$repo"
 # feat-cmux-next push, and the push's reds were left standing (the twin drift cmux#64088 fixes, a sweep job that
 # went red on main's fast guards after the merge). A change to a workflow, the pool rescue or these tests now runs
 # them before the merge: every owned-pool workflow is watched by the rescue, main twins keep their twin's runs-on
-# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_fork_runner_routing.py and
-# test_ci_paid_queue_pin.py join this step once they are green on feat-cmux-next (31 base reds on 11-28).
+# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_paid_queue_pin.py joined
+# once green on feat-cmux-next (#64401); test_ci_fork_runner_routing.py (115 s) stays out of this 120 s step.
 [step.workflow-runner-guards]
 job = "linux"
 # 22 s on the pool (11-28), the main tip fetched at depth 1.
@@ -535,6 +535,7 @@ inputs = [
   "scripts/ci/check_runs_on_pools.py",
   "tests/test_ci_owned_pool_sources.py",
   "tests/test_ci_runner_set.py",
+  "tests/test_ci_paid_queue_pin.py",
   "tests/workflow_jobs.py",
   "tests/git_fixture_env.py",
 ]
@@ -542,6 +543,7 @@ run = '''
 status=0
 python3 tests/test_ci_owned_pool_sources.py || status=1
 python3 tests/test_ci_runner_set.py || status=1
+python3 tests/test_ci_paid_queue_pin.py || status=1
 exit "$status"
 '''
 
@@ -567,6 +569,33 @@ inputs = [
   "tests/*",
 ]
 run = "scripts/ci/guards_reached.sh"
+
+# tests/test_ci_owned_mac_jobs_no_sudo.py counts the sudo calls in every script a job that can reach an owned Mac
+# runs, but it was only in ci-guards.yml's ci group, which a feat-cmux-next pull request skips (cdn-user-agent,
+# above). #64195 added four `sudo -n` calls to scripts/cmux-next/cloud-journey.ts and the guard went red only on
+# the feat-cmux-next push. A change to a workflow or to a script such a job can run (the guard's RUN_PATH folders)
+# now runs it before the merge.
+[step.owned-mac-no-sudo]
+job = "linux"
+# 5 s locally (11-28). pr_scope = false: every input is a whole-tree glob, which --pr-scope leaves to the
+# post-merge batch, the very gap this step closes; at 5 s it costs nothing on the pull request.
+pr_scope = false
+timeout = 120
+title = "No new sudo on jobs that can reach an owned Mac"
+about = "a job that can land on an owned mini, and every script it runs, adds no sudo call beyond the counted, explained ones in tests/test_ci_owned_mac_jobs_no_sudo.py"
+inputs = [
+  ".github/workflows/**",
+  "tests/test_ci_owned_mac_jobs_no_sudo.py",
+  "scripts/**/*.py", "scripts/**/*.sh", "scripts/**/*.ts", "scripts/**/*.js", "scripts/**/*.mjs", "scripts/**/*.rb",
+  "tests/**/*.py", "tests/**/*.sh", "tests/**/*.ts", "tests/**/*.js",
+  "tools/**",
+  "Native/**/*.sh", "Native/**/*.py",
+  "cmux-tui/**/*.sh", "cmux-tui/**/*.py",
+  "webviews/**/*.sh", "webviews/**/*.mjs",
+]
+run = '''
+python3 tests/test_ci_owned_mac_jobs_no_sudo.py
+'''
 
 [step.skill-contracts]
 job = "linux"
@@ -2838,7 +2867,7 @@ exit "$rc"
 job = "linux"
 tier = "push"
 land_gate = true
-timeout = 600
+timeout = 360
 title = "Webviews checks (check:*, new findings only)"
 about = "webviews' check:* ratchets (surface-bypass, catalog keys, fixed waits, design tokens, layers, ...) add no finding the base lacks"
 needs = ["bun", "node"]
@@ -2997,6 +3026,31 @@ rm -f "$log"
 exit "$status"
 '''
 
+# The routing half of tests/test_ci_daemon_pr_member_steps.py on its own, so a pull request that adds a member file
+# no cmux-next-acpmux/-tui-core/-tui input matches fails here. Those steps hold the same check, but a file in a new
+# directory routes none of them under --pr-scope, and a landing head's nightly gate skips them (no nightly, no
+# land_gate): cmux#38507 added acpmux/src/server/pull_request_actions/ and reddened base. `**` inputs are fine on a
+# land_gate step; the check reads git ls-files and cargo metadata, about 15 s, no build.
+[step.daemon-member-routes]
+job = "linux"
+land_gate = true
+timeout = 300
+title = "Every big daemon member's file routes its PR step"
+about = "test_ci_daemon_pr_member_steps.py: every tracked file of acpmux, cmux-tui-core and cmux-tui (and the fixtures their cmux_next_ tests read) matches an input of that member's pull-request step, red only when this change adds it"
+inputs = [
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui/**",
+  "ci/steps.toml",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Daemon member routes" -- python3 -I tests/test_ci_daemon_pr_member_steps.py DaemonPrMemberSteps.test_every_file_of_the_member_and_its_fixtures_routes_it DaemonPrMemberSteps.test_the_fixture_scan_finds_the_known_reads
+'''
+
 # The cmux_next_ daemon tests of the gate's three big members, each on the pull request that touches it. Their path
 # dependencies are most of the workspace (114 to 168 members), so routing them by every file that can break them would
 # run them on nearly every cmux-tui pull request; these steps route by the member's own files and the fixtures its
@@ -3127,6 +3181,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/review_brief_fixtures/*",
   "cmux-tui/crates/acpmux/src/rows/*",
   "cmux-tui/crates/acpmux/src/server/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
   "cmux-tui/crates/acpmux/src/server/account_sign_in/*",
   "cmux-tui/crates/acpmux/src/server/accounts/*",
   "cmux-tui/crates/acpmux/src/server/chats/*",
@@ -3321,6 +3376,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/*",
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/tests/*",
   "cmux-tui/crates/cmux-tui-core/src/tool_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/tree_wire/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions/*",
