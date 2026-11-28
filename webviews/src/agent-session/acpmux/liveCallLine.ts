@@ -144,6 +144,35 @@ function turnOf(turn: readonly AcpmuxRow[], rows: readonly AcpmuxRow[]): boolean
   return true;
 }
 
+/// Debug (replay bench RENDERS=1): where `turnOf` failed.
+function turnOfMiss(turn: readonly AcpmuxRow[], rows: readonly AcpmuxRow[]): string {
+  let at = rows.length - 1;
+  for (let index = turn.length - 1; index >= 0; index -= 1) {
+    const row = turn[index]!;
+    const from = at;
+    while (at >= 0 && rows[at] !== row) {
+      if (rows[at]!.kind === "user" && row.kind !== "user") {
+        const same = rows.findIndex((r) => r.id === row.id);
+        return `user-before:${row.kind}@${turn.length - 1 - index}/${turn.length}:${same < 0 ? "noid" : sameShape(rows[same], row, COMPARE_DEPTH) ? "sameid-eq" : `sameid-${diffPath(rows[same], row, COMPARE_DEPTH)}`}:skip${from - at}`;
+      }
+      at -= 1;
+    }
+    if (at < 0) return `absent:${row.kind}@${turn.length - 1 - index}/${turn.length}`;
+    at -= 1;
+  }
+  return "ok";
+}
+
+/// Debug (replay bench RENDERS=1): the open turn the transcript drew with no live line.
+function nolineWhy(rows: readonly AcpmuxRow[], shape: LiveTurnShape | undefined): string {
+  const tail = rows
+    .slice(-3)
+    .map((row) => row.kind)
+    .join(",");
+  const end = shape?.shaped.at(-1);
+  return `tail=${tail}|shapedEnd=${end ? (end.id === LIVE_THINKING ? "line" : end.kind) : "-"}|stale=${shape ? shape.stamp !== stamp : "-"}`;
+}
+
 /// What the transcript drew of the running turn (VirtualTranscript, after liveThought.ts
 /// `drewThoughts` told the fold). While the line is ahead of the pane, a pass that drew another
 /// line, or the turn's work open, draws the pane's older rows: the pane draws the newest at once.
@@ -188,8 +217,8 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
               ? "noshape"
               : !drewShaped(shape.shaped, open)
                 ? `drewShaped/${shapedMiss(shape.shaped, open)}`
-                : "turnOf"
-      }`;
+                : `turnOf/${turnOfMiss(shape.turn, basis.rows)}`
+      }${!line && acpmuxPerf.enabled ? `/${nolineWhy(rows!, shape)}` : ""}`;
     return;
   }
   // The transcript draws the line `steadyRows` kept (turns.ts): an equal line drawn before stands
