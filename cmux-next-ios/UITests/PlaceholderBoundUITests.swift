@@ -129,7 +129,10 @@ final class PlaceholderBoundUITests: XCTestCase {
     @MainActor
     private func layoutShifts(_ app: XCUIApplication, flow: String) {
         let probe = app.descendants(matching: .any)["debug.layout-shift"]
-        let text = probe.waitForExistence(timeout: 2) ? probe.label : "{}"
+        // Under heavy duress the app's accessibility tree can take past 2 s to answer: the label
+        // was there and the flow still read no count (#59189, workspaces in step 471251705402).
+        let present = probe.waitForExistence(timeout: 15)
+        let text = present ? probe.label : "{}"
         let counts = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
         let shifts = counts["shiftFrames"] as? Int ?? -1
         let line = "LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")"
@@ -142,7 +145,8 @@ final class PlaceholderBoundUITests: XCTestCase {
         add(record)
         let ceiling = PlaceholderKnownOverBound.layoutShiftFlows[flow]
         if shifts < 0 {
-            XCTFail("\(flow): no layout-shift count (debug.layout-shift missing or no marked row drawn)")
+            XCTFail(present ? "\(flow): no layout-shift count (debug.layout-shift shows no counted frame: no marked row drawn)"
+                            : "\(flow): no layout-shift count (debug.layout-shift not in the accessibility tree after 15 s)")
         } else if shifts > (ceiling?.maxShiftFrames ?? 0) {
             let bound = ceiling.map { "its ceiling of \($0.maxShiftFrames) in known_layout_shifts (\($0.issue))" } ?? "zero"
             // Every counted move (frame:id y/h->y/h, its scroll and what it moved under), in the
