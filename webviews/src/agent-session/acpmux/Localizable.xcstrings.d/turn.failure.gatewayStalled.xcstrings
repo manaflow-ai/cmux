@@ -32,7 +32,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "{harness}'s gateway did not answer within {time} and never reached the model. This is the gateway, not a rate limit: try again, or switch model."
+            "value" : "{harness}'s gateway timed out after {time} before reaching the model, not a rate limit: try again, or switch model."
           }
         },
         "es" : {
