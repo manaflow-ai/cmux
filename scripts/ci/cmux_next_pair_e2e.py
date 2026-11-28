@@ -181,6 +181,41 @@ def mac_workspace(app, sock, home, session=None, rpc=None):
     return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newTab: {why})"
 
 
+WEB_PANE = {
+    "open": re.compile(r"agent pane: transport\.open connection (\d+) on acpmux"),
+    "frame": re.compile(r"agent pane: first acpmux frame on connection (\d+) after (\d+) ms"),
+    "loaded": re.compile(r"agent pane: page loaded after (\d+) ms"),
+    "composer": re.compile(r"agent pane: composer drawn after (\d+) ms"),
+    "failed": re.compile(r"agent pane: (page failed: .*|no composer .*)$"),
+}
+
+
+def web_pane_leg(simctl, udid, bundle_id, ios_app, phone_env, phone_log, phone_shot, note):
+    """The Mac's React agent pane on the paired phone, against the rig Mac's real acpmux over the link
+    (DEBUG `-cmux-mobile-web-pane`: AgentPaneWebView full screen once acpmux is live). Passes on the
+    app's own lines: the page loaded from the app's bundled agent-pane/, a page connection opened an
+    acpmux channel, acpmux's first frame (the initialize reply) reached it, and the pane drew its composer."""
+    bundled = os.path.isfile(os.path.join(ios_app, "agent-pane", "index.html"))
+    note(f"- web pane: agent-pane/ {'bundled in the app' if bundled else 'NOT in the app (no bun on this host?)'}")
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-web-pane"],
+                   env=phone_env, check=True, capture_output=True)
+    seen = {}
+    for step in ("loaded", "open", "frame", "composer"):
+        hit = phone_log.wait_at(re.compile(WEB_PANE[step].pattern + "|" + WEB_PANE["failed"].pattern), 120, since=since)
+        if not hit or not WEB_PANE[step].search(hit[1].group(0)):
+            why = hit[1].group(0) if hit else f"no `{step}` line in 120 s"
+            note(f"- web pane: FAIL at {step}: {why}; {phone_shot('web-pane-fail')}")
+            return False
+        seen[step] = WEB_PANE[step].search(hit[1].group(0))
+    time.sleep(2)  # the transcript's first page lands after the composer
+    note(f"- web pane: PASSED: page loaded in {seen['loaded'].group(1)} ms, acpmux's first frame "
+         f"{seen['frame'].group(2)} ms after transport.open, composer drawn {seen['composer'].group(1)} ms after "
+         f"the load began; {phone_shot('web-pane')}")
+    return True
+
+
 def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
     """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
     shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
@@ -407,6 +442,8 @@ def main():
     # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
+    # The web pane leg (cmux-next-ios-sim.sh pair-e2e's webpane word): only that leg after pairing.
+    ap.add_argument("--web-pane", action="store_true")
     a = ap.parse_args()
     drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
@@ -679,7 +716,11 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if paired and connect_runs:
+            if paired and a.web_pane:
+                # Only the web pane leg: the theme, upload, attach and restart legs are the ordinary runs'.
+                uploaded, attach_ok, restart_ok = True, True, True
+                theme_ok = web_pane_leg(simctl, a.udid, a.bundle_id, a.ios_app, phone_env, phone_log, phone_shot, note)
+            elif paired and connect_runs:
                 # A measurement run (the commit's Connect-Timeline-Runs trailer): only the connect
                 # leg; the theme, upload and restart legs are left to the ordinary pair-e2e runs.
                 theme_ok, uploaded, ask_ok, restart_ok = True, True, True, True
@@ -692,7 +733,7 @@ def main():
                 except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
                     theme_ok = False
                     note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
-            if paired and probe and not connect_runs:
+            if paired and probe and not connect_runs and not a.web_pane:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME,
@@ -701,20 +742,20 @@ def main():
                 note(f"- upload: {line}")
             # Connect-timeline runs measure only connection recovery. Keep the expensive 8 GiB
             # attachment leg out of those runs; ordinary pair-e2e runs still exercise it.
-            attach_ok = run_attachment_leg(
+            attach_ok = attach_ok if a.web_pane else run_attachment_leg(
                 paired,
                 attach,
                 connect_runs,
                 lambda: attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note),
             )
-            if drops and paired and not connect_runs:
+            if drops and paired and not connect_runs and not a.web_pane:
                 try:
                     reconnect_ok = reconnect_after_drop(app, drops, simctl, a.udid, a.out, status, phone_log,
                                                         phone_shot, note)
                 except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
                     reconnect_ok = False
                     note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
-            if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
+            if discovery and paired and not connect_runs and not a.web_pane:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
