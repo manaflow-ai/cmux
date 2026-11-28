@@ -1,5 +1,5 @@
 /// One scrollable column. Its width is a fraction of the viewport.
-public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
+public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable, Codable {
     public var id: ColumnID
     /// Fraction of the viewport width, 0.1...1.0 (daemon `set-viewport-pane-width`).
     public var width: Double
@@ -20,6 +20,14 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
         self.root = root
         self.dock = dock
         self.rows = rows
+    }
+
+    /// The JSON of `cmux_layout_reducer` `screen_layout`, which leaves out a column's empty `rows`.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(ColumnID.self, forKey: .id), width: try c.decode(Double.self, forKey: .width),
+                  root: try c.decode(SplitNode.self, forKey: .root), dock: try c.decodeIfPresent(DockColumn.self, forKey: .dock),
+                  rows: try c.decodeIfPresent([LayoutRow].self, forKey: .rows) ?? [])
     }
 
     /// Two or more rows (a single row is the column's own tree).

@@ -502,11 +502,14 @@ class PageFactory : public CefSchemeHandlerFactory {
     // An agent chat's top document is answered after one UI turn: whether it gets a renderer of its
     // own is the app's word (OwnRendererHeaders), and the app may name the browser in the turn that
     // created it.
-    const bool own_renderer_candidate = main_frame && browser && domain_ == kOwnRendererPageId;
+    // A browser the app already named needs no turn (OwnRendererNeedsUITurn).
+    const bool needs_ui_turn =
+        OwnRendererNeedsUITurn(main_frame && browser && domain_ == kOwnRendererPageId,
+                               browser ? browser->GetIdentifier() : 0, g_own_renderer_browser.load());
     // A request with no frame has nothing to wait for: it is judged now.
     switch (JudgePageRequest(main_frame, frame_url, parent_url, domain_, !frame)) {
       case PageRequestVerdict::kAllow: {
-        if (!own_renderer_candidate) return Serve(browser, request, main_frame);
+        if (!needs_ui_turn) return Serve(browser, request, main_frame);
         CefRefPtr<PageFactory> self(this);
         return new DeferredPageResource(
             browser, frame, [self, browser, request](const std::string&) { return self->Serve(browser, request, true); },
@@ -523,7 +526,7 @@ class PageFactory : public CefSchemeHandlerFactory {
                 return self->Forbidden();
               return self->Serve(browser, request, main_frame);
             },
-            /*wait_for_frame=*/true, /*after_ui_turn=*/own_renderer_candidate);
+            /*wait_for_frame=*/true, /*after_ui_turn=*/needs_ui_turn);
       }
     }
     return Forbidden();

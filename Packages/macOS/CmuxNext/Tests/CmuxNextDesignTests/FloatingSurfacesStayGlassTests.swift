@@ -106,10 +106,15 @@ import CmuxNextDesignTokens
         }
     }
 
-    /// The hover card gallery draws the card the way a hover shows it.
+    /// The hover card gallery draws the card the way a hover shows it: in the popup host a hover shows it in
+    /// (`PopupHostView`, #54017), as glass, never the solid card fill. The card is the host's, not a direct subview
+    /// of the gallery's view: looking for it there found nothing since #54017, so the test failed without reading
+    /// the card at all.
     @Test func theGalleryCardIsTheSameGlass() throws {
-        let host = HoverCardGalleryHost(body: NSView(), recolor: {})
-        let surface = try #require(host.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
+        let gallery = HoverCardGalleryHost(body: NSView(), recolor: {})
+        let host = try #require(gallery.subviews.compactMap { $0 as? PopupHostView }.first,
+                                "the gallery shows no popup host, so it does not draw what a hover draws")
+        let surface = try #require(host.card as? OverlaySurfaceView, "the gallery's popup host holds no overlay glass")
         #expect(!surface.isCard)
     }
 

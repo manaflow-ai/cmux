@@ -101,6 +101,7 @@ jobs:
       - name: Record
         id: record
         env:
+          CI_SIM_BENCH_QUEUE_S: ${{ vars.CI_SIM_BENCH_QUEUE_S }}
           CLIPS_PLAN: ${{ needs.plan.outputs.plan }}
           HEAD: ${{ github.sha }}
         # Every failure is handled where it happens: one clip's failed step must not drop the others.
@@ -122,7 +123,9 @@ jobs:
           out="${RUNNER_TEMP:?}/media/whats-new-clips"
           mkdir -p "$out"
           count=0
-          QUEUE_S=3600 RUN_S=3600
+          # A simulator-class wait past 15 min has never paid off (job 140683535687: 71 min, zero clips). Repo variable
+          # CI_SIM_BENCH_QUEUE_S=3600 restores the old hour.
+          QUEUE_S="${CI_SIM_BENCH_QUEUE_S:-900}" RUN_S=3600
           # A shipped nightly's clips rank above plain agent steps (--priority pr), due when the queue wait ends.
           # As plain agent steps they lost every turn: 45978228941's two clips sat their whole 3600 s while the
           # simulator class's p90 queue wait was 393 min (20 agent steps queued, 15 of 17 workers busy), so the
@@ -149,7 +152,7 @@ jobs:
             echo "$id: cmux-ci run exited $rc" >> "$log"
             # 75: the step never left the queue; it would keep its place and run for nobody, so take it back.
             if [ "$rc" = 75 ]; then
-              step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+              step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
               [ -z "$step" ] || "$client" cancel --reason "What's New clip $id: not out of the queue in ${QUEUE_S}s" "$step" >> "$log" 2>&1
             fi
           }
@@ -163,7 +166,7 @@ jobs:
           for id in "${ids[@]}"; do
             log="$RUNNER_TEMP/iphone-$id.log"
             echo "::group::iPhone clip $id"; cat "$log"; echo "::endgroup::"
-            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
             zip="$RUNNER_TEMP/iphone-$id.zip"
             # A step with one failed role still uploads the other's clip (--failed).
             if [ -z "$step" ] || ! { "$client" artifact "$step" "$zip" || "$client" artifact --failed "$step" "$zip"; }; then

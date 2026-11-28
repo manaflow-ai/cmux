@@ -115,6 +115,7 @@ pub(crate) fn is_tool_read(method: &str) -> bool {
             | method::MUX_RACE_GET
             | method::MUX_RACE_LIST
             | method::MUX_GITHUB_PR_STATE
+            | method::MUX_GITHUB_READ
             | method::MUX_CHAT_TRANSCRIPT_PAGE
             | method::MUX_CHAT_TRANSCRIPT_FIND
     )

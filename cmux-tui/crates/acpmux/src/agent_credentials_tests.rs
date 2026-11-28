@@ -8,6 +8,134 @@ fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 #[test]
+fn copilot_is_never_recovered_from_agent_state() {
+    let marked = format!("{MARKER}={COPILOT_TOKEN}\0XDG_DATA_HOME=/tmp/fixture\0");
+    assert!(recovered(marked.as_bytes()).is_none());
+    let with_token = format!("{marked}{COPILOT_TOKEN}=fixture-token\0");
+    assert!(recovered(with_token.as_bytes()).is_none());
+}
+
+#[test]
+fn endpoint_credentials_apply_after_the_route_unset_and_recover() {
+    for (kind, key, harness) in [
+        ("openai", byo_endpoint::OPENAI_KEY_ENV, "opencode"),
+        ("anthropic", byo_endpoint::ANTHROPIC_KEY_ENV, "claude"),
+    ] {
+        let token = "fixture-endpoint-credential";
+        let wire = json!({
+            "env": {key: token},
+            "endpoint": {"kind": kind, "baseUrl": "https://provider.example/v1",
+                         "models": ["big", "small"]}
+        });
+        let credential = AgentCredential::parse(&wire).unwrap();
+        let mut argv = vec![harness.to_owned()];
+        let mut env = env(&[
+            ("ANTHROPIC_BASE_URL", "https://old.example"),
+            ("OPENAI_BASE_URL", "https://old.example"),
+        ]);
+        assert!(!apply(&credential, "codex", &mut argv, &mut env));
+        assert!(apply(&credential, harness, &mut argv, &mut env));
+        if kind == "anthropic" {
+            assert_eq!(env["ANTHROPIC_BASE_URL"], "https://provider.example/v1");
+            assert_eq!(env["ANTHROPIC_MODEL"], "big");
+            assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "small");
+        } else {
+            let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+            assert_eq!(config["model"], "byo/big");
+            assert_eq!(config["provider"]["byo"]["options"]["apiKey"], "{env:CMUX_BYO_API_KEY}");
+            assert!(config["provider"]["byo"]["models"].get("small").is_some());
+        }
+        assert_eq!(env[key], token);
+        assert!(!env.contains_key("OPENAI_BASE_URL"));
+        if kind == "anthropic" {
+            assert_eq!(argv, [harness, "--setting-sources", ""]);
+        } else {
+            assert_eq!(argv, [harness]);
+        }
+        assert!(argv.iter().all(|word| !word.contains(token)));
+        assert!(!format!("{credential:?}").contains(token));
+        assert!(!format!("{credential:?}").contains("provider.example"));
+        assert!(!env[ENDPOINT_MARKER].contains(token));
+        let environ =
+            env.iter().map(|(name, value)| format!("{name}={value}\0")).collect::<String>();
+        assert_eq!(recovered(environ.as_bytes()).as_ref(), Some(&credential));
+    }
+}
+
+#[test]
+fn endpoint_credentials_do_not_read_settings_that_can_replace_the_provider() {
+    let wire = json!({"env": {byo_endpoint::ANTHROPIC_KEY_ENV: "fixture-key"},
+        "endpoint":{"kind":"anthropic", "baseUrl":"https://provider.example", "models":["model-a"]}});
+    let credential = AgentCredential::parse(&wire).unwrap();
+    let mut argv =
+        ["claude", "--setting-sources", "user,project,local", "--settings=supplied.json"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+    assert!(apply(&credential, "claude", &mut argv, &mut BTreeMap::new()));
+    assert_eq!(argv, ["claude", "--setting-sources", ""]);
+}
+
+#[test]
+fn endpoint_credentials_reject_local_hosts_and_unpaired_variables() {
+    for url in [
+        "http://localhost:11434/v1",
+        "https://localhost.",
+        "https://127.1",
+        "https://10.0.0.1",
+        "https://192.168.1.10",
+        "https://169.254.1.2",
+        "https://[::1]",
+        "https://[::ffff:127.0.0.1]",
+        "https://[fd00::1]",
+        "https://model.local",
+    ] {
+        let wire = json!({"env": {byo_endpoint::OPENAI_KEY_ENV: "fixture-key"},
+            "endpoint":{"kind":"openai", "baseUrl":url, "models":["model-a"]}});
+        assert!(AgentCredential::parse(&wire).is_err(), "{url}");
+    }
+    assert!(
+        AgentCredential::parse(&json!({"env": {byo_endpoint::OPENAI_KEY_ENV: "fixture-key"}}))
+            .is_err()
+    );
+    assert!(
+        AgentCredential::parse(&json!({"env": {OPENAI_KEY: "fixture-key"},
+        "endpoint":{"kind":"openai", "baseUrl":"https://host.example", "models":["model-a"]}}))
+        .is_err()
+    );
+    assert!(
+        AgentCredential::parse(&json!({"env": {byo_endpoint::OPENAI_KEY_ENV: "fixture-key"},
+        "endpoint":{"kind":"openai", "baseUrl":"https://host.example", "models":["fixture-key"]}}))
+        .is_err()
+    );
+}
+
+#[test]
+fn native_credentials_clear_alternate_keys_and_model_routes() {
+    for (harness, key, alternate_key, route) in [
+        ("gemini", GEMINI_KEY, "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"),
+        ("grok", GROK_KEY, "GROK_CODE_XAI_API_KEY", "GROK_MODELS_BASE_URL"),
+    ] {
+        let credential = AgentCredential::parse(&json!({"env": {key: "fixture-key"}})).unwrap();
+        let mut argv = vec![harness.into()];
+        let mut env = env(&[(alternate_key, "alternate"), (route, "https://route.example")]);
+        assert!(!apply(&credential, "codex", &mut argv, &mut env));
+        assert!(apply(&credential, harness, &mut argv, &mut env));
+        assert_eq!(env[key], "fixture-key");
+        assert!(!env.contains_key(alternate_key));
+        if harness == "gemini" {
+            assert_eq!(env[route], "https://generativelanguage.googleapis.com");
+            for flag in ["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA"] {
+                assert_eq!(env[flag], "false");
+            }
+        } else {
+            assert!(!env.contains_key(route));
+        }
+        assert!(env[crate::routes::UNSET_KEY].split(',').any(|name| name == route));
+    }
+}
+
+#[test]
 fn only_one_known_token_shaped_variable_is_taken() {
     let ok = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc_DEF"}}));
     assert_eq!(ok.unwrap().family(), Family::Claude);
@@ -59,6 +187,23 @@ fn a_claude_launch_drops_the_coderouter_route_and_takes_the_token() {
         assert!(unset.contains(&key), "{key} is removed from what the agent inherits");
     }
     assert_eq!(argv, ["claude"], "Claude needs only its env");
+}
+
+#[test]
+fn a_delivered_setup_token_uses_anthropic_and_drops_competing_settings() {
+    let name = byo_endpoint::ANTHROPIC_KEY_ENV;
+    assert!(AgentCredential::parse(&json!({"env": {name: "endpoint-only"}})).is_err());
+    let token = "sk-ant-oat01-fixture";
+    let credential = AgentCredential::parse(&json!({"env": {name: token}})).unwrap();
+    let mut argv =
+        vec!["claude".to_owned(), "--settings".to_owned(), "untrusted-settings.json".to_owned()];
+    let mut env = env(&[("ANTHROPIC_BASE_URL", "https://coderouter.example")]);
+    assert!(apply(&credential, "claude", &mut argv, &mut env));
+    assert_eq!(argv, ["claude", "--setting-sources", ""]);
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.anthropic.com");
+    assert_eq!(env[name], token);
+    assert_eq!(env[ANTHROPIC_KEY], "");
+    assert_eq!(env[MARKER], name);
 }
 
 #[test]
@@ -168,6 +313,27 @@ fn codex_on_an_openai_key_reads_that_key() {
 }
 
 #[test]
+fn local_openai_key_route_does_not_use_codex_login() {
+    let mut argv =
+        ["codex", "-c", "model_provider=\"openai\"", "app-server"].map(str::to_owned).to_vec();
+    let mut env = BTreeMap::from([
+        ("OPENAI_BASE_URL".into(), OPENAI_BASE.into()),
+        (OPENAI_KEY.into(), "fixture-key".into()),
+        (CHATGPT_TOKEN.into(), "fixture-plan-token".into()),
+    ]);
+    configure_local_codex_route(&mut argv, &mut env);
+    assert!(!env.contains_key(CHATGPT_TOKEN));
+    assert!(argv.iter().any(|arg| arg == "model_provider=\"openai_api_key\""));
+    assert!(
+        argv.iter().any(|arg| arg == "model_providers.openai_api_key.requires_openai_auth=false")
+    );
+    assert!(
+        argv.iter().any(|arg| arg == "model_providers.openai_api_key.env_key=\"OPENAI_API_KEY\"")
+    );
+    assert!(!argv.iter().any(|arg| arg.contains("fixture-key")));
+}
+
+#[test]
 fn apply_marks_the_agent_with_the_variable_name_only() {
     let c = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
     let (mut argv, mut e) = (vec!["claude".to_owned()], BTreeMap::new());
@@ -212,7 +378,7 @@ fn an_inherited_or_unchecked_variable_never_comes_back() {
     assert_eq!(recovered(&environ(&[(MARKER, CLAUDE_OAUTH), (CLAUDE_OAUTH, "a b")])), None);
     assert_eq!(recovered(&environ(&[(MARKER, CLAUDE_OAUTH)])), None);
     assert_eq!(recovered(b""), None);
-    assert_eq!(recovered_from_pid(u32::MAX), None);
+    assert_eq!(recovered_from_pid(u32::MAX, 1, "chat"), None);
 }
 
 #[test]
@@ -224,4 +390,44 @@ fn a_credential_of_another_family_is_not_applied() {
     assert!(!apply(&c, "opencode", &mut argv, &mut e));
     assert_eq!(e["OPENAI_BASE_URL"], "https://coderouter.cmux.internal/v1");
     assert!(!e.contains_key(CLAUDE_OAUTH));
+}
+
+#[test]
+fn delivered_claude_api_key_isolated_in_settings_and_absent_from_argv() {
+    let credential = AgentCredential::parse(&serde_json::json!({
+        "env": {ANTHROPIC_KEY: "fixture-secret"},
+        "connection": "anthropic-personal",
+    }))
+    .unwrap();
+    let mut argv = ["claude", "--settings", "project.json", "--setting-sources=project,user"]
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect();
+    let mut env =
+        BTreeMap::from([("ANTHROPIC_BASE_URL".to_owned(), "https://wrong.example".to_owned())]);
+    assert!(apply(&credential, "claude", &mut argv, &mut env));
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.anthropic.com");
+    assert!(env[ANTHROPIC_KEY] == "fixture-secret");
+    assert_eq!(argv.iter().filter(|arg| arg.as_str() == "--settings").count(), 1);
+    assert!(!argv.iter().any(|arg| arg.contains("fixture-secret") || arg.contains("project.json")));
+    let settings: Value = serde_json::from_str(argv.last().unwrap()).unwrap();
+    for key in crate::claude_cloud_auth::TEAM_CLEARS {
+        assert_eq!(settings["env"][key], "");
+    }
+}
+
+#[test]
+fn delivered_vertex_express_key_uses_the_gemini_cli_without_project_auth() {
+    let cred =
+        AgentCredential::parse(&serde_json::json!({"env": {VERTEX_EXPRESS_KEY: "AQ.fixture"}}))
+            .unwrap();
+    let mut env = BTreeMap::from([("GOOGLE_CLOUD_PROJECT".into(), "prior-project".into())]);
+    let mut argv = vec!["gemini".into(), "--acp".into()];
+    assert_eq!(cred.family(), Family::Gemini);
+    assert!(apply(&cred, "gemini", &mut argv, &mut env));
+    assert_eq!(env["GEMINI_CLI_AUTH_OVERRIDE"], "vertex-ai");
+    assert_eq!(env["GOOGLE_VERTEX_BASE_URL"], "https://aiplatform.googleapis.com");
+    assert_eq!(env["GOOGLE_CLOUD_PROJECT"], "");
+    assert_eq!(env["GEMINI_CLI_TRUST_WORKSPACE"], "false");
+    assert!(!argv.iter().any(|arg| arg.contains("AQ.fixture")));
 }

@@ -81,13 +81,20 @@ where
 {
     // Bounded: a holder whose accept loop stopped leaves the dial queued with no answer forever
     // (`daemon/hung_holder.rs`); past it the command waits on, and may replace, that holder.
-    if let Ok(Ok(value)) = tokio::time::timeout(DIAL_BOUND, connect()).await {
+    let dialed = tokio::time::Instant::now();
+    let first = tokio::time::timeout(DIAL_BOUND, connect()).await;
+    if let Ok(Ok(value)) = first {
         return Ok(value);
     }
+    // The dial queued the whole bound against a holder that served before: that time counts as
+    // unanswered in `wait_on_holder`, and the holder is not a start in progress to wait for.
+    let hung_since = (first.is_err() && serving_holder(current_home)).then_some(dialed);
     // A daemon that holds the home and is not serving yet (a restart or an update mid-dial):
     // wait for it to answer instead of failing or starting a second one (F10).
-    if let Some(value) = connect_when_ready(current_home, &connect).await {
-        return Ok(value);
+    if hung_since.is_none() {
+        if let Some(value) = connect_when_ready(current_home, &connect).await {
+            return Ok(value);
+        }
     }
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
@@ -99,7 +106,7 @@ where
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
     }
-    start_and_connect(path, connect).await
+    start_and_connect(path, connect, hung_since).await
 }
 
 /// One dial of the daemon (connect and its hello), which has no limit of its own: the serving
@@ -116,7 +123,13 @@ pub(super) const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 /// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
 /// line says `lockHeld`), another daemon is stopping or starting: the command connects once that
 /// one serves, or starts the next daemon once it has exited.
-pub(super) async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+pub(super) async fn start_and_connect<T, F, Fut>(
+    path: &std::path::Path,
+    connect: F,
+    #[cfg_attr(not(unix), allow(unused_variables, unused_mut))] mut hung_since: Option<
+        tokio::time::Instant,
+    >,
+) -> Result<T>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -140,7 +153,7 @@ where
         // A live holder: this command never starts one more `daemon run` behind it (13 queued on
         // one Mac, 2026-11-27); it waits for that one, replacing it once it is proven hung.
         #[cfg(unix)]
-        if let Some(c) = wait_on_holder(&connect).await? {
+        if let Some(c) = wait_on_holder(&connect, hung_since.take()).await? {
             return Ok(c);
         }
         let ready = start_daemon().await?;
@@ -175,13 +188,29 @@ where
     }
 }
 
+/// Whether the home's lock holder is a daemon that served (its beat says so): a dial that timed
+/// out against it is a hung or busy daemon, not a start in progress.
+#[cfg(unix)]
+fn serving_holder(home: &std::path::Path) -> bool {
+    lock::live_holder_pid(&home.join("daemon.lock")).is_some_and(|pid| {
+        matches!(hung_holder::beat_of(home, pid), Some((hung_holder::Phase::Serving, _)))
+    })
+}
+#[cfg(not(unix))]
+fn serving_holder(_home: &std::path::Path) -> bool {
+    false
+}
+
 /// While a live daemon holds this home's lock, waits for it to answer (each dial bounded: the
 /// holder may be the hung one, whose queue nobody accepts from) instead of starting another.
 /// Past the stall rule (`hung_holder::stalled`) the one standing waiter of the home replaces it
 /// (`hung_holder::replace`); a command finding another waiter standing keeps waiting for it.
 /// `Ok(None)`: no live holder now (none, or it was replaced): the caller may start one.
 #[cfg(unix)]
-pub(super) async fn wait_on_holder<T, F, Fut>(connect: &F) -> Result<Option<T>>
+pub(super) async fn wait_on_holder<T, F, Fut>(
+    connect: &F,
+    mut hung_since: Option<tokio::time::Instant>,
+) -> Result<Option<T>>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -204,8 +233,11 @@ where
         let since = match watched {
             Some((p, since)) if p == pid => since,
             _ => {
-                watched = Some((pid, now));
-                now
+                // The first holder seen is the one the caller's own dial queued against: its
+                // unanswered time began at that dial, so the stall bound is counted once.
+                let since = hung_since.take().unwrap_or(now);
+                watched = Some((pid, since));
+                since
             }
         };
         let unanswered = now - since;

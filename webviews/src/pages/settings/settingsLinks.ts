@@ -24,9 +24,9 @@ export type SettingsConnection = { section: string; focus: string; target: strin
  * catalog id, `connections/<id>`, and lands on its hub row once the hub draws it. */
 export const SETTINGS_CONNECTIONS: Readonly<Record<string, SettingsConnection>> = {
   github: { section: "accounts", focus: "connection.github", target: '[data-card="github-connection"]' },
-  claude: { section: "cloud", focus: "cloud.claude", target: '[data-cloud-row="claude"]' },
-  chatgpt: { section: "cloud", focus: "cloud.chatgpt", target: '[data-cloud-row="chatgpt"]' },
-  apiKey: { section: "cloud", focus: "cloud.apiKey", target: '[data-cloud-row="apiKey"]' },
+  claude: { section: "cloud", focus: "cloudModels.add.claude", target: '[data-card="cloudModels"]' },
+  chatgpt: { section: "cloud", focus: "cloudModels.add.chatgpt", target: '[data-card="cloudModels"]' },
+  apiKey: { section: "cloud", focus: "cloudModels.add", target: '[data-card="cloudModels"]' },
 };
 
 /** Other spellings of a connection (`api-key` from the URL scheme's kebab case). */
@@ -55,6 +55,16 @@ const schemaAliases: ReadonlyMap<string, string> = new Map(
 
 function connectionNamed(name: string): SettingsConnection | null {
   return SETTINGS_CONNECTIONS[CONNECTION_ALIASES[name] ?? name] ?? null;
+}
+
+/** Cards whose focus is their own id (not a row, card or connection): Settings > Menus picks its menu
+ * by it (`?focus=tab`). */
+const BARE_FOCUS_CARDS: readonly string[] = ["contextMenus"];
+
+function ownsBareFocus(category: string): boolean {
+  if (!isCategory(category)) return false;
+  const { lead, trail } = categoryById(category);
+  return [...lead, ...trail].some((card) => BARE_FOCUS_CARDS.includes(card));
 }
 
 /** The category a placed card is drawn in, preferring `category` when it draws it too. */
@@ -162,6 +172,10 @@ export function resolveSettingsLink(section: string | undefined, rawFocus: strin
     missing = section;
   }
   const hit = focus ? resolveFocus(focus, category, section) : pathTarget;
+  // A card that picks by its own focus keeps a bare one: Customize Menu… opens `menus?focus=<menu>`
+  // (ContextMenusCard), and the card says nothing is missing; an unknown menu opens the first.
+  if (focus && !hit && !focus.includes(".") && category && ownsBareFocus(category))
+    return { section: category, focus, card: null, target: null, targetRequired: false, missing };
   if (focus && !hit && !focus.includes(".")) missing ??= focus;
   if (hit) {
     return {

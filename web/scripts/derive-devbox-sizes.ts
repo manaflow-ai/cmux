@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { isFreestyleOverload, isFreestyleTransient, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { deriveRowFailureAction, isFreestyleOverload, isFreestyleTransient, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -255,14 +255,21 @@ const t0All = Date.now();
 // eight minutes of 429 while md..lgx passed beside them; nothing was promoted.
 let failure: unknown;
 const deferred: VmImageSizeName[] = [];
+// Rows set aside for a failure other than a 429; see DERIVE_MAX_RETRIED_ROWS.
+let retriedRows = 0;
 const outcomes = await Promise.allSettled(
   Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       try {
         await deriveSize(next);
       } catch (error) {
-        if (isFreestyleOverload(error) && failure === undefined) {
-          console.log(`${next}: Freestyle start capacity still overloaded; retrying after the other rows finish`);
+        if (failure === undefined && deriveRowFailureAction(error, retriedRows) === "defer") {
+          if (isFreestyleOverload(error)) {
+            console.log(`${next}: Freestyle start capacity still overloaded; retrying after the other rows finish`);
+          } else {
+            retriedRows += 1;
+            console.log(`${next}: failed (${error instanceof Error ? error.message : String(error)}); retrying alone after the other rows finish`);
+          }
           deferred.push(next);
           continue;
         }

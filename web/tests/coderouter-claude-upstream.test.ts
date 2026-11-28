@@ -362,7 +362,7 @@ describe("claude upstream routes", () => {
     response: Response.json({ error: "forbidden" }, { status: 403 }),
   };
 
-  function handlers(options: { manage?: boolean; failing?: boolean } = {}) {
+  function handlers(options: { manage?: boolean; failing?: boolean; refuseLongLivedBedrock?: boolean } = {}) {
     const { service: svc } = service();
     const resolveContext = mock(async () => (options.manage === false ? forbidden : context));
     const resolveUsageTeam = mock(async () => ({ ok: true as const, teamId: "team_1", stackUserId: "user_1" }));
@@ -376,6 +376,7 @@ describe("claude upstream routes", () => {
       list: failing ? (fail as never) : svc.list,
       add: failing ? (fail as never) : svc.add,
       removeAll: failing ? (fail as never) : svc.removeAll,
+      refuseLongLivedBedrock: options.refuseLongLivedBedrock ?? false,
     });
     const single = makeClaudeAccountHandlers({
       resolveContext: resolveContext as never,
@@ -425,6 +426,33 @@ describe("claude upstream routes", () => {
     expect((await collection.POST(new Request(url, { method: "POST", body: "{" }))).status).toBe(400);
     expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: "nope" }))).status).toBe(400);
     expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }, 70_000))).status).toBe(413);
+  });
+
+  test("links a long-lived Bedrock key while the RFD 0222 refusal is off (the default)", async () => {
+    const { collection } = handlers();
+    const linked = await collection.POST(
+      json("POST", { kind: "bedrock", region: "us-west-2", accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY }),
+    );
+    expect(linked.status).toBe(201);
+  });
+
+  test("refuses a new long-lived Bedrock key and links temporary credentials when the refusal is on (RFD 0222)", async () => {
+    const { collection, svc } = handlers({ refuseLongLivedBedrock: true });
+    const bedrock = { kind: "bedrock", region: "us-west-2", secretAccessKey: SECRET_ACCESS_KEY };
+    for (const body of [
+      { ...bedrock, accessKeyId: ACCESS_KEY_ID },
+      { ...bedrock, accessKeyId: ACCESS_KEY_ID, sessionToken: "FwoGZXIvYXdzEBYaDExampleSession" },
+      { ...bedrock, accessKeyId: "ASIAIOSFODNN7EXAMPLE" },
+    ]) {
+      const refused = await collection.POST(json("POST", body));
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: "bedrock_long_lived_key" });
+    }
+    expect(await svc.list("team_1")).toEqual([]);
+    const linked = await collection.POST(
+      json("POST", { ...bedrock, accessKeyId: "ASIAIOSFODNN7EXAMPLE", sessionToken: "FwoGZXIvYXdzEBYaDExampleSession" }),
+    );
+    expect(linked.status).toBe(201);
   });
 
   test("adds, lists, patches and removes accounts", async () => {

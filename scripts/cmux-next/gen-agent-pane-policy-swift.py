@@ -41,7 +41,9 @@ TABLES = [
     ("gesture_rules", "public static let gestureRules: [String: GestureRule]", "gesture"),
     ("setting_methods", "static let settingMethods: Set<String>", "set"),
     ("known_params", "static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)]", "params"),
-    ("reply_shapes", "public static let replyShapes: [String: ReplyShape]", "shape"),
+    # The shapes themselves are Rust's (reply.rs, through cmux_agent_pane_policy_filter_reply): Swift keeps
+    # only which methods have one, so a reply with none is never handed to Rust.
+    ("reply_shapes", "static let replyShapedMethods: Set<String>", "keys"),
 ]
 
 GESTURES = {"always", "when_trusting", "when_option_allows", "when_decision_allows", "when_prompting"}
@@ -67,20 +69,6 @@ def gesture(value: str) -> str:
     return "." + head + "".join(word.capitalize() for word in rest)
 
 
-def shape(value) -> str:
-    """A `ReplyShape` literal: "string" | "bool" | "number" | {object: {}} | {list: shape} | {scheme: field}."""
-    if value in ("string", "bool", "number"):
-        return "." + value
-    if isinstance(value, dict) and len(value) == 1:
-        (kind, inner), = value.items()
-        if kind == "object" and isinstance(inner, dict):
-            return ".object([" + ", ".join(f"{string(k)}: {shape(v)}" for k, v in inner.items()) + "])"
-        if kind == "list":
-            return ".list(" + shape(inner) + ")"
-        if kind == "scheme":
-            return ".scheme(from: " + string(inner) + ")"
-    raise SystemExit(f"{POLICY}: not a reply shape: {value!r}")
-
 
 def comment(paragraphs: list[str], indent: str, marker: str = "//") -> list[str]:
     out: list[str] = []
@@ -105,8 +93,8 @@ def entry(kind: str, key: str, value) -> str:
         if set(value) != {"params", "acpmux"}:
             raise SystemExit(f"{POLICY}: known_params[{key!r}] needs exactly params and acpmux")
         return f"{string(key)}: ({string_set(value['params'])}, {string_set(value['acpmux'])})"
-    if kind == "shape":
-        return f"{string(key)}: {shape(value)}"
+    if kind == "keys":
+        return string(key)
     raise AssertionError(kind)
 
 
@@ -129,12 +117,12 @@ def render(policy: dict) -> str:
         lines += comment(table_notes.pop("@doc", []), "    ", "///")
         end = table_notes.pop("@end", [])
         if not keys:
-            lines += [f"    {declaration} = [{':' if kind != 'set' else ''}]", ""]
+            lines += [f"    {declaration} = [{':' if kind not in ('set', 'keys') else ''}]", ""]
             continue
         lines.append(f"    {declaration} = [")
         for k in keys:
             lines += comment(table_notes.get(k, []), "        ")
-            lines.append(f"        {entry(kind, k, None if kind == 'set' else table[k])},")
+            lines.append(f"        {entry(kind, k, None if kind in ('set', 'keys') else table[k])},")
         lines += comment(end, "        ")
         lines += ["    ]", ""]
     lines[-1] = "}"

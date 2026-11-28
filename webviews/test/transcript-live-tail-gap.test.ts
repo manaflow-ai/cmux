@@ -9,9 +9,11 @@
 // `_acpmux/lagged` (server/outbound.rs); the pane reads the missed records again from its cursor.
 import { expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f1";
 const START = Date.UTC(2026, 10, 6, 5, 0, 0);

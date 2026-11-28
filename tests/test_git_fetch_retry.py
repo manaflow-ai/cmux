@@ -495,7 +495,7 @@ class Workflow(unittest.TestCase):
         step = next(s for s in doc["jobs"]["build-nightly-app"]["steps"] if s.get("name") == WARM_STEP)
         script = step["run"]
         start = script.index('fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"')
-        end = script.index("# The mirror never got the commit", start)
+        end = script.index('if [ -z "$source" ] && [ -z "${FETCH_TOKEN:-}" ]; then', start)  # after retry() and once()
         with tempfile.TemporaryDirectory() as temp:
             workspace, runner_temp = Path(temp) / "ws", Path(temp) / "tmp"
             workspace.mkdir()

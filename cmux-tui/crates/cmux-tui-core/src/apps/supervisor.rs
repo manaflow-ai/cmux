@@ -658,6 +658,18 @@ impl Supervisor {
     /// local reload seeds the customization app under the lock) reduces and
     /// writes again, so no change is lost.
     pub fn set(&self, client: u64, op: SetOp) -> Result<Value, ApiError> {
+        self.set_with_setting(client, op, None)
+    }
+
+    /// A setting-backed switch shares the install mirror's validation and replay boundary.
+    /// Write the setting outside the supervisor lock, but inside the commit turn so an older
+    /// switch cannot finish after a newer one. A refused setting write consumes no replay key.
+    pub(super) fn set_with_setting(
+        &self,
+        client: u64,
+        op: SetOp,
+        mut setting: Option<(String, bool)>,
+    ) -> Result<Value, ApiError> {
         let app = op.app.clone();
         let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
         let turn = self.commits.lock().recover_poison();
@@ -671,9 +683,16 @@ impl Supervisor {
             };
             // A no-op still records its key, so the key cannot be reused later.
             let written = match &staged {
-                Ok(outcome) if !outcome.replayed => self
-                    .persist(&outcome.mirror)
-                    .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}"))),
+                Ok(outcome) if !outcome.replayed => {
+                    let switched = match setting.take() {
+                        Some((key, on)) => self.router.setting_set(&key, Value::Bool(on)),
+                        None => Ok(()),
+                    };
+                    switched.and_then(|()| {
+                        self.persist(&outcome.mirror)
+                            .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}")))
+                    })
+                }
                 _ => Ok(()),
             };
             let mut inner = self.inner.lock().recover_poison();

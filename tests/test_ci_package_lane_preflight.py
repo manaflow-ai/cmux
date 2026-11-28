@@ -25,6 +25,14 @@ class SuiteOutcomeSignalTests(unittest.TestCase):
         for phase, code, log, expected in (
             ('compile', 1, 'Foo.swift:12:4: error: missing symbol', True),
             ('compile', 1, 'error: disk full', False),
+            # 2026-11-27: 36 of 92 failed suite steps without a receipt were compile errors swift build prints in
+            # color ("Foo.swift:6:15: \x1b[1;31merror:"); the plain regex never matched, so none wrote a receipt.
+            ('compile', 1, '/w/Foo.swift:6:15: \x1b[1;31merror: \x1b[1;39mactor cannot conform\x1b[0;0m\nerror: Build failed', True),
+            ('compile', 1, 'macro expansion #expect:1:1: \x1b[1;31merror: \x1b[1;39munable to type-check\x1b[0;0m\nerror: Build failed', True),
+            ('compile', 1, '/w/shim.c:3:1: \x1b[0;1;31merror: \x1b[0munknown type name', True),
+            # A build plugin that fails on one host (no Python 3.10 on aws-m4pro-1) says nothing about the commit.
+            ('compile', 1, 'error: failed: PrebuildCommand(...)\nerror: DaemonWireTypesPlugin needs Python 3.10+\nerror: Build failed', False),
+            ('compile', 1, '/w/Foo.swift:6:15: error: x\nerror: No space left on device', False),
             ('compile', 124, 'Foo.swift:12:4: error: missing symbol', False),
             ('discovery', 2, 'no discovered test matches MissingSuite', True),
             ('discovery', 1, 'process crashed', False),
@@ -47,7 +55,11 @@ PkgTests.LongSuite/check()}"
 esac
 if [ "$1" = build ]; then
   if [ "${FAKE_BUILD_STATUS:-0}" != 0 ]; then
-    echo 'Fixture.swift:1:1: error: cannot find symbol'
+    if [ -n "${FAKE_BUILD_COLOR:-}" ]; then
+      printf 'Fixture.swift:1:1: \033[1;31merror: \033[1;39mcannot find symbol\033[0;0m\nerror: Build failed\n'
+    else
+      echo 'Fixture.swift:1:1: error: cannot find symbol'
+    fi
     exit "$FAKE_BUILD_STATUS"
   fi
   echo 'Build complete!'
@@ -184,6 +196,24 @@ class PackageLanePreflightTests(unittest.TestCase):
         self.assertEqual((first.returncode, second.returncode), (1, 1))
         self.assertEqual(len(self.builds()), 1, self.calls.read_text())
         self.assertEqual(json.loads(self.receipt.read_text())['reused_from'], 'original-failed-job')
+
+    def test_a_colored_compile_error_writes_a_receipt_and_stays_red(self):
+        self.enable_failure_cache()
+        first = self.invoke(FAKE_BUILD_STATUS='1', FAKE_BUILD_COLOR='1')
+        self.assertEqual(json.loads(self.receipt.read_text())['phase'], 'compile', first.stdout + first.stderr)
+        self.publish_failure()
+        self.assertEqual(self.invoke(FAKE_BUILD_STATUS='1', FAKE_BUILD_COLOR='1').returncode, 1)
+        self.assertEqual(len(self.builds()), 1, self.calls.read_text())
+
+    def test_a_step_limited_to_compile_and_discovery_writes_no_assertion_receipt(self):
+        # A GUI, display or artifact step (the worker names its phases): its compile failure is the commit's,
+        # a test failure may be its display's.
+        self.enable_failure_cache()
+        limited = dict(CMUX_CI_SUITE_FAILURE_PHASES='compile,discovery')
+        self.assertEqual(self.invoke(FAKE_TEST_FAILURE='1', **limited).returncode, 1)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.invoke(FAKE_BUILD_STATUS='1', **limited).returncode, 1)
+        self.assertEqual(json.loads(self.receipt.read_text())['phase'], 'compile')
 
     def test_identical_assertion_failure_stays_red_without_rerunning_suites(self):
         self.enable_failure_cache()

@@ -42,11 +42,11 @@ fn nightly_parse_reads_list_and_install() {
     assert_eq!(parse(&words(&["list", "--limit=30"])).unwrap(), Command::List { limit: 30 });
     assert_eq!(
         parse(&words(&["install", "previous"])).unwrap(),
-        Command::Install { target: Target::Previous }
+        Command::Install { target: Target::Previous, direct: false }
     );
     assert_eq!(
         parse(&words(&["install", "4152702995101"])).unwrap(),
-        Command::Install { target: Target::Build("4152702995101".into()) }
+        Command::Install { target: Target::Build("4152702995101".into()), direct: false }
     );
     assert!(parse(&words(&[])).is_err());
     assert!(parse(&words(&["install"])).is_err());
@@ -66,26 +66,29 @@ fn app_versions_and_use_are_the_nightly_commands() {
     );
     assert_eq!(
         parse_app("use", &words(&["previous"])).unwrap(),
-        Command::Install { target: Target::Previous }
+        Command::Install { target: Target::Previous, direct: false }
     );
     assert_eq!(
         parse_app("use", &words(&["next"])).unwrap(),
-        Command::Install { target: Target::Next }
+        Command::Install { target: Target::Next, direct: false }
     );
     assert_eq!(
         parse_app("use", &words(&["latest"])).unwrap(),
-        Command::Install { target: Target::Latest }
+        Command::Install { target: Target::Latest, direct: false }
     );
     assert_eq!(
         parse_app("use", &words(&["200"])).unwrap(),
-        Command::Install { target: Target::Build("200".into()) }
+        Command::Install { target: Target::Build("200".into()), direct: false }
     );
     assert_eq!(parse_app("use", &words(&["--help"])).unwrap(), Command::Help);
     assert!(parse_app("use", &words(&[])).is_err());
     assert!(parse_app("use", &words(&["older"])).is_err());
     assert_eq!(
         super::super::parse(&words(&["app", "use", "previous"])).unwrap(),
-        Some(super::super::AppCommand::Nightly(Command::Install { target: Target::Previous }))
+        Some(super::super::AppCommand::Nightly(Command::Install {
+            target: Target::Previous,
+            direct: false
+        }))
     );
     assert_eq!(
         super::super::parse(&words(&["app", "versions"])).unwrap(),
@@ -119,7 +122,10 @@ fn app_use_next_and_latest_go_forward() {
 fn nightly_cli_routes_to_the_nightly_command() {
     assert_eq!(
         super::super::parse(&words(&["nightly", "install", "previous"])).unwrap(),
-        Some(super::super::AppCommand::Nightly(Command::Install { target: Target::Previous }))
+        Some(super::super::AppCommand::Nightly(Command::Install {
+            target: Target::Previous,
+            direct: false
+        }))
     );
 }
 
@@ -342,4 +348,19 @@ fn the_newest_and_previous_builds_come_from_the_index() {
     assert_eq!(feed::newest(&index()).as_deref(), Some("4572038238101"));
     assert_eq!(feed::previous(&index(), "4572038238101").as_deref(), Some("4569000000000"));
     assert_eq!(feed::previous(&index(), "4494208705801"), None);
+}
+
+#[test]
+fn direct_goes_back_to_a_kept_build_with_no_app() {
+    assert_eq!(
+        parse_app("use", &words(&["previous", "--direct"])).unwrap(),
+        Command::Install { target: Target::Previous, direct: true }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["--direct", "200"])).unwrap(),
+        Command::Install { target: Target::Build("200".into()), direct: true }
+    );
+    // Only kept builds are in reach without the app.
+    assert!(parse_app("use", &words(&["next", "--direct"])).is_err());
+    assert!(parse_app("use", &words(&["latest", "--direct"])).is_err());
 }

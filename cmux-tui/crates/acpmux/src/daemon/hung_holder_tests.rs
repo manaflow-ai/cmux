@@ -138,3 +138,33 @@ fn a_holder_answering_at_its_own_socket_is_not_hung() {
     std::fs::write(home.path().join("daemon.lock"), "4242\n/nonexistent/acpmux.sock\n").unwrap();
     assert_eq!(rt.block_on(answers_somewhere(home.path(), 4242)), None);
 }
+
+// A stopped process is seen as stopped (it cannot handle SIGTERM); a running one is not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_stopped_process_is_seen_as_stopped() {
+    let mut child = Child(std::process::Command::new(which_sleep()).arg("30").spawn().unwrap());
+    let pid = child.0.id();
+    assert!(!is_stopped(pid));
+    assert!(signal(pid, libc::SIGSTOP));
+    let until = std::time::Instant::now() + S(5);
+    while !is_stopped(pid) && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(is_stopped(pid));
+    assert!(signal(pid, libc::SIGCONT));
+    assert!(alive(&mut child));
+    assert!(!is_stopped(u32::MAX - 1), "no such process is not stopped");
+    assert!(STOPPED_TERM_WAIT < TERM_WAIT);
+}
+
+// The candidate probes run together: three silent candidates cost one probe bound, not three.
+#[test]
+fn candidate_probes_share_one_bound() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join("daemon.lock"), "4242\n/nonexistent/a.sock\n").unwrap();
+    let t = std::time::Instant::now();
+    assert_eq!(rt.block_on(answers_somewhere(home.path(), 4242)), None);
+    assert!(t.elapsed() < PROBE_BOUND, "{:?}", t.elapsed());
+}
