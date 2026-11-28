@@ -110,7 +110,8 @@ impl Contract {
 
     /// `api describe`: one method with every type its schemas reach.
     pub fn describe(&self, name: &str) -> Option<Value> {
-        let kinds: Vec<&Value> = self.methods.iter().filter(|((n, _), _)| n == name).map(|(_, m)| m).collect();
+        let kinds: Vec<&Value> =
+            self.methods.iter().filter(|((n, _), _)| n == name).map(|(_, m)| m).collect();
         if kinds.is_empty() {
             return None;
         }
@@ -153,7 +154,11 @@ impl Contract {
                 service = group.to_owned();
                 out.push_str(&format!("\n## {service}\n\n"));
             }
-            out.push_str(&format!("- {} ({})", method["name"].as_str().unwrap_or(""), method["kind"].as_str().unwrap_or("")));
+            out.push_str(&format!(
+                "- {} ({})",
+                method["name"].as_str().unwrap_or(""),
+                method["kind"].as_str().unwrap_or("")
+            ));
             if let Some(c) = method.get("capability").and_then(Value::as_str) {
                 out.push_str(&format!(" capability {c}"));
             }
@@ -176,6 +181,15 @@ impl Contract {
         problems
     }
 
+    /// [`Self::check_request`] on a line's members, without building a `Value` around them.
+    pub fn check_request_fields(&self, name: &str, fields: &serde_json::Map<String, Value>) -> Vec<String> {
+        let Some(schema) = self.method(name).and_then(|m| m.get("params")) else { return Vec::new() };
+        let Some(map) = self.resolve(schema).as_object() else { return Vec::new() };
+        let mut problems = Vec::new();
+        self.check_fields(map, fields, "", true, 0, &mut problems);
+        problems
+    }
+
     fn resolve<'a>(&'a self, schema: &'a Value) -> &'a Value {
         let mut schema = schema;
         for _ in 0..16 {
@@ -193,7 +207,15 @@ impl Contract {
     /// The strict half of a JSON Schema check: unknown fields, missing required fields,
     /// wrong JSON types, values outside an enum or const. Formats and bounds are the
     /// daemon's own check.
-    fn check(&self, schema: &Value, value: &Value, at: &str, root: bool, depth: usize, out: &mut Vec<String>) {
+    fn check(
+        &self,
+        schema: &Value,
+        value: &Value,
+        at: &str,
+        root: bool,
+        depth: usize,
+        out: &mut Vec<String>,
+    ) {
         if depth > 32 {
             return;
         }
@@ -246,8 +268,29 @@ impl Contract {
             }
         }
         if let Some(fields) = value.as_object() {
+            self.check_fields(map, fields, at, root, depth, out);
+        }
+        if let (Some(items), Some(values)) = (map.get("items"), value.as_array()) {
+            for (i, item) in values.iter().enumerate() {
+                self.check(items, item, &format!("{at}/{i}"), false, depth + 1, out);
+            }
+        }
+    }
+
+    fn check_fields(
+        &self,
+        map: &serde_json::Map<String, Value>,
+        fields: &serde_json::Map<String, Value>,
+        at: &str,
+        root: bool,
+        depth: usize,
+        out: &mut Vec<String>,
+    ) {
+        {
             let properties = map.get("properties").and_then(Value::as_object);
-            for required in map.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+            for required in
+                map.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
+            {
                 if !fields.contains_key(required) {
                     out.push(format!("{at}/{required}: required"));
                 }
@@ -267,11 +310,6 @@ impl Contract {
                         _ => {}
                     },
                 }
-            }
-        }
-        if let (Some(items), Some(values)) = (map.get("items"), value.as_array()) {
-            for (i, item) in values.iter().enumerate() {
-                self.check(items, item, &format!("{at}/{i}"), false, depth + 1, out);
             }
         }
     }
@@ -396,8 +434,13 @@ mod tests {
     #[test]
     fn strict_requests() {
         let c = tiny();
-        assert!(c.check_request("daemon/ping", &json!({"id": 1, "cmd": "ping", "n": 3, "mode": "a"})).is_empty());
-        assert_eq!(c.check_request("daemon/ping", &json!({"n": 3, "extra": true})), vec!["/extra: unknown field"]);
+        assert!(
+            c.check_request("daemon/ping", &json!({"id": 1, "cmd": "ping", "n": 3, "mode": "a"})).is_empty()
+        );
+        assert_eq!(
+            c.check_request("daemon/ping", &json!({"n": 3, "extra": true})),
+            vec!["/extra: unknown field"]
+        );
         assert_eq!(c.check_request("daemon/ping", &json!({})), vec!["/n: required"]);
         assert_eq!(c.check_request("daemon/ping", &json!({"n": 1, "mode": "z"})).len(), 1);
         assert!(c.check_request("link/version", &json!({"anything": 1})).is_empty());

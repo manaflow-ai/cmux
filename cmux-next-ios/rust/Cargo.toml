@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi", "crates/cmux-mobile-auto", "crates/cmux-mobile-tailnet", "crates/cmux-region-pick"]
+members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi", "crates/cmux-mobile-auto", "crates/cmux-mobile-tailnet", "crates/cmux-region-pick", "crates/cmux-mobile-api"]
 
 [workspace.package]
 edition = "2024"
@@ -18,6 +18,9 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+# The phone's app-level API: method list, schemas, strict request check, discovery (contract/README.md).
+cmux-mobile-api = { path = "crates/cmux-mobile-api" }
+cmux-api-compat = { path = "../../cmux-tui/crates/cmux-api-compat" }
 # Auto chats from the phone with no Mac (plans/cmux-next/auto-mode/DESIGN.md, slice E), and the
 # shared core they use: the Cloud store's wire types and the store as a trait.
 cmux-mobile-auto = { path = "crates/cmux-mobile-auto" }
