@@ -19,6 +19,7 @@ fn every_down_reason_has_one_wire_word() {
         action: None,
         status: None,
         down_reason: Some(DialFail::PathChanged),
+        quality: None,
         last_seen: None,
         error: None,
         at: 2,
@@ -35,6 +36,43 @@ fn every_down_reason_has_one_wire_word() {
     assert_eq!(newer.state, PeerLinkState::Reconnecting);
 }
 
+/// Every tier's wire word is serde's; a note without `quality` (an older daemon's) or with a
+/// word this build does not know still parses, with no tier.
+#[test]
+fn every_link_tier_has_one_wire_word_and_unknown_reads_as_none() {
+    for tier in [LinkTier::Good, LinkTier::Slow, LinkTier::Poor] {
+        let word = serde_json::to_value(tier).unwrap();
+        assert_eq!(word, serde_json::json!(tier.as_str()));
+        assert_eq!(serde_json::from_value::<LinkTier>(word).unwrap(), tier);
+    }
+    assert!(LinkTier::Good < LinkTier::Slow && LinkTier::Slow < LinkTier::Poor);
+    let mut note = serde_json::to_value(PeerStateChanged {
+        peer: "b".into(),
+        state: PeerLinkState::Connected,
+        link: MachineLink::Connected,
+        carrier: Some(Carrier::Direct),
+        cause: None,
+        since: 1,
+        next_retry_at: None,
+        reason: None,
+        action: None,
+        status: None,
+        down_reason: None,
+        quality: Some(LinkTier::Slow),
+        last_seen: Some(1),
+        error: None,
+        at: 2,
+    })
+    .unwrap();
+    assert_eq!(note["quality"], "slow");
+    note["quality"] = "laggy".into();
+    let newer: PeerStateChanged = serde_json::from_value(note.clone()).unwrap();
+    assert_eq!(newer.quality, None);
+    assert_eq!(newer.link, MachineLink::Connected);
+    note.as_object_mut().unwrap().remove("quality");
+    let older: PeerStateChanged = serde_json::from_value(note).unwrap();
+    assert_eq!(older.quality, None);
+}
 /// Every whole state folds to exactly one older word, and the wire word is serde's.
 #[test]
 fn every_link_state_has_one_wire_word_and_one_folded_word() {

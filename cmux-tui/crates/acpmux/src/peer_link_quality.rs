@@ -20,23 +20,9 @@ use std::time::Duration;
 /// Ping ticks the late share is read over: one minute at the 2 s ping.
 pub const LATE_WINDOW: usize = 30;
 
-/// How a link feels to a person typing or chatting over it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Tier {
-    Good,
-    Slow,
-    Poor,
-}
-
-impl Tier {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Good => "good",
-            Self::Slow => "slow",
-            Self::Poor => "poor",
-        }
-    }
-}
+/// How a link feels to a person typing or chatting over it: the wire's word
+/// (`_acpmux/peer_state_changed` `quality`), ordered good < slow < poor.
+pub use crate::protocol::peer_state::LinkTier as Tier;
 
 /// The tier thresholds. Games call under 80 ms good and under 250 ms playable: aiming feels a
 /// frame. Typing into a terminal or a chat through a peer tolerates about twice that: an ssh

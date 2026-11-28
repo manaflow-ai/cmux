@@ -136,6 +136,33 @@ pub enum DownCause {
     Auth,
 }
 
+/// How an open link feels to a person typing or chatting over it (`quality`), as a game's ping
+/// bar says it: `good`, `slow` or `poor`, from its measured round trip and late pings, with
+/// hysteresis so it does not flap (`peer_link_quality.rs`). Null until the link measured a
+/// round trip, and while it is not up.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkTier {
+    /// Within 200 ms and 5 % late pings: typing feels local.
+    Good,
+    /// Within 500 ms and 20 % late pings: each keystroke and send visibly waits a little.
+    Slow,
+    /// Anything worse: the link is up, but slow enough that it can look stuck.
+    Poor,
+}
+
+impl LinkTier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Good => "good",
+            Self::Slow => "slow",
+            Self::Poor => "poor",
+        }
+    }
+}
+
 /// Why a peer's route last went down (`downReason`): what the failed dial or the dropped path
 /// ran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's
 /// failure class), never guessed from its text. When every path of a cold connect failed with
@@ -191,6 +218,19 @@ impl DialFail {
 fn known_dial_fail<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<DialFail>, D::Error> {
+    known_word(deserializer)
+}
+
+/// `quality`'s word, or null for one this build does not know (a newer daemon's tier).
+fn known_tier<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<LinkTier>, D::Error> {
+    known_word(deserializer)
+}
+
+fn known_word<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
     let word = Option::<serde_json::Value>::deserialize(deserializer)?;
     Ok(word.and_then(|word| serde_json::from_value(word).ok()))
 }
@@ -269,7 +309,7 @@ impl OfflineReason {
 }
 
 /// `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
-/// link changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a
+/// link changes (`link`, `carrier`, `cause`, `reason`, `downReason`, `nextRetryAt` or `quality`), never twice for the same one: a
 /// peer that is added sends its first state, and one that is removed a last `offline` with
 /// `error: "removed"`. Listed as the `peerStateEvents` feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -307,6 +347,11 @@ pub struct PeerStateChanged {
     /// newer daemon's) reads as null, so the rest of the note still lands.
     #[serde(default, deserialize_with = "known_dial_fail")]
     pub down_reason: Option<DialFail>,
+    /// How the open link feels (`good`, `slow` or `poor`), the ping bar a surface draws beside
+    /// it; null while the link is not up, before it measured a round trip, and from an older
+    /// acpmux. A tier this build does not know reads as null.
+    #[serde(default, deserialize_with = "known_tier")]
+    pub quality: Option<LinkTier>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
     /// Why the link is down, when it is.

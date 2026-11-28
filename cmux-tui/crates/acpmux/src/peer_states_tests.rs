@@ -119,3 +119,31 @@ fn removed_names_are_kept_up_to_a_bound() {
     assert!(names.contains(&"lease-20".to_owned()), "added again: it runs");
     assert!(names.contains(&format!("lease-{}", REMOVED_KEPT + 9)), "the newest is kept");
 }
+
+/// The ping bar rides the note: a new tier on a connected link sends one with `quality`, the
+/// same tier again sends nothing, and the link going down clears it.
+#[test]
+fn a_tier_change_is_news_and_a_repeat_is_not() {
+    let states = PeerStates::default();
+    let mut rx = states.subscribe();
+    let with = |link, tier| Observed { quality: tier, ..seen(link) };
+    states.register("b", 1, with(Connected, None));
+    states.changed("b", 1, with(Connected, Some(LinkTier::Good)));
+    states.changed("b", 1, with(Connected, Some(LinkTier::Good)));
+    states.changed("b", 1, with(Connected, Some(LinkTier::Poor)));
+    states.changed("b", 1, with(Reconnecting, None));
+    let mut tiers = Vec::new();
+    while let Ok(v) = rx.try_recv() {
+        let n: PeerStateChanged = serde_json::from_value(v[STATE_NOTE].clone()).unwrap();
+        tiers.push((n.link, n.quality));
+    }
+    assert_eq!(
+        tiers,
+        [
+            (Connected, None),
+            (Connected, Some(LinkTier::Good)),
+            (Connected, Some(LinkTier::Poor)),
+            (Reconnecting, None),
+        ]
+    );
+}
