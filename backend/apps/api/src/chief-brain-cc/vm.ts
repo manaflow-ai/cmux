@@ -3,7 +3,7 @@ import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import { freestyleCustomer } from "../providers/freestyle/customer.ts"
 import { freestyleIdleSeconds } from "../auto-pause.ts"
-import { BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
+import { BackgroundLost, BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
 
 /** The environment tag in provider machine names (cmuxnp-<tag>-...). */
 const cloudEnvTag = (environment: string | undefined): string | null =>
@@ -99,8 +99,8 @@ export const execRoot = async (env: Env, vm: string, command: string, stdin: Uin
   const sent = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(vm)}/exec-await`, { command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }, timeoutMs + 15_000, stdin ? {} : BACKGROUND_AFTER)
   const res = stdin
     ? sent
-    : (await settleBackground(sent, base(env), { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}` }, deadlineAt).catch(() => {
-        throw new CcError("exec: no answer by the deadline (the command may have run)")
+    : (await settleBackground(sent, base(env), { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}` }, deadlineAt).catch((e: unknown) => {
+        throw new CcError(e instanceof BackgroundLost && e.outage ? `exec: ${e.message}` : "exec: no answer by the deadline (the command may have run)")
       })).res
   if (res.status !== 200) {
     await res.body?.cancel().catch(() => undefined)
