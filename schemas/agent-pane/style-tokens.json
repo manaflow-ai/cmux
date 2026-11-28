@@ -122,6 +122,13 @@
       "about": "Duration, 0 to 600 ms (ms or s). Unset: 180 ms: a fold or Show more growing or shrinking into its new height. Off or reduced motion keeps cmux's value."
     },
     {
+      "name": "--cmux-motion-stream",
+      "kind": "duration",
+      "alsoScopedIn": ["webviews/src/agent-session/acpmux/composerStates.css"],
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: the host's fade-in (120 ms at normal speed): how long a streamed reply's newest words fade in. Off, reduced or minimal motion keeps cmux's value."
+    },
+    {
       "name": "--cmux-motion-send",
       "kind": "duration",
       "owner": "webviews/src/pages/shared/desktop.css",
@@ -144,6 +151,12 @@
       "kind": "easing",
       "owner": "webviews/src/pages/shared/desktop.css",
       "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: cubic-bezier(0.16, 1, 0.3, 1): a fold settling into its height, never past it. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-ease-stream",
+      "kind": "easing",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: the host's ease-out: the curve a streamed reply's newest words fade in on. Off or reduced motion keeps cmux's value."
     },
     {
       "name": "--cmux-ease-send",

@@ -76,6 +76,39 @@ fn three_way_merges_separate_edits_and_refuses_overlapping_ones() {
 }
 
 #[test]
+fn a_side_that_only_added_lines_the_other_has_takes_the_fuller_side() {
+    let base = "---\nname: s\n---\n- 11-27 start\n";
+    let ours = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n";
+    let theirs = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n- 11-28 02:00Z next\n";
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), ours.as_bytes(), theirs.as_bytes()),
+        Merged::Clean(theirs.as_bytes().to_vec())
+    );
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), theirs.as_bytes(), ours.as_bytes()),
+        Merged::Clean(theirs.as_bytes().to_vec())
+    );
+    // Ours removed a base line theirs kept: not a pure addition, so still a conflict.
+    let ours_cut = "---\nname: s\n---\n- 11-28 01:00Z step\n";
+    let theirs_more =
+        "---\nname: s\n---\n- 11-27 start\n- 11-28 02:00Z next\n- 11-28 01:00Z step\n";
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), ours_cut.as_bytes(), theirs_more.as_bytes()),
+        Merged::Conflict
+    );
+    // Both added different lines at the same place: a conflict, as before.
+    assert_eq!(
+        three_way(
+            "s-state.md",
+            base.as_bytes(),
+            format!("{base}- ours\n").as_bytes(),
+            format!("{base}- theirs\n").as_bytes()
+        ),
+        Merged::Conflict
+    );
+}
+
+#[test]
 fn jsonl_merges_by_lines_keeping_both_sides_appends() {
     let base = "{\"a\":1}\n";
     let ours = "{\"a\":1}\n{\"b\":2}\n";
@@ -535,4 +568,145 @@ fn cpu_ticks() -> u64 {
     let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else { return 0 };
     let tail = stat.rsplit(')').next().unwrap_or_default();
     tail.split_whitespace().skip(11).take(2).filter_map(|v| v.parse::<u64>().ok()).sum()
+}
+
+// ---- passes that do not walk the folder ----
+
+fn paths(list: &[&str]) -> std::collections::BTreeSet<String> {
+    list.iter().map(|p| (*p).to_owned()).collect()
+}
+
+/// A remote edit somewhere in the fleet wakes every daemon; its pass pulls without walking the
+/// folder. Before: each wake was a full pass, one `lstat` per file (9,592 on a lane host,
+/// about one wake a second).
+#[tokio::test]
+async fn remote_changes_pull_without_walking_the_folder() {
+    let (client, store) = fake().await;
+    let (a_root, b_root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (mut a, mut b) =
+        (machine(&client, a_root.path(), "a"), machine(&client, b_root.path(), "b"));
+    const FILES: usize = 300;
+    for n in 0..FILES {
+        put_file(a_root.path(), &format!("notes/n{n}.md"), &format!("note {n}\n"));
+    }
+    a.pass().await.unwrap();
+    b.pass().await.unwrap();
+    assert_eq!((a.scans, b.scans), (1, 1));
+    let hashed = a.hashed_reads;
+
+    const REMOTE_EDITS: usize = 20;
+    for n in 0..REMOTE_EDITS {
+        put_file(b_root.path(), &format!("notes/n{n}.md"), &format!("edited on b {n}\n"));
+        b.pass_changed(paths(&[&format!("notes/n{n}.md")])).await.unwrap();
+        let report = a.pass_changed(Default::default()).await.unwrap();
+        assert_eq!(report.pulled, vec![format!("notes/n{n}.md")]);
+    }
+    assert_eq!(a.scans, 1, "remote-only passes walk nothing");
+    assert_eq!(b.scans, 1, "a pass over named paths walks nothing");
+    assert_eq!(a.hashed_reads, hashed, "and read no local file to publish");
+    assert_eq!(read(a_root.path(), "notes/n7.md").as_deref(), Some("edited on b 7\n"));
+    let puts = store.lock().unwrap().puts;
+    assert_eq!(a.pass().await.unwrap(), Default::default(), "the backstop pass finds nothing");
+    assert_eq!(store.lock().unwrap().puts, puts, "no echo");
+    assert!(a.pending().is_empty());
+    eprintln!(
+        "remote_changes_pull_without_walking_the_folder: {REMOTE_EDITS} remote edits over \
+         {FILES} files: 0 folder walks (0 lstat); a full pass per wake was {REMOTE_EDITS} walks \
+         ({} lstat)",
+        REMOTE_EDITS * FILES
+    );
+}
+
+/// A local edit the watcher named is published (and a named path gone here is deleted, with
+/// every agreed file under a removed folder), still without walking the folder.
+#[tokio::test]
+async fn named_local_changes_publish_and_delete_without_walking() {
+    let (client, _store) = fake().await;
+    let (a_root, b_root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (mut a, mut b) =
+        (machine(&client, a_root.path(), "a"), machine(&client, b_root.path(), "b"));
+    put_file(a_root.path(), "notes/keep.md", "keep\n");
+    put_file(a_root.path(), "old/x.md", "x\n");
+    put_file(a_root.path(), "old/y.md", "y\n");
+    a.pass().await.unwrap();
+    b.pass().await.unwrap();
+
+    put_file(a_root.path(), "notes/keep.md", "keep, edited\n");
+    put_file(a_root.path(), "notes/new.md", "new\n");
+    let report = a.pass_changed(paths(&["notes/keep.md", "notes/new.md"])).await.unwrap();
+    assert_eq!(report.pushed, vec!["notes/keep.md", "notes/new.md"]);
+
+    std::fs::remove_dir_all(scope_dir(a_root.path(), Scope::Team).join("old")).unwrap();
+    let report = a.pass_changed(paths(&["old"])).await.unwrap();
+    assert_eq!(report.deleted, vec!["old/x.md", "old/y.md"]);
+    assert_eq!(a.scans, 1);
+
+    b.pass_changed(Default::default()).await.unwrap();
+    assert_eq!(read(b_root.path(), "notes/keep.md").as_deref(), Some("keep, edited\n"));
+    assert_eq!(read(b_root.path(), "notes/new.md").as_deref(), Some("new\n"));
+    assert!(read(b_root.path(), "old/x.md").is_none());
+    assert!(a.pending().is_empty());
+
+    // A named folder that exists has files nobody named: the full push walks it.
+    put_file(a_root.path(), "fresh/z.md", "z\n");
+    let report = a.pass_changed(paths(&["fresh"])).await.unwrap();
+    assert_eq!(report.pushed, vec!["fresh/z.md"]);
+    assert_eq!(a.scans, 2);
+}
+
+/// A merge a remote-only pass made is published by that same pass, not left for the backstop.
+#[tokio::test]
+async fn a_merge_from_a_remote_pass_is_published_by_it() {
+    let (client, _store) = fake().await;
+    let (a_root, b_root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (mut a, mut b) =
+        (machine(&client, a_root.path(), "a"), machine(&client, b_root.path(), "b"));
+    put_file(a_root.path(), "n.md", "one\ntwo\nthree\nfour\nfive\n");
+    a.pass().await.unwrap();
+    b.pass().await.unwrap();
+    put_file(a_root.path(), "n.md", "ONE\ntwo\nthree\nfour\nfive\n");
+    put_file(b_root.path(), "n.md", "one\ntwo\nthree\nfour\nFIVE\n");
+    b.pass_changed(paths(&["n.md"])).await.unwrap();
+    // a's edit is not named (its watcher event is still in flight): the pull merges it.
+    let report = a.pass_changed(Default::default()).await.unwrap();
+    assert_eq!(report.merged, vec!["n.md"]);
+    assert_eq!(report.pushed, vec!["n.md"]);
+    b.pass_changed(Default::default()).await.unwrap();
+    assert_eq!(read(b_root.path(), "n.md").as_deref(), Some("ONE\ntwo\nthree\nfour\nFIVE\n"));
+    assert_eq!((a.scans, b.scans), (1, 1));
+}
+
+#[test]
+fn watcher_events_name_folder_relative_paths_or_ask_for_a_full_pass() {
+    use super::engine::{Change, change_of};
+    use notify::event::{CreateKind, Flag, ModifyKind};
+    use notify::{Event, EventKind};
+    let root = Path::new("/m/team");
+    let ev = |kind, paths: &[&str]| {
+        let mut e = Event::new(kind);
+        for p in paths {
+            e = e.add_path(root.join(p));
+        }
+        e
+    };
+    assert_eq!(
+        change_of(root, &ev(EventKind::Create(CreateKind::File), &["a/b.md", ".a.md.memtmp-1"])),
+        Some(Change::Paths(vec!["a/b.md".into()]))
+    );
+    assert_eq!(change_of(root, &ev(EventKind::Modify(ModifyKind::Any), &["x.swp"])), None);
+    assert_eq!(
+        change_of(root, &ev(EventKind::Access(notify::event::AccessKind::Any), &["a.md"])),
+        None
+    );
+    assert_eq!(
+        change_of(root, &Event::new(EventKind::Other).set_flag(Flag::Rescan)),
+        Some(Change::Rescan)
+    );
+    assert_eq!(
+        change_of(
+            root,
+            &Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.to_path_buf())
+        ),
+        Some(Change::Rescan)
+    );
 }

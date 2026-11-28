@@ -54,6 +54,31 @@ import Testing
         #expect((requests[2]["args"] as? [String: Any])?["after"] as? Int == 0)
     }
 
+    @Test func theKeyedStartSendsTheKeyAsTheStdinTailNeverInTheRequest() async throws {
+        nonisolated final class Input: @unchecked Sendable {
+            // @unchecked: set once by the fake child, read after the call returns.
+            var bytes = Data()
+        }
+        let input = Input()
+        var owner = CloudOwnerAPIClient(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                        accessToken: { "access" }, teamID: { "team_cmux" }, buildSpace: .nightly)
+        owner.daemonCall = { bytes, _ in
+            input.bytes = bytes
+            return Data(#"{"ok":true,"body":{"personInstance":"run_1"}}"#.utf8) + Data("\n".utf8)
+        }
+        let line = Data(String(repeating: "ab", count: 32).utf8) + Data("\n".utf8)
+        let instance = try await owner.acpmuxKeyedStart("vm_0123456789abcdefghij", keyLineLength: line.count) { stream in
+            line.withUnsafeBytes { stream.write($0.bindMemory(to: UInt8.self).baseAddress!, maxLength: line.count) == line.count }
+        }
+        #expect(instance == "run_1")
+        let parts = input.bytes.split(separator: 0x0A, maxSplits: 1, omittingEmptySubsequences: false)
+        let head = try #require(JSONSerialization.jsonObject(with: Data(parts[0])) as? [String: Any])
+        #expect(head["call"] as? String == "owner.acpmux_keyed_start")
+        #expect((head["args"] as? [String: Any])?["key_length"] as? Int == 65)
+        #expect(!String(decoding: parts[0], as: UTF8.self).contains("abab"))
+        #expect(Data(parts[1]) == line)
+    }
+
     @Test func aDaemonFailureIsTheSameAPIError() async {
         let owner = owner(Seen()) { _ in #"{"ok":false,"error":{"kind":"http","status":404,"body":"{}"}}"# }
         await #expect(throws: CloudAPIError.self) { try await owner.handoffOpen(session: "s1", machine: "m1") }

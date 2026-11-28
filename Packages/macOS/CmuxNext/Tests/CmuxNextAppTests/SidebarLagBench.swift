@@ -31,6 +31,10 @@ final class SidebarLagBench {
     private(set) var rows: [SidebarWorkspace] = []
     let ids: [WorkspaceID]
     private var tick = 0
+    /// Runs inside each ticking frame, after the ticked rows changed and before they are patched: the app's
+    /// side of those ticks (its row mapping), so its main-thread cost counts in the frame. It may change the
+    /// ticked rows (`ticked` indexes `rows`). Nil: the sidebar alone, as before.
+    var appTick: ((_ rows: inout [SidebarWorkspace], _ ticked: [Int]) -> Void)?
     var list: SidebarListView { sidebar.list }
     var clip: NSClipView { sidebar.scrollView.contentView }
 
@@ -116,14 +120,16 @@ final class SidebarLagBench {
     private func applyTicks(_ ticks: Int) {
         guard ticks > 0 else { return }
         tick += 1
-        var patched: [SidebarWorkspace] = []
+        var ticked: [Int] = []
         for k in 0..<ticks {
             let index = (tick * 7 + k * 31) % rows.count
             rows[index].status = "Streaming reply, \(tick) tokens"
             rows[index].lastActivity = Date()
             SidebarLagFeatures.tick(&rows[index], tick)
-            patched.append(rows[index])
+            ticked.append(index)
         }
+        appTick?(&rows, ticked)
+        let patched = ticked.map { rows[$0] }
         if !model.patchWorkspaces(patched) { model.setSections(model.sections) }
     }
 
