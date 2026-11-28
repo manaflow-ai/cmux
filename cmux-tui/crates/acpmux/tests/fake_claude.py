@@ -1257,6 +1257,49 @@ while True:
             except OSError:
                 result["cwd"] = "denied"
             text = json.dumps(result)
+        # "secret-probe OUTSIDE HOST PORT" (local_sandbox.rs red team): what a prompt-injected
+        # agent would try. Read the planted secrets under $HOME, write outside the chat folder,
+        # send to an outside host on a port that is not 443; the cwd write is the control.
+        if asked.startswith("secret-probe "):
+            import os
+            import socket
+            rest, host, port = asked[len("secret-probe "):].rstrip().rsplit(" ", 2)
+            outside = rest
+            home = os.environ["HOME"]
+            result = {}
+            for key, path in [("ssh", os.path.join(home, ".ssh", "id_ed25519")),
+                              ("aws", os.path.join(home, ".aws", "credentials")),
+                              ("notes", os.path.join(home, "notes.txt"))]:
+                try:
+                    with open(path) as f:
+                        f.read()
+                    result[key] = "allowed"
+                except PermissionError:
+                    result[key] = "denied"
+                except OSError as e:
+                    result[key] = "error: " + type(e).__name__
+            try:
+                with open(outside, "w") as f:
+                    f.write("x")
+                result["outside"] = "allowed"
+            except PermissionError:
+                result["outside"] = "denied"
+            # Refused by the sandbox: EPERM at once. Unsandboxed, an unroutable address times
+            # out or fails another way, never "denied".
+            try:
+                socket.create_connection((host, int(port)), timeout=3).close()
+                result["send"] = "allowed"
+            except PermissionError:
+                result["send"] = "denied"
+            except OSError as e:
+                result["send"] = "error: " + type(e).__name__
+            try:
+                with open(os.path.join(os.getcwd(), "secret-probe.txt"), "w") as f:
+                    f.write("x")
+                result["cwd"] = "allowed"
+            except OSError:
+                result["cwd"] = "denied"
+            text = json.dumps(result)
         # G2: exercise the actual child boundary, including its HTTP proxy.
         if asked.startswith("linux-sandbox-probe "):
             import socket
