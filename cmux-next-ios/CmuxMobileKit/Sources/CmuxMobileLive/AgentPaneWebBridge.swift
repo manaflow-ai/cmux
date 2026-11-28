@@ -55,7 +55,8 @@ public final class AgentPaneWebBridge {
     /// The handshake the page reads on `ready` (field names of the TypeScript `AcpmuxHostConfig`).
     public var handshake: [String: Any] {
         var value: [String: Any] = ["protocolVersion": Self.protocolVersion, "transport": "acpmux-bridge", "surface": "phone"]
-        if let sessionID { value["sessionId"] = sessionID }
+        // A chat opened from its row must be that chat, not the most recent one.
+        if let sessionID { value["sessionId"] = sessionID; value["sessionMustExist"] = true }
         if let machineName { value["machineName"] = machineName }
         return value
     }

@@ -244,6 +244,17 @@ targets:
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
       - target: CmuxMobileNotificationService
+    # The Mac's React agent pane, for Settings → Advanced → Web Agent Pane (AgentPaneWebView): built
+    # into the app's agent-pane/ folder. A Mac without bun builds the app without it (the view says so).
+    postCompileScripts:
+      - name: Bundle Web Agent Pane
+        basedOnDependencyAnalysis: false
+        script: |
+          OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/agent-pane"
+          if [ "${CMUX_IOS_WEB_PANE:-1}" = 0 ]; then echo "note: CMUX_IOS_WEB_PANE=0, no web agent pane"; exit 0; fi
+          export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          if ! command -v bun >/dev/null 2>&1; then echo "warning: bun not found, the app ships without the web agent pane"; exit 0; fi
+          "$SRCROOT/../scripts/cmux-next/build-agent-pane-web.sh" --out "$OUT" || echo "warning: the web agent pane did not build; the app ships without it"
     # UI tests run with `xcodebuild test -scheme CmuxMobileApp` on one simulator (verify/parity/pq_tabs.py).
     scheme:
       testTargets:

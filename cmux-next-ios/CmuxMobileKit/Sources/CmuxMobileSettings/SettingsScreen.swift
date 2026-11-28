@@ -41,6 +41,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     private let accentTheme = CmuxMobileAccentTheme.shared
     @Bindable private var macTheme = CmuxMobileMacTheme.shared
     @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var tabCardMonograms = CmuxMobilePreferences.defaultTabCardMonograms
+    @AppStorage(CmuxMobilePreferences.Key.webAgentPane) private var webAgentPane = CmuxMobilePreferences.defaultWebAgentPane
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -223,6 +224,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Site Monograms on Tab Cards", symbol: "textformat.alt")
                     }
                     .accessibilityIdentifier("settings.tabCardMonograms")
+                    // Experiment (off by default): a chat's More menu opens the Mac's web agent pane.
+                    Toggle(isOn: $webAgentPane) {
+                        SettingsLabel("Web Agent Pane", symbol: "globe")
+                    }
+                    .accessibilityIdentifier("settings.webAgentPane")
                 } header: {
                     Text("Advanced")
                 }

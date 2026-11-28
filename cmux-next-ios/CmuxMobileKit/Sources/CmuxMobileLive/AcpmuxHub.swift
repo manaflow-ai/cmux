@@ -810,7 +810,8 @@ public final class AcpmuxHub {
 public final class AcpmuxSessionSource: AgentSessionSource {
     public private(set) var summary: AgentSessionSummary
     let sessionID: String
-    private weak var hub: AcpmuxHub?
+    /// Internal for the web pane (`AgentPaneWebView.swift`), which opens its own channels on the link.
+    weak var hub: AcpmuxHub?
     private let records: AcpmuxRecords
     private var continuations: [UUID: AsyncStream<AgentSessionEvent>.Continuation] = [:]
     /// Readers whose stream is still open (``events()``): a chat closing ends its stream, and
