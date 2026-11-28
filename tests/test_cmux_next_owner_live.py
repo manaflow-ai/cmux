@@ -33,6 +33,14 @@ live = _load("cmux_next_owner_live", "scripts/cmux-next/owner_live.py")
 CELL = "PL-acpmux (session cmux-4f; lead decision 2026-10-23)"
 
 
+def hold(*args, **kw):
+    return live.holder(*args, worked=ANY, **kw)
+
+
+def route(guardrails, *args, **kw):
+    return guardrails.owner_route(*args, worked=ANY, **kw)
+
+
 def row(name, status="idle", sid=None, updated=1, createdAt=None, **tags):
     out = {"name": name, "status": status, "sessionId": sid or f"id-{name}", "updatedAt": updated, "tags": tags or None}
     if createdAt is not None:
@@ -87,7 +95,7 @@ class Holder(unittest.TestCase):
         self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar* committed in it; the coordinator"))
         self.assertTrue(live.is_fallback(how))
         tagged = rows + [row("g7/rex-sidebar-look-2", owns="PL-sidebar")]
-        self.assertEqual(live.holder("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "g7/rex-sidebar-look-2")
+        self.assertEqual(hold("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "g7/rex-sidebar-look-2")
         for name, globs in [("ghostty-scroll", ["*-ghostty*"]), ("tdaemon-journal", ["*tdaemon*"]),
                             ("tab-strip-pins", ["tab-strip*"]), ("tabs-refine", ["tabs-refine"])]:
             self.assertTrue(live.fills_role(name, globs), name)
@@ -309,15 +317,15 @@ class Holder(unittest.TestCase):
         lane_rows = [row(p, "running", updated=5) for p, _ in pushers]
         # by branch: lane/layout-scroll-to-rust holds it itself, the stale tag notwithstanding
         p, b = pushers[3]
-        self.assertEqual(live.holder(cell, [stale, coord, *lane_rows], "", area, p, b), (p, "the pushing lane, a lane of motion-*,layout-*"))
+        self.assertEqual(hold(cell, [stale, coord, *lane_rows], "", area, p, b), (p, "the pushing lane, a lane of motion-*,layout-*"))
         # by session name
         mine = "h/layout-scroll-to-rust"
-        self.assertEqual(live.holder(cell, [stale, coord], "", area, mine, "lane/other")[0], mine)
+        self.assertEqual(hold(cell, [stale, coord], "", area, mine, "lane/other")[0], mine)
         # by its own tag
         tagged = row("h/keeper", "running", owns="PL-motion-core")
-        self.assertEqual(live.holder(cell, [stale, tagged], "", area, "h/keeper", "lane/x"),
+        self.assertEqual(hold(cell, [stale, tagged], "", area, "h/keeper", "lane/x"),
                          ("h/keeper", "the pushing lane, holds owns=PL-motion-core"))
-        self.assertTrue(live.is_self(live.holder(cell, [tagged], "", area, "h/keeper")[1]))
+        self.assertTrue(live.is_self(hold(cell, [tagged], "", area, "h/keeper")[1]))
         # a pusher outside the row: with the stale tag removed and no lane of the role, the coordinator, unheld
         for p, b in pushers[:3]:
             who, how = live.holder(cell, [coord, *lane_rows], "", area, p, b)
@@ -330,7 +338,7 @@ class Holder(unittest.TestCase):
         self.assertEqual(live.holder(cell, [coord, motion, *lane_rows], "", area, *pushers[2])[0], "c/coord")
         # a local bare-named row is the pusher's own row
         local = row("ask-x", "ready", owns="PL-motion-core")
-        self.assertEqual(live.holder(cell, [local], "", area, "gcp-agent-lane-19/ask-x")[1],
+        self.assertEqual(hold(cell, [local], "", area, "gcp-agent-lane-19/ask-x")[1],
                          "the pushing lane, holds owns=PL-motion-core")
         self.assertEqual(live.branch_lane("lane/layout-x"), "layout-x")
         self.assertEqual(live.branch_lane("HEAD"), "")
@@ -506,7 +514,7 @@ class Route(unittest.TestCase):
         # A session tagged with the area's name holds it too (guardrails passes the area to holder()).
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows + [row("host-c/area-keeper", owns="acpmux-daemon")], None),
+            lines = route(guardrails, repo, [own], (rows + [row("host-c/area-keeper", owns="acpmux-daemon")], None),
                                            "host-a/coordinator")
         self.assertIn("held by host-c/area-keeper (holds owns=acpmux-daemon)", lines[0])
         self.assertEqual(sent[0][0], "host-c/area-keeper")
@@ -515,7 +523,7 @@ class Route(unittest.TestCase):
         rows.append(row("host-b/acpmux-keeper", owns="PL-acpmux"))
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            lines = route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertIn("held by host-b/acpmux-keeper (holds owns=PL-acpmux); told of this push", lines[0])
         branch = git("rev-parse", "--abbrev-ref", "HEAD")
         self.assertEqual(sent[0][:2], ("host-b/acpmux-keeper", "acpmux daemon"))
@@ -525,7 +533,7 @@ class Route(unittest.TestCase):
         git("commit", "-qam", "again")
         own2 = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"))
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            guardrails.owner_route(repo, [own2], (rows, None), "host-a/coordinator")
+            route(guardrails, repo, [own2], (rows, None), "host-a/coordinator")
         self.assertEqual(sent[1][2], sent[0][2])
 
     def test_the_pushing_lane_that_holds_the_area_is_told_nothing(self):
@@ -557,7 +565,7 @@ class Route(unittest.TestCase):
         rows = [row("gcp-agent-lane-19/ask-cbefa8bcf5-3", "ready", owns="PL-motion-core"), row("c/coord", "running")]
         sent = []
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "c/coord", "g17/moved-goal-next-code-shrinks-a-2-2")
+            lines = route(guardrails, repo, [own], (rows, None), "c/coord", "g17/moved-goal-next-code-shrinks-a-2-2")
         self.assertEqual(sent, [])
         self.assertEqual(lines, ["owner: Layout motion (springs, panes, display link) is held by "
                                  "g17/moved-goal-next-code-shrinks-a-2-2 (the pushing lane, a lane of motion-*,layout-*); "
@@ -600,7 +608,7 @@ class Route(unittest.TestCase):
         rows = [row("host-a/ios-terminal-first-composer", "running")]
         sent = []
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            lines = route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual((lines, sent), ([], []))
         # The lane's own edit to the area after the merge still reaches the holder.
         commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab 2\n", "own tabs edit")
@@ -709,7 +717,7 @@ class Route(unittest.TestCase):
                              ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift"])
             sent = []
             with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-                lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+                lines = route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
             self.assertEqual((lines, sent), ([], []))
 
 
