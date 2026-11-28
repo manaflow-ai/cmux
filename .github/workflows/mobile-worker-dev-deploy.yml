@@ -170,3 +170,15 @@ jobs:
           done
           echo "::error::/v1/health did not serve API $expected after the deploy."
           exit 1
+
+  # The last 3 TestFlight phone builds and two Mac hosts (this head's, NIGHTLY's) through the Worker
+  # this job just deployed: pair, attach, stream, reconnect (mobile-old-phones.yml).
+  old-phones:
+    needs: [deploy-dev]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/mobile-old-phones.yml
+    with:
+      api: staging
+    # No secrets passed: the called job's environment holds the test account it reads.

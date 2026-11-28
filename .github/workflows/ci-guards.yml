@@ -235,6 +235,7 @@ jobs:
           python3 tests/test_ci_step_table.py
           python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_ci_ios_fast_dispatch.py
+          python3 tests/test_ci_mobile_old_phones.py
           python3 tests/test_indexnow_notification.py
 
       - name: Validate the green receipts that skip unchanged checks

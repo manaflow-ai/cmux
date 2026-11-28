@@ -186,3 +186,15 @@ jobs:
           # With no version id, wrangler rolls back to the version deployed before this one.
           bunx wrangler rollback --env prod --message "mobile-worker-prod-deploy: health check failed at $GITHUB_SHA"
           echo "Rolled \`cmux-mobile-api-prod\` back to the previous version after a failed health check." >> "$GITHUB_STEP_SUMMARY"
+
+  # The last 3 TestFlight phone builds and two Mac hosts (this head's, NIGHTLY's) through the Worker
+  # this job just deployed: pair, attach, stream, reconnect (mobile-old-phones.yml).
+  old-phones:
+    needs: [deploy-prod]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/mobile-old-phones.yml
+    with:
+      api: prod
+    # No secrets passed: the called job's environment holds the test account it reads.

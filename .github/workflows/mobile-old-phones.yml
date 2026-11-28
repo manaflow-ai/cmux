@@ -1,0 +1,174 @@
+# Shipped iPhone builds vs the DEPLOYED mobile API (scripts/ci/mobile-old-phones.sh).
+#
+# A TestFlight phone keeps its link code until its owner updates, while the mobile Worker and the
+# Mac host move on every deploy and every NIGHTLY. Nothing ran the deployed Worker, or a new Mac
+# host, against the phone builds people already have, so a deploy could break every shipped phone
+# while CI stayed green. Leo, 11-27: "so between mac and ios connections something broke" and
+# "well clearly we need to be able to support the multiple versions as it goes".
+#
+# Per API (staging = cmux-mobile-api-dev, prod = mobile-api.cmux.dev) this runs the last 3
+# TestFlight builds' phone link (cmux-mobile-dial at each upload's commit, resolved from
+# ios-internal-nightly.yml's successful runs) against two Mac hosts, this head's and the one the
+# published NEXT nightly was built from, through the deployed Worker: pair over webrtc and
+# wireguard, attach (daemon identify), stream (echo bytes each way) and reconnect (a held link
+# redials and answers after the Mac host restarts). The table is the job summary; a FAIL is red.
+#
+# When: after every mobile Worker deploy (mobile-worker-dev-deploy.yml calls it with staging,
+# mobile-worker-prod-deploy.yml with prod), on every feat-cmux-next push that changes the link or
+# the Mac host (both APIs), and by hand.
+#
+# Secrets: the test account is CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD, the staging one from
+# cmux-next-vm-image-dev and the production one from cmux-next-cloud-journey (backend.yml's
+# journey jobs read the same pairs). Every device a run registers is deleted when it ends.
+name: Shipped iPhones vs deployed mobile API
+
+on:
+  workflow_call:
+    inputs:
+      api:
+        description: staging, prod or both
+        type: string
+        default: both
+  workflow_dispatch:
+    inputs:
+      api:
+        description: The deployed API to dial through
+        type: choice
+        options: [both, staging, prod]
+        default: both
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/mobile-old-phones.yml
+      - scripts/ci/mobile-old-phones.sh
+      - scripts/ci/mobile_old_phones.py
+      - cmux-next-ios/rust/crates/cmux-mobile-link/**
+      - cmux-next-ios/rust/crates/cmux-mobile-host/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-old-phones-${{ github.workflow }}-${{ inputs.api || 'both' }}
+  cancel-in-progress: false
+
+jobs:
+  phones:
+    name: The last 3 TestFlight phone builds
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      shas: ${{ steps.resolve.outputs.shas }}
+      list: ${{ steps.resolve.outputs.list }}
+      apis: ${{ steps.resolve.outputs.apis }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ inputs.api || 'both' }}
+        run: |
+          python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 > phones.txt
+          cat phones.txt
+          echo "shas=$(awk '{print $1}' phones.txt | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          echo "list=$(awk '{print $1 ":" $3}' phones.txt | paste -sd' ' -)" >> "$GITHUB_OUTPUT"
+          case "$API" in
+            staging|prod) echo "apis=[\"$API\"]" >> "$GITHUB_OUTPUT" ;;
+            *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  dial:
+    name: Shipped iPhones vs ${{ matrix.api }} API
+    needs: [phones]
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ${{ fromJSON(needs.phones.outputs.apis) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    environment:
+      name: ${{ matrix.api == 'prod' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
+      deployment: false
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: The commit the NEXT nightly was built from
+        id: nightly
+        run: |
+          sha=$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+            | grep -oE '<cmux:sourceCommit[^>]*>[[:space:]]*[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}' | head -1)
+          [[ -n "$sha" ]] || { echo "::error::no sourceCommit in the nightly feed"; exit 1; }
+          echo "NIGHTLY sourceCommit $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ steps.nightly.outputs.sha }}
+          path: .old-phones/mac-nightly
+          persist-credentials: false
+
+      - name: Phone build 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ split(needs.phones.outputs.shas, ',')[0] }}
+          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[0] }}
+          persist-credentials: false
+      - name: Phone build 2
+        if: ${{ split(needs.phones.outputs.shas, ',')[1] != '' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ split(needs.phones.outputs.shas, ',')[1] }}
+          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[1] }}
+          persist-credentials: false
+      - name: Phone build 3
+        if: ${{ split(needs.phones.outputs.shas, ',')[2] != '' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ split(needs.phones.outputs.shas, ',')[2] }}
+          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[2] }}
+          persist-credentials: false
+
+      - name: Dial through the deployed ${{ matrix.api }} API
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          OLD_PHONES_TREES: ${{ github.workspace }}/.old-phones/trees
+          PHONES: ${{ needs.phones.outputs.list }}
+          API: ${{ matrix.api }}
+          OUT: ${{ runner.temp }}/old-phones
+        run: |
+          git config --global --add safe.directory '*'
+          [[ -n "$STACK_EMAIL" && -n "$STACK_PASSWORD" ]] || { echo "::error::CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD missing for the $API API"; exit 1; }
+          # shellcheck disable=SC2086 # PHONES is space-separated SHA:CREATED words
+          scripts/ci/mobile-old-phones.sh "$API" "$OUT" head=. nightly=.old-phones/mac-nightly -- $PHONES || echo "::warning::a Mac host did not come up (see logs)"
+          python3 -I scripts/ci/mobile_old_phones.py verdict --dir "$OUT"
+
+      - name: Upload the dial logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: old-phones-${{ matrix.api }}
+          path: ${{ runner.temp }}/old-phones
+          if-no-files-found: ignore
