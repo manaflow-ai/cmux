@@ -3427,6 +3427,17 @@ def test_every_setup_bun_step_declares_a_version() -> None:
 
     for workflow_path in sorted(workflows.glob("*.yml")):
         lines = workflow_path.read_text(encoding="utf-8").splitlines()
+        version_line = r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?'
+        # A step may reuse another's inputs through a YAML alias
+        # (`with: *bun-with`); read the version from the anchored block.
+        anchored: dict[str, list[str]] = {}
+        for index, line in enumerate(lines):
+            if anchor := re.match(r"^\s+with:\s*&([A-Za-z0-9_-]+)\s*$", line):
+                anchored[anchor.group(1)] = [
+                    match.group(1)
+                    for candidate in lines[index + 1:index + 6]
+                    if (match := re.match(version_line, candidate))
+                ]
         for index, line in enumerate(lines):
             if action not in line:
                 continue
@@ -3435,8 +3446,11 @@ def test_every_setup_bun_step_declares_a_version() -> None:
             versions = [
                 match.group(1)
                 for candidate in tail
-                if (match := re.match(r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?', candidate))
+                if (match := re.match(version_line, candidate))
             ]
+            for candidate in tail:
+                if alias := re.match(r"^\s+with:\s*\*([A-Za-z0-9_-]+)\s*$", candidate):
+                    versions += anchored.get(alias.group(1), [])
             assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,

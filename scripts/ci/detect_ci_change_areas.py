@@ -200,21 +200,27 @@ _NON_RUNNING_FILES = frozenset({
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/actionlint.yaml",
+    ".github/change-classes.json",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
     ".github/cloud-staging-test-sweep/request",
     ".github/cloud-surge-proof/request",
+    ".github/cloud-vm-image-graduate/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
+    ".github/golden-inputs.json",
+    ".github/hourly-full-tier.json",
     ".github/ios-review-gate-devices.json",
     ".github/labels.json",
     ".github/language-boundaries.toml",
+    ".github/mobile-worker-prod-deploy/request",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/piece-swap.json",
     ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
@@ -222,6 +228,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/runners.json",
     ".github/rust-workspaces.toml",
     ".github/single-host-fallbacks.json",
+    ".github/standalone-files.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
     ".github/workflow-job-bounds.json",
@@ -331,6 +338,11 @@ def referrer_role(path: str) -> Optional[str]:
     "test": placed by where the test runs.
     """
     if path.startswith(".github/workflows/"):
+        return "workflow"
+    if path == "ci/steps.toml":
+        # The CI v2 step table: pr-pipeline.yml runs its steps, routed by their
+        # own `inputs`, outside ci.yml's call tree, so a dead end like that
+        # workflow. Its path lists named helpers and made them every area.
         return "workflow"
     if path.endswith(_DOCUMENTATION_SUFFIXES):
         return "documentation"
