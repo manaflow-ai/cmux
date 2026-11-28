@@ -123,6 +123,7 @@ impl Hub {
             credential,
             create_key,
             placed_by,
+            priority,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -480,6 +481,13 @@ impl Hub {
             meta.throwaway = throwaway;
             meta.create_key = create_key;
             meta.placed_by = placed_by;
+            // Before the session is published, so its first spawn already runs at the class its
+            // creator asked for (`NewRequest::priority`).
+            if let Some(value) = priority {
+                let tag = crate::store::Tag { value, expires_at: None };
+                // fleet-only-ok: every user's Cloud chat hits the gateway's class split.
+                meta.tags.insert(crate::subrouter_priority::TAG.to_owned(), tag);
+            }
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
