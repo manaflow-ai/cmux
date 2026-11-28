@@ -13,6 +13,7 @@ import contextlib
 import io
 import os
 import struct
+import re
 import sys
 import tempfile
 import unittest
@@ -544,7 +545,7 @@ class LookFailedTest(unittest.TestCase):
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
         step = next(s for s in wf["jobs"]["publish"]["steps"] if s.get("name") == "Post the proof record")
         # 2026-11-28, cmux#62400: the pool's token alone (pull_requests: read) was refused, and nothing said so.
-        posters = step["env"]["POST_TOKENS"].split()
+        posters = re.findall(r"\$\{\{.*?\}\}", step["env"]["POST_TOKENS"])
         self.assertEqual(posters[0], "${{ steps.cmux-bot-token.outputs.token }}")
         self.assertGreater(len(posters), 1)
         self.assertNotIn("github.token", step["env"]["POST_TOKENS"])  # github-actions[bot]: the gate does not trust it
