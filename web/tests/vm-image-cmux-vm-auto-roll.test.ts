@@ -514,6 +514,17 @@ describe("auto-roll settle", () => {
     expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
+  test("a deployed roll whose smoke job never ran a step (lost runner) is deployed and smoked again, within the bound", () => {
+    // 99de33e5-45840828684-1, 2026-11-26: deploy-production green, smoke-production's runner lost the server in setup.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++)
+      expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // A smoke that started and went red before (or at) the create still rolls back; so does an unknown start.
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: true })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "", bootImage: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "failure", smokeRan: false })).outcome).toBe("rollback");
+  });
+
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
     const newer = entry("501").id;
     expect(settle(roll({ deploy: "cancelled", product: "", tipFirst: newer })).outcome).toBe("rollback");

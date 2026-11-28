@@ -22,7 +22,7 @@
 //     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
-//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
+//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome> [--smoke-ran <gate output>]
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
 //     (see settle() below). Prints the decision as JSON; changes nothing.
@@ -419,6 +419,11 @@ export type SettleInput = {
   product: string;
   /** The image the product create booted ("" when it did not run). */
   bootImage: string;
+  /**
+   * Whether smoke-production ran any step (its gate step's output; false when the job died before its first step,
+   * as a self-hosted runner that lost the server does). Absent counts as ran: only a known no-start retries.
+   */
+  smokeRan?: boolean;
   /** Production's first entry in the deployed commit's wrangler.jsonc. */
   deployedFirst: string;
   /** Production's first entry at the feat-cmux-next tip now. */
@@ -438,7 +443,8 @@ export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: numb
 /**
  * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
  * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
- * create is deployed again, up to ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out, skipped
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys, and so is a deploy whose smoke job never ran a step (a
+ * lost runner). Anything else (failed, cancelled, timed out, skipped
  * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
@@ -461,6 +467,11 @@ export function settle(s: SettleInput): Settle {
     // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
     if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
       return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
+    // The deploy ran but smoke-production never ran a step (99de33e5-45840828684-1, 2026-11-26: its runner lost the
+    // server during setup): the image is live and untested, not red. Deploy and smoke it again within the same bound;
+    // a smoke that started and failed, at any step, still rolls back.
+    if (s.deploy === "success" && s.smokeRan === false && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production smoke never started on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying and smoking the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
@@ -761,6 +772,8 @@ async function main(argv: string[]): Promise<number> {
       deploy: arg(rest, "--deploy", ""),
       product: arg(rest, "--product", ""),
       bootImage: arg(rest, "--boot-image", ""),
+      // --smoke-ran is smoke-production's gate output: "true"/"false" when its first step ran, "" when no step did.
+      smokeRan: arg(rest, "--smoke-ran", "unknown") !== "",
       deployedFirst: deployed.prod[0] ?? "",
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
