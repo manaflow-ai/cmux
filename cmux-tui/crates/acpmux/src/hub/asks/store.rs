@@ -22,7 +22,10 @@ pub(crate) enum Work {
 /// newline (a write torn by a crash) is cut off, so the next append starts a line of its own.
 pub(crate) fn fold(path: &Path, state: &mut State) {
     let Ok(file) = File::open(path) else { return };
-    let mut reader = BufReader::new(file);
+    fold_reader(path, BufReader::new(file), state);
+}
+
+fn fold_reader(path: &Path, mut reader: impl BufRead, state: &mut State) {
     let mut buf = Vec::new();
     let mut whole: u64 = 0;
     loop {
@@ -226,6 +229,44 @@ mod tests {
             message_id: "p1".into(),
             kind: AskKind::Ask,
         }
+    }
+
+    #[test]
+    fn a_read_error_preserves_the_unread_suffix_and_discards_partial_state() {
+        use std::io::Read;
+
+        struct ReadFailure;
+        impl Read for ReadFailure {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected ledger read failure"))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        let first = encode(&Line::Ask(ask("first"))).unwrap();
+        let second = encode(&Line::Ask(ask("unread"))).unwrap();
+        let original = format!("{first}{second}");
+        std::fs::write(&path, &original).unwrap();
+        // Fail both at a line boundary and after read_until has buffered a partial line.
+        for prefix in [first.clone(), format!("{first}{{\"Ask\":")] {
+            let input = std::io::Cursor::new(prefix.into_bytes()).chain(ReadFailure);
+            let mut state = State::default();
+            fold_reader(&path, BufReader::new(input), &mut state);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            assert!(state.asks.is_empty(), "incomplete replay must not publish partial state");
+        }
+    }
+
+    #[test]
+    fn an_unreadable_store_never_starts_a_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory is unreadable as a ledger even under root, unlike permission bits.
+        std::fs::create_dir(dir.path().join(FILE)).unwrap();
+        let ledger =
+            crate::hub::asks::AskLedger::open_as(Some(dir.path().to_owned()), "test".into());
+        assert!(ledger.writer.lock().unwrap().is_none());
+        assert!(ledger.thread.lock().unwrap().is_none());
     }
 
     #[test]
