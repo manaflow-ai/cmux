@@ -81,6 +81,9 @@ type RouteEventCounts = {
   readonly routeCrashes: RouteCrashCounts;
   readonly operatorFailures: number;
   readonly upstreamFailures: number;
+  readonly upstreamByProvider: ReadonlyMap<string, number>;
+  readonly upstreamByStage: ReadonlyMap<string, number>;
+  readonly upstreamByStatus: ReadonlyMap<string, number>;
   readonly noUsableAccount: number;
   readonly authRejected: number;
   readonly noUsableAccountTeams: ReadonlySet<string>;
@@ -250,7 +253,7 @@ export async function runCoderouterAlertChecks(
     const upstreamCount = counts.upstreamFailures;
     await evaluate("coderouter-upstream-failures", upstreamCount, thresholds.upstreamFailures, () => ({
       title: "coderouter upstream providers are failing",
-      body: `${upstreamCount} of ${counts.total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Check provider health and routing configuration.`,
+      body: `${upstreamCount} of ${counts.total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Providers: ${formatBreakdown(counts.upstreamByProvider)}. Stages: ${formatBreakdown(counts.upstreamByStage)}. Statuses: ${formatBreakdown(counts.upstreamByStatus)}. Check provider health and routing configuration.`,
       severity: "warning",
     }));
 
@@ -426,6 +429,9 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
   let total = 0;
   let operatorFailures = 0;
   let upstreamFailures = 0;
+  const upstreamByProvider = new Map<string, number>();
+  const upstreamByStage = new Map<string, number>();
+  const upstreamByStatus = new Map<string, number>();
   let noUsableAccount = 0;
   let authRejected = 0;
   const noUsableAccountTeams = new Set<string>();
@@ -435,7 +441,15 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     const count = Number.isFinite(row.c) ? row.c : 0;
     total += count;
     if (isOperatorFailure(row)) operatorFailures += count;
-    if (isUpstreamFailure(row)) upstreamFailures += count;
+    if (isUpstreamFailure(row)) {
+      upstreamFailures += count;
+      const provider = row.provider || "unknown";
+      const stage = `${row.outcome}/${row.failure_stage || "unknown"}`;
+      const status = typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown";
+      upstreamByProvider.set(provider, (upstreamByProvider.get(provider) ?? 0) + count);
+      upstreamByStage.set(stage, (upstreamByStage.get(stage) ?? 0) + count);
+      upstreamByStatus.set(status, (upstreamByStatus.get(status) ?? 0) + count);
+    }
     if (row.outcome === "no_usable_account" &&
       (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
       noUsableAccount += count;
@@ -455,6 +469,9 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     routeCrashes: aggregateRouteCrashes(rows),
     operatorFailures,
     upstreamFailures,
+    upstreamByProvider,
+    upstreamByStage,
+    upstreamByStatus,
     noUsableAccount,
     authRejected,
     noUsableAccountTeams,
