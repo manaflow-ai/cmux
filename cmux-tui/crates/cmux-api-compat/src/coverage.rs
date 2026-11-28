@@ -284,6 +284,11 @@ pub fn breaking_changes(old: &Surface, new: &Surface) -> Vec<Break> {
                 push(&mut breaks, "member removed".into());
                 continue;
             };
+            // A server-written opaque JSON member that gains a concrete type sends
+            // the same bytes; old readers already accept any JSON there.
+            if writer == Writer::Server && old_shape.ty == "json" && new_shape.ty != "json" {
+                continue;
+            }
             if old_shape.ty != new_shape.ty {
                 push(&mut breaks, format!("type {} -> {}", old_shape.ty, new_shape.ty));
                 continue;
