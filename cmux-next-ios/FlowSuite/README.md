@@ -38,8 +38,9 @@ cmux ios verify --plan           # the selection and steps, nothing run
 
 1. Merges the moved base into the head and pushes, so a merge combination (rows 4, 5 and 7) breaks here.
 2. Selects the flows with `select_flows.py`.
-3. Runs the shards in parallel on the warm pool: `CMUX_IOS_VERIFY_WORKERS`, cmux22,cmux23 until cmux25 and
-   cmux26 are tagged. Each shard is `test only= ui= video` with a slim simulator, cached DerivedData and the FFI
+3. Runs two shards in parallel with automatic placement on the simulator fleet. `--workers` or
+   `CMUX_IOS_VERIFY_WORKERS` opts into named worker hints and one shard per worker; `--pin-strict` requires
+   explicit workers. Each shard is `test only= ui= video` with a slim simulator, cached DerivedData and the FFI
    cache. A flow marked `"pair_e2e": true` adds `pair-e2e`: a tagged DEBUG Mac pairs, drops and reconnects. The
    flows' `scripts` run too.
 4. Diffs the screenshots against the newest passing proof merged into the base.
@@ -89,8 +90,8 @@ Full rows (why each was not caught, evidence): [REGRESSIONS-2026-11.md](REGRESSI
 | 7 | CmuxMobileShellTests stop compiling | cmux#51849 x #48532 | cmux#53217 | compile-app-and-tests | build-for-testing | yes, base merged first |
 | 8 | Composer Paste key invisible, glass lost | cmux#48749 | cmux#53471, #56712 | terminal-composer-bar | TerminalComposerBarUITests | yes |
 | 9 | Pairing fails with "Mac's identity changed" | cmux#13742 | cmux#57771 | pairing-mac-identity | MobileHostMacIdentityKeychainTests (macOS package) | yes by path; swift test in pr pipeline / mac, plus pair-e2e |
-| 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#57792 (open) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; the copy test lands with cmux#57792 | yes |
-| 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#57410 (open) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests | yes by path (no replayable root) |
+| 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#60142 (carries #57792) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; plus the copy test from cmux#60142 | yes |
+| 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#59945 (carries #57410) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests | yes by path (no replayable root) |
 | 12 | ChatMacLookUITests red after cmux#57773 | cmux#57773 | | chat-mac-look | ChatMacLookUITests | yes |
 | 13 | Full-screen app's header goes off screen with the keyboard up (PR audit) | cmux#41895 | cmux#42760, #43454 | terminal-keyboard-fullscreen-app | TerminalKeyboardNoResizeUITests | yes |
 | 14 | Mac's terminal keeps the phone's size after background or lock (PR audit) | cmux#41902 | cmux#42192 | terminal-size-claim-release | TerminalSizeClaimDebounceTests | yes |

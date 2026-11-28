@@ -916,10 +916,11 @@ impl TurnCarrier {
             tokio::spawn(sender_loop(relay, queue, early, permit_requests, Arc::clone(&duplicates)))
         };
         let receiver = {
-            let relay = Arc::clone(&relay);
+            let (relay, counts) = (Arc::clone(&relay), Arc::clone(&duplicates));
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 65_536];
                 while let Ok((len, from)) = relay.recv_from(&mut buffer).await {
+                    counts.received.fetch_add(1, Ordering::Relaxed);
                     match inbound_tx.try_send((Bytes::copy_from_slice(&buffer[..len]), from)) {
                         Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
                         Err(mpsc::error::TrySendError::Closed(_)) => return,
@@ -967,6 +968,17 @@ impl TurnCarrier {
     /// (see [`sender_loop`]).
     pub fn duplicates(&self) -> (u64, u64) {
         (self.duplicates.datagrams.load(Ordering::Relaxed), self.duplicates.bytes.load(Ordering::Relaxed))
+    }
+
+    /// What this carrier carried so far.
+    pub fn carried(&self) -> Carried {
+        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+        Carried {
+            sent: load(&self.duplicates.sent),
+            failed: load(&self.duplicates.failed),
+            skipped: load(&self.duplicates.skipped),
+            received: load(&self.duplicates.received),
+        }
     }
 
     /// Queue one datagram to `to` through the TURN server, in `class`
@@ -1270,24 +1282,33 @@ async fn sender_loop(
         }
         early_window.retain(|addr| !sent.ready.contains(addr));
         if sent.failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
+            duplicates.skipped.fetch_add(1, Ordering::Relaxed);
             continue;
         }
         // In its early window, or ready: either way the server holds a
         // permission for it, so an indication arrives.
         let around = early_window.contains(&to) || sent.ready.contains(&to);
         if busy.is_some() && around && early.indicate(&datagram, to).await.is_some() {
+            duplicates.sent.fetch_add(1, Ordering::Relaxed);
             continue;
         }
         // The crate goes on with the next datagram once it is done with the last.
         sent.settle(busy.take()).await;
         let task = {
-            let (relay, datagram) = (Arc::clone(&relay), datagram.clone());
+            let (relay, datagram, counts) = (Arc::clone(&relay), datagram.clone(), Arc::clone(&duplicates));
             tokio::spawn(async move {
                 let started = tokio::time::Instant::now();
                 let ok = match relay.send_to(&datagram, to).await {
-                    Ok(_) => true,
+                    Ok(_) => {
+                        counts.sent.fetch_add(1, Ordering::Relaxed);
+                        true
+                    }
                     Err(error) => {
-                        tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
+                        // At most once per address per FAILED_TARGET_WAIT:
+                        // what follows is that address going dark, so it is
+                        // in the default log.
+                        counts.failed.fetch_add(1, Ordering::Relaxed);
+                        tracing::info!(%error, %to, "TURN send failed; skipping this peer address for a while");
                         false
                     }
                 };
@@ -1323,11 +1344,34 @@ async fn sender_loop(
 const CRATE_SEND_GRACE: Duration = Duration::from_millis(5);
 
 /// Datagrams sent twice (a Send indication beside the crate's own send)
-/// and their bytes on the wire to the server.
+/// and their bytes on the wire to the server, and what the carrier carried
+/// at all: its close line read `datagrams=0` on every healthy carrier (only
+/// duplicates counted), so a carrier that never moved a byte and one that
+/// carried a session closed alike (Leo, 2026-11-27: "so between mac and ios
+/// connections something broke").
 #[derive(Debug, Default)]
 pub struct Duplicates {
     pub datagrams: AtomicU64,
     pub bytes: AtomicU64,
+    /// Datagrams that went to the server (the crate's sends that returned
+    /// ok, and Send indications that went alone).
+    pub sent: AtomicU64,
+    /// The crate's sends that failed (each skips its address for
+    /// `FAILED_TARGET_WAIT`).
+    pub failed: AtomicU64,
+    /// Datagrams dropped because their address was in that wait.
+    pub skipped: AtomicU64,
+    /// Datagrams relayed from the peer to this side.
+    pub received: AtomicU64,
+}
+
+/// What a [`TurnCarrier`] carried (see [`Duplicates`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Carried {
+    pub sent: u64,
+    pub failed: u64,
+    pub skipped: u64,
+    pub received: u64,
 }
 
 fn is_wireguard(datagram: &[u8]) -> bool {
@@ -1592,7 +1636,20 @@ impl Drop for TurnCarrier {
         // message on a stream.
         self.queue.close();
         let (datagrams, bytes) = self.duplicates();
-        tracing::info!(datagrams, bytes, "TURN carrier closed; datagrams sent twice in the early window");
+        let Carried { sent, failed, skipped, received } = self.carried();
+        let dead = *self.dead.borrow();
+        tracing::info!(
+            sent,
+            received,
+            failed,
+            skipped,
+            dead,
+            relayed = %self.relayed,
+            server = self.address,
+            datagrams,
+            bytes,
+            "TURN carrier closed (datagrams/bytes: sent twice in the early window)"
+        );
         for task in self.tasks.iter().skip(1) {
             task.abort();
         }
@@ -2149,6 +2206,27 @@ mod tests {
         for n in 60..160 {
             assert_eq!(later.get(&wg_data(n)), Some(&1), "datagram {n}");
         }
+    }
+
+    /// The close line names what the carrier carried, both ways: before,
+    /// it had only the duplicate count, 0 on a healthy carrier and on one
+    /// that never moved a byte alike.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_carrier_counts_what_it_carried_both_ways() {
+        let (mut carrier, peer, _turn) = delayed_carrier(Duration::from_millis(5)).await;
+        assert_eq!(carrier.carried(), Carried::default());
+        carrier.permit(&[peer.local_addr().unwrap()]);
+        let plain = |n: u64| format!("plain datagram {n}").into_bytes();
+        let arrived = send_and_count(&carrier, &peer, plain, 0..20, Duration::from_millis(300)).await;
+        assert_eq!(arrived.len(), 20);
+        for n in 0..3 {
+            peer.send_to(&plain(n), carrier.relayed).await.unwrap();
+        }
+        for _ in 0..3 {
+            tokio::time::timeout(Duration::from_secs(3), carrier.inbound.recv()).await.unwrap().unwrap();
+        }
+        let carried = carrier.carried();
+        assert_eq!((carried.sent, carried.failed, carried.skipped, carried.received), (20, 0, 0, 3));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

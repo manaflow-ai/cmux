@@ -102,6 +102,55 @@ paths = ["**/*.rs"]
         self.assertEqual(idx.match("a/bc").area.name, "wide", "a bare path covers its folder, not a name prefix")
         self.assertIsNone(idx.match("b/x").area)
 
+    def test_an_area_filed_twice_is_one_area(self):
+        # Model picker search was filed twice; a path matching the first entry got none of the second's `run`.
+        rules = rel.parse('''
+[[area]]
+name = "picker"
+paths = ["a/search.ts"]
+tests = ["t1"]
+[[area]]
+name = "picker"
+paths = ["a/search.ts", "bench/picker.ts"]
+tests = ["t2"]
+run = ["bun bench/picker.ts"]
+budget_s = 20.0
+''')
+        idx = rel.Index(rules)
+        for path in ("a/search.ts", "bench/picker.ts"):
+            (a,) = rel.plan(idx, [path])["areas"]
+            self.assertEqual((a["run"], a["tests"], a["budget_s"]), (["bun bench/picker.ts"], ["t1", "t2"], 20.0), path)
+        self.assertEqual([r["cmd"] for r in rel.runs_for(rel.plan(idx, ["a/search.ts"]))], ["bun bench/picker.ts"])
+
+    def test_a_path_runs_its_narrowest_tests(self):
+        # cmux#63214 (updater): its files took the Update flow area's tests and also the generated unit's
+        # `swift test --filter CmuxNextAppTests`, the whole app test target; a changed test file ran nothing of its own.
+        rules = rel.parse('''
+[[area]]
+name = "update"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater"]
+tests = ["update tests"]
+[[unit]]
+name = "swift:CmuxNextUpdater"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/**"]
+tests = ["whole updater target"]
+[[unit]]
+name = "swift:CmuxNextAppTests"
+paths = ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/**"]
+tests = ["whole app test target"]
+[[unit]]
+name = "rust:x"
+paths = ["cmux-tui/crates/x/**"]
+tests = ["cargo x"]
+''')
+        idx = rel.Index(rules)
+        got = rel.plan(idx, ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/TipUpdateCheck.swift",
+                             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TipUpdateCheckTests.swift",
+                             "cmux-tui/crates/x/src/lib.rs"])["tests"]
+        self.assertEqual(got, ["update tests",
+                               "swift test --package-path Packages/macOS/CmuxNext --filter TipUpdateCheckTests",
+                               "cargo x"])
+
     def test_step_ignore_last_match_decides(self):
         rules = rel.parse_steps('''
 [step.s]
@@ -171,12 +220,92 @@ class RelevanceMapFileTest(unittest.TestCase):
         want = {u["name"]: u for u in rel.generate_units(ROOT, tracked())}
         have = {r.name: r for r in rel.parse(text) if r.kind == "unit"}
         drift = set(want) ^ set(have)
-        drift |= {n for n in set(want) & set(have) if tuple(want[n]["paths"]) != have[n].globs}
+        drift |= {n for n in set(want) & set(have)
+                  if tuple(want[n]["paths"]) != have[n].globs or tuple(want[n]["tests"]) != have[n].tests}
         if drift:
             print(f"warning: {len(drift)} generated units drifted ({sorted(drift)[:5]}...): "
                   "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
         self.assertLess(len(drift), max(5, len(want) // 20),
                         "the [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write")
+
+    def test_a_crate_routes_its_direct_dependents_tests(self):
+        # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
+        # #63799 changed cmux-history's Visit (cmux-tui-core opens VisitStores); #54760 added a cmux-action-catalog
+        # action (cmux-palette-eval and cmux-layout-reducer iterate actions()).
+        index = rel.load()
+        for path, crate, dependents in (
+                ("cmux-tui/crates/cmux-history/src/lib.rs", "cmux-history", {"cmux-tui-core"}),
+                ("cmux-tui/crates/cmux-action-catalog/src/lib.rs", "cmux-action-catalog",
+                 {"cmux-palette-eval", "cmux-layout-reducer"})):
+            if not (ROOT / "cmux-tui/crates" / crate).is_dir():
+                continue
+            tests = " ".join(rel.plan(index, [path])["tests"])
+            self.assertIn(f"-p {crate}", tests)
+            for d in dependents:
+                self.assertIn(f"-p {d}", tests, f"{path}: {d} depends on {crate} and its tests are not routed")
+
+    def test_reverse_dependents_reads_renames_and_targets(self):
+        root = Path(tempfile.mkdtemp())
+        for name, body in (("a", ""), ("b", '[dependencies]\na = { path = "../a" }\n'),
+                           ("c", '[target.\'cfg(unix)\'.dev-dependencies]\nalias = { package = "a", path = "../a" }\n'),
+                           ("d", "[dependencies]\nserde = \"1\"\n")):
+            (root / "w/crates" / name).mkdir(parents=True)
+            (root / "w/crates" / name / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n{body}')
+        got = rel.reverse_dependents(root, [f"w/crates/{n}" for n in "abcd"])
+        self.assertEqual(got, {"a": ["b", "c"], "b": [], "c": [], "d": []})
+
+    def test_every_cargo_package_is_in_its_workspace(self):
+        # `--manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi` named no package (cmux-app-ffi and the crates it
+        # lists are their own workspace), so its area and unit tests never ran. Ask cargo, not our resolver, which
+        # packages each workspace has, for every cargo command in the map, hand-written and generated.
+        import json
+        import shlex
+        import shutil
+        if not shutil.which("cargo"):
+            self.skipTest("no cargo on this machine")
+        wanted: dict[str, set[str]] = {}
+        for r in self.rules:
+            for cmd in r.tests:
+                lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+                lex.whitespace_split = True
+                tokens, parts = list(lex), [[]]
+                for t in tokens:
+                    parts.append([]) if t in ("&&", "||", ";", "|") else parts[-1].append(t)
+                for words in parts:
+                    part = " ".join(words)
+                    if words[:1] != ["cargo"] or "-p" not in words:
+                        continue
+                    self.assertIn("--manifest-path", words, f"{r.kind} {r.name}: {part.strip()!r} has no --manifest-path")
+                    manifest = words[words.index("--manifest-path") + 1]
+                    wanted.setdefault(manifest, set()).update(
+                        w for i, w in enumerate(words) if i and words[i - 1] in ("-p", "--package"))
+        missing = []
+        for manifest, names in sorted(wanted.items()):
+            out = subprocess.run(["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1",
+                                  "--manifest-path", manifest], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            self.assertEqual(out.returncode, 0, f"cargo metadata {manifest}: {out.stderr[-500:]}")
+            have = {pkg["name"] for pkg in json.loads(out.stdout)["packages"]}
+            missing += [f"-p {n} in {manifest}" for n in sorted(names - have)]
+        self.assertEqual(missing, [], "these cargo commands name a package their workspace lacks")
+
+    def test_cargo_workspace_follows_cargo(self):
+        root = Path(tempfile.mkdtemp())
+        for path, body in (("w/Cargo.toml", '[workspace]\nmembers = ["crates/a"]\nexclude = ["crates/x"]\n'),
+                           ("w/crates/a/Cargo.toml", '[package]\nname = "a"\n'),
+                           ("w/crates/f/Cargo.toml", '[package]\nname = "f"\n[workspace]\nmembers = ["../s"]\n'),
+                           ("w/crates/s/Cargo.toml", '[package]\nname = "s"\nworkspace = "../f"\n'),
+                           ("w/crates/x/Cargo.toml", '[package]\nname = "x"\n')):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(body)
+        self.assertEqual({c: rel.cargo_workspace(root, f"w/crates/{c}") for c in "afsx"},
+                         {"a": "w", "f": "w/crates/f", "s": "w/crates/f", "x": "w/crates/x"})
+        self.assertEqual(rel.cargo_test_commands(root, ["w/crates/a", "w/crates/s", "w/crates/f"]),
+                         ["cargo test --manifest-path w/Cargo.toml -p a",
+                          "cargo test --manifest-path w/crates/f/Cargo.toml -p s -p f"])
+
+    def test_top_level_tests_are_mapped(self):
+        hit = rel.load().match("tests/test_bench_relevance_map.py")
+        self.assertTrue(hit.mapped, "a top-level tests/ file took the default:tests area")
 
     @unittest.skipUnless(COVERAGE_MAP.is_file(), "docs/benches/coverage-map.md is not on this branch yet")
     def test_joined_with_the_coverage_map(self):
@@ -224,7 +353,7 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn("Swift↔Rust bridge", got.stdout)
         self.assertIn("docs/benches/templates/bridge.md", got.stdout)
-        self.assertIn("cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi", got.stdout)
+        self.assertIn("cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", got.stdout)
 
 
 

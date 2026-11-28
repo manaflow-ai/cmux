@@ -42,7 +42,7 @@ import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { withoutAttachedFileNotes } from "../attachments";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
-import { attachmentOnly, imageOriginals } from "./bubbleParts";
+import { attachmentOnly, imageOriginals, inlineOrder } from "./bubbleParts";
 import { Slot } from "../../../slots/Slot";
 import { sendTransitionSlot } from "../../../slots/sendTransition";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
@@ -141,9 +141,9 @@ export function UserBubble({
   // for inline attachments after send"; each at its final size from the first frame, sentImageSize
   // and sentVideoSize, which the row's estimate reads too). Placed: the pane marked it so (`placed`, acpmux
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
-  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
-  // to read beside its attachments, keep the legacy bands above the bubble.
-  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  // The old shape (its text, then its pastes, then its attachments) keeps the legacy bands: over
+  // the bubble at top, at the bubble's end inline (`legacyInBubble`). A prompt with nothing to read
+  // beside its attachments draws them alone.
   // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
@@ -151,7 +151,12 @@ export function UserBubble({
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
   // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
   const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
-  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
+  // One place per view (Leo, 2026-11-27: inline was showing "inline + top bar", and "pure inline
+  // isn't giving pure inline"): at top, every attachment in the band over the bubble and none in it;
+  // inline, every one in the bubble and none over it. A prompt of attachments alone has no text to
+  // place them in and draws them alone, the same in both.
+  const view = useComposerSettings().attachmentView;
+  const strip = (view === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
@@ -163,14 +168,21 @@ export function UserBubble({
     inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
       ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
       : [];
-  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
-  const banded = (part: PromptContentPart) =>
-    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
+  // The inline view bands nothing: an attachment the composer left in its strip (unmarked, beside
+  // placed ones) draws at the end of the bubble (bubbleParts.ts `inlineOrder`).
+  const banded = (part: PromptContentPart) => strip && isStripMedia(part);
   // A video attached twice is one tile (sentVideos.ts `withoutRepeatedVideos`), as the row's
   // estimate measures it (bubbleParts.ts `bubbleLayout`).
   const stripMedia = withoutRepeatedVideos(orderedParts?.filter(isStripMedia).filter(banded) ?? [], videos);
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
-  const shownParts = withoutRepeatedVideos(orderedParts?.filter((part) => !banded(part)) ?? [], videos);
+  const shownParts = withoutRepeatedVideos(
+    !orderedParts
+      ? []
+      : strip
+        ? orderedParts.filter((part) => !banded(part))
+        : inlineOrder(orderedParts, inlineBubbleParts(orderedParts) ?? orderedParts),
+    videos,
+  );
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(
     (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
@@ -231,14 +243,20 @@ export function UserBubble({
   const hasBubble = strip ? shownParts.some(readsAsText) : hasInterleaved || Boolean(text.trim());
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
-  return (
+  // A prompt with no recorded place for its attachments (sent before placing, or from a composer in
+  // the strip view) draws them at the end of its bubble in the inline view, never in a band over it.
+  const legacyInBubble = view === "inline" && legacyBands && hasBubble;
+  const legacyAttachments = (
     <>
       {showsLegacyImages && (
-        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+        <SentImages
+          images={row.images ?? []}
+          className={legacyInBubble ? "cv-user__images--in-bubble" : undefined}
+          leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null}
+        />
       )}
-      {looseImages.length > 0 && <SentImages images={looseImages} />}
       {showsLegacyFiles && (
-        <div className="cv-user__files">
+        <div className={legacyInBubble ? "cv-user__files cv-user__files--in-bubble" : "cv-user__files"}>
           {files!.map((file, index) => {
             // An image that went as its file's link is its thumbnail (userBubbleModel.ts `linkedImagePath`).
             const path = linkedImagePath(file);
@@ -257,6 +275,12 @@ export function UserBubble({
           })}
         </div>
       )}
+    </>
+  );
+  return (
+    <>
+      {!legacyInBubble && legacyAttachments}
+      {looseImages.length > 0 && <SentImages images={looseImages} />}
       {stripMedia.length > 0 && (
         <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
           {stripMedia.map((part, index) =>
@@ -289,6 +313,11 @@ export function UserBubble({
                   renderImage={renderImage}
                   renderFile={renderFile}
                 />
+              ) : legacyInBubble ? (
+                <>
+                  <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
+                  {legacyAttachments}
+                </>
               ) : (
                 <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
               ),
@@ -438,7 +467,9 @@ export const SentImage = memo(function SentImage({
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
   // (conversation.css), never past the bubble's edge.
-  const shape = { width, aspectRatio: `${width} / ${height}` };
+  // `height: auto` in the style itself: the <img>'s `height` attribute (its natural height) must
+  // never set its height beside this width, or it draws stretched (https://github.com/manaflow-ai/cmux/issues/59858).
+  const shape = { width, height: "auto", aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
   if (broken && fallback !== null) return <>{fallback}</>;
