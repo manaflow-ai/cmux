@@ -126,6 +126,22 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertTrue(steps[name].nightly)
                 self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
 
+    def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
+        # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
+        # with no [[storage_key]] entry and went red only on the feat-cmux-next push: under --pr-scope only the
+        # checker's own files routed the step.
+        t = ci_steps.load()
+        for paths in (["webviews/src/agent-session/acpmux/newtab/projectListStore.ts"],
+                      ["cmux-tui/crates/acpmux/src/store.rs"],
+                      ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"]):
+            with self.subTest(paths=paths):
+                self.assertIn("persisted-formats", ci_steps.route(t, paths, pr_scope=True)["linux"])
+                self.assertIn("persisted-formats", ci_steps.nightly_gate_steps(t, paths))
+        self.assertNotIn("persisted-formats", ci_steps.route(t, ["docs/x.md"], pr_scope=True).get("linux", []))
+        run = t.steps["persisted-formats"].run
+        self.assertIn("new_red_only.sh", run)
+        self.assertIn("scripts/ci/new_red_only.sh", t.steps["persisted-formats"].inputs)
+
     def test_a_landing_head_runs_only_the_nightly_steps_it_routes(self) -> None:
         start, why, (jobs, only) = self.landing(["cmux-tui/Cargo.lock", "web/app/page.tsx"])
         self.assertIn("pr-pipeline.yml", start)
@@ -954,9 +970,12 @@ class SetupTest(unittest.TestCase):
             table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
+        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
-                self.assertEqual(step.tier, "push", step.name)
+                self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
         text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
         self.assertIn('ci/run run --job linux --tier "$TIER"', text)
         self.assertIn("CI_PR_PIPELINE_TIER", text)

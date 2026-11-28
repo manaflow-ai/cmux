@@ -1013,3 +1013,6 @@ pub mod window_registry;
 #[cfg(test)]
 mod window_registry_tests;
 pub mod workspace_port_links;
+
+pub mod new_tab_prefetch;
+pub mod new_tab_split_layout;

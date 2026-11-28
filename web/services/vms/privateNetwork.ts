@@ -147,6 +147,29 @@ export function userNetworkCidr(userId: string): string {
 }
 
 /**
+ * The pool production team networks take their IPv4 /20 from: 10.128.0.0 up
+ * to 10.191.255.255, between the platform's derived /24 band (10.16-10.97 so
+ * far) and the user pool (10.192/10), so a member's tunnel, which attaches
+ * their own network and their team's, never sees the two overlap.
+ *
+ * Leo, 2026-11-28: "The current shared /24 is the immediate bottleneck ...
+ * network growth (/20 or another /24) is the durable fix." A team network
+ * created without a CIDR got the platform's /24 (254 members) for its life,
+ * shared by every member's machines and Macs. A CIDR is fixed once created, so
+ * this grows every team network created from now on; an existing /24 stays
+ * until it is re-created.
+ */
+const TEAM_NETWORK_POOL_BASE = (10 << 24) + (128 << 16);
+const TEAM_NETWORK_POOL_SLOTS = 1024;
+
+/** The IPv4 /20 a production team's network is created with. */
+export function teamNetworkCidr(teamId: string): string {
+  const slot = Number.parseInt(accountHash("team-network-cidr", teamId).slice(0, 8), 16) % TEAM_NETWORK_POOL_SLOTS;
+  const base = TEAM_NETWORK_POOL_BASE + slot * USER_NETWORK_RANGE_SIZE;
+  return `${[24, 16, 8, 0].map((shift) => (base >>> shift) & 255).join(".")}/20`;
+}
+
+/**
  * The provider-side slug for a team's network. Hashed for the same reason as
  * the account slug. Because it is derived from the team id, the provider's
  * network list is the only record of team networks: finding one is a read by
@@ -391,9 +414,13 @@ function resolveTeamNetwork(input: {
     if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     // No members-reach-each-other rule: each team VM admits the team network
     // itself, so tunnels reach team VMs but not each other's Macs.
+    // Production team networks get a /20 (see teamNetworkCidr); a namespaced
+    // deployment keeps the platform's derived /24, as user networks do.
+    const cidr = vmNetworkNamespace() === null ? teamNetworkCidr(input.billingTeamId) : undefined;
     const network = yield* input.providers.ensureNetwork(input.provider, {
       slug,
       displayName: slug,
+      ...(cidr ? { cidr } : {}),
       membersRule: false,
       providerCredential: input.providerCredential,
       providerProject: providerProject(input.providerMetadata),
