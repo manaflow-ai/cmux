@@ -58,6 +58,9 @@ public final class CloudMovedChats {
 
     /// Where the ledger is kept (``CloudMoveSetup/ledger``); nil keeps it in memory.
     public var defaults: @MainActor () -> UserDefaults? = { nil }
+    /// cmux-tui's state folder, where `cmux link project sync-back|read-only` and the policy keep
+    /// what may come back (RFD 0211); nil reads only `CMUX_POLICY_FILE`.
+    public var tuiState: @MainActor () -> URL? = { nil }
     private var memory: [String: String] = [:]
     public static let defaultsKey = "cmux.cloud.movedChats"
     private static let startingKey = "cmux.cloud.startingChats"
@@ -98,6 +101,16 @@ public final class CloudMovedChats {
     }
 
     public func entry(host: String, session: String) -> Entry? { ask("entry", host: host, session: session)?.entry }
+
+    private struct SyncBackRequest: Encodable { var stateDir: String?, folder: String }
+    private struct SyncBackReply: Decodable { var syncBack: Bool }
+
+    /// Whether nothing may come back into `folder` on this Mac (RFD 0211: sync-back off, or a
+    /// read-only projection). Rust decides (op `sync_back`); this only reads its flag.
+    public func syncBackOff(_ folder: String) -> Bool {
+        let request = SyncBackRequest(stateDir: tuiState()?.path, folder: folder)
+        return CloudMoveCore().call("sync_back", request, as: SyncBackReply.self)?.syncBack == false
+    }
 
     /// Every moved chat, in no order.
     public func all() -> [Entry] { ask("all")?.entries ?? [] }

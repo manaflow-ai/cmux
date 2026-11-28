@@ -4,7 +4,7 @@
 
 use cmux_cloud_start_core::moves::{
     asks, autosize, chat_moves, cli, folder, handoff, ledger, machine_update, pin, place, priority,
-    progress, seed, session_transfer, settle, targets, wait,
+    progress, seed, session_transfer, settle, sync_back, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -455,6 +455,34 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             } else {
                 json!({ "retries": to_value(ledger::retries(request.stored.as_deref()))? })
             }
+        }
+        // RFD 0211: whether anything may come back into a folder here (Bring Back Local hides when
+        // not). The files are cmux-tui's (`cmux link project sync-back|read-only`, the policy).
+        b"cloud_move_sync_back" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                state_dir: Option<std::path::PathBuf>,
+                folder: std::path::PathBuf,
+            }
+            let request: Request = read(request)?;
+            let state = request.state_dir.as_deref();
+            let text = |name: &str| {
+                state
+                    .and_then(|state| std::fs::read_to_string(state.join(name)).ok())
+                    .unwrap_or_default()
+            };
+            let policy_path = match std::env::var_os(sync_back::POLICY_ENV) {
+                Some(path) if !path.is_empty() => Some(std::path::PathBuf::from(path)),
+                _ => state.map(|state| state.join(sync_back::POLICY_FILE)),
+            };
+            let policy: Option<Value> = policy_path
+                .and_then(|path| std::fs::read(path).ok())
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            let folder = std::fs::canonicalize(&request.folder).unwrap_or(request.folder);
+            let off = text(sync_back::SYNC_BACK_OFF_LIST);
+            let read_only = text(sync_back::READ_ONLY_LIST);
+            to_value(sync_back::answer(policy.as_ref(), &off, &read_only, &folder))?
         }
         b"cloud_move_moved_chats" => {
             #[derive(Deserialize)]

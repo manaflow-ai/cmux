@@ -76,6 +76,32 @@ pub fn refused(
     listed(sync_back_list, folder).then_some("folder")
 }
 
+/// A folder's whole answer, for the app (op `cloud_move_sync_back`): Bring Back Local shows only
+/// when `sync_back`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Answer {
+    pub sync_back: bool,
+    pub read_only: bool,
+    /// Why the way back is off ([`By`]), or None.
+    pub by: Option<By>,
+}
+
+/// [`refused`] and [`read_only`] together.
+pub fn answer(
+    policy: Option<&Value>,
+    sync_back_list: &str,
+    read_only_list: &str,
+    folder: &Path,
+) -> Answer {
+    let by = refused(policy, sync_back_list, read_only_list, folder);
+    Answer {
+        sync_back: by.is_none(),
+        read_only: read_only(policy, read_only_list, folder).is_some(),
+        by,
+    }
+}
+
 #[cfg(test)]
 #[path = "sync_back_tests.rs"]
 mod tests;
