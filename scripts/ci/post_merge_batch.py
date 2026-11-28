@@ -92,6 +92,11 @@ MAX_REBISECTS = 2
 # contract, CmuxMobileKit tests ...), red since a commit three days back (0e0818af, 11-24), past the reach. Only for such
 # a red, the judges read this many batch runs further back, older than the reach's oldest run, to find its last green.
 DEEP_LOOKBACK_BATCHES = 72
+# A red with no green even in the deeper read is galloped back (gallop_on): one probe at the commit 1, 2, 4, ... commits
+# before its first red batch run's commit, the next doubling once the last came back red, up to this many commits back.
+# Batch run 46164328032 (11-28) called 23 reds "no green batch run in reach (82 read)": nothing ever bisected them, so
+# auto-revert never reached the 139 live base reds, most of them that old.
+GALLOP_MAX_COMMITS = 512
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -935,9 +940,50 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
     return found, notes
 
 
+def gallop_on() -> bool:
+    """POST_MERGE_GALLOP (vars, default on; "0" turns it off): a red with no green batch run in reach is galloped back
+    (stuck_reds, GALLOP_MAX_COMMITS) instead of only named."""
+    return os.environ.get("POST_MERGE_GALLOP", "").strip() != "0"
+
+
+def first_parent_back(sha: str, n: int) -> str:
+    """The commit n first parents before sha, or "" when the history ends first (or git cannot say)."""
+    try:
+        return git("rev-parse", "--verify", "--quiet", f"{sha}~{n}^{{commit}}").strip()
+    except RuntimeError:
+        return ""
+
+
+def gallop_target(suite: str, name: str, only: str, first_red: str, probes: list[dict], verdict_of, back) -> tuple[str, int, str]:
+    """Where a red with no green in reach gallops: (sha, commits back, kind). kind 'green': a finished probe of this
+    suite job there was green, so sha is its last green and good..first_red is bisected as a stuck red; 'probe': no
+    finished probe there yet, so that is the next gallop probe; '' (sha empty): the history or GALLOP_MAX_COMMITS ends
+    first. Each red probe doubles the distance. verdict_of(probe run, sha) is that run's verdict for this red."""
+    n = 1
+    while n <= GALLOP_MAX_COMMITS:
+        at = back(first_red, n)
+        if not at:
+            return "", n, ""
+        prefix = f"{PROBE} {suite} {only or 'all'} at {at}"
+        verdict = ""
+        for p in probes:
+            title = p.get("display_title") or ""
+            if p.get("status") == "completed" and (title == prefix or title.startswith(prefix + " states ")):
+                verdict = verdict_of(p, at)
+                if verdict in ("success", "failure"):
+                    break
+        if verdict == "success":
+            return at, n, "green"
+        if verdict != "failure":
+            return at, n, "probe"
+        n *= 2
+    return "", n // 2, ""
+
+
 def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
                suites: dict[str, "Suite"], chain_start=None, steps: dict[str, frozenset] | None = None,
-               steps_of=None, skipped: dict[str, str] | None = None) -> list[tuple[str, str, str, str]]:
+               steps_of=None, skipped: dict[str, str] | None = None, back=None,
+               gallops: list | None = None) -> list[tuple[str, str, str, str]]:
     """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
 
     A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
@@ -949,7 +995,10 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
     runs (cmd_judge, before its origin) agrees with the batch run that dispatched it.
     skipped, when given, gets each red that is not bisected and why: the summary said only "a known red, no bisect"
-    for 23 of run 45987000605's 25 known reds, so nobody could tell a red past the reach from a capped one."""
+    for 23 of run 45987000605's 25 known reds, so nobody could tell a red past the reach from a capped one.
+    gallops, when given with back (first_parent_back) and gallop_on(), gets each red with no green in reach as
+    (job name, suite, gallop sha, first red sha, commits back): its next gallop probe (gallop_target), the good-anchor
+    probe at the gallop sha. Once one is green there, the red is bisected from it like any stuck red."""
     skip = skipped if skipped is not None else {}
     reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
@@ -975,11 +1024,36 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
             break
         if first is None:
             continue  # a new red: new_reds bisects it
-        if green is None:
-            skip[name] = f"no green batch run in reach ({len(earlier)} read), red since `{first['head_sha'][:11]}` or before"
-            continue
         only = suites[suite].probe_only(name.partition(" / ")[2]) if suite in suites else ""
-        key = (suite, only, green["head_sha"], first["head_sha"])
+        good = green["head_sha"] if green else ""
+        if green is None:
+            reach = f"no green batch run in reach ({len(earlier)} read), red since `{first['head_sha'][:11]}` or before"
+            if gallops is None or back is None or not gallop_on():
+                skip[name] = reach
+                continue
+
+            def verdict_of(p: dict, at: str, suite=suite, name=name, only=only) -> str:
+                if p["id"] not in cache:
+                    cache[p["id"]] = jobs_of(p["id"])
+                got = cache[p["id"]]
+                got = got[0] if isinstance(got, tuple) else got
+                step = STEP_SEP.join(sorted(red_step_names(steps, name))) if steps else ""
+                return probe_conclusion(got, Probe(suite, name, only, at, at, first["head_sha"], "", step=step),
+                                        steps_of(p["id"]) if steps_of else None)
+            at, n, kind = gallop_target(suite, name, only, first["head_sha"], probes, verdict_of, back)
+            if kind == "":
+                skip[name] = f"{reach}; no green galloping back {n} commits"
+                continue
+            if kind == "probe":
+                key = (suite, only, at, first["head_sha"])
+                if key not in seen and not any(p.get("status") != "completed" and (p.get("display_title") or "").startswith(f"{PROBE} {suite} {only or 'all'} at ")
+                                               for p in probes):
+                    seen.add(key)
+                    gallops.append((name, suite, at, first["head_sha"], n))
+                skip[name] = f"{reach}; galloping back {n} commits to `{at[:11]}`"
+                continue
+            good = at  # a gallop probe was green there: bisect from it
+        key = (suite, only, good, first["head_sha"])
         if key in seen:
             continue
         prefix = f"{PROBE} {suite} {only or 'all'} at "
@@ -991,7 +1065,7 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
         if any(p.get("status") != "completed" for p in running):
             skip[name] = "a probe of it is still running"
             continue
-        start = chain_start(green["head_sha"], first["head_sha"]) if chain_start else ""
+        start = chain_start(good, first["head_sha"]) if chain_start else ""
         done = 0
         for p in mine:
             if start and not (p.get("display_title") or "").endswith(f" at {start}"):
@@ -1002,11 +1076,11 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
             if not isinstance(got, tuple) or got[1]:
                 done += 1
         if done >= MAX_REBISECTS:
-            skip[name] = (f"{done} bisects of `{green['head_sha'][:11]}..{first['head_sha'][:11]}` already ran with no revert;"
+            skip[name] = (f"{done} bisects of `{good[:11]}..{first['head_sha'][:11]}` already ran with no revert;"
                           " a person should read them")
             continue
         seen.add(key)
-        out.append((name, suite, green["head_sha"], first["head_sha"]))
+        out.append((name, suite, good, first["head_sha"]))
     return out
 
 
@@ -1555,8 +1629,16 @@ def cmd_judge(args: argparse.Namespace) -> int:
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites, steps_of(args.run_id), steps_of)
         deep = with_deeper_runs(args.repo, args.branch, args.sha, verdicts, runs, jobs_of)
         skipped: dict[str, str] = {}
+        gallops: list[tuple[str, str, str, str, int]] = []
         stuck = stuck_reds(args.sha, verdicts, deep, jobs_of, suites, chain_start=stuck_chain_start,
-                           steps=steps_of(args.run_id), steps_of=steps_of, skipped=skipped)
+                           steps=steps_of(args.run_id), steps_of=steps_of, skipped=skipped, back=first_parent_back,
+                           gallops=gallops)
+        now = datetime.now(timezone.utc)
+        capped = [(name, n) for name, suite, *_ in found + stuck + gallops if (n := over_probe_cap(runs, suites, suite, name, now))]
+        capped_names = {name for name, _ in capped}
+        for name, *_ in gallops:
+            if name in capped_names and name in skipped:
+                skipped[name] = skipped[name].split("; galloping back", 1)[0]  # capped: no gallop probe starts
         if stuck and revert_hold_on():
             try:
                 reverts = open_reverts(args.repo, args.branch)
@@ -1578,14 +1660,12 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
-        now = datetime.now(timezone.utc)
-        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
-        capped_names = {name for name, _ in capped}
         for name, n in capped:
             summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
                                   f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
         found = [f for f in found if f[0] not in capped_names]
         stuck = [s for s in stuck if s[0] not in capped_names]
+        gallops = [g for g in gallops if g[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
@@ -1612,6 +1692,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 dispatch_probe(args.repo, args.branch, probe)
         for name, _, good, bad in stuck[MAX_STUCK_CHAINS:]:
             summary(args.summary, f"- Stuck red `{name}` (green on `{good[:11]}`, red since `{bad[:11]}`): over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
+        room = max(0, MAX_STUCK_CHAINS - len(stuck))  # gallops share the stuck reds' chain cap
+        for name, suite, good, bad, n in gallops[:room]:
+            inner = name.partition(" / ")[2]
+            probe = Probe(suite, name, suites[suite].probe_only(inner), good, good, bad, str(args.run_id),
+                          step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
+                          states=red_states(suite, name, verdicts, reds_dir, steps_of(args.run_id)))
+            summary(args.summary, f"- Red `{name}` with no green in reach, red since `{bad[:11]}`: galloping back {n} commits, "
+                                  f"probing `{good[:11]}`; green there bisects `{good[:11]}`..`{bad[:11]}`.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good, bad, n in gallops[room:]:
+            summary(args.summary, f"- Red `{name}` (no green in reach, red since `{bad[:11]}`): its gallop {n} commits back is "
+                                  f"over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
         write_outputs(args.github_output, out)
         return 0
 
@@ -1637,10 +1730,15 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
             # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
             deep = with_deeper_runs(args.repo, args.branch, origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            # The same gallop as the batch judge: the runs before the origin hold no probe it started, so the gallop sha
+            # it probed (and bisects from once green) comes out the same here.
+            gallops: list[tuple[str, str, str, str, int]] = []
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, deep, jobs_of, suites,
                                                                                   chain_start=stuck_chain_start,
                                                                                   steps=steps_of(origin["id"]),
-                                                                                  steps_of=steps_of)]
+                                                                                  steps_of=steps_of, back=first_parent_back,
+                                                                                  gallops=gallops)]
+            found += [(name, suite, good) for name, suite, good, *_ in gallops]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
         # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
@@ -1770,7 +1868,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
     elif step == "anchored":
         summary(args.summary, f"`{probe.job}` is red at its last green `{probe.sha[:11]}` too: no commit in "
-                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert.")
+                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert. "
+                              "A gallop probe of a red with no green in reach: the next batch run probes twice as far back.")
     elif conclusion == "skipped":
         summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
