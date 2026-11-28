@@ -1,3 +1,5 @@
+#if os(iOS)
+// `LiveCoordinator` is iOS-only (its file is `#if os(iOS)`), and the `ios macos` job runs this kit on macOS.
 import CmuxMobileModel
 import Foundation
 import Testing
@@ -69,3 +71,4 @@ import Testing
         }
     }
 }
+#endif
