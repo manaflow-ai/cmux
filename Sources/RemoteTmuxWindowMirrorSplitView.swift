@@ -28,7 +28,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         // view marching wider than the display-pinned window a step per
         // layout pass), and the geometry callback below then read the
         // mirror's own imposed width back as its "container".
-        Color(nsColor: appearance.backgroundColor)
+        Color(nsColor: appearance.contentBackgroundColor)
             .overlay(alignment: .topLeading) {
                 splitTree
             }
@@ -101,11 +101,11 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     mirror.bonsplitController.focusPane(paneId)
                 }
             } else {
-                Color(nsColor: appearance.backgroundColor)
+                Color(nsColor: appearance.contentBackgroundColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } emptyPane: { _ in
-            Color(nsColor: appearance.backgroundColor)
+            Color(nsColor: appearance.contentBackgroundColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .internalOnlyTabDrag()
