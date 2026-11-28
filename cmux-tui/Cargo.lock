@@ -115,6 +115,7 @@ dependencies = [
  "ignore",
  "imbl",
  "inotify",
+ "iroh",
  "jpeg-encoder",
  "jsonschema",
  "libc",
