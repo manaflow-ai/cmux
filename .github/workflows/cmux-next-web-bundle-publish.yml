@@ -658,17 +658,27 @@ jobs:
           up "$dir/objects/p/$pack.idx" "cmux-next-web/cas/p/$pack.idx" application/json
           # Patches, then their list: the list names only patches that are there. A patch another
           # run of this tree wrote first (another zstd's bytes) is kept: the list's length for it
-          # then misses and the app takes that file's chunks.
+          # then misses and the app takes that file's chunks. The list is named by its tree, not
+          # its bytes: its patches depend on the bases this run held, so a later run of the same
+          # tree (another source key, or the pointers moved) writes other bytes. The first list
+          # stays (it names only patches its run wrote) and this run goes on: a refused hint never
+          # holds back the manifest and cas.json (2026-11-28, run 46096014005 lost both).
           if [[ -f "$dir/objects/d/$manifest.json" ]]; then
             for f in "$dir"/objects/d/*.zst; do
               rc=0
               up "$f" "cmux-next-web/cas/d/${f##*/}" application/zstd --conflict-exit-code 3 || rc=$?
               [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
             done
-            up "$dir/objects/d/$manifest.json" "cmux-next-web/cas/d/$manifest.json" application/json
+            rc=0
+            up "$dir/objects/d/$manifest.json" "cmux-next-web/cas/d/$manifest.json" application/json --conflict-exit-code 3 || rc=$?
+            [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
           fi
           up "$dir/objects/m/$manifest" "cmux-next-web/cas/m/$manifest" application/octet-stream
-          up "$dir/cas.json" "cmux-next-web/$KEY/cas.json" application/json
+          # Two runs of one key at once (a push and a dispatch) name the same manifest and pack;
+          # only their patch counts differ. The first cas.json stays.
+          rc=0
+          up "$dir/cas.json" "cmux-next-web/$KEY/cas.json" application/json --conflict-exit-code 3 || rc=$?
+          [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
           echo "cas/1 for $KEY: manifest $manifest, pack $pack ($(stat -c %s "$dir/objects/p/$pack.pack") B)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the publication with the fetch helper
@@ -690,6 +700,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
           KEY: ${{ needs.build.outputs.key }}
           CHANNEL: ${{ github.ref_name == 'nightly-next' && 'nightly' || 'every-merge' }}
+          CAS_RESULT: ${{ needs.cas.result }}
         run: |
           set -euo pipefail
           if [[ -z "$SIGNING_KEY" ]]; then
@@ -707,6 +718,10 @@ jobs:
           cas=()
           if curl -fsS --retry 3 --max-time 60 -o "$dir/cas.json" "https://files.cmux.com/cmux-next-web/$KEY/cas.json?pointer=$GITHUB_RUN_ID"; then
             cas=(--cas "$dir/cas.json")
+          elif [[ "$CAS_RESULT" == success ]]; then
+            # The objects were cut but cas.json is not there: the upload step (continue-on-error)
+            # failed, and this pointer goes out with no `cas`. Say so where the run is read.
+            echo "::warning::cas/1 objects were cut for $KEY but cmux-next-web/$KEY/cas.json is missing: the $CHANNEL pointer names no cas (read the 'Upload the cas/1 objects to R2' step)"
           fi
           # Any payload failure, including a missing outputs digest, fails production
           # publication. Exit 3 is only meaningful for the newer-pointer no-op below.
