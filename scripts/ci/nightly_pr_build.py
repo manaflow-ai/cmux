@@ -2,7 +2,7 @@
 """The NIGHTLY's own app compile and Rust helper builds, on a pull request (.github/workflows/nightly-pr-build.yml).
 
 The ordinary pull request checks compile the app in Debug or plain Release. The Nightly uses
--DCMUX_BLOCKING_CHECKS and -Osize (hot targets at -O) for arm64 and x86_64, and it builds its Rust
+-DCMUX_BLOCKING_CHECKS and -Osize (hot targets at -O) for ARCHS (arm64), and it builds its Rust
 helpers in release with their own features. This runs the Nightly's settings on the pull request,
 advisory: no rule requires its checks.
 
@@ -10,7 +10,8 @@ advisory: no rule requires its checks.
                     print `swift=true|false` and `helpers=true|false`: whether the commits
                     B..R change what the app compile (SWIFT_INPUTS) or a helper (HELPER_INPUTS)
                     is built from.
-  keys --rev SHA    print `keys=<json>` for $GITHUB_OUTPUT: one input key per Swift arch
+  keys --rev SHA    print `keys=<json>` and `archs=<json>` (ARCHS, the workflow's matrix) for
+                    $GITHUB_OUTPUT: one input key per Swift arch
                     (scripts/ci/job_input_fingerprint.py job nightly-pr-build) and one for the
                     helpers. A pass saves its key as an actions/cache entry; a later run whose
                     inputs are the same finds it and skips the build.
@@ -34,7 +35,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import job_input_fingerprint  # noqa: E402
 
-ARCHS = ("arm64", "x86_64")
+# The architectures the PR compiles the Nightly's way, and the swift-fleet job's matrix (the keys step
+# prints them). arm64 only: feat-cmux-next ships no Intel app (Leo, 2026-11-25: "i thought we were
+# already skipping intel"; .github/workflows/app-ffi-release.yml), so the pinned CCmuxAppFFI release is
+# arm64 alone and an x86_64 compile can only fail its link ("found architecture 'arm64', required
+# architecture 'x86_64'", run 46060630916 job 140714069102, PR 56795). An arch here must be one the
+# default FFI release builds (tests/test_nightly_pr_build.py reads app-ffi-release.yml).
+ARCHS = ("arm64",)
 WORKFLOW = ".github/workflows/nightly-pr-build.yml"
 
 # Each Rust helper the Nightly bundles (scripts/ci/nightly-steps/app-build-mobile-host.sh and
@@ -171,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "keys":
         print("keys=" + json.dumps(keys(args.rev, recipe_rev=args.recipe_rev), sort_keys=True, separators=(",", ":")))
+        print("archs=" + json.dumps(list(ARCHS), separators=(",", ":")))
         return 0
     return run_helpers()
 
