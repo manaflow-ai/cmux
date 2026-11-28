@@ -690,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
-    selection = select_flows.select(manifest, changed)
+    selection = select_flows.select(manifest, changed, edited=select_flows.edited_flows(manifest, base_sha, head))
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
     if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
