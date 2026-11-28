@@ -3873,6 +3873,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
