@@ -36,7 +36,11 @@ fn safe_component(s: &str) -> String {
         && s.len() <= 100
         && !s.starts_with('.')
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
-    if ok { s.to_owned() } else { crate::auth::caller_key(Some(s.as_bytes()))[..32].to_owned() }
+    if ok {
+        s.to_owned()
+    } else {
+        crate::auth::caller_key(Some(s.as_bytes())).chars().take(32).collect()
+    }
 }
 
 /// A git that reads no user or system config and never prompts. Its `Child` ends with its
@@ -263,8 +267,8 @@ fn clear_partial_writes_older(dir: &Path, older_than: Duration) -> (u64, u64) {
                 (std::fs::remove_file(&path).is_ok(), meta.len())
             };
             if ok {
-                removed.0 += 1;
-                removed.1 += bytes;
+                removed.0 = removed.0.saturating_add(1);
+                removed.1 = removed.1.saturating_add(bytes);
             }
         }
     }
@@ -274,8 +278,8 @@ fn clear_partial_writes_older(dir: &Path, older_than: Duration) -> (u64, u64) {
         let pack = keep.with_extension("pack");
         let bytes = std::fs::metadata(&pack).map(|m| m.len()).unwrap_or(0);
         if std::fs::remove_file(&keep).is_ok() {
-            removed.0 += 1;
-            removed.1 += bytes;
+            removed.0 = removed.0.saturating_add(1);
+            removed.1 = removed.1.saturating_add(bytes);
         }
     }
     removed

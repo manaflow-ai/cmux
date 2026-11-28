@@ -210,3 +210,7 @@ impl Hub {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+#[path = "fork_hammer_tests.rs"]
+mod fork_hammer_tests;

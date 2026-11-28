@@ -191,7 +191,7 @@ jobs:
             --arg="targets=$TARGETS" --arg="samples=$SAMPLES" --arg="repeats=$REPEATS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           out=artifacts/screen-stream-eval
           mkdir -p "$out"
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" -eq 75 && -n "$step" ]]; then
             echo "::error title=screen stream eval::step $step waited past ${QUEUE_TIMEOUT} s in the fleet queue (worker ${WORKER:-any}); cancelled, nothing measured"
             "$client" cancel "$step" --reason "screen-stream-eval: queue wait past ${QUEUE_TIMEOUT} s (run $GITHUB_RUN_ID)" >/dev/null || true
