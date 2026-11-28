@@ -24,7 +24,7 @@ final class AnimationFrameBenchUITests: XCTestCase {
         XCTAssertFalse(keyboard.exists)
         window("keyboard-show", in: app) { focus.tap() }
         // The first keyboard of a fresh simulator can take past 10 s, and the demo's
-        // "Reply to Claude" card can turn the first tap into expanding the field
+        // collapsed composer card can turn the first tap into expanding the field
         // (cmux#52369 gate run, line 26). Keep the state, then focus the field itself.
         if !keyboard.waitForExistence(timeout: 30) {
             attachState(app, "keyboard-show")
@@ -152,7 +152,16 @@ final class AnimationFrameBenchUITests: XCTestCase {
         // Return to the selected page before measuring the workspace pop.
         let closeGrid = app.buttons["Done"].firstMatch
         XCTAssertTrue(closeGrid.waitForExistence(timeout: 10))
-        closeGrid.tap()
+        // TabsKit places Done with `.position`, so its accessibility frame is the whole bottom bar
+        // (38-364 pt on a 402 pt phone) and a plain tap lands on the tab count in the middle,
+        // leaving the grid open. Tap the checkmark itself, 24 pt in from the frame's trailing edge.
+        let doneFrame = closeGrid.frame
+        if doneFrame.width > doneFrame.height * 2 {
+            closeGrid.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                .withOffset(CGVector(dx: doneFrame.width - 24, dy: 0)).tap()
+        } else {
+            closeGrid.tap()
+        }
         // A loaded simulator (cpu 447%) took past 15 s to bring the page back.
         if !tabs.waitForExistence(timeout: 40) { attachState(app, "grid-close") }
         XCTAssertTrue(tabs.exists, "the selected page returned after the grid closed")
@@ -198,10 +207,10 @@ final class AnimationFrameBenchUITests: XCTestCase {
 
     @MainActor
     private func composerFocusTarget(_ app: XCUIApplication) -> XCUICoordinate {
-        // The demo's question card can collapse the field into a Reply button.
+        // The demo's question card can collapse the field into a button. Find it by its id: its
+        // label is "Reply to <the chat's title>", which changes with the demo's chat.
         let target = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier == %@ OR (elementType == %d AND label == %@)",
-            "chat.composer.field", XCUIElement.ElementType.button.rawValue, "Reply to Claude"
+            format: "identifier IN %@", ["chat.composer.field", "agentChat.composer.collapsed"]
         )).firstMatch
         return center(target, in: app)
     }

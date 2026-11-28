@@ -30,7 +30,7 @@ final class ResumeNoConnectionChromeUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        let bar = app.buttons["Reply to Claude"]
+        let bar = app.buttons["agentChat.composer.collapsed"].firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 30), "the chat opens with its rows\n\(app.debugDescription)")
         attach(app, "before-background")
 

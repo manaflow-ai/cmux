@@ -65,7 +65,7 @@ final class ChatSendMotionUITests: XCTestCase {
     private func openComposer(_ app: XCUIApplication) -> XCUIElement {
         let field = app.textViews["chat.composer.field"]
         if !field.exists {
-            let bar = app.buttons["Reply to Claude"].firstMatch
+            let bar = app.buttons["agentChat.composer.collapsed"].firstMatch
             if bar.waitForExistence(timeout: 10) { bar.tap() }
         }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the composer opens\n\(app.debugDescription)")
