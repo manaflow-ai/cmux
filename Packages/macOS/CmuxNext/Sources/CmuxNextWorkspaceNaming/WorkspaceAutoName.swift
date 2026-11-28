@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 
 /// The name a workspace the user never named takes from its front tab
-/// (hq#1957, `workspaces.autoName`). Pure, so every case is tested; the
+/// (hq#1957, `workspaces.autoName`). The rules are Rust's (`cmux-workspace-naming`); the
 /// sidebar row (`AppServices.sidebarPageFace`) and persistent naming
 /// (`WorkspaceAutoNamer`) both read it.
 ///
@@ -9,7 +9,7 @@ public import CmuxNextDaemon
 /// An automatically supplied name remains automatic after its first chat title.
 public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// What the rule reads of the workspace's front tab.
-    public enum Front: Equatable, Sendable {
+    public nonisolated enum Front: Equatable, Sendable, Encodable {
         /// A browser tab: its page title as the sidebar showed it before
         /// (the tab's user name, else its page title, else its host).
         /// `offTheRecord` for an incognito page, whose title never reaches
@@ -46,10 +46,10 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     public func label(name: String, title: String?, front: Front?, anchor: Front? = nil,
                       nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
                       allowsLegacyDefaults: Bool = true) -> String? {
-        guard enabled, !Self.isUserNamed(name: name, title: title, nameSource: nameSource,
-                                         nameRevision: nameRevision, allowsLegacyDefaults: allowsLegacyDefaults), let front else { return nil }
-        if case .browser = front, let anchor { return Self.derived(anchor) }
-        return Self.derived(front)
+        let named = Named(name: name, title: title, source: nameSource, revision: nameRevision,
+                          allowsLegacyDefaults: allowsLegacyDefaults)
+        return WorkspaceNamingRules().string("label", LabelRequest(enabled: enabled, named: named, front: front, anchor: anchor),
+                                             key: "label")
     }
 
     /// The name to write to the daemon (variant `persist`), or nil to
@@ -62,15 +62,11 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
                               supportsNameSource: Bool = false, alreadyRenamed: Bool,
                               nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
                               allowsLegacyDefaults: Bool = true) -> String? {
-        guard enabled, variant == .persist, (isLocalMachine || supportsNameSource), !alreadyRenamed,
-              !Self.isUserNamed(name: name, title: title, nameSource: nameSource, nameRevision: nameRevision,
-                                allowsLegacyDefaults: allowsLegacyDefaults) else { return nil }
-        // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
-        // page's title is transient, so those stay live labels.
-        guard case let .chat(_, _, generatedTitle)? = front,
-              let generated = NewWorkspaceName.clean(generatedTitle),
-              generated != NewWorkspaceName.clean(name) else { return nil }
-        return generated
+        let named = Named(name: name, title: title, source: nameSource, revision: nameRevision,
+                          allowsLegacyDefaults: allowsLegacyDefaults)
+        let persist = Persist(isLocalMachine: isLocalMachine, supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed)
+        return WorkspaceNamingRules().string("persisted_name", PersistRequest(enabled: enabled, variant: variant, named: named,
+                                                                              front: front, persist: persist), key: "name")
     }
 
     /// Whether a rename decided earlier may still go out now that the
@@ -84,18 +80,43 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// Whether a title or name-source authority protects the workspace from automatic naming.
     public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
-        guard (title ?? "").isEmpty else { return true }
-        guard nameSource == .user else { return false }
-        if nameRevision == 0, WorkspaceModel.isNumberedDefaultName(name) { return false }
-        return nameRevision > 0 || !allowsLegacyDefaults || !NewWorkspaceName.isDefaultWorkspaceName(name)
+        let named = Named(name: name, title: title, source: nameSource, revision: nameRevision,
+                          allowsLegacyDefaults: allowsLegacyDefaults)
+        return WorkspaceNamingRules().flag("is_user_named", ["named": named], key: "user_named")
     }
 
     /// The name `front` gives, one line and at most `NewWorkspaceName.maxLength` characters.
     public static func derived(_ front: Front) -> String? {
-        switch front {
-        case let .browser(title, _): NewWorkspaceName.clean(title)
-        case let .chat(userName, title, _): NewWorkspaceName.clean(userName) ?? NewWorkspaceName.clean(title)
-        case let .terminal(tab): NewWorkspaceName.forTab(tab)
-        }
+        WorkspaceNamingRules().string("derived", ["front": front], key: "name")
+    }
+
+    /// A workspace's name state as the rules read it.
+    private nonisolated struct Named: Encodable {
+        var name: String
+        var title: String?
+        var source: WorkspaceNameSource
+        var revision: UInt64
+        var allowsLegacyDefaults: Bool
+    }
+
+    private nonisolated struct Persist: Encodable {
+        var isLocalMachine: Bool
+        var supportsNameSource: Bool
+        var alreadyRenamed: Bool
+    }
+
+    private nonisolated struct LabelRequest: Encodable {
+        var enabled: Bool
+        var named: Named
+        var front: Front?
+        var anchor: Front?
+    }
+
+    private nonisolated struct PersistRequest: Encodable {
+        var enabled: Bool
+        var variant: WorkspaceAutoNameVariant
+        var named: Named
+        var front: Front?
+        var persist: Persist
     }
 }

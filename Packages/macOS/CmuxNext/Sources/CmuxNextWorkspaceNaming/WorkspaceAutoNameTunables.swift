@@ -3,7 +3,7 @@ public import CmuxNextDesignTokens
 /// The workspace auto-name variants (hq#1957; Debug Settings
 /// `workspaces.autoName.variant`, DEV and NIGHTLY only). Following the focused
 /// chat in the daemon is the default; live labels remain available for comparison.
-public nonisolated enum WorkspaceAutoNameVariant: String, Sendable, CaseIterable, TunableChoice {
+public nonisolated enum WorkspaceAutoNameVariant: String, Sendable, CaseIterable, TunableChoice, Encodable {
     /// The sidebar row shows the name its front tab gives, and follows that tab
     /// as it changes; the daemon keeps the default name.
     case live

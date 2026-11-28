@@ -24,9 +24,20 @@ public protocol WorkspaceActivityNameHost: AnyObject {
 
 extension WorkspaceActivityName {
     /// Why Name from Activity did not rename.
-    public enum Refusal: Sendable, Equatable {
+    public nonisolated enum Refusal: Sendable, Equatable, Decodable {
         case noWorkspace, nothingToNameFrom, noAgents, noName, oldDaemon
         case failed(String)
+
+        /// The `activity_refusal` op's answer (`no_workspace`, `old_daemon`, ...).
+        public init(from decoder: any Decoder) throws {
+            switch try decoder.singleValueContainer().decode(String.self) {
+            case "no_workspace": self = .noWorkspace
+            case "old_daemon": self = .oldDaemon
+            case "nothing_to_name_from": self = .nothingToNameFrom
+            case "no_agents": self = .noAgents
+            case let other: self = .failed(other)
+            }
+        }
 
         /// What the person reads.
         public var text: String {
@@ -64,16 +75,20 @@ public final class WorkspaceActivityNameActions {
 
     func effect(_ invocation: ActionInvocation) -> ActionEffect {
         let host = host
-        guard let workspace = host.activityWorkspace(invocation), let key = workspace.key else {
-            return .refused(WorkspaceActivityName.Refusal.noWorkspace.text)
-        }
         // A rename the person makes while the model answers wins: the daemon refuses this one once
         // the name revision read here has moved on. A daemon without that guard is refused, so a
-        // late reply can never overwrite the person's name.
-        guard host.activityGuardsRevision(workspace) else { return .refused(WorkspaceActivityName.Refusal.oldDaemon.text) }
-        let activity = WorkspaceActivityName.read(workspace, turns: turns, page: host.activityPageTitle)
-        guard !activity.isEmpty else { return .refused(WorkspaceActivityName.Refusal.nothingToNameFrom.text) }
-        guard host.activityHasAgents() else { return .refused(WorkspaceActivityName.Refusal.noAgents.text) }
+        // late reply can never overwrite the person's name. The order of the refusals is Rust's.
+        let workspace = host.activityWorkspace(invocation), key = workspace?.key
+        let guardsRevision = workspace.map(host.activityGuardsRevision) ?? false
+        // Read only when it can matter: an earlier refusal wins over it.
+        let activity = guardsRevision && key != nil ? workspace.map { WorkspaceActivityName.read($0, turns: turns, page: host.activityPageTitle) } : nil
+        let gate = Gate(hasWorkspace: key != nil, guardsRevision: guardsRevision, hasActivity: activity.map { !$0.isEmpty } ?? true,
+                        hasAgents: activity == nil || host.activityHasAgents())
+        guard let refusal = WorkspaceNamingRules().call("activity_refusal", gate, as: [String: WorkspaceActivityName.Refusal?].self) else {
+            return .refused(WorkspaceActivityName.Refusal.failed("activity_refusal").text)
+        }
+        if let refusal = refusal["refusal"] ?? nil { return .refused(refusal.text) }
+        guard let workspace, let key, let activity else { return .refused(WorkspaceActivityName.Refusal.noWorkspace.text) }
         let revision = workspace.nameRevision
         let params = activity.completionParams, fallback = activity.completionFallbackParams
         // action-wait-allow: the name comes from a model another process runs (acpmux's completion); nothing local can stand in for it
@@ -94,4 +109,12 @@ public final class WorkspaceActivityNameActions {
             return renamed ? nil : ActionWorkFailure(WorkspaceActivityName.Refusal.failed(name).text)
         }
     }
+}
+
+/// The `activity_refusal` op's facts.
+private nonisolated struct Gate: Encodable {
+    var hasWorkspace: Bool
+    var guardsRevision: Bool
+    var hasActivity: Bool
+    var hasAgents: Bool
 }

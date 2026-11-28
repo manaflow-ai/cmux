@@ -75,13 +75,13 @@ public final class WorkspaceAutoNamer {
     }
 
     /// A workspace on a machine: the key of its submission, retry mark and observation.
-    struct Slot: Hashable, Sendable {
+    nonisolated struct Slot: Hashable, Sendable, Encodable {
         var machineID: String
         var workspaceID: String
     }
 
-    /// One rename the rule asks for.
-    struct Rename: Equatable, Sendable {
+    /// One rename the rule asks for, and the submission the ledger keys (its slot is the request's).
+    nonisolated struct Rename: Equatable, Sendable, Encodable {
         var machineID: String
         var workspaceID: String
         var daemonGeneration: DaemonGeneration?
@@ -102,11 +102,11 @@ public final class WorkspaceAutoNamer {
     /// the connection and must reject missing capabilities without writing.
     private let rename: @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool,
                                     @escaping @MainActor @Sendable () -> Void) -> Bool
-    /// Each live workspace's one current submission (at most the current title for a
-    /// target). Bookkeeping never wakes the observer: an immediate queue refusal waits
-    /// for real input to change.
-    @ObservationIgnored private var submitted: [Slot: Live] = [:]
-    @ObservationIgnored private var nextAttemptID: UInt64 = 0
+    /// The key of this namer's submission ledger in Rust (`cmux-workspace-naming` `namer`): each
+    /// live workspace's one current submission, at most the current title for a target. The
+    /// ledger never wakes the observer: an immediate queue refusal waits for real input to change.
+    private let ledger: UInt64
+    private let rules = WorkspaceNamingRules()
     /// The workspaces listed last, by slot: a candidate's target is found here, not by a
     /// walk of the list.
     @ObservationIgnored private var shown: [Slot: Shown] = [:]
@@ -120,24 +120,26 @@ public final class WorkspaceAutoNamer {
         var revision: UInt64 = 0
     }
 
-    private struct Live {
-        var submission: Submission
-        var attempt: AttemptToken
-    }
-
-    private struct AttemptToken: Hashable, Sendable {
-        var id: UInt64
-    }
-
-    private struct Submission: Hashable, Sendable {
-        var machineID: String
-        var workspaceID: String
+    /// What a rename is fenced by: the daemon run and the name revision.
+    private nonisolated struct Fence: Encodable {
         var daemonGeneration: DaemonGeneration?
         var nameRevision: UInt64
-        var frontTabID: String
-        var frontAgentSession: AgentSessionRef
-        var name: String
     }
+
+    /// One ledger request; the op reads the fields it names.
+    private nonisolated struct LedgerRequest: Encodable {
+        var namer: UInt64
+        var slots: [Slot]?
+        var slot: Slot?
+        var target: Fence?
+        var candidate: Rename?
+        var submission: Rename?
+        var attempt: UInt64?
+        var current: Bool?
+    }
+
+    private nonisolated struct Attempt: Decodable { var attempt: UInt64? }
+    private nonisolated struct Send: Decodable { var send: Bool; var retry: Bool }
 
     /// - Parameters:
     ///   - names: the rule and front-tab reader.
@@ -154,7 +156,10 @@ public final class WorkspaceAutoNamer {
         self.workspaces = workspaces
         self.selection = selection
         self.rename = rename
+        ledger = rules.nextID()
     }
+
+    nonisolated deinit { rules.send("namer_drop", LedgerRequest(namer: ledger)) }
 
     /// Follows the stores until the task is cancelled; the app runs it for its lifetime.
     /// The list is observed for membership; each workspace has its own observation,
@@ -195,7 +200,7 @@ public final class WorkspaceAutoNamer {
         var bySlot: [Slot: Shown] = [:]
         for item in listed where bySlot[item.slot] == nil { bySlot[item.slot] = item }
         shown = bySlot
-        submitted = submitted.filter { bySlot[$0.key] != nil }
+        rules.send("namer_list", LedgerRequest(namer: ledger, slots: Array(bySlot.keys)))
         retries = retries.filter { bySlot[$0.key] != nil }
     }
 
@@ -215,7 +220,17 @@ public final class WorkspaceAutoNamer {
         let slot = listed.slot
         _ = retryMark(slot).revision
         let target = listed.target
-        if let live = submitted[slot], !matchesTarget(live.submission, target: target) { submitted[slot] = nil }
+        let candidate = candidate(target)
+        let request = LedgerRequest(namer: ledger, slot: slot,
+                                    target: Fence(daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision),
+                                    candidate: candidate)
+        // Rust keeps at most the current title for a target, so a late completion for an older
+        // title cannot clear a newer same-revision submission.
+        return rules.flag("namer_plan", request, key: "rename") ? candidate : nil
+    }
+
+    /// The rename the rule asks for in `target`'s workspace, before the ledger's say.
+    private func candidate(_ target: Target) -> Rename? {
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return nil }
         let workspace = target.workspace
@@ -228,17 +243,9 @@ public final class WorkspaceAutoNamer {
                                             isLocalMachine: target.machineID == DaemonCommandScope.localMachine,
                                             supportsNameSource: target.supportsNameSource, alreadyRenamed: false,
                                             nameSource: target.nameSource, nameRevision: target.nameRevision) else { return nil }
-        let candidate = Rename(machineID: target.machineID, workspaceID: workspace.id,
-                               daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision,
-                               frontTabID: front.id, frontAgentSession: agentSession, name: name)
-        let submission = self.submission(for: candidate)
-        // Keep at most the current title for a target. A late completion for an
-        // older title then cannot clear a newer same-revision submission.
-        if let live = submitted[slot] {
-            guard live.submission != submission else { return nil }
-            submitted[slot] = nil
-        }
-        return candidate
+        return Rename(machineID: target.machineID, workspaceID: workspace.id,
+                      daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision,
+                      frontTabID: front.id, frontAgentSession: agentSession, name: name)
     }
 
     private func retryMark(_ slot: Slot) -> RetryMark {
@@ -259,18 +266,6 @@ public final class WorkspaceAutoNamer {
     /// queued rename cannot cross a focus, tab-session, or title change.
     private func focusedFront(_ workspace: WorkspaceModel) -> TabModel? {
         SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) })
-    }
-
-    private func submission(for candidate: Rename) -> Submission {
-        Submission(machineID: candidate.machineID, workspaceID: candidate.workspaceID,
-                    daemonGeneration: candidate.daemonGeneration, nameRevision: candidate.nameRevision,
-                    frontTabID: candidate.frontTabID, frontAgentSession: candidate.frontAgentSession,
-                    name: candidate.name)
-    }
-
-    private func matchesTarget(_ submission: Submission, target: Target) -> Bool {
-        submission.machineID == target.machineID && submission.workspaceID == target.workspace.id
-            && submission.daemonGeneration == target.daemonGeneration && submission.nameRevision == target.nameRevision
     }
 
     /// Reads the target and focused chat again before both scheduling and sending.
@@ -300,34 +295,28 @@ public final class WorkspaceAutoNamer {
     func apply(_ renames: [Rename]) {
         for candidate in renames {
             let slot = Slot(machineID: candidate.machineID, workspaceID: candidate.workspaceID)
-            let submission = self.submission(for: candidate)
-            guard submitted[slot]?.submission != submission, let target = currentTarget(for: candidate) else { continue }
-            let attempt = AttemptToken(id: nextAttemptID)
-            nextAttemptID &+= 1
-            submitted[slot] = Live(submission: submission, attempt: attempt)
+            // The ledger is asked only for a target still current, so a stale one queues nothing.
+            guard let target = currentTarget(for: candidate),
+                  let attempt = rules.call("namer_begin", LedgerRequest(namer: ledger, slot: slot, submission: candidate),
+                                           as: Attempt.self)?.attempt else { continue }
             let maySend: @MainActor @Sendable () -> Bool = { [weak self] in
-                guard let self, submitted[slot]?.attempt == attempt else { return false }
-                guard currentTarget(for: candidate) != nil else {
-                    if submitted[slot]?.attempt == attempt {
-                        submitted[slot] = nil
-                        retryMark(slot).revision &+= 1
-                    }
-                    return false
-                }
-                return true
+                guard let self else { return false }
+                let request = LedgerRequest(namer: ledger, slot: slot, attempt: attempt, current: currentTarget(for: candidate) != nil)
+                guard let answer = rules.call("namer_may_send", request, as: Send.self) else { return false }
+                if answer.retry { retryMark(slot).revision &+= 1 }
+                return answer.send
             }
             let queued = rename(target, candidate.name, maySend) { [weak self] in
-                self?.acceptedSendFailed(slot, attempt: attempt)
+                self?.release(slot, attempt: attempt)
             }
-            if !queued, submitted[slot]?.attempt == attempt { submitted[slot] = nil }
+            if !queued { release(slot, attempt: attempt) }
         }
     }
 
-    /// An accepted daemon task can fail after `maySend` succeeds. Release only
-    /// that exact live attempt; no observation wakeup means failures stay idle
-    /// until a real title/focus/ownership change produces a new candidate.
-    private func acceptedSendFailed(_ slot: Slot, attempt: AttemptToken) {
-        guard submitted[slot]?.attempt == attempt else { return }
-        submitted[slot] = nil
+    /// The queue refused `attempt`, or an accepted daemon task failed after `maySend` succeeded:
+    /// release that exact live attempt. No observation wakeup, so failures stay idle until a real
+    /// title, focus or ownership change produces a new candidate.
+    private func release(_ slot: Slot, attempt: UInt64) {
+        rules.send("namer_release", LedgerRequest(namer: ledger, slot: slot, attempt: attempt))
     }
 }
