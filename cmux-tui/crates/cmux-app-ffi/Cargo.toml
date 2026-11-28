@@ -104,6 +104,16 @@ cbindgen = { version = "=0.29.2", default-features = false }
 # The wallpaper ABI test reads the manifest JSON it returns (src/wallpaper.rs).
 serde_json = "1"
 
+# Dev and test builds: the same debuginfo as the cmux-tui workspace. With full DWARF
+# for every dependency, `cargo test --workspace` linked its test binaries at once
+# and the runner killed `ld` (signal 9) on base run 46181076635. Line tables keep
+# file:line in panics and backtraces; use `debug = true` locally for a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 # Size first, like the cmux-tui workspace: the FFI doubled 23 -> 44 MB in two
 # days of Swift-to-Rust moves (bundle-size-falls). The per-frame and per-key
