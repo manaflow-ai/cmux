@@ -40,7 +40,11 @@
 //! own helper, though what runs under a helper is judged on its own (`relays`, `part_of`). A
 //! native wrapper (`sr2 claude ARGS`: a program, not an interpreter, naming the agent and its
 //! args) whose own child runs that agent by absolute path with those args unchanged among its own
-//! relays the same way (`wrapper`, `relays_for`). The
+//! relays the same way (`wrapper`, `relays_for`). A `bwrap` sandbox the leader runs whose command
+//! holds the leader's own args unchanged (a reviewer's box: `python3 BOX ARGS` -> `bwrap ... --
+//! python3 INNER -- codex.js ARGS`) is the harness too, as are bwrap's own child, the box's
+//! command (or a fork of it with its argv) and the launcher it becomes with those args, which
+//! relays as above; anything else in the box is judged on its own (`sandbox`, `runs_command`). The
 //! configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`]; past it the harness stays
 //! up, so the leases the pass holds are never held longer than those budgets together (a pause
 //! that retries a start's missed read, `LaunchServers::retry`, holds them through one more).
@@ -698,6 +702,75 @@ fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> boo
         && runs_file(who, program)
 }
 
+#[cfg(unix)]
+/// The args a leader passes on: its argv after its program, or for an interpreter running a
+/// script, after the script (`python3 /tools/codex-review-box -c x app-server`: `-c x app-server`).
+fn leader_args(who: &crate::agent_host::tree::Identity) -> &[String] {
+    let skip = if who.argv.first().is_some_and(|w| is_interpreter(w)) { 2 } else { 1 };
+    who.argv.get(skip..).unwrap_or_default()
+}
+
+/// A bubblewrap sandbox (`bwrap OPTIONS -- COMMAND`): the command it runs and the `PATH` that
+/// command gets (its `--setenv PATH`, else `path`, the one it inherits).
+#[cfg(unix)]
+struct Sandbox {
+    command: Vec<String>,
+    path: Option<String>,
+}
+
+/// `who` as a sandbox that runs the harness itself: `bwrap` (the file argv names, or for a bare
+/// name the one `path` runs, and the executable the kernel says it runs), whose command after `--`
+/// holds `args`, the leader's own (`leader_args`), unchanged in one run. A wrapper harness (a
+/// reviewer's box) runs its agent so: `python3 BOX ARGS` -> `bwrap ... -- python3 INNER -- codex.js
+/// ARGS`, and bwrap's pid-namespace child is `bwrap` with the same argv. A sandbox the agent runs
+/// a command in names no such args, so it is never one.
+#[cfg(unix)]
+fn sandbox(
+    who: &crate::agent_host::tree::Identity,
+    path: Option<&str>,
+    args: &[String],
+) -> Option<Sandbox> {
+    let program = who.argv.first()?;
+    if args.is_empty() || Path::new(program).file_name()? != "bwrap" {
+        return None;
+    }
+    let runs_bwrap = if program.contains('/') {
+        program.starts_with('/') && runs_file(who, program)
+    } else {
+        path.and_then(|path| first_on_path(program, path)).is_some_and(|b| runs_file(who, &b))
+    };
+    let split = who.argv.iter().position(|w| w == "--")?;
+    let (options, command) = (&who.argv[..split], &who.argv[split + 1..]);
+    if !runs_bwrap || command.is_empty() || !command.windows(args.len()).any(|run| run == args) {
+        return None;
+    }
+    let set_path = options.windows(3).rev().find(|w| w[0] == "--setenv" && w[1] == "PATH");
+    let cleared = options.iter().any(|w| w == "--clearenv");
+    let path = match set_path {
+        Some(w) => Some(w[2].clone()),
+        None if cleared => None,
+        None => path.map(str::to_owned),
+    };
+    Some(Sandbox { command: command.to_vec(), path })
+}
+
+/// Whether `who` runs a sandbox's command itself (the box's entry, or a fork of it that kept its
+/// argv: the review box's forwarder): exactly its argv, and the executable its program names.
+#[cfg(unix)]
+fn runs_command(who: &crate::agent_host::tree::Identity, sandbox: &Sandbox) -> bool {
+    let Some(program) = sandbox.command.first() else { return false };
+    let is_program = if program.contains('/') {
+        program.starts_with('/') && runs_file(who, program)
+    } else {
+        sandbox
+            .path
+            .as_deref()
+            .and_then(|path| first_on_path(program, path))
+            .is_some_and(|p| runs_file(who, &p))
+    };
+    who.argv == sandbox.command && is_program
+}
+
 /// Whether `who` runs one of the harness's own helper programs: an absolute path in the same
 /// folder as a relayed harness program (`relays`), named after it (`.../bin/codex-code-mode-host`
 /// beside `.../bin/codex`), and the file the kernel says it runs. Only the helper itself: what
@@ -753,6 +826,11 @@ pub(crate) fn classify(
         None => leader_identity.as_ref().and_then(|who| wrapper(who, path)),
         Some(_) => None,
     };
+    let passed_on = leader_identity.as_ref().map(leader_args).unwrap_or_default();
+    // The leader's sandboxes (`sandbox`) and, inside them, the launchers they run with the
+    // leader's args (each with the `PATH` of its box): both are the harness.
+    let mut boxes: Vec<(u32, Sandbox)> = Vec::new();
+    let mut boxed_launchers: Vec<(u32, Identity, Option<String>)> = Vec::new();
     let mut harness: Vec<u32> = vec![leader];
     let mut harness_programs: Vec<String> = Vec::new();
     // A leader that is itself a native program in an npm install (the Codex launcher replaced by
@@ -789,9 +867,33 @@ pub(crate) fn classify(
             let Some(who) = &*identities.entry(p.pid).or_insert_with(|| identity_of(p.pid)) else {
                 continue;
             };
+            let in_box = boxes.iter().find(|(pid, _)| *pid == p.ppid).map(|(_, b)| b);
+            let boxed_launcher = boxed_launchers
+                .iter()
+                .find(|(pid, ..)| *pid == p.ppid)
+                .and_then(|(_, l, box_path)| launcher(l, box_path.as_deref()));
             if sidecars.iter().any(|s| runs(who, s)) {
                 allowed.push(p.pid);
-            } else if launched.as_ref().is_some_and(|l| relays(who, l)) {
+            } else if (p.ppid == leader || in_box.is_some())
+                && let Some(b) = sandbox(who, in_box.map_or(path, |b| b.path.as_deref()), passed_on)
+            {
+                // A sandbox the leader runs its agent in (the review box's `bwrap`, and bwrap's
+                // own pid-namespace child), not one its agent runs a command in.
+                harness.push(p.pid);
+                boxes.push((p.pid, b));
+            } else if boxes.iter().any(|(_, b)| runs_command(who, b)) {
+                // The box's command itself, or a fork of it that kept its argv.
+                harness.push(p.pid);
+            } else if let Some(b) = in_box
+                && launcher(who, b.path.as_deref()).is_some_and(|l| l.args == passed_on)
+            {
+                // What the box's command became (`exec node .../codex.js ARGS`): a launcher with
+                // the leader's own args, whose relayed program is the agent (`relays`).
+                harness.push(p.pid);
+                boxed_launchers.push((p.pid, who.clone(), b.path.clone()));
+            } else if launched.as_ref().is_some_and(|l| relays(who, l))
+                || boxed_launcher.as_ref().is_some_and(|l| relays(who, l))
+            {
                 harness.push(p.pid);
                 harness_programs.extend(who.argv.first().cloned());
             } else if let Some(w) =
