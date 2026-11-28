@@ -1,12 +1,32 @@
-/* Gallery-only framing. The shared Notice owns the warning row's surface, mark, type and controls. */
+/* The notice row's framing. The shared Notice owns the card look; `line` is a plain transcript line. */
 .acpmux-autosize-warning {
   min-width: 0;
   padding: var(--ds-space-3);
 }
 
-.acpmux-autosize-warning .ui-notice {
+.acpmux-autosize-warning .ui-notice,
+.acpmux-autosize-line {
   max-width: 760px;
   margin-inline: auto;
+}
+
+.acpmux-autosize-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  margin-block: 0;
+  color: var(--agent-soft, var(--cmux-text-secondary, GrayText));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.acpmux-autosize-line-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent, var(--cmux-accent, currentColor));
+  transform: translateY(-1px);
 }
 
 .acpmux-autosize-warning::after {
