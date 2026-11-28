@@ -280,6 +280,23 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
+    "agentPane.display.modelMenu.accountRow" : {
+      "default" : true,
+      "description" : "The compact model menu offers the chat's account. Off, switch accounts from the sidebar's account menu or Settings.",
+      "title" : "Account Row in Model Menu",
+      "type" : "boolean"
+    },
+    "agentPane.display.modelMenu.searchField" : {
+      "default" : "always",
+      "description" : "When the compact model menu shows its search field. Typing a model's name filters the list whichever you pick.",
+      "enum" : [
+        "always",
+        "typed",
+        "long"
+      ],
+      "title" : "Model Menu Search Field",
+      "type" : "string"
+    },
     "agentPane.display.modelPickerOrder" : {
       "default" : [
 

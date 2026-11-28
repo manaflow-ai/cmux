@@ -2355,6 +2355,77 @@
           ]
         },
         {
+          "key": "agentPane.display.modelMenu.searchField",
+          "note": "When the compact model menu (Model Picker Style menu, webviews QuickModelMenu.tsx searchField) shows its search field. always, the default: on top from the moment it opens. typed: only once a key is typed, so the menu opens as a plain model list with a check on the current one (customize-app-profiles, the codex-app reference's model menu). long: when the list holds more than 8 models, or once typed. Typing filters in place either way. A look sets it.",
+          "title": {
+            "key": "settings.agentPane.display.modelMenu.searchField",
+            "text": "Model Menu Search Field"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelMenu.searchField.help",
+            "text": "When the compact model menu shows its search field. Typing a model's name filters the list whichever you pick."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "typed",
+              "title": {
+                "key": "settings.choice.typed",
+                "text": "When Typing"
+              }
+            },
+            {
+              "value": "long",
+              "title": {
+                "key": "settings.choice.long",
+                "text": "Long Lists"
+              }
+            }
+          ],
+          "default": "always",
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "search",
+            "filter",
+            "codex"
+          ]
+        },
+        {
+          "key": "agentPane.display.modelMenu.accountRow",
+          "note": "Whether the compact model menu (webviews QuickModelMenu.tsx, ComposerPickers.tsx quickAccount) draws its Account row, which switches the chat's account route. On, the default. Off: the menu lists models, Effort and Fast mode only, as the codex-app reference's model menu does; accounts stay in the sidebar's account menu and Settings > Accounts. A look turns it off.",
+          "title": {
+            "key": "settings.agentPane.display.modelMenu.accountRow",
+            "text": "Account Row in Model Menu"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelMenu.accountRow.help",
+            "text": "The compact model menu offers the chat's account. Off, switch accounts from the sidebar's account menu or Settings."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "account",
+            "route",
+            "codex"
+          ]
+        },
+        {
           "key": "agentPane.display.queueing",
           "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
           "title": {

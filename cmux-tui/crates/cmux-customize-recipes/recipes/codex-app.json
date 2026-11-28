@@ -37,6 +37,8 @@
     "agentPane.composerLook": "studio",
     "agentPane.composerPlaceholder": "Ask for follow-up changes",
     "agentPane.display.modelPickerStyle": "menu",
+    "agentPane.display.modelMenu.searchField": "typed",
+    "agentPane.display.modelMenu.accountRow": false,
     "tabs.newTabApp": "local/customize",
     "tabs.nativeNewTabPage": false,
     "ui.animationSpeed": "fast",
