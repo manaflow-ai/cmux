@@ -390,6 +390,8 @@ public final class MainThreadWatchdog: Sendable {
         var details: [String: JSONValue]
         /// The highest host load read while the stall ran (``stallHost(beat:)``).
         var host: HostLoad?
+        /// This process's CPU in cores since the watchdog sampled the stall (``stallProcessCores(beat:)``).
+        var processCores: Double?
     }
 
     /// The part of a stall's record that must be read before the next heartbeat is published: the
@@ -418,7 +420,7 @@ public final class MainThreadWatchdog: Sendable {
             hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
         }
         return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details,
-                          host: stallHost(beat: beat))
+                          host: stallHost(beat: beat), processCores: stallProcessCores(beat: beat))
     }
 
     /// The rest of a stall's record, once the next heartbeat is published: its verdict, the log
@@ -431,6 +433,10 @@ public final class MainThreadWatchdog: Sendable {
         let verdict = StallVerdict.classify(wall: .nanoseconds(Int64(clamping: nanos)), mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)),
                                             host: host)
         details["verdict"] = .string(verdict.rawValue)
+        let cause = StallCause.classify(verdict: verdict, wall: .nanoseconds(Int64(clamping: nanos)),
+                                        mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)), processCores: stall.processCores, host: host)
+        if let cause { details["cause"] = .string(cause.rawValue) }
+        if let cores = stall.processCores { details["process_cores"] = .number(cores) }
         if let host {
             details["host_load_1m"] = .number(host.one)
             details["host_cores"] = .number(Double(host.cores))
@@ -439,7 +445,7 @@ public final class MainThreadWatchdog: Sendable {
                                 cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
-            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
+            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public) (\(cause?.rawValue ?? "unknown", privacy: .public)): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
         stallSink.load()?(record)
     }

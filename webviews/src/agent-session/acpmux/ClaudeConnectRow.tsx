@@ -69,6 +69,23 @@ export function ClaudeConnectRow({
   );
 }
 
+type ConnectFlowState = { openBrand: string | undefined; saved: boolean; ran: boolean };
+
+/// The connect flow's next state, a fixed point (a second step changes nothing): a sign-in that
+/// started has run; one that ran and ended with no error saved; and when the host no longer needs a
+/// connection (or the open brand left its list) the flow starts over.
+export function connectFlowStep(
+  state: ConnectFlowState,
+  host: { phase: unknown; error: unknown; needed: boolean; brands: readonly string[] },
+): ConnectFlowState {
+  const { openBrand } = state;
+  const ran = state.ran || (openBrand !== undefined && host.phase !== null);
+  const saved = state.saved || (ran && host.phase === null && host.error === null);
+  const over = !host.needed || (openBrand !== undefined && !host.brands.includes(openBrand));
+  if ((saved || openBrand || ran) && over) return { openBrand: undefined, saved: false, ran: false };
+  return { openBrand, saved, ran };
+}
+
 /// The composer's half of the flow: the picker's row props (undefined when there is no host
 /// provider or nothing to connect) and the inline connect card to render beside the picker. Connect
 /// on the row opens the card and starts the host's one click at once (`begin`), so the person sees
@@ -81,14 +98,12 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
   const progress = host?.progress ?? CONNECT_IDLE;
   // A sign-in that ran and ended with no error saved the connection: Connected until the host's
   // `needed` turns false (the row and card go); a later need (it was removed) starts over.
-  if (openBrand && progress.phase !== null && !ran) setRan(true);
-  if (ran && progress.phase === null && progress.error === null && !saved) setSaved(true);
+  // One idempotent step (test/render-phase-set-pairs.test.ts): each state is set once, to a fixed point.
   const brands = host?.brands ?? [CLAUDE_CONNECT_BRAND];
-  if ((saved || openBrand || ran) && (!host?.needed || (openBrand && !brands.includes(openBrand)))) {
-    setSaved(false);
-    setOpenBrand(undefined);
-    setRan(false);
-  }
+  const next = connectFlowStep({ openBrand, saved, ran }, { ...progress, needed: !!host?.needed, brands });
+  if (next.ran !== ran) setRan(next.ran);
+  if (next.saved !== saved) setSaved(next.saved);
+  if (next.openBrand !== openBrand) setOpenBrand(next.openBrand);
   const begin = host?.begin;
   const row: ClaudeConnectRowProps | undefined = host?.needed
     ? {
