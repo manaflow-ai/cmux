@@ -11,7 +11,6 @@
 //   - a chat that ran on after it was folded ahead draws what it says now, not the rows folded ahead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-// The class loads through importWithDom below; its constructor is private, so InstanceType cannot name its instances.
 import type { AcpmuxDirectClient as DirectClient, WarmedChat } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { TurnView } from "../src/agent-session/acpmux/conversation/turns";
