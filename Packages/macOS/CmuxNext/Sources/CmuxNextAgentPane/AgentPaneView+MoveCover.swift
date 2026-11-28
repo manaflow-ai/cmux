@@ -45,7 +45,6 @@ extension AgentPaneView {
         PageWebView.syncChromiumVisibility(in: pageContent)
     }
 }
-
 /// A parked New Tab spare in Chromium moved into a pane (Cmd-N's new workspace, Cmd-T). Chromium draws
 /// the page in its own window over the pane: no cover under it and no alpha hides it, and the window
 /// follows its view only when told (`moved`). Leo 2026-11-03: "when i make a new workspace (new tab area)
@@ -284,3 +283,4 @@ extension AgentPaneView: PanePaintHoldUnseen {
         needsLayout = true
     }
 }
+
