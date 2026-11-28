@@ -1457,10 +1457,12 @@ fn make_room(
     run_once(runner, &again)
 }
 
-/// Whether a machine step was refused because no such machine is left (the Cloud app's `cloud.machine.not_found`,
-/// the VM API's `vm_not_found`).
+/// Whether a machine step was refused because no such machine is left (an app action's `not_found` too).
 fn machine_gone(error: &Value) -> bool {
-    matches!(at(error, "code").as_str(), Some("cloud.machine.not_found" | "vm_not_found"))
+    matches!(
+        at(error, "code").as_str(),
+        Some("cloud.machine.not_found" | "vm_not_found" | "not_found")
+    )
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
