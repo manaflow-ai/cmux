@@ -260,7 +260,7 @@ struct CloudBringBack {
             services.cloud.bringBackRetries[tab.id] = again
             services.cloud.chatMoves.reach(tab: tab.id, machine: target.machineID) // its sidebar row goes there now
         }
-        try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
+        try place.advance(flow, "freeze", kept: ("sync", pulled.phases)) // the pull's phases stay with sync; freeze before the move
         // To another machine the move's relay fills its folder, then hands the agent over, in one call.
         if let target { progress.enter(.copy, name: target.machine.title) } else { progress.enter(.agent, name: name) }
         // The agent move call (below) freezes the chat, carries it with its frozen sync, then commits; it streams no phases,
@@ -288,7 +288,7 @@ struct CloudBringBack {
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure
         }
-        place.step(flow, "commit")
+        place.step(flow, "commit", kept: ("carry", moved.phases))
         if let target, let landing {
             progress.enter(.tab, name: target.machine.title)
             return try await landed(on: target, landing, session: session, entry: entry, key: moved.transferID, tab: tab)

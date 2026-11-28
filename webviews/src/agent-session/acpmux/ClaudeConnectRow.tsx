@@ -94,7 +94,8 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
     ? {
         brands,
         connected: saved,
-        onConnect: (brand = brands[0]) => {
+        onConnect: (asked?: string) => {
+          const brand = asked ?? brands[0];
           if (!brand || !brands.includes(brand)) return;
           if (begin || host.add) {
             setOpenBrand(brand);
