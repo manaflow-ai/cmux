@@ -484,6 +484,11 @@ void ApplyActivationPolicy() {
   // PlaceWindow ordered the page's window in while the host was prohibited, which may not have put it on screen;
   // the page's window must be on screen (its occlusion state hides the page). Ordering in does not activate.
   if (policy == NSApplicationActivationPolicyAccessory && g_window) [g_window orderFrontRegardless];
+  actprobe::Line(@"policy_applied",
+                 [NSString stringWithFormat:@"to=%ld window=%d visible=%d on_screen=%d", (long)policy, g_window ? 1 : 0,
+                                            g_window.visible ? 1 : 0,
+                                            (g_window.occlusionState & NSWindowOcclusionStateVisible) ? 1 : 0],
+                 false);
 }
 
 class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler, public CefLoadHandler,
