@@ -31,4 +31,31 @@ public struct SidebarAgentUsage: Equatable, Sendable {
         self.estimatedCostUSD = estimatedCostUSD
         self.costIsLowerBound = costIsLowerBound
     }
+
+    /// Which usage components a row shows (`sidebar.showAgentModel`,
+    /// `sidebar.showAgentContext`, `sidebar.showAgentCost`).
+    public struct Parts: OptionSet, Sendable {
+        public let rawValue: UInt8
+
+        public init(rawValue: UInt8) {
+            self.rawValue = rawValue
+        }
+
+        /// The short model name.
+        public static let model = Parts(rawValue: 1 << 0)
+        /// The context-window percentage.
+        public static let context = Parts(rawValue: 1 << 1)
+        /// The estimated API cost.
+        public static let cost = Parts(rawValue: 1 << 2)
+        /// Every component.
+        public static let all: Parts = [.model, .context, .cost]
+
+        /// The components whose flag is on.
+        public init(model: Bool, context: Bool, cost: Bool) {
+            self = []
+            if model { insert(.model) }
+            if context { insert(.context) }
+            if cost { insert(.cost) }
+        }
+    }
 }

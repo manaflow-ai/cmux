@@ -127,9 +127,10 @@ final class SidebarAgentUsageCoordinator {
         Self.isEnabled(defaults: defaults)
     }
 
-    /// Reads only the three settings that gate usage (this runs on every
+    /// Reads only the settings that gate usage (this runs on every
     /// `UserDefaults` change notification). Usage renders inside the
-    /// metadata rows, so hidden rows mean no reads.
+    /// metadata rows, so hidden rows mean no reads, and so does turning off
+    /// every usage part, since the row would show none of it.
     private static func isEnabled(defaults: UserDefaults) -> Bool {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         // Declaring a catalog section builds every key in it, and this runs on
@@ -138,6 +139,9 @@ final class SidebarAgentUsageCoordinator {
         return settings.value(for: sidebar.showAgentUsage)
             && settings.value(for: sidebar.showCustomMetadata)
             && !settings.value(for: sidebar.hideAllDetails)
+            && (settings.value(for: sidebar.showAgentModel)
+                || settings.value(for: sidebar.showAgentContext)
+                || settings.value(for: sidebar.showAgentCost))
     }
 
     /// Reacts to a settings change: samples every known session when usage
