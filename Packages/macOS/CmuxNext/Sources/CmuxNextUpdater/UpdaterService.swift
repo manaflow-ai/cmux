@@ -254,7 +254,7 @@ public final class UpdaterService {
     @ObservationIgnored var droppedPulled: Set<String> = []
     /// The running build's pull started its fetch of the newest build (once per launch).
     @ObservationIgnored var runningPulledHandled = false
-    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
+    /// Replaces the install's disk preflight (``installPreflightFailure()``), a click's or an automatic one's, in tests.
     @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
