@@ -54,3 +54,26 @@ fn the_named_platform_origin_passes_the_gate() {
     assert_eq!(origin.as_deref(), Some("http://refused-hub-backend-test.org"));
     assert!(cmux_egress::check(refused, "test").is_err());
 }
+
+/// `/v1/machines/...` goes to the platform: an owner API maps to its own platform first (an
+/// environment override never sends a prod owner's fork to another hub), an unknown origin
+/// takes the environment's platform origin, and with neither it stays as given.
+#[test]
+fn machine_routes_go_to_the_owner_apis_platform() {
+    let none = |_: &str| None;
+    let staging =
+        |key: &str| (key == PLATFORM_ORIGIN_ENV).then(|| Backend::Staging.platform().to_owned());
+    for b in [Backend::Production, Backend::Staging, Backend::Development] {
+        assert_eq!(Backend::of_owner_api(b.owner_api()), Some(b));
+        assert_eq!(platform_for(b.owner_api(), none), b.platform());
+        assert_eq!(platform_for(&format!("{}/", b.owner_api()), none), b.platform());
+    }
+    assert_eq!(
+        platform_for(Backend::Production.owner_api(), staging),
+        Backend::Production.platform()
+    );
+    assert_eq!(platform_for("http://127.0.0.1:8787", staging), Backend::Staging.platform());
+    assert_eq!(platform_for("http://127.0.0.1:8787/", none), "http://127.0.0.1:8787");
+    assert_eq!(platform_for(Backend::Staging.platform(), none), Backend::Staging.platform());
+    assert_eq!(Backend::of_owner_api(Backend::Production.platform()), None);
+}
