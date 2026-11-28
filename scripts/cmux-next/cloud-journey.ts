@@ -2654,20 +2654,17 @@ export function rpcFailureReason(reason: unknown): string {
   return reason === "overloaded" || reason === "restarted" || reason === "unreachable" ? ` (${reason})` : "";
 }
 
-/** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-/** How many times the machine exec route is sent while it answers an exec that never reached the guest. */
-export const EXEC_UNDELIVERED_TRIES = 4;
+/** Bound recovery requests for one keyed machine exec. */
+export const EXEC_RECOVERY_TRIES = 4;
 
-/** An exec answer the guest never saw, so sending the command again cannot run it twice: 503 vm_unavailable whose
- * Durable Object call was overloaded or unreachable (not `restarted`, which may have run it). Staging's 503
- * "overloaded" failed cloud-chief-start run 46153160872 (job 141003976155) mid-check, and journey-staging twice
- * in run 46115218791. */
-export function execUndelivered(status: number, value: any): boolean {
+/** These transient failures permit reading the same keyed exec back, not starting another command.
+ * Neither reason proves that the original command was undelivered. */
+export function execRecoveryAllowed(status: number, value: any): boolean {
   const reason = value?.error?.reason;
   return status === 503 && value?.error?.code === "vm_unavailable" && (reason === "overloaded" || reason === "unreachable");
 }
 
-export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000, undeliveredWaitMs = 5_000): Exec {
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000, recoveryWaitMs = 5_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   // Calls that start together (the agent's start and its first-text observer) share one mint.
@@ -2676,11 +2673,13 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
     // The HTTP request waits as long as the command may run, plus room for the answer to travel.
     const runMs = Math.min(timeoutMs, 300_000);
-    let g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
+    // The server deduplicates by execId: a lost answer must read the first run back.
+    const body = { command, timeoutMs: runMs, execId: randomUUID() };
+    let g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, runMs + 15_000);
     let v: any = g.body?.value ?? g.body;
-    for (let tries = 1; tries < EXEC_UNDELIVERED_TRIES && execUndelivered(g.status, v); tries++) {
-      await sleep(undeliveredWaitMs * 2 ** (tries - 1));
-      g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
+    for (let tries = 1; tries < EXEC_RECOVERY_TRIES && execRecoveryAllowed(g.status, v); tries++) {
+      await sleep(recoveryWaitMs * 2 ** (tries - 1));
+      g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, runMs + 15_000);
       v = g.body?.value ?? g.body;
     }
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);

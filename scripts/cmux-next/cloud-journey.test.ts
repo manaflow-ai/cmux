@@ -3045,7 +3045,7 @@ except probe.OutOfTime as cut:
     expect(out).toContain("[secret]");
   });
 
-  test("an exec the guest never saw (503 vm_unavailable, overloaded) is sent again; one that may have run is not", async () => {
+  test("transient exec failures recover the same keyed command with bounded attempts", async () => {
     const answers = (reason: string, okAfter: number) => {
       let execs = 0;
       const api = {
@@ -3067,6 +3067,33 @@ except probe.OutOfTime as cut:
     const down = answers("overloaded", 99);
     await expect(directExec(down.api, "m1", { secrets: [] } as any, 2_000, 0)("true")).rejects.toThrow("(overloaded)");
     expect(down.count()).toBe(4);
+  });
+
+  test("exec recovery reuses the complete body and separate commands get distinct identities", async () => {
+    const bodies: { command: string; timeoutMs: number; execId: string }[] = [];
+    const executions = new Map<string, string>();
+    const api = {
+      raw: async (_m: string, route: string, body: any) => {
+        if (route.endsWith("/client-session")) return { status: 501, body: { error: { code: "cloud.provider.unsupported" } } };
+        bodies.push(structuredClone(body));
+        // The command ran, but its answer was lost. Only its original id can read it back.
+        if (!executions.has(body.execId)) {
+          executions.set(body.execId, body.command);
+          return { status: 503, body: { ok: false, error: { code: "vm_unavailable", reason: "unreachable" } } };
+        }
+        return { status: 200, body: { value: { ok: true, exitCode: 0, stdout: "done", stderr: "" } } };
+      },
+    } as any;
+    const exec = directExec(api, "m1", { secrets: [] }, 2_000, 0);
+    expect((await exec("increment-counter", 290_000)).stdout).toBe("done");
+    expect((await exec("increment-counter", 290_000)).stdout).toBe("done");
+    expect(bodies).toHaveLength(4);
+    expect(bodies[0]).toEqual(bodies[1]);
+    expect(bodies[2]).toEqual(bodies[3]);
+    expect(bodies[0]).toMatchObject({ command: "increment-counter", timeoutMs: 290_000 });
+    expect(bodies[0].execId).toMatch(/^[a-zA-Z0-9_-]{8,64}$/);
+    expect(bodies[2].execId).not.toBe(bodies[0].execId);
+    expect(executions.size).toBe(2);
   });
 
   test("the machine exec route's HTTP request waits as long as the command may run", async () => {
