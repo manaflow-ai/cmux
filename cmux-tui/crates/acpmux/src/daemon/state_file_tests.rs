@@ -219,3 +219,111 @@ async fn managed_unit_gone_takes_the_detached_path() {
         assert_eq!(result, None, "a {state} unit kept the wait");
     }
 }
+
+/// A fake `systemctl` whose first `slow` answers to `property` take longer than the probe budget
+/// (each call is counted in `calls-PROPERTY`); every other answer is prompt, the unit `state`.
+#[cfg(target_os = "linux")]
+fn fake_unit_slow_to_answer(
+    dir: &std::path::Path,
+    home: &std::path::Path,
+    property: &str,
+    slow: usize,
+    state: &str,
+) -> std::path::PathBuf {
+    let systemctl = dir.join("systemctl");
+    crate::test_exec::write_executable(
+        &systemctl,
+        format!(
+            "#!/bin/sh\nd=\"$(dirname \"$0\")\"\nif [ \"$5\" = {property} ]; then\n  echo x >> \"$d/calls-{property}\"\n  [ \"$(wc -l < \"$d/calls-{property}\")\" -le {slow} ] && sleep 3\nfi\ncase \"$5\" in\n  LoadState) echo loaded; exit 0;;\n  Environment) echo ACPMUX_HOME={}; exit 0;;\n  ActiveState) echo {state}; exit 0;;\nesac\n[ \"$2\" = start ] && exit 0\nexit 1\n",
+            home.display()
+        ),
+    );
+    systemctl
+}
+
+/// Fleet lane VMs under load, 2026-11-28: a 1 s systemd probe timed out while `acpmux.service`
+/// restarted, the command took that as "no unit" and started a detached `--ready-fd` daemon,
+/// which took the home's lock and hung. A probe that timed out says nothing: the command asks
+/// again and waits on the unit's daemon, for each of the three probes.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_systemd_probe_that_times_out_keeps_the_wait_on_the_unit() {
+    for property in ["LoadState", "Environment", "ActiveState"] {
+        let scratch = cmux_unix_socket::short_test_dir("managed-slow");
+        let dir = scratch.path();
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let socket = crate::config::socket_path_for(&home, None);
+        let systemctl = fake_unit_slow_to_answer(dir, &home, property, 2, "activating");
+        let calls = dir.join(format!("calls-{property}"));
+        let served = super::managed_unit::managed_unit_connect_in(
+            &systemctl,
+            true,
+            Duration::from_secs(60),
+            &home,
+            &socket,
+            &|| {
+                let calls = calls.clone();
+                async move {
+                    // The unit's daemon answers once systemd answered this probe promptly.
+                    let seen = std::fs::read_to_string(&calls).unwrap_or_default().lines().count();
+                    if seen > 2 { Ok(seen) } else { Err(anyhow!("the unit's daemon is not up")) }
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            served.is_some(),
+            "a {property} probe timeout sent the command to a detached daemon"
+        );
+    }
+}
+
+/// With no unit file installed, a LoadState probe that times out takes the detached path as
+/// before: there is no unit to wait on.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_load_probe_timeout_without_a_unit_file_takes_the_detached_path() {
+    let scratch = cmux_unix_socket::short_test_dir("managed-nofile");
+    let dir = scratch.path();
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let socket = crate::config::socket_path_for(&home, None);
+    let systemctl = fake_unit_slow_to_answer(dir, &home, "LoadState", 1, "activating");
+    let result = super::managed_unit::managed_unit_connect_in(
+        &systemctl,
+        false,
+        Duration::from_secs(60),
+        &home,
+        &socket,
+        &|| async { Err::<(), _>(anyhow!("no daemon")) },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, None);
+}
+
+/// A systemd that never answers about an installed unit ends in an error naming it, never in a
+/// detached daemon beside the unit.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_systemd_that_never_answers_is_an_error_not_a_detached_daemon() {
+    let scratch = cmux_unix_socket::short_test_dir("managed-mute");
+    let dir = scratch.path();
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let socket = crate::config::socket_path_for(&home, None);
+    let systemctl = fake_unit_slow_to_answer(dir, &home, "ActiveState", 1000, "activating");
+    let result = super::managed_unit::managed_unit_connect_in(
+        &systemctl,
+        true,
+        Duration::from_secs(2),
+        &home,
+        &socket,
+        &|| async { Err::<(), _>(anyhow!("no daemon")) },
+    )
+    .await;
+    let error = result.expect_err("a mute systemd took the detached path");
+    assert!(error.to_string().contains("not starting a daemon beside the unit"), "{error}");
+}
