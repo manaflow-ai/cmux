@@ -290,6 +290,8 @@ public final class MockBrowserTab: BrowserTab {
 
     public func showDevTools() { commands.append(.showDevTools) }
     public private(set) var isAgentDriven = false
+    public private(set) var agentSessionID: String?
+    public func noteAgentSession(_ session: String) { agentSessionID = session }
     /// Tests set it: the page is an extension's own window (``BrowserTab/isExtensionWindow``).
     public var isExtensionWindow = false
     public func markAgentDriven() {

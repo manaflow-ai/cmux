@@ -93,6 +93,13 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Whether `markAgentDriven` has run on this page.
     var isAgentDriven: Bool { get }
 
+    /// The agent session that last drove this page (``noteAgentSession(_:)``); its visits record it (RFD 0125 D5).
+    /// Nil when no agent session did, and for an engine that never marks a page agent-driven.
+    var agentSessionID: String? { get }
+
+    /// Agent session `session` drives this page now: the visits it loads from here on name it.
+    func noteAgentSession(_ session: String)
+
     /// Runs a passkey hand-off's `trigger` with the page's WebAuthn handed to the person, who clicked the request (a
     /// Chromium tab an agent drove refuses WebAuthn otherwise). The default runs `trigger`: WebKit has no refusal.
     func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws
@@ -153,6 +160,8 @@ extension BrowserTab {
     /// ``markAgentReading()`` when `reading`, else ``markAgentDriven()``.
     public func markAgent(reading: Bool) { if reading { markAgentReading() } else { markAgentDriven() } }
     public var isAgentDriven: Bool { false }
+    public var agentSessionID: String? { nil }
+    public func noteAgentSession(_ session: String) {}
     public func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws { try await trigger() }
     public var isExtensionWindow: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
