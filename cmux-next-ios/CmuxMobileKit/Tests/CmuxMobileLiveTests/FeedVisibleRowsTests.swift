@@ -37,7 +37,12 @@ import UIKit
     static func item(_ index: Int, extra: Int = 0) -> FeedItem {
         // Bodies of one to four lines, so rows differ in height.
         let lines = (0 ... (index % 4) + extra).map { "Line \($0) of event \(index): the agent finished a step." }
-        return FeedListPlanTests.item("e\(index)", lines.joined(separator: "\n"), ago: Double(index))
+        // Each event is its own chat (tab): one chat's run of events folds under its newest one
+        // (FeedStacks, #51642), which would leave one event row and a fold line, not N rows.
+        let base = FeedListPlanTests.item("e\(index)", lines.joined(separator: "\n"), ago: Double(index))
+        return FeedItem(id: base.id, kind: base.kind, workspaceID: base.workspaceID, tabID: "t\(index)", agentName: base.agentName,
+                        harness: base.harness, workspaceTitle: base.workspaceTitle, markdown: base.markdown, quote: nil,
+                        createdAt: base.createdAt)
     }
 
     static func counts(_ list: FeedListController) -> Counts {
