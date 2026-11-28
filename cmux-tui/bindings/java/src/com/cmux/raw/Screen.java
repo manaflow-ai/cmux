@@ -18,7 +18,7 @@ public final class Screen implements WireValue {
     /** The screen's layout columns. */
     private final Field<List<LayoutColumnNode>> columns;
     /** floating-panes-v1: panes above the tiled layout, back to front. */
-    private final Field<Object> floating;
+    private final Field<List<FloatingPane>> floating;
     /** The screen group the screen is in. */
     private final Field<String> group;
     /** split-divider-visibility-v1: splits whose divider is hidden. */
@@ -49,7 +49,7 @@ public final class Screen implements WireValue {
         this.activePane = Wire.nonNull(builder.activePane, "active_pane");
         this.color = builder.color;
         this.columns = builder.columns.map(value -> List.copyOf(value));
-        this.floating = builder.floating.map(value -> Wire.immutableJson(value));
+        this.floating = builder.floating.map(value -> List.copyOf(value));
         this.group = builder.group;
         this.hiddenDividers = builder.hiddenDividers.map(value -> List.copyOf(value));
         this.icon = builder.icon;
@@ -77,7 +77,7 @@ public final class Screen implements WireValue {
     public UInt64 activePane() { return activePane; }
     public Field<String> color() { return color; }
     public Field<List<LayoutColumnNode>> columns() { return columns; }
-    public Field<Object> floating() { return floating; }
+    public Field<List<FloatingPane>> floating() { return floating; }
     public Field<String> group() { return group; }
     public Field<List<UInt64>> hiddenDividers() { return hiddenDividers; }
     public Field<String> icon() { return icon; }
@@ -110,7 +110,7 @@ public final class Screen implements WireValue {
         }
         Object rawFloating = Wire.optional(object, "floating");
         if (!Wire.isMissing(rawFloating)) {
-            builder.floating(Wire.immutableJson(ProtocolSupport.nonNull(rawFloating, "Screen.floating")));
+            builder.floating(Wire.array(rawFloating, "Screen.floating", item -> FloatingPane.fromWire(item)));
         }
         Object rawGroup = Wire.optional(object, "group");
         if (!Wire.isMissing(rawGroup)) {
@@ -205,7 +205,7 @@ public final class Screen implements WireValue {
         private boolean activePaneSet;
         private Field<String> color = Field.omitted();
         private Field<List<LayoutColumnNode>> columns = Field.omitted();
-        private Field<Object> floating = Field.omitted();
+        private Field<List<FloatingPane>> floating = Field.omitted();
         private Field<String> group = Field.omitted();
         private Field<List<UInt64>> hiddenDividers = Field.omitted();
         private Field<String> icon = Field.omitted();
@@ -244,7 +244,7 @@ public final class Screen implements WireValue {
             this.columns = Field.of(value);
             return this;
         }
-        public Builder floating(Object value) {
+        public Builder floating(List<FloatingPane> value) {
             this.floating = Field.of(value);
             return this;
         }
