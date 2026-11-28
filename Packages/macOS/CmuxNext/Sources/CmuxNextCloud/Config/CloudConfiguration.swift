@@ -45,6 +45,13 @@ public struct CloudConfiguration: Sendable, Equatable {
         }
     }
 
+    /// The sign-in item the Team-signed production builds share (Rust's `SharedSession`): its Keychain
+    /// service and the access group every query on it names.
+    public struct SharedSession: Sendable, Equatable, Codable {
+        public var keychainService: String
+        public var accessGroup: String
+    }
+
     /// A store an earlier version of this build used (Rust's `LegacyStore`).
     public struct LegacyStore: Sendable, Equatable, Codable {
         public var keychainService: String
@@ -68,18 +75,25 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var storage: StorageNames
     /// The namespaced store a legacy default used before #36384, adopted once.
     public var namespacedLegacyStore: LegacyStore?
+    /// The backend the sign-in screens name (Rust's `backend_label`, op `cloud_config_backend_label`):
+    /// cmux.com on production, the development backend's host, or a local backend's `host:port`. Nil for
+    /// ``unavailable``, which signs in nowhere.
+    public private(set) var backendLabel: BackendLabel?
     /// The build's cloud data space, made with the configuration from the bundle's identity (``dataSpace(of:)``):
     /// a tagged dev build sends `X-Cmux-Build-Space: dev:<slug>`, nightly, RC and release send no header, and a DEV
     /// build with no usable tag is misconfigured: every client of this configuration's origins refuses its calls
     /// (``CMUXBuildSpaceError``) rather than reach nightly's data. Every client adds it to each request and upgrade.
     public var buildSpace: CMUXBuildSpaceState = .nightly
+    /// The session this build shares with the other Team-signed production builds; nil for every other build.
+    public var sharedSession: SharedSession?
 
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
 
-    /// The file-fallback token store directory.
+    /// The file-fallback token store directory, under the launch's state root when it has one (as Rust's
+    /// `Resolver` puts the selection there).
     public var credentialsDirectory: URL {
-        credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        credentialsDirectory(homeDirectory: NextSupport.currentStateRoot ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
     func credentialsDirectory(homeDirectory: URL) -> URL {
@@ -128,6 +142,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             var backend: Kind, apiBaseUrl: URL, authWebOrigin: URL, stackBaseUrl: URL, stackProjectId: String
             var stackPublishableClientKey: String, isProductionAuth: Bool, callbackScheme: String, bundleId: String
             var isDebugBuild: Bool, storage: StorageNames, namespacedLegacyStore: LegacyStore?
+            var sharedSession: SharedSession?
         }
         let request = Request(selection: selection, bundleId: bundleID, bundled: bundled, process: process, isDebugBuild: isDebugBuild)
         guard let made = CloudStartCore().call("cloud_config_from_selection", request, as: Made.self) else { return .unavailable }
@@ -141,7 +156,8 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackBaseURL: made.stackBaseUrl, stackProjectID: made.stackProjectId,
             stackPublishableClientKey: made.stackPublishableClientKey, isProductionAuth: made.isProductionAuth,
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
-            runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore)
+            runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
+            backendLabel: backendLabel(of: backend), sharedSession: made.sharedSession)
         // A tagged dev build asks every cloud backend for its own data space; nightly and stable send nothing.
         configuration.buildSpace = dataSpace(of: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]))
         return configuration
@@ -185,6 +201,34 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// only the selected backend's share API.
     public func acceptsShareAPI(_ api: URL) -> Bool {
         api == shareAPIBaseURL()
+    }
+
+    /// What the sign-in screens say this build signs in to (Rust's `BackendLabel`).
+    public struct BackendLabel: Sendable, Equatable, Codable {
+        /// `production`, `development` or `local`.
+        public var kind: String
+        /// "cmux.com", "Development backend" or "Local backend" (the app localizes it by ``kind``).
+        public var title: String
+        /// A development backend's host, a local backend's `host:port`; nil on production.
+        public var detail: String?
+
+        public init(kind: String, title: String, detail: String?) {
+            self.kind = kind
+            self.title = title
+            self.detail = detail
+        }
+    }
+
+    /// Rust's label of `backend` (op `cloud_config_backend_label`); nil when the FFI does not answer.
+    static func backendLabel(of backend: Backend) -> BackendLabel? {
+        struct Wire: Encodable { var kind: String, url: String? }
+        struct Request: Encodable { var backend: Wire }
+        let wire: Wire = switch backend {
+        case .production: Wire(kind: "production", url: nil)
+        case let .development(url): Wire(kind: "development", url: url.absoluteString)
+        case let .localOnly(url): Wire(kind: "localOnly", url: url.absoluteString)
+        }
+        return CloudStartCore().call("cloud_config_backend_label", Request(backend: wire), as: BackendLabel.self)
     }
 
     /// Hosted sign-in entry (Rust's `sign_in_url`): `handler/native-sign-in` wraps Stack sign-in and

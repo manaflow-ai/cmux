@@ -1,0 +1,31 @@
+/* The reference composer's round controls: the + (the attach paperclip) and its hover highlight are a
+   circle, as the mic and Send already are in the round look (Leo 2026-11-23: "the highlight also
+   necessarily has to be a circle instead of a rounded square. that's just design.").
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: a corner is
+   paint, so nothing moves when this applies or reloads. */
+:root {
+  --cv-composer-icon-radius: 50%;
+}
+
+/* The reference app's motion, read from its shipped stylesheets and motion module (desktop build
+   26.1120.50957; README.md, Motion, has each source). Every value is the app's own number, not a
+   guess. Only durations and curves: none changes what moves, and animations off or Reduce Motion
+   put cmux's own values back (docs/cmux-next/look-addons.md, Motion). */
+:root {
+  /* A hover's fill and text color: 75 ms on `ease` (its row and button hover rules). */
+  --cmux-motion-quick: 75ms;
+  /* Popovers, menus and a small control's change: its basic duration, 0.15 s. */
+  --cmux-motion-micro: 150ms;
+  /* A panel or card entering, a row's move: its moderate duration, 0.2 s. */
+  --cmux-motion-standard: 200ms;
+  /* A sheet, a drawer, the chat switch: its relaxed duration, 0.3 s. */
+  --cmux-motion-large: 300ms;
+  /* A fold growing or shrinking: its disclosure rows run 0.24 s. */
+  --cmux-motion-settle: 240ms;
+  /* Anything entering: its snappy enter curve. */
+  --cmux-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* A selection that travels: its snappy spring. */
+  --cmux-ease-spring: linear(0, 0.086, 0.2539, 0.428, 0.5786, 0.698, 0.7879, 0.8534, 0.8998, 0.9323, 0.9546, 0.9697, 0.98, 0.9868, 0.9913, 0.9943, 0.9963, 0.9976, 0.9985, 1);
+  /* A fold settling into its height: its disclosure curve. */
+  --cmux-ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+}

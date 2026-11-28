@@ -4,6 +4,7 @@
 # variant's app build. Source it, then:
 #   live_code_xcodebuild_args CONFIG [LIST]   the settings, one argument per line
 #   live_code_swift_flags                     the Swift flags to add to the build's own
+#   live_code_copy_resource_bundles APP       after the build: the package resource bundles into APP
 #
 # A patch replaces functions of any CmuxNext module (they all link into the one app executable), so
 # every CmuxNext target is compiled unoptimized and testable (every function stays a real call with
@@ -19,10 +20,40 @@
 live_code_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every CmuxNext target Package.swift names (products and tests too; a name no target has is
-# never read).
+# never read), and the shared modules it links that a patch may edit as well:
+# CMUX_LIVE_CODE_SHARED_MODULES, by default MessagesLabHome (the Home transcript, vendored in
+# Packages/Shared/CmuxMessagesLab), named only while Package.swift links it. Set it empty to build
+# them optimized again. live_apply.py LIVE_MODULE sorts their Swift as patchable.
+# The iPhone app (scripts/live-code/ios-sim.sh) sets LIVE_CODE_MODULE_PREFIX=CmuxMobile,
+# LIVE_CODE_PACKAGE_SWIFT to CmuxMobileKit's manifest and LIVE_CODE_EXTRA_TARGETS to the app target,
+# whose sources are in the Xcode project, not a package; the shared modules are the macOS app's only.
+live_code_package_swift() {
+  printf '%s\n' "${LIVE_CODE_PACKAGE_SWIFT:-$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift}"
+}
+
+live_code_shared_modules() {
+  [[ "${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" == CmuxNext ]] || return 0
+  local package module
+  package="$(live_code_package_swift)"
+  for module in ${CMUX_LIVE_CODE_SHARED_MODULES-MessagesLabHome}; do
+    grep -q "product(name: \"$module\"" "$package" && printf '%s\n' "$module"
+  done
+  return 0
+}
+
 live_code_targets() {
-  grep -oE 'name: "CmuxNext[A-Za-z0-9_]*"' "$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" \
-    | sed -E 's/.*"(.*)"/\1/' | sort -u
+  local prefix="${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" target
+  { grep -oE "name: \"${prefix}[A-Za-z0-9_]*\"" "$(live_code_package_swift)" \
+      | sed -E 's/.*"(.*)"/\1/'
+    for target in ${LIVE_CODE_EXTRA_TARGETS:-}; do echo "$target"; done
+    live_code_shared_modules; } | sort -u
+}
+
+# A grep -E pattern for the module names a patch may edit, as Swift mangles them (length, then name).
+live_code_module_pattern() {
+  local shared
+  shared="$(live_code_shared_modules | paste -sd '|' -)"
+  printf '%s\n' "[0-9](${LIVE_CODE_MODULE_PREFIX:-CmuxNext}${shared:+|$shared})"
 }
 
 live_code_xcodebuild_args() { # CONFIG [LIST]
@@ -41,7 +72,9 @@ live_code_xcodebuild_args() { # CONFIG [LIST]
   # EXCLUDED_SOURCE_FILE_NAMES: Package.swift links CmuxNextApp statically into the app here (one
   # image to repoint), so the build makes no CmuxNextApp framework, and the app target's Embed
   # Frameworks phase (cmux.xcodeproj, CE7A00000000000000000047) stopped the build copying it
-  # (cmux#48325). Excluding the name skips that copy; the regular build embeds it as before.
+  # (cmux#48325). Excluding the name skips that copy; the regular build embeds it as before. Xcode
+  # then copies none of the package resource bundles into the app either: after the build, the
+  # caller runs live_code_copy_resource_bundles.
   printf '%s\n' \
     EMIT_FRONTEND_COMMAND_LINES=YES \
     'EXCLUDED_SOURCE_FILE_NAMES=$(inherited) CmuxNextApp' \
@@ -60,4 +93,21 @@ live_code_xcodebuild_args() { # CONFIG [LIST]
 # it loads only patches signed by the app's own team (CmuxNextLiveCode/PatchSignature.swift).
 live_code_swift_flags() {
   printf '%s\n' "-DCMUX_LIVE_CODE"
+}
+
+# A live code build links CmuxNextApp statically and skips its embed (live_code_xcodebuild_args), and
+# Xcode then copies no package resource bundle (CmuxNext_*.bundle: first-party apps, pages, strings)
+# into the app: scripts/cmux-next/check-app-bundle.sh stopped every live code build there. Each
+# bundle the build made beside APP replaces the app's copy, as scripts/cmux-next/swap-binary.sh
+# places its static build's. The app is signed after this (reload.sh, the nightly's signing).
+live_code_copy_resource_bundles() { # APP
+  local app="$1" bundle n=0
+  local products; products="$(dirname "$app")"
+  for bundle in "$products"/*.bundle; do
+    [[ -d "$bundle" ]] || continue
+    rm -rf "$app/Contents/Resources/$(basename "$bundle")"
+    ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
+    n=$((n + 1))
+  done
+  echo "live code build: copied $n package resource bundles into $app" >&2
 }

@@ -10,7 +10,8 @@ export interface StatsSnapshot {
   loading: boolean;
   /**
    * Why the summary did not load: the app's own message when acpmux is not answering (the app
-   * words it in the person's language), else none, and the page says it failed in its own words.
+   * words it in the person's language), else none. Kept while the next read is on its way; the page
+   * reads again on its own and says so only once the failure lasts.
    */
   failed?: { message?: string };
   /** The page has no host to ask; the page says so in its own words. */
@@ -55,8 +56,9 @@ export class StatsStore {
   private async load(range: Range): Promise<void> {
     if (!this.client) return this.set({ range, loading: false, unavailable: true });
     const id = ++this.request;
-    // The last summary stays on screen while the next one loads.
-    this.set({ ...this.snapshot, range, loading: true, failed: undefined });
+    // The last summary stays on screen while the next one loads, and so does a failure: the page reads
+    // again on its own after one, and its quiet line counts from the first failure to the first answer.
+    this.set({ ...this.snapshot, range, loading: true });
     try {
       const summary = await this.client.call<StatsSummary>(StatsOps.summary, {
         days: range,

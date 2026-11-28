@@ -126,7 +126,7 @@ impl Route {
     /// Direct when the caller holds its own credential and named no app socket.
     pub(super) fn choose(global: &GlobalArgs, env: impl Fn(&str) -> Option<String>) -> Self {
         let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-        if global.app_socket.is_some() || set("CMUX_CLOUD_ACCESS_TOKEN").is_none() {
+        if global.app_socket.is_some() || super::api_tokens::env_credential(&env).is_none() {
             return Self::App;
         }
         Self::Direct { team: set("CMUX_CLOUD_TEAM") }
@@ -181,7 +181,7 @@ pub(super) fn ask(runner: &mut dyn Runner, machine: &str, route: &Route) -> Resu
         }
         Reported::Nothing => Err(reply_error(
             "machine_auth.unsupported",
-            "This machine's cmux-tui does not report its model route yet. Update the machine, then try again.",
+            "This machine's cmux-tui does not report its model route: its build predates that report.",
             machine,
         )),
         Reported::Other => Err(reply_error(

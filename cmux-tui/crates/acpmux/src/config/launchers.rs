@@ -225,11 +225,70 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
+    which_in(&crate::login_env::path().unwrap_or_default(), bin)
+        .or_else(|| native_install(bin))
+        .or_else(|| image_install(bin))
+}
+
+/// Where a Cloud machine's image puts its harnesses (`claude`, `codex`, ...): only a login shell
+/// lists it on PATH, and the daemon's unit PATH does not. When the 3 s login-shell read timed out
+/// on a just-booted machine, the daemon found no `claude`, and the start was refused as
+/// `agent_session.harness_missing`: "Claude (`claude`) isn't installed on that machine"
+/// (production probe 2026-11-26T15:20:44Z, vm_a6cbc8f2cc82f6433bcc). Checking the image's own
+/// directory makes discovery stop depending on that read.
+const IMAGE_BIN_DIR: &str = "/opt/cmux/current/bin";
+
+/// `bin` in the Cloud image's harness directory ([`IMAGE_BIN_DIR`]), if it can run there.
+fn image_install(bin: &str) -> Option<String> {
+    image_install_in(std::path::Path::new(IMAGE_BIN_DIR), bin)
+}
+
+/// [`image_install`] under `dir`.
+fn image_install_in(dir: &std::path::Path, bin: &str) -> Option<String> {
+    if bin.is_empty() || bin.contains('/') {
+        return None;
+    }
+    let candidate = dir.join(bin);
+    crate::harness_install::is_executable(&candidate)
+        .then(|| candidate.to_string_lossy().into_owned())
+}
+
+/// A program the daemon runs from config or a fleet tool by bare name (`sendRelay.argv`'s
+/// `lane-gh`, `peerWake`, `cmux-ci`), as a path it can spawn. A systemd user daemon starts with
+/// the system PATH, which lists no `~/.local/bin`, where lane VMs install those tools: every MCP
+/// `send` on a lane VM failed with "cannot run the send relay \"lane-gh\": No such file or
+/// directory" (gcp-agent-lane-13, 2026-11-21) while the same `lane-gh` ran from a shell. Looks in
+/// the login PATH (or this process's), then `~/.local/bin` and `~/.cmux/bin`. A name with a `/`,
+/// or one found nowhere, comes back as given, so the spawn's own error still names it.
+pub(crate) fn user_program(program: &str) -> std::path::PathBuf {
+    if program.contains('/') {
+        return program.into();
+    }
+    let path = crate::login_env::path().unwrap_or_default();
+    user_program_in(&path, dirs::home_dir().as_deref(), program)
+}
+
+/// [`user_program`] with its PATH and home given.
+fn user_program_in(
+    path: &std::ffi::OsStr,
+    home: Option<&std::path::Path>,
+    program: &str,
+) -> std::path::PathBuf {
+    if let Some(found) = which_in(path, program) {
+        return found.into();
+    }
+    for dir in [".local/bin", ".cmux/bin"] {
+        if let Some(candidate) = home.map(|h| h.join(dir).join(program))
+            && crate::harness_install::is_executable(&candidate)
+        {
+            return candidate;
+        }
+    }
+    program.into()
 }
 
 /// `bin` in the directories of `path`, in order.
-fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
         // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
@@ -304,45 +363,28 @@ mod tests {
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(super::native_install_in(empty.path(), "codex"), None);
     }
+
+    /// A Cloud image keeps `claude` in `/opt/cmux/current/bin`, which only a login shell lists on
+    /// PATH: with the login-shell read timed out, a just-booted machine refused the start as "Claude
+    /// (`claude`) isn't installed on that machine" (production probe 2026-11-26T15:20:44Z). The
+    /// image directory finds it; a file that cannot run, or a name with a slash, does not.
+    #[test]
+    fn a_harness_in_the_cloud_image_dir_is_found_without_the_login_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("claude");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            super::image_install_in(dir.path(), "claude"),
+            Some(file.to_string_lossy().into_owned())
+        );
+        std::fs::write(dir.path().join("codex"), "").unwrap();
+        assert_eq!(super::image_install_in(dir.path(), "codex"), None);
+        assert_eq!(super::image_install_in(dir.path(), "../claude"), None);
+        assert_eq!(super::image_install_in(dir.path(), "opencode"), None);
+    }
 }
 
 #[cfg(test)]
-mod cache_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn launcher_cache_keeps_parallel_successes_and_only_current_versions() {
-        let dir = tempfile::tempdir().unwrap();
-        let cache = dir.path().join("checks.json");
-        let mut cfg = Config::default();
-        cfg.harnesses.clear();
-        for name in ["first", "second"] {
-            let binary = dir.path().join(name);
-            std::fs::write(&binary, "version one").unwrap();
-            let profile = serde_json::from_value(serde_json::json!({
-                "argv": [binary, "claude", "proxy"]
-            }))
-            .unwrap();
-            cfg.harnesses.insert(name.into(), profile);
-        }
-        let calls = AtomicUsize::new(0);
-        let probe = |_: &[String]| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        };
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 2, "warm launch reran a successful probe");
-        std::fs::write(dir.path().join("first"), "version two is a different size").unwrap();
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 3, "only the changed binary is reprobed");
-        cfg.harnesses.remove("second");
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        let keys: std::collections::BTreeSet<String> =
-            serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
-        assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
-        assert_eq!(calls.load(Ordering::Relaxed), 3);
-    }
-}
+#[path = "launchers_cache_tests.rs"]
+mod cache_tests;

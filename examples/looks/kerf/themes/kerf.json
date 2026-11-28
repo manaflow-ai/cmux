@@ -5,7 +5,7 @@
 // reading size, your prompt in a hairline box, tool calls as one-line rows.
 {
   "name": "Kerf",
-  "description": "A fast editor, dark: One-like slate, one-pixel chrome, a dense project panel, a sky-blue accent.",
+  "description": "Dark: cool slate, tight and flat, a sky-blue accent.",
 
   // A neutral base the ghostty block below repaints whole: the editor slate, the One ink, the blue
   // cursor, the editor selection and all sixteen ANSI colors. The window follows it.
@@ -13,14 +13,14 @@
   "appearance.appTheme": "followTerminal",
   // background: the editor (#282c33). foreground: the One text (#dce0e5). selection: the accent at
   // 24% over the editor. accent: the One blue (#74ade8).
-  "colors": { "background": "#282c33", "foreground": "#dce0e5", "selection": "#3a4b5e", "accent": "#74ade8" },
+  "colors": { "background": "#282c33", "foreground": "#dce0e5", "selection": "#657689", "accent": "#74ade8" },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #282c33",
     "foreground = #dce0e5",
     "cursor-color = #74ade8",
     "cursor-text = #282c33",
-    "selection-background = #3a4b5e",
+    "selection-background = #657689",
     "selection-foreground = #dce0e5",
     "palette = 0=#282c33",
     "palette = 1=#e8777f",
@@ -79,7 +79,7 @@
 
   // The sidebar: the panel slate, a one-pixel border, sections as plain headings.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#2f343e",
+  "appearance.surfaces.sidebar.color": "#272c36",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,
@@ -89,7 +89,7 @@
   // The agent panel in the panel slate; the editor, terminal, diffs and Markdown in the deeper
   // editor slate; the title bar, tab bar, browser bar and docks in the lightest slate (#3b414d);
   // borders #464b57.
-  "appearance.surfaces.agentPane.color": "#2f343e",
+  "appearance.surfaces.agentPane.color": "#272c36",
   "appearance.surfaces.agentPane.opacity": 1,
   "appearance.surfaces.terminal.color": "#282c33",
   "appearance.surfaces.terminal.opacity": 1,
@@ -103,7 +103,7 @@
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.browserChrome.color": "#3b414d",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#2f343e",
+  "appearance.surfaces.docks.color": "#272c36",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.splitDivider.color": "#464b57",
   "appearance.surfaces.splitDivider.opacity": 1,

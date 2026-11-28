@@ -78,10 +78,11 @@ mod storage;
 mod writer;
 
 #[cfg(any(test, feature = "sim"))]
+#[path = "test_support/sim/mod.rs"]
 mod sim;
 
 pub use format::{MAX_PAYLOAD_LEN, RECORD_HEADER_LEN};
-pub use journal::{AppendError, Journal, JournalStats, OpenError, SealError, WaitError};
+pub use journal::{AppendError, Journal, JournalStats, OpenError, Reserved, SealError, WaitError};
 pub use recovery::{Damage, OpenReport};
 #[cfg(any(test, feature = "sim"))]
 pub use sim::{Crash, SIM_PAGE, SimRng, SimStorage};

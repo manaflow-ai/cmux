@@ -112,7 +112,7 @@ class PullRequestLanes(unittest.TestCase):
     def test_a_job_that_skips_feat_pull_requests_does_not_count(self):
         workflow = "on:\n  pull_request:\njobs:\n" + job(
             "python3 tests/test_a.py",
-            "${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}",
+            "${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}",
         )
         self.check({"ci.yml": workflow}, ["tests/test_a.py"])
 
@@ -180,6 +180,33 @@ class PullRequestLanes(unittest.TestCase):
             """)
         self.check({"next-guards.yml": caller, "guards.yml": callee}, ["tests/test_b.py", "tests/test_c.py"],
                    tests=["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"])
+
+    def test_a_step_of_the_step_table_counts_when_a_pull_request_job_runs_its_job(self):
+        # pr-pipeline.yml runs `ci/run run --job linux`: the linux steps of ci/steps.toml run, whatever
+        # their inputs; a job nothing runs (mac) and a test named only in `inputs` do not count.
+        table = textwrap.dedent("""\
+            [jobs]
+            linux = "l"
+            mac = "m"
+            [setup]
+            linux = "python3 tests/test_setup.py"
+            [step.a]
+            job = "linux"
+            inputs = ["tests/test_named.py"]
+            run = "python3 tests/test_a.py"
+            [step.b]
+            job = "mac"
+            run = "python3 tests/test_mac.py"
+        """)
+        tests = ["tests/test_a.py", "tests/test_setup.py", "tests/test_mac.py", "tests/test_named.py"]
+        for command in ("ci/run run --job linux", "python3 scripts/ci/ci_steps.py run --label x --job=linux"):
+            with self.subTest(command=command):
+                tree = Tree(tests, {"pipeline.yml": FEAT_PULL_REQUEST + "jobs:\n" + job(command)})
+                self.addCleanup(tree.close)
+                (tree.root / "ci").mkdir()
+                (tree.root / "ci" / "steps.toml").write_text(table, encoding="utf-8")
+                flagged = sorted(error.split(":", 1)[0] for error in tree.errors())
+                self.assertEqual(flagged, ["tests/test_mac.py", "tests/test_named.py"])
 
     def test_a_runner_lane_counts_where_a_pull_request_job_invokes_it(self):
         workflow = FEAT_PULL_REQUEST + "jobs:\n" + job("python3 scripts/ci/run_python_test_lane.py --lane macos-shell")

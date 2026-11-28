@@ -69,9 +69,18 @@ export type Choice = {
   description?: string;
   icon?: React.ReactNode;
   hint?: string;
+  /// The verb Return carries out on this row, drawn beside the Return keycap when the row is
+  /// highlighted in a Picker with `returnHint` (the composer's +).
+  verb?: string;
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
+
+/// A menu row's trailing hint is a key ("⌃⌥⌘P", "@", "/"), drawn as the one key hint (ui/KeyHint), or an
+/// argument placeholder ("<harness>", "[session-id]"), drawn as text, never as a key.
+export function hintIsKey(hint: string): boolean {
+  return /^[⌃⌥⇧⌘]+\S/u.test(hint) || Array.from(hint).length === 1;
+}
 
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {

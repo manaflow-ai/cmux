@@ -123,6 +123,7 @@ import {
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
 import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { admitNetworkAddress } from "./networkAdmission";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
@@ -1551,6 +1552,25 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       return vmEntryFromRow(existingWithReservation);
     }
 
+    // Free-address admission (networkAdmission.ts): a full network refuses
+    // here, before the credit, the cleanup intent and the provider start, with
+    // the same vm_network_full answer the provider's own refusal maps to.
+    const admission = yield* Effect.either(admitNetworkAddress(repo, providers, {
+      provider: input.provider,
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      network: { providerNetworkId: network.providerNetworkId, cidr: network.cidr, scope: network.scope },
+      vmId: create.vm.id,
+    }));
+    if (Either.isLeft(admission)) {
+      yield* repo.markCreateFailed({
+        id: create.vm.id,
+        code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+        message: errorMessage(admission.left.cause),
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return yield* Effect.fail(admission.left);
+    }
+
     // A failed row may have become retryable between the preflight lookup and
     // the insert transaction. Re-run create-only checks before provider I/O.
     if (runtimeBudgetSeconds === undefined && input.billingPlanId === "go") {
@@ -2398,7 +2418,7 @@ export function snapshotVm(input: {
           vcpus: snapshotReservation.vcpus,
           memoryMb: snapshotReservation.memoryMb,
           diskMb: snapshotReservation.diskMb,
-          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata),
+          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata, "trusted-carrier"),
         },
       };
       yield* repo.recordSnapshotUsageEventIfMissing
@@ -3306,7 +3326,7 @@ export function forkVm(input: {
             providerMetadata: {
               ...source.providerMetadata,
               ...(handle.providerMetadata ?? {}),
-              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata, "trusted-carrier"),
             },
           }),
         );
@@ -3389,7 +3409,7 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       providerMetadata: {
-        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata, "trusted-carrier"),
       },
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),

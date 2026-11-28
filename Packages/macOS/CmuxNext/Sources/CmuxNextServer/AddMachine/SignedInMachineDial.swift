@@ -20,8 +20,8 @@ public protocol JoinedDialLine: AnyObject {
 /// (`_acpmux/machine_route_probe`), which that Mac answers from its person's consent and which records
 /// its one ask there (its consent card shows it). Once it allows, the route's socket becomes a server's
 /// `unix` route (``ServerReach/signedInMachine(daemonID:socket:name:)``, the app's `ServerReachService`),
-/// and the workspace opens on it once its session connects. The page asks again while that Mac's card
-/// waits (webviews/src/pages/machines/store.ts); nothing here loops.
+/// and the workspace opens on it once its session connects. Nothing here loops: a
+/// caller asks again.
 @MainActor
 public struct SignedInMachineDial {
     /// How long the route's session may take to connect after the probe passed.
@@ -55,7 +55,7 @@ public struct SignedInMachineDial {
             return .unavailable("machine.unlisted")
         }
         guard await line.call("_acpmux/machine_route_probe", ["daemonId": daemonID]) != nil else {
-            return JoinedDialAnswer(refusal: line.lastErrorReason)
+            return JoinedDialAnswer(refusal: line.lastErrorReason, platform: machine.platform)
         }
         guard let socket = route["socket"] as? String,
               let reach = try? ServerReach.signedInMachine(daemonID: daemonID, socket: socket, name: machine.name),

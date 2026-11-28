@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The webviews checks that fail a feat-cmux-next pull request, compared with its base per error.
 
-    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install] [--advisory-out FILE]
+    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install] [--only CHECK]... [--skip CHECK]... [--advisory-out FILE]
 
 Installs webviews' node_modules (bun install --frozen-lockfile; --no-install when the job already did) and runs, in
 webviews/, every check in CHECKS, each on its own: a red never stops the next. ci-web's "Check webviews" step runs
-this on a pull request (BASE the merge parent) and on a push (no BASE), and the fast gates run it on a dispatch.
+this on a pull request (BASE the merge parent) and on a push (no BASE), and the fast gates run it on a dispatch
+and on a pull request that changes its inputs.
 
 Only findings the pull request adds fail: a check that fails on the merge runs again on BASE (a worktree of it,
 sharing the merge's node_modules), and the gate fails only on findings BASE does not have as often. A finding is
@@ -14,11 +15,19 @@ checkout root, `path:line` numbers and timings ignored, since the pull request m
 counts still compare). The base's findings are warnings, never charged to the pull request. Without BASE (a push)
 every red is the commit's. Exits 1 when any check adds a finding.
 
+--only and --skip pick from CHECKS: ci-web runs the type check (`--only typecheck`) in its own job,
+webviews-typecheck, and the rest (`--skip typecheck`) in react-apps-check (1), so a type error is a red check of
+its own and never the test shard's (Leo, 2026-11-19: "the CI doesn't necessarily have to fail and like give up ...
+just as if it were like a follow-up"). The bundles, the gallery and the tests build transpile-only (Vite, bun), so
+they run on a tree with a type error.
+
 #23763 (2026-10-21) merged a TS2339 in test/composer-row-layout.test.ts: the base was red, so its own red read as
 "the same base red". Compared per error, it is the one new finding (tests/test_cmux_next_fast_gates.py replays it).
 
-cmux_next_fast_gates.py runs this only on a dispatch (pr=N, against the current tip): on a pull_request event
-ci-web already ran these checks on the same merge commit. A merger dispatches when a check path
+cmux_next_fast_gates.py runs this on a dispatch (pr=N, against the current tip) and on a pull request that changes one
+of its inputs (CHECK_INPUTS there: webviews/, a string catalog, the protocol spec). ci-web runs it on the same merge
+commit too, but inside the webview suite's first shard, which land-judge's merged-tree carry does not wait for on a
+base merge: cmux-next/fast-gates is the status it does wait for (cmux#49052's `foldsPrompt`, cmuxterm-hq#19108). A merger dispatches when a check path
 (scripts/ci/check-paths.txt) changed on the base after the pull request's last fast-gates base, so a check that
 landed after the pull request's CI runs on it before it merges (2026-10-21: #22967, #22975 and #23094 merged past
 the new check:fixed-waits; replayed, #22975 merged with 01ea78b3 adds
@@ -50,10 +59,11 @@ CHECKS = (
     "check:design-tokens",
     "check:ui-review",
     "typecheck",
-    "acpmux-protocol:check",
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
+    "check:surface-bypass",
+    "check:bundle-matrix",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -65,10 +75,18 @@ CHECK_CLASSES = {
     "check:design-tokens": LINT,
     "check:ui-review": LINT,
     "typecheck": ("blocks", "#32056's TS2448 broke every agent pane and was published 2026-11-02"),
-    "acpmux-protocol:check": ("blocks", "generated code drifting from the spec breaks the client-daemon wire"),
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
+    "check:surface-bypass": LINT,
+    "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
+}
+# Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
+NEW_CHECK_SCRIPTS = {
+    "check:design-tokens": "scripts/check-design-tokens.ts",
+    "check:ui-review": "scripts/check-ui-review.ts",
+    "check:surface-bypass": "scripts/check-surface-bypass.ts",
+    "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -94,6 +112,20 @@ def advisory_class(check: str, lines: list[str]) -> bool:
     return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+# Vite bundles its config to `node_modules/.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs` on every run, so a
+# config that fails to load prints stack frames that differ between the base's run and the merge's (#46890's fast
+# gate read the base's own `Resources/markdown-viewer` ENOENT as five new findings). The name is kept, the stamp dropped.
+VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
+# A Node error object a crashed tool prints (`{ errno: -110, code: 'ETIMEDOUT', pid: 1276995, ... }`) names its own
+# process id, which differs between the base's run and the merge's, so the base's crash read as the merge's new
+# finding `pid: 1276995,` (lane/tmm-list-flip's web lint, 11-27). The field is kept, the number dropped.
+PID = re.compile(r"\b(pid['\"]?\s*[:=]\s*)\d+")
+# A check that writes its logs to a fresh `mktemp -d` dir names that dir (`log: /tmp/web-bundle-matrix.QNX9SC/logs/
+# bundle-pages.log`), whose random suffix differs between the base's run and the merge's, so the base's own bundle red
+# read as the merge's one new finding (cmux#54186's fast gates, run 46043766720, 11-27). The dir's name is kept, its
+# suffix dropped; a dir under a temp root, macOS's /var/folders/../T included.
+TEMP_DIR = re.compile(r"((?:/private)?(?:/tmp|/var/tmp|/var/folders/[^/\s]+/[^/\s]+/T|/home/runner/work/_temp)/"
+                      r"[\w-]+)\.[A-Za-z0-9]{6,}(?=/|\s|$)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -109,6 +141,40 @@ HELP = re.compile(r"^\s*help:")
 NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$"
                    r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
                    r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
+# A finding as a GitHub workflow command, which `vp lint` (Oxlint) prints in GitHub Actions:
+# `::warning file=PATH,line=N,endLine=N,col=C,endColumn=C,title=eslint(rule)::MESSAGE`. GitHub turns the line into an
+# annotation and its log keeps only `##[warning]MESSAGE`, so a finding shown as that raw line names no file (#44638's
+# web lint printed `Expected expression to be used` and nothing else). Keyed by level, path, title and message; shown
+# as `PATH:LINE:COL: MESSAGE [level title]`, which starts with no `::`.
+ANNOTATION = re.compile(r"^::(?P<level>error|warning|notice)(?:\s+(?P<props>[^:]*))?::(?P<message>.*)$")
+
+
+def unescape(value: str, prop: bool = False) -> str:
+    """A workflow command's escaped text: %25, %0D and %0A everywhere, %3A and %2C in a property."""
+    pairs = (("%0D", " "), ("%0A", " ")) + ((("%3A", ":"), ("%2C", ",")) if prop else ())
+    for coded, plain in pairs:
+        value = value.replace(coded, plain).replace(coded.lower(), plain)
+    return value.replace("%25", "%")
+
+
+def annotation(line: str, root: str = "") -> tuple[str, str] | None:
+    """(key, shown) for one workflow-command finding, or None for any other line."""
+    match = ANNOTATION.match(line.strip())
+    if not match:
+        return None
+    props = {}
+    for part in (match["props"] or "").split(","):
+        name, _, value = part.partition("=")
+        if name.strip():
+            props[name.strip()] = unescape(value, prop=True)
+    message = unescape(match["message"]).strip()
+    path, title, level = props.get("file", ""), props.get("title", ""), match["level"]
+    where = ":".join(part for part in (path, props.get("line", ""), props.get("col", "")) if part)
+    tag = f" [{level} {title}]" if title else f" [{level}]"
+    shown = f"{where}: {message}{tag}" if where else f"{message}{tag}"
+    return f"{level} {unroot(path, root)}: {title}: {message}", shown
+
+
 # The run's count, a line that falls when the change fixes one of the base's errors: the type check's `Found 1 error
 # and 0 warnings in 9 files (1.0s)`, `vp lint`'s `Found 0 warnings and 1 error.` (#24538's web lint read the second
 # as the one finding the merge added after it fixed 3 of the base's 4 errors). Only the whole line, with only a timing
@@ -137,8 +203,11 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings, process ids, Vite's
+    temp config stamp and a mktemp dir's suffix dropped."""
+    text = VITE_TEMP.sub(r".timestamp.\1", PID.sub(r"\1<pid>", unroot(line, root).strip()))
+    text = TEMP_DIR.sub(r"\1.<tmp>", text)
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", text))
 
 
 def unroot(text: str, root: str) -> str:
@@ -150,7 +219,8 @@ def unroot(text: str, root: str) -> str:
 
 def findings(output: str, root: str = "") -> list[tuple[str, str]]:
     """(key, shown) per finding: each Oxlint diagnostic, keyed by its path, code and whole message (wrapped lines
-    and help included, the line number not), and every other line of output, so an error the parser does not
+    and help included, the line number not), each GitHub workflow-command finding (ANNOTATION, keyed without its
+    line and shown as `path:line:col: message`), and every other line of output, so an error the parser does not
     know (a crash, a config failure) is a finding of its own and never hides behind a known one."""
     out: list[tuple[str, str]] = []
     record: dict | None = None
@@ -160,7 +230,9 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
         if record:
             message = " ".join(record["message"])
             path = record["path"]
-            found = f"{unroot(path, root)}: {message}" if path else message
+            # The message is unrooted too: a type error naming a node_modules type prints the checkout's root in it
+            # (fast gates 45874767698 charged the base's bench/browsers.ts TS2345 to cmux#57053).
+            found = unroot(f"{path}: {message}" if path else message, root)
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
@@ -177,6 +249,8 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
             close()
             record = {"message": [f"{header['code']}: {header['message']}"], "path": "", "framed": False}
             continue
+        if record is not None and ANNOTATION.match(line.strip()):
+            close()  # a workflow-command finding is never part of an open diagnostic's message
         if record is not None:
             where = LOCATION.match(line)
             if where and not record["path"]:
@@ -191,15 +265,17 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
                 continue
             close()
         if line.strip() and not noise(i):
-            out.append((key(line, root), line.rstrip()))
+            out.append(annotation(line, root) or (key(line, root), line.rstrip()))
     close()
     return out
 
 
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
     """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
-    Counted, not a set: a second finding that reads like one the base already has is still new."""
-    left = Counter(found for found, _ in findings(base_output, base_root))
+    Counted, not a set: a second finding that reads like one the base already has is still new. The base's
+    webviews/node_modules is the merge's (a symlink), so a base frame there names the merge's root: that is <root>
+    too, or the base's vite stack would never match the merge's."""
+    left = Counter(unroot(found, merge_root) for found, _ in findings(base_output, base_root))
     new, old = [], []
     for found, shown in findings(merge_output, merge_root):
         if left[found] > 0:
@@ -213,6 +289,31 @@ def compare(merge_output: str, base_output: str, merge_root: str = "", base_root
 def added(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> list[str]:
     """The merge's findings the base does not have (compare's first half)."""
     return compare(merge_output, base_output, merge_root, base_root)[0]
+
+
+def optional_only(new: list[str], env: dict | None = None) -> list[str]:
+    """ci-oops fault isolation (scripts/ci/oops/isolate.py): when every type error a pull request adds is in an
+    optional unit (a page or the gallery that optional-units.json lists), the unit ids, reported as CI_OOPS soft
+    fails (one per unit, for the follow-up); else []. Only a pull request build: a push, the nightly (which runs
+    this without a base) and any ship path keep every error red. A finding with no path is core."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "oops"))
+    import isolate  # noqa: PLC0415  (scripts/ci/oops/isolate.py)
+
+    if not isolate.allowed(env)[0]:
+        return []
+    units: dict[str, str] = {}
+    for line in new:
+        path = line.split(": ", 1)[0] if ": " in line else ""
+        unit = isolate.unit_of_path(isolate.webview_path(path), ("webview-page", "gallery")) if path else None
+        if unit is None:
+            return []
+        units.setdefault(unit["name"], line)
+    pages = {name: line for name, line in units.items() if name != "gallery"}
+    if pages:
+        isolate.report("webview-page", pages, step="webviews typecheck", env=env)
+    if "gallery" in units:
+        isolate.report("gallery", {"gallery": units["gallery"]}, step="webviews typecheck", env=env)
+    return [("gallery" if name == "gallery" else f"webview-page:{name}") for name in units]
 
 
 def shares_deps(repo: Path, base: str, directory: str) -> bool:
@@ -229,6 +330,47 @@ def generate_strings(webviews: Path) -> None:
         subprocess.run(["bun", "scripts/pages/gen-strings.mjs", "--best-effort"], cwd=webviews, capture_output=True)
 
 
+def bun_install(cwd: Path) -> int:
+    """bun install --frozen-lockfile in CWD. bun unpacks into a temporary directory ($BUN_TMPDIR, else the system
+    one) and answers `error: EACCES accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL` when it cannot
+    write there: cmux-next fast gates run 46038329362 (hetzner-1-23, 2026-11-27 17:01Z) and run 46050092532
+    (hetzner-2-17, 18:33Z) failed so, a gate red on a base nobody had changed (cmux#60053 stopped on it). A
+    first failure is asked again once with BUN_TMPDIR in a directory this process makes under the runner's own
+    temp ($RUNNER_TEMP), which it owns."""
+    code = subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=cwd).returncode
+    if code == 0 or os.environ.get("BUN_TMPDIR"):
+        return code
+    try:
+        tmp = tempfile.mkdtemp(prefix="bun-tmp-", dir=os.environ.get("RUNNER_TEMP") or None)
+    except OSError:
+        return code
+    try:
+        print(f"webviews checks: bun install failed ({code}); asking again with BUN_TMPDIR={tmp}", flush=True)
+        return subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=cwd,
+                              env={**os.environ, "BUN_TMPDIR": tmp}).returncode
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# The base worktree's holder in the temp folder, ~1.1 GB (webviews and its node_modules). A run killed by a timeout,
+# SIGKILL or a closed session never reaches close(), and acpmux keeps the session TMPDIR it sits in (gcp-codex-lane-5,
+# 2026-11-27: 5.4 GiB of them in one session's TMPDIR, five holders 1.2 to 6.4 h old, none with an owner file, so no
+# sweep could tell a dead run's from a live one). Each holder names its owner (.owner-pid) and the next base checkout
+# removes the holders whose owner is gone, as fast-gates-base-* and ci-receipt-* do (tests/test_ci_holder_sweep.py).
+HOLDER_PREFIX = "fast-gate-webviews-base-"
+
+
+def sweep_dead_holders(prefix: str) -> int:
+    """cmux_next_fast_gates.sweep_dead_holders (one sweep for every holder of this kind), with its worktree prune."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cmux_next_fast_gates  # noqa: PLC0415  (scripts/ci/cmux_next_fast_gates.py)
+
+    removed = cmux_next_fast_gates.sweep_dead_holders(prefix)
+    if removed:
+        subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+    return removed
+
+
 class BaseTree:
     """A worktree of BASE, made on first use. Its webviews/node_modules is the merge's only when the two install
     the same thing (web_lint_prepush.shares_deps: package.json, bun.lock, file: dependencies); otherwise it installs
@@ -239,7 +381,9 @@ class BaseTree:
 
     def webviews(self) -> Path | None:
         if self.path is None:
-            holder = Path(tempfile.mkdtemp(prefix="fast-gate-webviews-base-"))
+            sweep_dead_holders(HOLDER_PREFIX)
+            holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+            (holder / ".owner-pid").write_text(str(os.getpid()))
             made = subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "--quiet", "--detach",
                                    str(holder / "base"), self.base], capture_output=True, text=True)
             if made.returncode != 0:
@@ -250,7 +394,7 @@ class BaseTree:
             modules = self.repo / "webviews" / "node_modules"
             if modules.is_dir() and shares_deps(self.repo, self.base, "webviews"):
                 (holder / "base" / "webviews" / "node_modules").symlink_to(modules.resolve())
-            elif subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=holder / "base" / "webviews").returncode:
+            elif bun_install(holder / "base" / "webviews"):
                 print(f"webviews checks: bun install failed on the base {self.base}", flush=True)
                 subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(holder / "base")],
                                capture_output=True)
@@ -273,19 +417,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="", help="the base sha (or ref) to compare with; none charges every red")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--no-install", action="store_true", help="webviews' node_modules is already installed")
+    parser.add_argument("--only", action="append", default=[], metavar="CHECK", help="run only this check (repeat)")
+    parser.add_argument("--skip", action="append", default=[], metavar="CHECK", help="leave this check out (repeat)")
     parser.add_argument("--advisory-out", type=Path, default=None,
                         help="the nightly: lint-class reds go to this JSON report and never fail the run")
     args = parser.parse_args(argv)
+    unknown = sorted(set(args.only + args.skip) - set(CHECKS))
+    if unknown:
+        parser.error(f"not in CHECKS: {', '.join(unknown)}")
+    checks = [c for c in CHECKS if (not args.only or c in args.only) and c not in args.skip]
+    if args.advisory_out is not None and "check:bundle-matrix" not in args.only:
+        # The nightly builds every bundle in its next step; the matrix is for the pull request and the push.
+        checks = [c for c in checks if c != "check:bundle-matrix"]
     repo = args.repo.resolve()
     webviews = repo / "webviews"
-    if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
+    if not args.no_install and bun_install(webviews) != 0:
         print("webviews checks: bun install --frozen-lockfile failed", flush=True)
         return 1
     base = BaseTree(repo, args.base) if args.base else None
     failed = []
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
-        for check in CHECKS:
+        for check in checks:
             code, output = run_check(webviews, check, fixit=True)
             print(output, end="", flush=True)
             if code == 0:
@@ -299,11 +452,9 @@ def main(argv: list[str] | None = None) -> int:
             # package script. Until that PR lands, the merge parent cannot run this check; do not
             # charge the transition PR for the base's missing command. Later PRs see the script on
             # the base and are compared normally.
-            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
-                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
-                continue
-            if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
-                print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
+            script = NEW_CHECK_SCRIPTS.get(check)
+            if script and not (base_webviews / script).is_file():
+                print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
@@ -318,6 +469,12 @@ def main(argv: list[str] | None = None) -> int:
             if not new:
                 print(f"webviews checks: {check} fails on the base {args.base[:12]} too and this adds nothing to it",
                       flush=True)
+                continue
+            if check == "typecheck" and (dropped := optional_only(new)):
+                print(f"webviews checks: typecheck adds errors only in optional units ({', '.join(dropped)}); "
+                      "they are left out of this pull request's build and need a follow-up", flush=True)
+                for line in new:
+                    print(f"  optional: {line}", flush=True)
                 continue
             failed.append(check)
             shown[check] = new

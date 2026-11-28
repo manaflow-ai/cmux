@@ -48,7 +48,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // touch, no saved password filled), as its adopted pages are.
             openers.inheritsFromOpener = { [weak self] child, opener, foreground in
                 guard let services = self?.services, let tab = services.locateTab(surface: opener) else { return }
-                if let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1, services.locateTab(model: tab)?.1.id == pane.id { services.paneController(for: pane)?.state?.selection.closeRule.made(made.id, from: tab.id, in: pane.id, foreground: foreground) } // a link's tab in its opener's pane: a task opener
+                if foreground, let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1 { services.paneController(for: pane)?.state?.selection.closeRule.linkOpened(in: pane.id) } // no close opener (TabCloseSelection.linkOpened)
                 guard services.cache.agentDrivenTabs.contains(tab.id) else { return }
                 services.cache.markAgentDriven(surface: child)
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
@@ -94,11 +94,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
     let proxiedTabs = ProxiedBrowserTabs()
 
-    /// True when tab `key`'s localhost is never this Mac's: a Cloud proxy tab (``proxiedTabs``) or a
-    /// tab bound to a chat's machine (a Cloud chat's sign-in page, ChatMachineSignInTab). Neither
-    /// may get a WebKit page that loads its URL, which WebKit would load from this Mac.
+    /// Proxy and approval tabs require Chromium's guarded routing, including approvals for this Mac.
+    /// Loading their URLs directly in WebKit would bypass the callback and machine checks.
     func staysOffThisMacLocalhost(_ key: String) -> Bool {
-        proxiedTabs.isProxied(key) || services?.remoteLocalhost.boundMachine(ofTab: key) != nil
+        proxiedTabs.isProxied(key) || services?.remoteLocalhost.boundMachine(ofTab: key) != nil || services?.remoteLocalhost.isSignInApprovalTab(key) == true
     }
 
     /// Site settings of `site`, a site whose automatic-downloads setting
@@ -116,6 +115,32 @@ final class BrowserPageRequests: BrowserTabDelegate {
         downloads.latestBlocked.flatMap { services?.cache.existingBrowser($0.tab) } != nil
     }
 
+    /// A row of the DevTools divider or of the Back and Forward menus: the palette's action on this tab
+    /// (Developer Tools, Go Back or Forward to…), so the row and the palette run one handler. The row
+    /// stands in for its page as a right-click on the page does (`implied`). Where the action does not
+    /// run (the active window's focus is elsewhere, the tab is not adopted yet, the feature is off),
+    /// the row acts on its page itself, as it did before. False for any other intent.
+    private func runMenuRow(_ intent: BrowserTabIntent, of page: any BrowserTab) -> Bool {
+        let id: ActionID, implied: ActionContext, arguments: [String: ActionValue], direct: () -> Void
+        switch intent {
+        case .devTools(let command):
+            id = ActionID(rawValue: command.actionID); implied = [.browserFocused, .webViewFocused]; arguments = [:]
+            direct = { if let placement = command.placement { (page as? any BrowserDevToolsHosting)?.performDevTools(placement) } }
+        case .goToHistoryEntry(let offset):
+            id = "browser.goToHistoryEntry"; implied = .browserFocused; arguments = ["entry": .string(String(offset))]
+            direct = { (page as? any BrowserBackForwardListing)?.goToEntry(offset: offset) }
+        default:
+            return false
+        }
+        if let services, let key = services.cache.key(of: page) {
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), arguments: arguments)
+            invocation.keyContext = services.registry.context.union(implied)
+            if services.registry.perform(id, invocation: invocation) { return true }
+        }
+        direct()
+        return true
+    }
+
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
         // A popup panel's page: the panel handles it (window.close closes
         // the panel), except links it opens in tabs (its opener's pane).
@@ -124,6 +149,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
+        if runMenuRow(intent, of: page) { return }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
               let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
@@ -222,6 +248,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.verificationAutofill.pageWaiting(page)
         case .designMode(let message):
             services.designMode.receive(message, from: page)
+        case .devTools, .goToHistoryEntry:
+            break // run above (`runMenuRow`)
         case .protectedMediaUnavailable(let media):
             reopenInWebKit(page, for: media, tab: openerTab, pane: pane)
         case .unhandledEscape, .resizePopup:

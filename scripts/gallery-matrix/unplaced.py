@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Whether a change gallery health routes on reached no gallery entry, so every entry must render.
 
-gallery-health.yml starts on the paths a gallery render reads (its `pull_request` paths). Most of
+gallery-health.yml starts on the paths a gallery render reads (its `pull_request` paths, or, with no
+pull_request or push trigger, its suite's `paths` in .github/post-merge-batch.json). Most of
 those outside webviews/src/ are global to every page: a theme, a font, a string catalog the build
 reads, a schema the Tailwind theme is generated from, a lockfile, a config, the checker's tools.
 touched.ts places a changed file on the entries that import it; a routed file it places on none
@@ -17,10 +18,13 @@ strings.json (Localizable.xcstrings), which no import reaches.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+from functools import lru_cache
 
 
+@lru_cache(maxsize=256)
 def glob_regex(pattern: str) -> re.Pattern[str]:
     """A GitHub paths pattern (`**`, `*`) as a regular expression over one repo path."""
     out, index = "", 0
@@ -50,6 +54,8 @@ def pull_request_paths(workflow_text: str) -> list[str]:
     `on.push.paths` list when the workflow has no pull_request trigger (gallery health renders feat-cmux-next
     pushes only since 2026-11-21; both lists are the same when both exist)."""
     lines = workflow_text.splitlines()
+    if "  pull_request:" not in lines and "  push:" not in lines:
+        raise SystemExit("unplaced.py: no pull_request or push paths in the workflow")
     start = lines.index("  pull_request:") if "  pull_request:" in lines else lines.index("  push:")
     paths: list[str] = []
     inside = False
@@ -71,6 +77,29 @@ def pull_request_paths(workflow_text: str) -> list[str]:
     return paths
 
 
+def batch_paths(workflow: str) -> list[str]:
+    """The `paths` of the post-merge batch suite that calls this workflow, from .github/post-merge-batch.json
+    beside the workflows folder (JSON, which the runner's python3 reads): gallery health left feat-cmux-next
+    pushes for the batch on 2026-11-21, and its paths list moved there with it."""
+    manifest = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(workflow))), "post-merge-batch.json")
+    with open(manifest, encoding="utf-8") as handle:
+        suites = json.load(handle)["suites"]
+    name = os.path.basename(workflow)
+    found = [suite["paths"] for suite in suites.values() if suite["workflow"] == name]
+    if len(found) != 1 or not found[0]:
+        raise SystemExit(f"unplaced.py: no paths for {name} in {manifest}")
+    return found[0]
+
+
+def routed_paths(workflow: str) -> list[str]:
+    """The workflow's own trigger paths, else its batch suite's."""
+    with open(workflow, encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    if "  pull_request:" in lines or "  push:" in lines:
+        return pull_request_paths("\n".join(lines))
+    return batch_paths(workflow)
+
+
 SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".css")
 
 
@@ -87,8 +116,7 @@ def unplaced(patterns: list[str], changed: list[str], touched: dict) -> list[str
 
 def main(argv: list[str]) -> int:
     workflow, changed_txt, touched_json = argv[1:4]
-    with open(workflow, encoding="utf-8") as handle:
-        patterns = pull_request_paths(handle.read())
+    patterns = routed_paths(workflow)
     with open(changed_txt, encoding="utf-8") as handle:
         changed = [line.strip() for line in handle if line.strip()]
     with open(touched_json, encoding="utf-8") as handle:

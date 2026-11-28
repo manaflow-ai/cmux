@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1476,
+    "entries": 1480,
     "shortcuts": 205
   },
   "sections": [
@@ -203,7 +203,7 @@
         },
         {
           "id": "home.show",
-          "title": "Go to Home",
+          "title": "Go to Chief",
           "shortcut": null,
           "command": null
         },
@@ -288,6 +288,12 @@
         {
           "id": "home.mcpConnectPlayground",
           "title": "MCP Connect Card Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.meetChief",
+          "title": "Meet Chief",
           "shortcut": null,
           "command": null
         },
@@ -388,16 +394,16 @@
           "command": "cmux home open-chief"
         },
         {
+          "id": "home.tab",
+          "title": "Open Chief in Tab",
+          "shortcut": null,
+          "command": "cmux home tab"
+        },
+        {
           "id": "history.open",
           "title": "Open History Entry…",
           "shortcut": null,
           "command": "cmux history open"
-        },
-        {
-          "id": "home.tab",
-          "title": "Open Home in Tab",
-          "shortcut": null,
-          "command": "cmux home tab"
         },
         {
           "id": "link.open",
@@ -659,7 +665,7 @@
         },
         {
           "id": "home.switchView",
-          "title": "Switch Home View",
+          "title": "Switch Chief View",
           "shortcut": null,
           "command": "cmux home switch-view"
         },
@@ -764,6 +770,12 @@
           "title": "Archive Other Workspaces in Group",
           "shortcut": null,
           "command": "cmux workspace archive-others-in-group"
+        },
+        {
+          "id": "workspace.archiveSettled",
+          "title": "Archive Settled Chats",
+          "shortcut": null,
+          "command": "cmux workspace archive-settled"
         },
         {
           "id": "workspace.archiveWorkspacesAbove",
@@ -5657,7 +5669,7 @@
       "entries": [
         {
           "id": "sidebar.home.add",
-          "title": "Add Home to Sidebar",
+          "title": "Add Chief to Sidebar",
           "shortcut": null,
           "command": "cmux sidebar add-home"
         },
@@ -5968,6 +5980,12 @@
           "command": "cmux sidebar remove-checklist-item"
         },
         {
+          "id": "sidebar.home.remove",
+          "title": "Remove Chief from Sidebar",
+          "shortcut": null,
+          "command": "cmux sidebar remove-home"
+        },
+        {
           "id": "sidebar.item.remove",
           "title": "Remove from Section",
           "shortcut": null,
@@ -5978,12 +5996,6 @@
           "title": "Remove from Sidebar",
           "shortcut": null,
           "command": "cmux sidebar remove-from-sidebar"
-        },
-        {
-          "id": "sidebar.home.remove",
-          "title": "Remove Home from Sidebar",
-          "shortcut": null,
-          "command": "cmux sidebar remove-home"
         },
         {
           "id": "machine.clearIcon",
@@ -6448,16 +6460,16 @@
           "command": null
         },
         {
-          "id": "chief.importMemories",
-          "title": "Bring Your History",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "palette.captureScreenshotToChat",
           "title": "Capture Screenshot to Chat",
           "shortcut": "⌃⌥⌘S",
           "command": null
+        },
+        {
+          "id": "computerUse.approval.set",
+          "title": "Change a Computer Use Approval",
+          "shortcut": null,
+          "command": "cmux agent set-computer-use-approval"
         },
         {
           "id": "agentChat.subagentLimit",
@@ -6490,28 +6502,22 @@
           "command": null
         },
         {
-          "id": "chief.screenShare.look",
-          "title": "Chief: Look at Screen Now",
-          "shortcut": null,
-          "command": "cmux chief look-at-screen"
-        },
-        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
           "command": "cmux chief memory"
         },
         {
-          "id": "chief.toggleMemoryInspector",
-          "title": "Chief: Toggle Memory Inspector",
+          "id": "chief.toggleComputer",
+          "title": "Chief: Toggle Computer",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "chief.screenShare.toggle",
-          "title": "Chief: Toggle Screen Sharing",
+          "id": "chief.toggleMemoryInspector",
+          "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
-          "command": "cmux chief toggle-screen-share"
+          "command": null
         },
         {
           "id": "agentPane.composer.chooseComputer",
@@ -6662,6 +6668,12 @@
           "title": "Focus Computer Use",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "computerUse.approval.forget",
+          "title": "Forget a Computer Use Approval",
+          "shortcut": null,
+          "command": "cmux agent forget-computer-use-approval"
         },
         {
           "id": "palette.forkAgentConversation",
@@ -7000,12 +7012,6 @@
           "command": "cmux share chat"
         },
         {
-          "id": "chief.screenShare.start",
-          "title": "Share Screen with Chief",
-          "shortcut": null,
-          "command": "cmux chief share-screen"
-        },
-        {
           "id": "agentPane.composer.addMenu",
           "title": "Show Add Menu",
           "shortcut": "⌃⌥⌘A",
@@ -7082,12 +7088,6 @@
           "title": "Stop Reading Aloud",
           "shortcut": null,
           "command": "cmux agent stop-reading-aloud"
-        },
-        {
-          "id": "chief.screenShare.stop",
-          "title": "Stop Sharing Screen with Chief",
-          "shortcut": null,
-          "command": "cmux chief stop-sharing-screen"
         },
         {
           "id": "home.stopChief",
@@ -7186,12 +7186,6 @@
           "command": "cmux agent toggle-minimap"
         },
         {
-          "id": "chief.importMemories.undo",
-          "title": "Undo Last Memory Import",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agent.harness.updateAll",
           "title": "Update Agent CLIs",
           "shortcut": null,
@@ -7238,6 +7232,12 @@
           "title": "Bring Back Local",
           "shortcut": null,
           "command": "cmux cloud bring-back"
+        },
+        {
+          "id": "cloud.computerControl",
+          "title": "Chief Computer Control…",
+          "shortcut": null,
+          "command": "cmux cloud computer-control"
         },
         {
           "id": "cloudPortClose",
@@ -7442,6 +7442,12 @@
           "title": "List Forwarded Machine Ports",
           "shortcut": null,
           "command": "cmux cloud port-list"
+        },
+        {
+          "id": "agent.moveToMachine",
+          "title": "Move Chat to Machine…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "cloudMoveToMachine",
@@ -7688,6 +7694,12 @@
           "title": "Unfollow",
           "shortcut": null,
           "command": "cmux cloud unfollow"
+        },
+        {
+          "id": "cloud.chiefComputer",
+          "title": "Use Chief’s Own Computer…",
+          "shortcut": null,
+          "command": "cmux cloud chief-computer"
         },
         {
           "id": "cloudFileWrite",
@@ -8106,6 +8118,12 @@
         {
           "id": "liveWeb.start",
           "title": "Edit cmux Live…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.envSecretsPlayground",
+          "title": "Environment Secrets Playground",
           "shortcut": null,
           "command": null
         },
@@ -8762,6 +8780,12 @@
           "title": "Toggle Setting…",
           "shortcut": null,
           "command": "cmux settings toggle-setting"
+        },
+        {
+          "id": "debug.tooltipGallery",
+          "title": "Tooltip Gallery",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "help.troubleshooting",

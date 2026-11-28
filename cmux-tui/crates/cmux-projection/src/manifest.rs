@@ -6,9 +6,13 @@
 //! machine answers every `stat`, `readdir` and `readlink` from it without asking the Mac.
 //!
 //! What goes in is decided by the Mac (the copy's own rules, `sync_cli/local.rs`): a path that is
-//! not in the manifest can never be asked for.
+//! not in the manifest can never be asked for. A file git tracks but those rules keep on the Mac
+//! (a committed test key below a folder of repositories) is listed with its real stat and no
+//! bytes, [`Manifest::keep_home`] naming why: the machine refuses to open it (`EACCES`), so
+//! `git status` there sees it unchanged, not deleted, and no byte of it ever leaves the Mac (RFD
+//! 0007, "Tracked files the skip rules keep home").
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -18,10 +22,16 @@ pub const ROOT: u32 = 0;
 
 /// The most entries a manifest holds (a decode refuses more).
 pub const MAX_ENTRIES: usize = 20_000_000;
-/// The most bytes a manifest decodes to (a decode refuses more).
-const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// The most serialized bytes a manifest decodes to (a decode refuses more).
+///
+/// This is deliberately far below the 512 MiB wire limit: deserializing the bincode value also
+/// allocates its vectors and strings, so allowing multi-gigabyte expansion would let a compressed
+/// manifest exhaust the daemon before the entry limit is checked.
+const MAX_DECODED_BYTES: u64 = 256 * 1024 * 1024;
 /// The longest name the manifest takes (Linux's own limit).
 const MAX_NAME_BYTES: usize = 255;
+/// The longest reason a file kept on the Mac carries.
+pub const MAX_REASON_BYTES: usize = 512;
 
 /// What an entry is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +39,15 @@ pub enum Kind {
     File,
     Dir,
     Link,
+}
+
+/// Whether names that differ only in case occupy one source filesystem name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    /// Mac filesystems used for shared folders fold case.
+    Insensitive,
+    /// Git checkouts on Linux preserve case.
+    Sensitive,
 }
 
 /// One path of the folder.
@@ -68,6 +87,14 @@ pub struct Item {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     entries: Vec<Entry>,
+    /// Files listed with their stat but kept on the Mac, by entry, with why. Last on the wire:
+    /// a machine from before it reads the entries and leaves the rest, and the Mac refuses their
+    /// bytes either way.
+    kept: BTreeMap<u32, String>,
+    /// SHA-256 of a file's bytes, by entry, for the files the Mac has hashed (RFD 0065, piece 6;
+    /// a Mac hashes lazily, so not every file has one). Last on the wire, after `kept`: a machine
+    /// from before it reads the entries and `kept` and leaves the rest.
+    hashes: BTreeMap<u32, [u8; 32]>,
 }
 
 #[derive(Default)]
@@ -78,6 +105,7 @@ struct Node {
     mtime_ns: i64,
     link: Option<String>,
     children: BTreeMap<String, Node>,
+    folded_names: BTreeMap<String, String>,
 }
 
 impl Manifest {
@@ -85,6 +113,11 @@ impl Manifest {
     /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, and an
     /// item below a file or a link.
     pub fn build(root_mtime_ns: i64, items: Vec<Item>) -> anyhow::Result<Self> {
+        Self::build_with(root_mtime_ns, items, Case::Insensitive)
+    }
+
+    /// Builds a manifest with the source filesystem's case policy.
+    pub fn build_with(root_mtime_ns: i64, items: Vec<Item>, case: Case) -> anyhow::Result<Self> {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
@@ -92,6 +125,9 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
+                if case == Case::Insensitive {
+                    ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                }
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -108,6 +144,9 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
+            if case == Case::Insensitive {
+                ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            }
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -152,7 +191,57 @@ impl Manifest {
             }
         }
         anyhow::ensure!(entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        Ok(Self { entries })
+        Ok(Self { entries, ..Self::default() })
+    }
+
+    /// Marks file `index` as kept on the Mac for `reason`: listed with its stat, its bytes never
+    /// asked for, an open of it refused (`EACCES`) with `reason` named.
+    pub fn keep_home(&mut self, index: u32, reason: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.entry(index).is_some_and(|entry| entry.kind == Kind::File),
+            "entry {index} is not a file"
+        );
+        anyhow::ensure!(!reason.is_empty(), "a file kept on the Mac needs a reason");
+        anyhow::ensure!(
+            reason.len() <= MAX_REASON_BYTES,
+            "a reason is longer than {MAX_REASON_BYTES} bytes"
+        );
+        self.kept.insert(index, reason.to_owned());
+        Ok(())
+    }
+
+    /// Why file `index` is kept on the Mac, when it is.
+    #[must_use]
+    pub fn kept(&self, index: u32) -> Option<&str> {
+        self.kept.get(&index).map(String::as_str)
+    }
+
+    /// Records the SHA-256 of file `index`'s bytes.
+    pub fn set_hash(&mut self, index: u32, hash: [u8; 32]) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.entry(index).is_some_and(|entry| entry.kind == Kind::File),
+            "entry {index} is not a file"
+        );
+        self.hashes.insert(index, hash);
+        Ok(())
+    }
+
+    /// The SHA-256 of file `index`'s bytes, when the Mac listed one.
+    #[must_use]
+    pub fn hash(&self, index: u32) -> Option<&[u8; 32]> {
+        self.hashes.get(&index)
+    }
+
+    /// How many files carry a hash.
+    #[must_use]
+    pub fn hashed_count(&self) -> usize {
+        self.hashes.len()
+    }
+
+    /// How many files are kept on the Mac.
+    #[must_use]
+    pub fn kept_count(&self) -> usize {
+        self.kept.len()
     }
 
     /// How many entries, the folder itself included.
@@ -235,10 +324,39 @@ impl Manifest {
     /// A manifest from [`Manifest::encode`]'s bytes, checked: every parent and child range is in
     /// bounds and agrees, every name is one component, and a folder's children are sorted.
     pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
+        Self::decode_with_limit(bytes, MAX_DECODED_BYTES)
+    }
+
+    fn decode_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> anyhow::Result<Self> {
         let mut raw = Vec::new();
-        zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
-        anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the manifest is too large");
-        let manifest: Self = bincode::deserialize(&raw)?;
+        zstd::Decoder::new(bytes)?
+            .take(max_decoded_bytes.saturating_add(1))
+            .read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 <= max_decoded_bytes, "the manifest is too large");
+        // A Mac from before [`Manifest::keep_home`] sends the entries alone.
+        // A Mac from before [`Manifest::set_hash`] sends the entries and the kept files.
+        let manifest: Self = match bincode::deserialize(&raw) {
+            Ok(manifest) => manifest,
+            Err(error) => match bincode::deserialize::<(Vec<Entry>, BTreeMap<u32, String>)>(&raw) {
+                Ok((entries, kept)) => Self { entries, kept, hashes: BTreeMap::new() },
+                Err(_) => bincode::deserialize::<Vec<Entry>>(&raw)
+                    .map(|entries| Self { entries, ..Self::default() })
+                    .map_err(|_| error)?,
+            },
+        };
+        manifest.check()?;
+        Ok(manifest)
+    }
+
+    /// Every entry, in layout order.
+    pub(crate) fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// A manifest of `entries` already laid out as [`Manifest::build`] lays them, checked as a
+    /// decode checks them.
+    pub(crate) fn from_entries(entries: Vec<Entry>) -> anyhow::Result<Self> {
+        let manifest = Self { entries, ..Self::default() };
         manifest.check()?;
         Ok(manifest)
     }
@@ -272,6 +390,7 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
+            let mut folded_names = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -288,8 +407,28 @@ impl Manifest {
                         "entry {index}'s children are not sorted"
                     );
                 }
+                anyhow::ensure!(
+                    folded_names.insert(node.name.to_lowercase()),
+                    "entry {index} has case-insensitive sibling collisions"
+                );
                 before = Some(node);
             }
+        }
+        for (index, reason) in &self.kept {
+            anyhow::ensure!(
+                self.entry(*index).is_some_and(|entry| entry.kind == Kind::File),
+                "kept entry {index} is not a file"
+            );
+            anyhow::ensure!(
+                !reason.is_empty() && reason.len() <= MAX_REASON_BYTES,
+                "kept entry {index}'s reason is empty or too long"
+            );
+        }
+        for index in self.hashes.keys() {
+            anyhow::ensure!(
+                self.entry(*index).is_some_and(|entry| entry.kind == Kind::File),
+                "hashed entry {index} is not a file"
+            );
         }
         Ok(())
     }
@@ -307,6 +446,20 @@ fn entry(name: String, parent: u32, node: Node) -> Entry {
         children: 0,
         link: node.link,
     }
+}
+
+fn ensure_case_unique(
+    used: &mut BTreeMap<String, String>,
+    name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let folded = name.to_lowercase();
+    if let Some(previous) = used.get(&folded) {
+        anyhow::ensure!(previous == name, "{path} collides by case with another path");
+    } else {
+        used.insert(folded, name.to_owned());
+    }
+    Ok(())
 }
 
 fn split(path: &str) -> anyhow::Result<Vec<&str>> {

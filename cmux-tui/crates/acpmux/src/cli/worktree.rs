@@ -137,6 +137,7 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
             &crate::worktree_sessions::state_configs(&home),
         )),
         open: std::sync::Arc::new(cmux_worktree_care::procs::open_inside),
+        guarded: std::sync::Arc::new(crate::protected_folders::in_protected_location),
         settings: Settings::default(),
         apply,
         pressure: scope.pressure.map(|p| match p {
@@ -193,6 +194,7 @@ fn print_report(report: &Report, all: bool) {
         let word = match item.verdict.action {
             Action::Keep => "keep",
             Action::Trim => "trim",
+            Action::Park => "park",
             Action::Reclaim => "reclaim",
             Action::Archive => "archive",
         };
@@ -209,10 +211,11 @@ fn print_report(report: &Report, all: bool) {
     }
     let verb = if report.applied { "freed" } else { "would free" };
     println!(
-        "{} worktrees: {} reclaim, {} archive, {} trim, {} keep; {verb} {}",
+        "{} worktrees: {} reclaim, {} archive, {} park, {} trim, {} keep; {verb} {}",
         report.items.len(),
         report.count(Action::Reclaim),
         report.count(Action::Archive),
+        report.count(Action::Park),
         report.count(Action::Trim),
         report.count(Action::Keep),
         mib(if report.applied { report.freed } else { report.reclaimable })

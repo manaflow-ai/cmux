@@ -16,6 +16,7 @@ import type {
   FeedView,
   ViewItem,
 } from "./types";
+import { intl } from "../../ui/intl";
 
 // MARK: - Route
 
@@ -184,7 +185,7 @@ export function relativeTime(at: number, now: number, language: string): string 
   const key = `${language}:${unit}`;
   let format = relativeFormats.get(key);
   if (!format) {
-    format = new Intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "narrow" });
+    format = intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "narrow" });
     relativeFormats.set(key, format);
   }
   return format.format(Math.floor(seconds / size));
@@ -192,15 +193,15 @@ export function relativeTime(at: number, now: number, language: string): string 
 
 /** "Oct 26, 2026 at 9:12 AM": a row time's tooltip. */
 export function fullDate(at: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(at);
+  return intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(at);
 }
 
 export function shortTime(at: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { timeStyle: "short" }).format(at);
+  return intl.DateTimeFormat(language, { timeStyle: "short" }).format(at);
 }
 
 export function longDateTime(at: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { dateStyle: "long", timeStyle: "short" }).format(at);
+  return intl.DateTimeFormat(language, { dateStyle: "long", timeStyle: "short" }).format(at);
 }
 
 // MARK: - Lines (what a list draws, top to bottom)
@@ -209,8 +210,6 @@ export function longDateTime(at: number, language: string): string {
 export const ROW_HEIGHT = 66;
 export const SHORT_ROW_HEIGHT = 48;
 export const HEADER_HEIGHT = 30;
-/** Past this many lines a list draws only the rows near the viewport. */
-export const VIRTUALIZE_AFTER = 200;
 
 export type FeedLine =
   | { type: "header"; id: string; title: string; count: number }

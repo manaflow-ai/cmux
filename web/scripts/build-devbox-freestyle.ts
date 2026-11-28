@@ -95,12 +95,12 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
-  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
   requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
+  retryFreestyleOverload,
   devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
@@ -168,6 +168,7 @@ import {
   metadataGuardUnit,
 } from "../services/vms/images/metadataGuard";
 import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
+import { detachedExec } from "./cmux-vm-image/detached-exec";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -191,12 +192,16 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
-// Resolved before the builder exists so a manifest outage fails the bake for free.
+// Resolved before the builder exists so an outage, or a release file no trusted key signed,
+// fails the bake for free: the daemon and hook come from the baked commit's verified
+// release.json (resolveCmuxTuiSource), never from latest/manifest.json.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
 // Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
-// creates a VM when the pinned manifest has no acpmux build.
-requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
-console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
+// creates a VM when the pinned build has no acpmux.
+requireCmuxTuiAcpmux(cmuxTuiSource, `https://files.cmux.com/cmux-tui/${cmuxTuiSource.commit}/release.json`);
+console.log(
+  `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
+);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -221,11 +226,11 @@ const WORK_HOME = DEVBOX_WORK_HOME;
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
-const { vm, vmId } = await fs.vms.create({
+const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
-});
+}));
 console.log(`builder VM ${vmId} (base ${builderSnapshot}, desktop=${withDesktop})`);
 
 async function deleteBuilder(): Promise<void> {
@@ -240,26 +245,37 @@ async function deleteBuilder(): Promise<void> {
 // step (npm and the installers all read it).
 const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6)}"';
 
+let stepIndex = 0;
 async function step(label: string, command: string): Promise<void> {
   const t0 = Date.now();
-  const r = await vm.exec({
-    command: `${HOME_PREFIX} && ${command}`,
-    env: BUILD_ENV,
-    timeoutMs: STEP_TIMEOUT_MS,
-    // The 0.2 API's default guest user is uid 1000 (the work user). Every
-    // build step writes to /usr/local and /etc, so the bake runs as root.
-    linuxUser: "root",
-  });
-  const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  const exitCode = r.statusCode ?? 124;
-  if (exitCode !== 0) {
-    console.error(`STEP FAILED [${label}] status=${exitCode} (${secs}s)`);
-    console.error("stdout:", (r.stdout ?? "").slice(-3000));
-    console.error("stderr:", (r.stderr ?? "").slice(-3000));
+  // Detached, with short polls (detached-exec.ts): one exec held open for a
+  // long step is what run 45920283687 lost in media-apt, with no step named.
+  let r: Awaited<ReturnType<typeof detachedExec>>;
+  try {
+    r = await detachedExec(vm, command, {
+      dir: `/var/tmp/cmux-bake-steps/${String(++stepIndex).padStart(3, "0")}-${label}`,
+      budgetMs: STEP_TIMEOUT_MS,
+      env: BUILD_ENV,
+      prefix: HOME_PREFIX,
+      // The 0.2 API's default guest user is uid 1000 (the work user). Every
+      // build step writes to /usr/local and /etc, so the bake runs as root.
+      linuxUser: "root",
+    });
+  } catch (error) {
+    console.error(`STEP FAILED [${label}] ${String(error)} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
     await deleteBuilder();
     process.exit(1);
   }
-  const tail = (r.stdout ?? "").trim().split("\n").slice(-3).join(" | ");
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  if (r.code !== 0) {
+    const why = r.code === 124 || r.code === 137 ? ` (its ${STEP_TIMEOUT_MS / 1000} s budget ran out)` : "";
+    console.error(`STEP FAILED [${label}] status=${r.code}${why} (${secs}s)`);
+    console.error("stdout:", r.stdout.slice(-3000));
+    console.error("stderr:", r.stderr.slice(-3000));
+    await deleteBuilder();
+    process.exit(1);
+  }
+  const tail = r.stdout.trim().split("\n").slice(-3).join(" | ");
   console.log(`ok [${label}] ${secs}s :: ${tail}`);
 }
 
@@ -287,10 +303,12 @@ const pins = devboxAgentPins();
  * login either). Fails if the pane shows anything ble.sh or bash complained
  * about, the Ubuntu legal text, or (on the second run, once caches are seeded)
  * the tput-cache notice, and requires the cmux prompt. Runs as the work user
- * so nothing it creates is root-owned.
+ * so nothing it creates is root-owned. Polls the pane for the prompt (up to
+ * 20 s) instead of a fixed sleep: rebakes 45928043172 and 45937353738 read an
+ * empty pane after a fixed 3 s while ble.sh was still loading.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 || exit 1; t=0; while :; do sleep 0.5; t=$((t+1)); pane="$(tmux -L probe${run} capture-pane -pt login)"; printf "%s\\n" "$pane" | grep -q "λ" && break; [ $t -ge 40 ] && break; done; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   // TSC offsets can change across resized memory snapshots. Use the
@@ -332,7 +350,7 @@ try {
 
   await step(
     "media-apt",
-    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg imagemagick poppler-utils git-lfs xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && git lfs install --system --skip-repo && command -v Xvfb && command -v xdpyinfo && command -v xdotool && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext",
   );
 
   await step(
@@ -415,7 +433,7 @@ try {
   await step("terminfo", devboxTerminfoInstallCommand);
   await step(
     "devshell",
-    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
+    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
@@ -675,9 +693,23 @@ try {
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
+  // Each condition is checked on its own, and a red names every one that
+  // failed with what it saw, after the daemon's processes, listener and unit
+  // log (the step keeps only the tail of stderr, so the summary prints last).
+  const daemonStatus = cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`);
   await step(
     "cmux-tui-daemon-up",
-    `for i in $(seq 1 30); do ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && [ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ] && [ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${WORK_USER} ] && echo daemon-up-bound-to-builder`,
+    [
+      `{ for i in $(seq 1 30); do ${daemonStatus} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done`,
+      `fail=""`,
+      `${daemonStatus} || fail="$fail server-status"`,
+      `grep -qi ':0539 ' /proc/net/tcp6 || fail="$fail listener-1337-tcp6"`,
+      `bound="$(cat /etc/cmux/daemon-instance-id 2>/dev/null)"; metadata="$(${instanceIdCommand})"; [ -n "$bound" ] && [ "$bound" = "$metadata" ] || fail="$fail instance-id(bound=$bound,metadata=$metadata)"`,
+      `layout="$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH} 2>/dev/null)"; [ "$layout" = user ] || fail="$fail layout($layout)"`,
+      `users="$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u | paste -sd, -)"; [ "$users" = ${WORK_USER} ] || fail="$fail daemon-user($users)"`,
+      `if [ -n "$fail" ]; then ps -o pid=,ppid=,user=,comm=,args= -C cmux-tui -C exe | cut -c1-200 >&2; ss -ltnp 2>/dev/null | grep ':1337' >&2; systemctl status cmux-tui-daemon --no-pager -n 15 | cut -c1-200 >&2; echo "cmux-tui-daemon-up failed:$fail" | tee /dev/stderr; exit 1; fi`,
+      `echo daemon-up-bound-to-builder; }`,
+    ].join("; "),
   );
   // Wait after the daemon first reports ready, then exercise the real
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.

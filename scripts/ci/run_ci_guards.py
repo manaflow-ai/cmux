@@ -101,6 +101,9 @@ FAST_GROUPS = ("ci",)
 # profile). They run in CI; a macOS run skips them and says so.
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
+    # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
+    "Fail on a workflow security hole this change adds (zizmor)",
+    "Fail on a secret this change commits (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
@@ -383,8 +386,49 @@ def ordered_split(unit: Unit) -> int:
 def needs_clean_tree(steps: list[Step]) -> bool:
     """The workload profile runner refuses a checkout with source changes, and
     other steps (a submodule init) change the shared checkout while they run,
-    so a task holding it runs alone, before the parallel steps."""
+    so a task holding it runs in a clean copy of HEAD of its own (run_in_clean_copy)."""
     return any("cmux_workload_profile.py run" in step.run for step in steps)
+
+
+def run_in_clean_copy(
+    unit: Unit,
+    steps: list[Step],
+    base_env: dict[str, str],
+    base_sha: str,
+    keep_going: bool,
+    on_result: Callable[[StepResult], None] | None = None,
+) -> list[StepResult]:
+    """Run a clean-tree task in a detached worktree of HEAD, beside the parallel steps.
+
+    It ran alone before every other step, so 15 of 16 workers sat idle through its 146-168 s (the canonical
+    guard profile, cmux-next guard group logs, 2026-11-21). A worktree of its own is clean whatever the other
+    steps write. Its output names the shared checkout, so the head's and the base's failures still compare.
+    No worktree (git refuses): it runs in the shared checkout, and may see what the other steps write."""
+    scratch = Path(tempfile.mkdtemp(prefix="guard-clean-"))
+    copy = scratch / "tree"
+    made = subprocess.run(
+        ["git", "worktree", "add", "--quiet", "--detach", str(copy), "HEAD"],
+        cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    if made.returncode != 0:
+        safe_print(f"cmux guards: no clean worktree for {unit.label} ({made.stdout.strip()[-200:]}); "
+                   "it runs in the shared checkout", flush=True)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        return run_steps(unit, steps, base_env, base_sha, keep_going, on_result)
+
+    def named_here(result: StepResult) -> StepResult:
+        return dataclasses.replace(result, output=result.output.replace(str(copy), str(ROOT)))
+
+    try:
+        return [named_here(r) for r in run_steps(
+            unit, steps, base_env, base_sha, keep_going,
+            (lambda r: on_result(named_here(r))) if on_result is not None else None, root=copy)]
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(copy)], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        subprocess.run(["git", "worktree", "prune"], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def skipped_here(step: Step) -> bool:
@@ -398,8 +442,10 @@ def run_steps(
     base_sha: str,
     keep_going: bool,
     on_result: Callable[[StepResult], None] | None = None,
+    root: Path | None = None,
 ) -> list[StepResult]:
-    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...)."""
+    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...), in ROOT or ROOT's clean copy."""
+    root = root or ROOT
     results: list[StepResult] = []
     # Not "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths, and on
     # Linux this directory is under /tmp, so a nested temp path would match.
@@ -417,7 +463,7 @@ def run_steps(
                 "GITHUB_PATH": str(path_file),
                 "GITHUB_OUTPUT": str(temp_path / "github_output"),
                 "GITHUB_STEP_SUMMARY": str(temp_path / "github_step_summary"),
-                "GITHUB_WORKSPACE": str(ROOT),
+                "GITHUB_WORKSPACE": str(root),
             }
         )
         if unit.job == "workflow-guard-history":
@@ -436,9 +482,9 @@ def run_steps(
             if extra_path:
                 step_env["PATH"] = os.pathsep.join(list(reversed(extra_path)) + [step_env["PATH"]])
             step_env.update(step.env)
-            cwd = ROOT / step.working_directory if step.working_directory else ROOT
+            cwd = root / step.working_directory if step.working_directory else root
             if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
-                if not (ROOT / PORTABLE_SUBSTITUTES[step.name]).exists():
+                if not (root / PORTABLE_SUBSTITUTES[step.name]).exists():
                     # An older checkout (--root) that predates the substitute.
                     result = StepResult(unit, step, None, 0.0, "")
                     results.append(result)
@@ -624,11 +670,13 @@ def default_base(head_sha: str) -> str:
     explicit = os.environ.get("CMUX_GUARDS_BASE_SHA")
     if explicit:
         return explicit
+    # A push checkout of feat-cmux-next has none of these refs; each miss is expected, so git's
+    # "fatal: Not a valid object name" stays out of the log (it read as the group's red on job 139513893359).
     for ref in ("upstream/main", "mf/main", "origin/main"):
-        try:
-            return git("merge-base", head_sha, ref)
-        except subprocess.CalledProcessError:
-            continue
+        found = subprocess.run(["git", "merge-base", head_sha, ref], cwd=ROOT, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
+        if found.returncode == 0:
+            return found.stdout.strip()
     return ""
 
 
@@ -882,10 +930,10 @@ def main(argv: list[str]) -> int:
                 follow_ups[id(head)] = [(unit, [step]) for step in unit.steps[split:]]
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
-    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
-    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
-    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
+    # A task that needs a clean checkout starts first, in a clean copy of its own (run_in_clean_copy); the longest
+    # ordered groups next.
+    tasks.sort(key=lambda task: (not needs_clean_tree(task[1]), -len(task[1])))
+    batches = [tasks]
     results: list[StepResult] = []
     writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
     signal.signal(signal.SIGTERM, interrupt_on_term)
@@ -896,7 +944,8 @@ def main(argv: list[str]) -> int:
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
         def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
-            future = pool.submit(run_steps, task[0], task[1], env, base_sha, args.keep_going,
+            runner = run_in_clean_copy if needs_clean_tree(task[1]) else run_steps
+            future = pool.submit(runner, task[0], task[1], env, base_sha, args.keep_going,
                                  writer.add if writer is not None else None)
             pending[future] = task
             return future

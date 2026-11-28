@@ -77,6 +77,11 @@ public enum StandInFate: Equatable, Sendable {
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// The stand-in tab id that daemon tab `surface` took the place of (a reply or echo named it), nil for any
+    /// other surface: the daemon's tab takes over what the app made for its stand-in (a split's page) instead of
+    /// making it again.
+    public func standIn(replacedBy surface: SurfaceID) -> String? { store.intentLog.standIn(replacedBy: surface) }
+
     /// What became of stand-in tab `id`, which `pane` no longer lists (``StandInFate``): the tab of `pane` that the daemon named
     /// for its creation and the person did not close (``became(standIn:tab:in:)``), else whether its creation is still under way.
     /// A stand-in that the person closed, one whose creation was refused or failed (its intent left the log with no tab), and

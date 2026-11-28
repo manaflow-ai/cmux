@@ -41,6 +41,14 @@
 //!   path to answer carries and a dead relay never strands a session.
 //!   [`Selector::on_opened`] says which path a dial opened, before any
 //!   probe measured it.
+//! - Regain (`regain_streak > 0`, off by default): a session that opened
+//!   direct keeps today's rule (any alive direct path wins at once), but a
+//!   held direct path that goes suspect while a relay answers hands the
+//!   session to that relay at once instead of spraying, and a direct path
+//!   the session left for a relay (suspect or dead) takes it back only
+//!   after `regain_streak` answers in a row, doubling per drop back (up to
+//!   8 times). On a weak link a path that answers one probe in two stays
+//!   on the relay instead of flapping between it and the direct path.
 
 use crate::medium::Medium;
 use crate::path::{PathClass, PathId, PathKind};
@@ -57,6 +65,10 @@ pub struct SelectorConfig {
     /// the session from a relay (doubling per drop back, see the rules
     /// above). 0 (the default): any alive direct path wins at once.
     pub upgrade_streak: u8,
+    /// Regain: consecutive answers a direct path the session left for a
+    /// relay needs before it takes the session back (doubling per further
+    /// drop back, see the rules above). 0 (the default): off.
+    pub regain_streak: u8,
 }
 
 impl Default for SelectorConfig {
@@ -67,6 +79,7 @@ impl Default for SelectorConfig {
             min_gain_us: 3_000,
             min_gain_percent: 10,
             upgrade_streak: 0,
+            regain_streak: 0,
         }
     }
 }
@@ -128,8 +141,8 @@ struct Path {
     better_streak: u8,
     /// Answers in a row since its last loss (relay-first's upgrade streak).
     answered: u8,
-    /// Times relay-first took the session from this direct path back to a
-    /// relay; each doubles the streak it needs to take it again.
+    /// Times relay-first or regain took the session from this direct path
+    /// back to a relay; each doubles the streak it needs to take it again.
     demotions: u8,
 }
 
@@ -173,6 +186,17 @@ impl Selector {
 
     pub fn path(&self, id: PathId) -> Option<PathView> {
         self.paths.iter().find(|path| path.view.id == id).map(|path| path.view)
+    }
+
+    /// An alive direct path that relay-first or regain still holds back
+    /// (short of its answer streak): callers probe it often so it earns
+    /// the session back in seconds, not at a standby's turn.
+    pub fn held_back(&self, id: PathId) -> bool {
+        self.paths.iter().find(|path| path.view.id == id).is_some_and(|path| {
+            path.view.state == PathState::Alive
+                && path.view.kind.class().is_direct()
+                && !self.qualified(path)
+        })
     }
 
     pub fn add_path(&mut self, id: PathId, kind: PathKind) -> Result<(), SelectorError> {
@@ -350,13 +374,44 @@ impl Selector {
         self.config.upgrade_streak > 0
     }
 
-    /// Whether `path` may take the session: always, unless relay-first holds
-    /// a direct path back until its answer streak (doubled per drop back).
+    fn regain(&self) -> bool {
+        self.config.regain_streak > 0
+    }
+
+    /// Whether `path` may take the session: always, unless relay-first or
+    /// regain holds a direct path back until its answer streak (doubled per
+    /// drop back).
     fn qualified(&self, path: &Path) -> bool {
-        !self.relay_first()
-            || !path.view.kind.class().is_direct()
-            || path.answered
-                >= self.config.upgrade_streak.saturating_mul(1 << path.demotions.min(3))
+        if !path.view.kind.class().is_direct() {
+            return true;
+        }
+        let first = if self.relay_first() {
+            self.config.upgrade_streak.saturating_mul(1 << path.demotions.min(3))
+        } else {
+            0
+        };
+        let regain = match path.demotions {
+            0 => 0,
+            drops => self.config.regain_streak.saturating_mul(1 << (drops - 1).min(3)),
+        };
+        path.answered >= first.max(regain)
+    }
+
+    /// Regain: the alive relay a suspect held direct path hands the
+    /// session to (the fastest one that answers).
+    fn relay_for_suspect(&self, held: &Path) -> Option<&Path> {
+        if !self.regain()
+            || held.view.state != PathState::Suspect
+            || !held.view.kind.class().is_direct()
+        {
+            return None;
+        }
+        self.paths
+            .iter()
+            .filter(|path| {
+                path.view.state == PathState::Alive && !path.view.kind.class().is_direct()
+            })
+            .min_by_key(|path| (path.view.rtt_us.unwrap_or(u64::MAX), path.view.id))
     }
 
     /// The best alive path that may take the session; under relay-first, a
@@ -430,6 +485,8 @@ impl Selector {
                     && matches!((best.view.rtt_us, held.view.rtt_us), (Some(new), Some(old)) if new > old);
                 if best.view.rank() < rank && !slower_than_held_relay {
                     Some(best.view.id)
+                } else if let Some(relay) = self.relay_for_suspect(held) {
+                    Some(relay.view.id)
                 } else if let Some(relay) = self.relay_takes_back(held) {
                     Some(relay.view.id)
                 } else if let Some(challenger) = challenger {
@@ -440,11 +497,11 @@ impl Selector {
             }
         };
         if to != chosen {
-            // Relay-first: a direct path the session left for a relay needs a
-            // longer streak (from zero) to take it again.
+            // Relay-first and regain: a direct path the session left for a
+            // relay needs a longer streak (from zero) to take it again.
             let to_relay =
                 to.and_then(|id| self.path(id)).is_some_and(|view| !view.kind.class().is_direct());
-            let relay_first = self.relay_first();
+            let relay_first = self.relay_first() || self.regain();
             self.held_id = to;
             for path in &mut self.paths {
                 path.better_streak = 0;
@@ -477,176 +534,5 @@ fn beats_by_margin(config: &SelectorConfig, challenger: &PathView, incumbent: &P
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const LAN: PathId = PathId(0);
-    const LINK: PathId = PathId(1);
-    const RELAY: PathId = PathId(2);
-
-    fn answer(selector: &mut Selector, id: PathId, rtt_us: u64) -> Option<Switch> {
-        selector.on_probe(id, ProbeOutcome::Answered { rtt_us }).unwrap()
-    }
-
-    fn lose(selector: &mut Selector, id: PathId) -> Option<Switch> {
-        selector.on_probe(id, ProbeOutcome::Lost).unwrap()
-    }
-
-    /// Wired LAN, a Thunderbolt Bridge and a relay to the same peer.
-    fn three_paths() -> Selector {
-        let mut selector = Selector::new(SelectorConfig::default());
-        selector.add_path_on(LAN, PathKind::DirectLan, Medium::Lan).unwrap();
-        selector.add_path_on(LINK, PathKind::DirectLan, Medium::Link).unwrap();
-        selector.add_path(RELAY, PathKind::DoRelay).unwrap();
-        selector
-    }
-
-    #[test]
-    fn a_thunderbolt_path_wins_at_once_though_the_rtt_margin_never_would() {
-        let mut selector = three_paths();
-        answer(&mut selector, LAN, 500);
-        assert_eq!(selector.current(), Some(LAN));
-        // 0.3 ms vs 0.5 ms is far inside the 3 ms hysteresis margin.
-        let switch = answer(&mut selector, LINK, 300);
-        assert_eq!(switch, Some(Switch { from: Some(LAN), to: Some(LINK) }));
-        assert_eq!(selector.current(), Some(LINK));
-    }
-
-    #[test]
-    fn a_slower_lan_answer_never_unseats_the_link() {
-        let mut selector = three_paths();
-        answer(&mut selector, LINK, 900);
-        for _ in 0..10 {
-            assert_eq!(answer(&mut selector, LAN, 100), None);
-        }
-        assert_eq!(selector.current(), Some(LINK));
-    }
-
-    #[test]
-    fn a_lan_path_still_beats_the_relay_at_once() {
-        let mut selector = three_paths();
-        answer(&mut selector, RELAY, 40_000);
-        assert_eq!(selector.current(), Some(RELAY));
-        answer(&mut selector, LAN, 60_000);
-        assert_eq!(selector.current(), Some(LAN), "class first, whatever the RTT");
-    }
-
-    #[test]
-    fn a_silent_current_path_sprays_until_it_answers() {
-        let mut selector = three_paths();
-        answer(&mut selector, RELAY, 40_000);
-        answer(&mut selector, LINK, 300);
-        assert_eq!(selector.current(), Some(LINK));
-        let switch = selector.on_silence(LINK).unwrap();
-        assert_eq!(switch, Some(Switch { from: Some(LINK), to: None }), "every path at once");
-        assert_eq!(selector.chosen(), Some(LINK));
-        let switch = answer(&mut selector, LINK, 300);
-        assert_eq!(switch, Some(Switch { from: None, to: Some(LINK) }));
-    }
-
-    #[test]
-    fn a_dropped_fast_path_sprays_then_falls_back_when_it_dies() {
-        let mut selector = three_paths();
-        answer(&mut selector, RELAY, 40_000);
-        answer(&mut selector, LINK, 300);
-        assert_eq!(lose(&mut selector, LINK), Some(Switch { from: Some(LINK), to: None }));
-        assert_eq!(lose(&mut selector, LINK), None, "still suspect: still every path");
-        let switch = lose(&mut selector, LINK);
-        assert_eq!(switch, Some(Switch { from: None, to: Some(RELAY) }));
-        assert_eq!(selector.path(LINK).unwrap().state, PathState::Dead);
-        // It comes back: the link wins again at once.
-        assert_eq!(
-            answer(&mut selector, LINK, 300),
-            Some(Switch { from: Some(RELAY), to: Some(LINK) })
-        );
-    }
-
-    #[test]
-    fn a_suspect_with_nothing_else_alive_keeps_spraying() {
-        let mut selector = three_paths();
-        answer(&mut selector, LAN, 500);
-        selector.on_silence(LAN).unwrap();
-        assert_eq!(selector.current(), None);
-        assert_eq!(selector.chosen(), Some(LAN));
-        assert_eq!(lose(&mut selector, LAN), None, "still suspect, nothing visible changed");
-        lose(&mut selector, LAN);
-        let died = lose(&mut selector, LAN);
-        assert_eq!(
-            died,
-            Some(Switch { from: None, to: None }),
-            "the held path's death is reported"
-        );
-        assert_eq!(selector.chosen(), None);
-    }
-
-    #[test]
-    fn silence_on_a_path_that_is_not_alive_changes_nothing() {
-        let mut selector = three_paths();
-        assert_eq!(selector.on_silence(LAN).unwrap(), None);
-        assert_eq!(selector.path(LAN).unwrap().state, PathState::Probing);
-    }
-
-    fn relay_first() -> Selector {
-        let mut selector =
-            Selector::new(SelectorConfig { upgrade_streak: 2, ..SelectorConfig::default() });
-        selector.add_path(LAN, PathKind::DirectLan).unwrap();
-        selector.add_path(RELAY, PathKind::DoRelay).unwrap();
-        selector
-    }
-
-    #[test]
-    fn relay_first_a_direct_path_takes_the_relay_after_its_streak_and_doubles_it_per_drop() {
-        let mut selector = relay_first();
-        assert_eq!(
-            selector.on_opened(RELAY).unwrap(),
-            Some(Switch { from: None, to: Some(RELAY) })
-        );
-        answer(&mut selector, RELAY, 40_000);
-        assert_eq!(answer(&mut selector, LAN, 10_000), None);
-        assert_eq!(
-            answer(&mut selector, LAN, 10_000),
-            Some(Switch { from: Some(RELAY), to: Some(LAN) })
-        );
-        assert_eq!(lose(&mut selector, LAN), Some(Switch { from: Some(LAN), to: None }));
-        lose(&mut selector, LAN);
-        assert_eq!(lose(&mut selector, LAN), Some(Switch { from: None, to: Some(RELAY) }));
-        for _ in 0..3 {
-            assert_eq!(answer(&mut selector, LAN, 10_000), None, "needs 4 now");
-        }
-        assert_eq!(answer(&mut selector, LAN, 10_000).and_then(|s| s.to), Some(LAN));
-    }
-
-    #[test]
-    fn relay_first_the_first_path_to_answer_carries_and_a_dead_relay_strands_nothing() {
-        let mut selector = relay_first();
-        assert_eq!(answer(&mut selector, LAN, 10_000).and_then(|s| s.to), Some(LAN));
-        let mut selector = relay_first();
-        answer(&mut selector, RELAY, 40_000);
-        answer(&mut selector, LAN, 10_000);
-        assert_eq!(selector.current(), Some(RELAY));
-        for _ in 0..3 {
-            lose(&mut selector, RELAY);
-        }
-        assert_eq!(selector.current(), Some(LAN), "the unproven direct path beats nothing");
-    }
-
-    #[test]
-    fn default_config_is_unchanged_by_relay_first() {
-        let mut selector = three_paths();
-        answer(&mut selector, RELAY, 40_000);
-        assert_eq!(answer(&mut selector, LAN, 60_000).and_then(|s| s.to), Some(LAN));
-    }
-
-    #[test]
-    fn rtt_hysteresis_still_decides_between_paths_of_one_medium() {
-        let mut selector = Selector::new(SelectorConfig::default());
-        selector.add_path_on(LAN, PathKind::DirectLan, Medium::Lan).unwrap();
-        selector.add_path_on(LINK, PathKind::DirectLan, Medium::Lan).unwrap();
-        answer(&mut selector, LAN, 20_000);
-        answer(&mut selector, LINK, 2_000);
-        assert_eq!(selector.current(), Some(LAN), "one answer is not a streak");
-        answer(&mut selector, LINK, 2_000);
-        answer(&mut selector, LINK, 2_000);
-        assert_eq!(selector.current(), Some(LINK));
-    }
-}
+#[path = "selector_tests.rs"]
+mod tests;

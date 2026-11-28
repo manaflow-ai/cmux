@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { Thinking } from "./Thinking";
+import { LINE_DWELL_MS, Thinking } from "./Thinking";
 import { WorkingFor } from "./WorkingFor";
 import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
@@ -149,7 +149,9 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
       "agentPane.display.statusVerbs.custom": "Imagining",
     }),
   );
-  act(() => root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />));
+  act(() =>
+    root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} retryAt={Date.now() - 60_000} />),
+  );
   expect(container.querySelector("[data-retrying]")).not.toBeNull();
   expect(container.textContent).not.toContain("Imagining");
   act(() => root!.render(<Thinking liveState="subagents" liveAgents={2} />));
@@ -157,7 +159,34 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.textContent).not.toContain("Imagining");
 });
 
+test("waiting on a subagent times the wait, not the whole turn (Leo, 2026-11-20: '... for seven minutes and 39 seconds?')", () => {
+  const T0 = 1_800_000_000_000;
+  // The turn began 7m 39s ago; it worked 5m 39s, then has waited 2m on its subagent.
+  const now = () => T0 + 459_000;
+  act(() =>
+    root!.render(
+      <Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 339_000} turnTotal />,
+    ),
+  );
+  const line = container.querySelector(".cv-worked")!;
+  expect(line.textContent).toContain("Waiting on 1 subagent");
+  // The default look shows one clock: the wait's, never the turn's 7m 39s.
+  expect(line.textContent).not.toContain("7m 39s");
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("2m");
+  // A wait from the turn's very start has the turn's clock, which is already the wait's.
+  act(() =>
+    root!.render(<Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 200} turnTotal />),
+  );
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("7m 39s");
+});
+
+/// The roll on its own, each change shown at once: the line's dwell has its own test below.
+const rollAlone = () => {
+  document.documentElement.dataset.liveDwell = "off";
+};
+
 test("a new call rolls the live line's words: the old rise out above, the new restart their roll in", () => {
+  rollAlone();
   const output = () => container.querySelector("output.cv-thinking")!;
   act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
   // The first words roll nothing in.
@@ -188,6 +217,40 @@ test("a new call rolls the live line's words: the old rise out above, the new re
   expect(first.getAttribute("data-roll")).toBe("even");
 });
 
+// Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your tool
+// call/thinking glimmer text rapidly flickering up". Words that change within the dwell wait for its end
+// and roll once to the latest; words back to what the line shows roll nothing.
+test("words that change within the line's dwell roll once, to the latest, at its end", async () => {
+  jest.useFakeTimers();
+  let clock = 1_000;
+  const now = () => clock;
+  const line = () => container.querySelector("output.cv-thinking")!;
+  const wait = async (ms: number) => {
+    clock += ms;
+    await act(async () => void jest.advanceTimersByTime(ms));
+  };
+  try {
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="tests" />));
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    // Held: the line still says Thinking and has rolled nothing.
+    expect(line().textContent).toContain("Thinking");
+    expect(line().hasAttribute("data-roll")).toBe(false);
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+    // Back to Thinking and away again within the next dwell: the line stays on docs, rolling nothing.
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test("the playful verb's own rotation does not roll the live line", () => {
   act(() =>
     setChatDisplay({
@@ -202,11 +265,19 @@ test("the playful verb's own rotation does not roll the live line", () => {
 });
 
 test("the words back after a retry roll nothing in, and no old words rise again", () => {
+  rollAlone();
   act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).not.toBeNull();
   act(() =>
-    root!.render(<Thinking since={0} now={() => 1_000} retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />),
+    root!.render(
+      <Thinking
+        since={0}
+        now={() => 1_000}
+        retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }}
+        retryAt={-60_000}
+      />,
+    ),
   );
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).toBeNull();

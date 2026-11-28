@@ -1,0 +1,21 @@
+{
+  "$comment": "HAND-EDITED source of which settings an agent may change (MCP settings_set and settings_reset, the socket's cli/mcp/script/remote writers; plans/cmux-next/settings-react.md section 3), one file per key: <key>.json is {agent, why?}, so two pull requests that each add a setting add two files and never touch the same line (cmuxterm-hq docs/rfd/drafts/conflict-free-tests-deploy.md). Every key of the schema has exactly one file, with no default: scripts/cmux-next/gen-settings-sources.py fails on a row with no file, so a new setting cannot reach agents without a decision. agent is settable (an agent may set and reset the key: looks and layout, usually) or the refusal that says why not (one of refusals below); why is the reason, the same text on every key it covers. The settings schema export writes agent_settable and agent_refusal per row from it; gen-settings-sources.py writes the Swift copy the app enforces at its one write path (SettingsSchema+AgentPolicy.generated.swift: SettingsSchema.agentSettableKeys, agentRefusedKeys, SettingWriter).",
+  "refusals": [
+    {
+      "id": "privacy",
+      "doc": "The key decides what leaves the machine or what is recorded."
+    },
+    {
+      "id": "network",
+      "doc": "The key opens network access or egress."
+    },
+    {
+      "id": "destructive",
+      "doc": "The key can end terminals or other work."
+    },
+    {
+      "id": "userOnly",
+      "doc": "The person decides it; agents do not, in v1 (picker.pinned: which folders the picker offers first)."
+    }
+  ]
+}

@@ -63,6 +63,26 @@ if [[ "$got" != "$C3" ]]; then
   exit 1
 fi
 
+# 2026-11-26: origin (github.com) answered 403 to every deepen. A local mirror holding the
+# same history answers instead, and the remote is never needed.
+git clone -q --depth 1 "file://$TMP/src" "$TMP/mirror-work"
+git -C "$TMP/mirror-work" remote set-url origin "file://$TMP/refuses-like-a-403"
+got="$(cd "$TMP/mirror-work" && CMUX_TUI_CLIENT_MIRROR="$TMP/src/.git" CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 \
+  CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS=0 "$RESOLVER" 2>"$TMP/mirror.err")" || true
+if [[ "$got" != "$C3" ]]; then
+  echo "FAIL: with origin refusing, the local mirror must deepen to $C3, got '$got'"
+  cat "$TMP/mirror.err"
+  exit 1
+fi
+# Without the mirror the same refusal fails, so the case above proves the mirror did it.
+git clone -q --depth 1 "file://$TMP/src" "$TMP/nomirror-work"
+git -C "$TMP/nomirror-work" remote set-url origin "file://$TMP/refuses-like-a-403"
+if (cd "$TMP/nomirror-work" && CMUX_TUI_CLIENT_MIRROR= CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 \
+    CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS=0 "$RESOLVER" >/dev/null 2>&1); then
+  echo "FAIL: with origin refusing and no mirror, the resolver must fail"
+  exit 1
+fi
+
 # The newest cmux-tui commit lost its artifacts (failed or still-running artifacts run).
 rm "$STORE/$C3/manifest.json"
 if (cd "$TMP/work" && "$RESOLVER" >/dev/null 2>&1); then

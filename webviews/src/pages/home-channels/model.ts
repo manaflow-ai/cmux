@@ -8,8 +8,10 @@ import type { HomeDraft } from "./drafts";
 import type {
   HomeAttachment,
   HomeConversation,
+  HomeLocation,
   HomeMessage,
   HomePart,
+  HomeQuestion,
   HomeThreadObject,
   HomeThreadStats,
   HomeThreadStatus,
@@ -56,22 +58,81 @@ export function withChiefNames(
   channels: ReadonlySet<string>,
   me: string | undefined,
   chiefs: ReadonlyMap<string, { name: string }>,
+  cache?: RenamedCache,
 ): ReadonlyMap<string, HomeConversation> {
-  if (chiefs.size === 0) return conversations;
+  if (chiefs.size === 0) {
+    cache?.clear();
+    return conversations;
+  }
   let changed: Map<string, HomeConversation> | undefined;
+  const seen = new Set<string>();
   for (const c of conversations.values()) {
     if (channels.has(c.id)) continue;
     const others = c.participants.filter((p) => p.id !== me);
     const record = others.length === 1 && others[0]!.chief ? chiefs.get(others[0]!.id) : undefined;
     if (!record || (c.title === record.name && others[0]!.name === record.name)) continue;
     changed ??= new Map(conversations);
-    changed.set(c.id, {
+    seen.add(c.id);
+    // The same conversation under the same name is the object the list already holds: its memo row
+    // draws again only when the conversation or the Chief's name changed.
+    const held = cache?.get(c.id);
+    if (held && held.input === c && held.name === record.name) {
+      changed.set(c.id, held.output);
+      continue;
+    }
+    const output = {
       ...c,
       title: record.name,
       participants: c.participants.map((p) => (p.id === others[0]!.id ? { ...p, name: record.name } : p)),
-    });
+    };
+    cache?.set(c.id, { input: c, name: record.name, output });
+    changed.set(c.id, output);
   }
+  if (cache) for (const id of cache.keys()) if (!seen.has(id)) cache.delete(id);
   return changed ?? conversations;
+}
+
+/** withChiefNames' renamed conversations by id: the input it renamed, the name, and the result. */
+export type RenamedCache = Map<string, { input: HomeConversation; name: string; output: HomeConversation }>;
+
+/** withChiefNames over its own RenamedCache: each call keeps the renamed conversations of the last
+ * one while their input and name hold. One per page, so the cache lives with it and not in a ref. */
+export function chiefNamer(): (
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+) => ReadonlyMap<string, HomeConversation> {
+  const cache: RenamedCache = new Map();
+  return (conversations, channels, me, chiefs) => withChiefNames(conversations, channels, me, chiefs, cache);
+}
+
+/**
+ * A reply's conversations, each one that did not change kept as the object the page already holds:
+ * the inbox re-sends the whole list, and a memoized row draws again only for the one that changed.
+ */
+export function keepUnchanged(
+  previous: ReadonlyMap<string, HomeConversation>,
+  next: readonly HomeConversation[],
+): HomeConversation[] {
+  return next.map((conversation) => {
+    const old = previous.get(conversation.id);
+    return old && sameValue(old, conversation) ? old : conversation;
+  });
+}
+
+/** Equal as data: the same primitives, arrays and plain objects (a conversation's participants). */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(b, key) &&
+      sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+  );
 }
 
 export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
@@ -130,17 +191,58 @@ export function threadOf(message: HomeMessage): string | undefined {
   return root && root !== message.id ? root : undefined;
 }
 
+/** What a person reads for a work part (Swift `WorkRef.shownText`): its preview, else its title when
+ * that is a name of its own. Undefined when it has neither: the session id is a machine name, never
+ * shown (a Chief turn that ends without a reply posts such a part as its done marker). */
+export function workShownText(part: Extract<HomePart, { type: "work" }>): string | undefined {
+  const preview = part.preview?.trim();
+  if (preview) return preview;
+  const title = part.title.trim();
+  return !title || title === (part.session ?? part.title) ? undefined : title;
+}
+
+/** A question as plain text (Swift `AgentQuestion.transcriptText`): each prompt with its numbered
+ * options, or with the chosen answers once answered. */
+export function questionText(question: HomeQuestion): string {
+  return question.items
+    .map((item) => {
+      if (question.state.kind === "answered") {
+        const chosen = question.state.selections[item.id];
+        const labels = (chosen?.optionIds ?? []).map((id) => item.options.find((o) => o.id === id)?.label ?? id);
+        if (chosen?.other) labels.push(chosen.other);
+        return `${item.prompt}\n✓ ${labels.join(", ")}`;
+      }
+      return [item.prompt, ...item.options.map((option, index) => `${index + 1}. ${option.label}`)].join("\n");
+    })
+    .join("\n\n");
+}
+
+/** A place's coordinates as the native copy writes them (`lat, lon`). */
+export const coordinates = (place: HomeLocation): string => `${place.latitude}, ${place.longitude}`;
+
+/** A part's plain text (Swift `MessagePart.plainText`): list previews, search, copy. */
 export function partText(part: HomePart): string {
   switch (part.type) {
     case "text":
     case "other":
       return part.text;
     case "work":
-      return part.preview ?? part.title;
+      return workShownText(part) ?? "";
     case "attachment":
       return part.name;
+    case "question":
+      return questionText(part);
+    case "link_preview":
+      return part.title ?? part.url;
+    case "location":
+      return part.label ?? coordinates(part);
+    case "widget":
+      return part.fallback;
   }
 }
+
+/** Whether a part shows anything (a work part without a preview is no bubble, Swift `HomeMapping.parts`). */
+export const partShows = (part: HomePart): boolean => part.type !== "work" || workShownText(part) !== undefined;
 
 export function messageText(message: HomeMessage): string {
   return message.parts.map(partText).join("\n");

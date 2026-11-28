@@ -190,10 +190,14 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
       },
       { COMPOSER_EDITOR },
     );
-    // No frame shows the tile without its picture, or with the picture dimmed.
+    // The tile shows from the paste's frame, before its picture (Leo, 2026-11-18: "dragging and
+    // dropping attachments of any size should never take time to load"): never held unseen for
+    // it. Once the picture shows, no frame drops it or dims it.
     expect(frames.length).toBeGreaterThan(0);
-    expect(frames.filter((frame) => !frame.picture)).toEqual([]);
-    expect(frames.filter((frame) => frame.opacity < 0.99)).toEqual([]);
+    const pictured = frames.findIndex((frame) => frame.picture);
+    expect(pictured).toBeGreaterThanOrEqual(0);
+    expect(frames.slice(pictured).filter((frame) => !frame.picture)).toEqual([]);
+    expect(frames.slice(pictured).filter((frame) => frame.opacity < 0.99)).toEqual([]);
     await page.close();
   });
 });

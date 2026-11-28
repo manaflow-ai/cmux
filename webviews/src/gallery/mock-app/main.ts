@@ -16,8 +16,8 @@ import themes from "virtual:cmux-gallery/themes";
 import entryIndex from "virtual:cmux-gallery/entry-index";
 import { overPicture, readEnv } from "../env";
 import { DEFAULT_DARK_THEME } from "../theme/ghostty";
-import { themeTokens } from "../theme/web";
-import { css, mixed, type ThemeTokens } from "../theme/tokens";
+import { themeTokens, themeInput } from "../theme/web";
+import { css, mixed, type ThemeTokens, deriveTokens } from "../theme/tokens";
 import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
@@ -59,7 +59,9 @@ function applyTokens(target: HTMLElement, t: ThemeTokens): void {
   set("--app-attention", css(t.attention));
   set("--app-danger", css(t.danger));
   set("--app-accent", css(t.accent));
-  set("--app-tab", css(mixed(t.stripBackground, t.contentBackground, 0.6)));
+  // The selected tab's pill is the selection fill, as the app draws it (TabCell.swift); a mix of the strip and
+  // the content surface was the same colour as the strip (1.00:1), so no tab read as selected.
+  set("--app-tab", css(t.selectionFill));
   root.style.colorScheme = t.isDark ? "dark" : "light";
 }
 applyTokens(root, tokens);
@@ -79,6 +81,8 @@ type PaneData = {
   /** The variant's whole look (golden/look.ts) and the other tabs of its strip (format.ts windowTabs). */
   look?: GoldenLook;
   tabs?: string[];
+  /** The variant's font study pairing (format.ts fontStudy). */
+  fontStudy?: string;
 };
 
 /** The window under the main pane's look: its theme file for this scheme, its sidebar surface. */
@@ -86,10 +90,13 @@ function applyLook(look: GoldenLook): void {
   const scheme = look.schemes[schemeOf(env.colorScheme)];
   const lookAccent =
     scheme.accent && (APP_ACCENTS as readonly string[]).includes(scheme.accent) ? scheme.accent : env.accent;
-  const t = themeTokens(
-    lookTheme(scheme, theme, (name) => themes.find((candidate) => candidate.name === name)),
-    lookAccent as AppAccent,
-  );
+  const t = deriveTokens({
+    ...themeInput(
+      lookTheme(scheme, theme, (name) => themes.find((candidate) => candidate.name === name)),
+      lookAccent as AppAccent,
+    ),
+    selection: scheme.selection,
+  });
   const sidebar = scheme.surfaces?.sidebar ? parseHex(scheme.surfaces.sidebar) : undefined;
   applyTokens(root, sidebar ? { ...t, sidebarBackground: sidebar } : t);
 }
@@ -105,14 +112,29 @@ function age(at: number | undefined): string {
 }
 
 /** The fixture's chats and title, read from its gallery entry (one entry file, by the index). */
-async function paneData(fixture: string): Promise<PaneData> {
+const paneDataCache = new Map<string, Promise<PaneData>>();
+/** paneData, read once per fixture (the main fixture's font study and its window both ask). */
+function paneData(fixture: string): Promise<PaneData> {
+  let data = paneDataCache.get(fixture);
+  if (!data) paneDataCache.set(fixture, (data = readPaneData(fixture)));
+  return data;
+}
+
+async function readPaneData(fixture: string): Promise<PaneData> {
   const { entry: id, variant } = parseFixture(fixture);
   // The index names the entry's file; when its guess is stale, the whole registry finds it.
   let { entry } = await createFrameEntryStore(entryIndex[id]).find(id);
   if (!entry && entryIndex[id]) ({ entry } = await createFrameEntryStore().find(id));
   const state = entry?.variants[variant ?? Object.keys(entry.variants)[0] ?? ""] as AgentPaneVariant | undefined;
   const snapshot = state?.snapshot;
-  if (!snapshot) return { title: id, sessions: [] };
+  // A page (Settings, a diff): its tab's name, and the look it is drawn under (format.ts VariantBase look).
+  if (!snapshot)
+    return {
+      title: (entry && PAGE_TAB_TITLES[entry.host]) ?? id,
+      sessions: [],
+      look: state?.look,
+      fontStudy: state?.fontStudy,
+    };
   const title = snapshot.summary?.title ?? (snapshot.rows.length === 0 ? "New Tab" : "Chat");
   return {
     title,
@@ -120,8 +142,18 @@ async function paneData(fixture: string): Promise<PaneData> {
     selected: snapshot.sessionId,
     look: state.look,
     tabs: state.windowTabs,
+    fontStudy: state.fontStudy,
   };
 }
+
+/** The tab a page opens in, by its gallery host (the app names the page's tab so). */
+const PAGE_TAB_TITLES: Partial<Record<string, string>> = {
+  "settings-page": "Settings",
+  "passwords-page": "Passwords",
+  "keybindings-page": "Keyboard Shortcuts",
+  "changelog-page": "What's New",
+  "history-page": "History",
+};
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -150,12 +182,27 @@ const markOf = (session: AcpmuxSessionEntry) =>
           ? "unread"
           : "";
 
-/** The native sidebar, approximated: the traffic lights, then the chats grouped by folder. */
+/** A `sidebar.nav` entry's title: "id | Title | symbol" names one, else the action id stands in. */
+const navTitle = (entry: string) => {
+  const [id, title] = entry.split("|").map((part) => part.trim());
+  return title || id || "";
+};
+
+/** The native sidebar, approximated: the traffic lights, the look's nav rows (`sidebar.nav`), then the
+ * chats grouped by folder; with `sidebar.settleFinished`, a read, finished chat that is not the
+ * selected one folds into the "Settled (N)" row at the end. */
 function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
   const list = el("div", "app-sidebar-list");
   const ages = lookSetting<boolean>(data.look, "sidebar.showTimestamps", false) === true;
+  const nav = lookSetting<unknown>(data.look, "sidebar.nav", []);
+  for (const entry of Array.isArray(nav) ? nav : []) {
+    if (typeof entry === "string" && navTitle(entry)) list.append(el("div", "app-sidebar-nav", navTitle(entry)));
+  }
+  const settles = lookSetting<boolean>(data.look, "sidebar.settleFinished", false) === true;
+  const settled = (session: AcpmuxSessionEntry) =>
+    settles && session.sessionId !== data.selected && markOf(session) === "";
   const groups = new Map<string, AcpmuxSessionEntry[]>();
-  for (const session of data.sessions) {
+  for (const session of data.sessions.filter((session) => !settled(session))) {
     const name = folderName(session.cwd);
     groups.set(name, [...(groups.get(name) ?? []), session]);
   }
@@ -172,6 +219,7 @@ function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
       list.append(row);
     }
   }
+  if (settles) list.append(el("div", "app-sidebar-settled", `Settled (${data.sessions.filter(settled).length})`));
   if (data.sessions.length === 0) list.append(el("div", "app-sidebar-empty", "No chats yet"));
   sidebar.append(list);
 }
@@ -194,8 +242,12 @@ function drawWindow(
   const frame = el("div", "app-window");
   frame.dataset.density = env.density;
   if (overPicture(env)) frame.dataset.glass = "";
+  // The native parts the window approximates carry `data-stand-in`: a capture or a test can tell them from the
+  // real web panes (each pane's frame), which carry none.
   const sidebar = el("aside", "app-sidebar");
+  sidebar.dataset.standIn = "native sidebar";
   const lights = el("div", "app-lights");
+  lights.dataset.standIn = "native traffic lights";
   if (!nativeChrome)
     for (const color of ["close", "minimize", "zoom"]) lights.append(el("span", `app-light app-light-${color}`));
   sidebar.append(lights);
@@ -208,6 +260,7 @@ function drawWindow(
     const fixture = fixtures[index] ?? fixtures[0]!;
     const box = el("section", "app-pane");
     const strip = el("div", "app-strip");
+    strip.dataset.standIn = "native tab strip";
     const tab = el("div", "app-tab");
     tab.dataset.selected = "";
     const tabTitle = el("span", "app-tab-title", "");
@@ -230,6 +283,7 @@ function drawWindow(
           other.style.height = tab.style.height;
           strip.insertBefore(other, plus);
         }
+        // The window takes the main pane's look, a page's too; each pane's frame draws its own variant's look.
         if (index === 0 && data.look) applyLook(data.look);
         if (index === 0 && sidebarShown) drawSidebar(sidebar, data);
       })
@@ -297,16 +351,22 @@ const specs: WindowSpec[] = (params.get("windows") ?? appAxis(params, "window"))
 
 const zoomValue = appAxis(params, "zoom");
 /// A font study pairing draws the chrome too (the sidebar); the app is ready once its faces load.
-const fontStudy = env.fontStudy
-  ? import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy))
-  : null;
+/// The URL's pairing wins over the main fixture's own (format.ts fontStudy).
+const fontStudyId = env.fontStudy
+  ? Promise.resolve(env.fontStudy)
+  : paneData(appAxis(params, "fixture")).then(
+      (data) => data.fontStudy ?? "",
+      () => "",
+    );
+const fontStudy = fontStudyId.then((id) =>
+  id ? import("../fontStudy/apply").then((study) => study.applyFontStudy(id)) : undefined,
+);
 let ready = 0;
 const markReady = () => {
   ready += 1;
   // The first window ready is the app ready; the rest mount as they scroll into view.
   if (ready !== 1) return;
-  if (fontStudy) void fontStudy.then(announceReady);
-  else announceReady();
+  void fontStudy.then(announceReady);
 };
 const announceReady = () => {
   root.dataset.mockAppReady = "1";

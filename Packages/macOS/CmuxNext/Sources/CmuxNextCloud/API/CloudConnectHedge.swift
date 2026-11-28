@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import CmuxNextCompat
 
@@ -46,6 +47,7 @@ public struct CloudConnectHedge: Sendable {
     /// Attempts of a hedged read in all.
     public var maxAttempts: Int
 
+    // short-gate: a hedge, not a give-up; each attempt keeps the read's own deadline.
     public init(stagger: Duration = .seconds(1), maxAttempts: Int = 3) {
         self.stagger = stagger
         self.maxAttempts = max(1, maxAttempts)
@@ -86,7 +88,7 @@ public struct CloudConnectHedge: Sendable {
         return try await send(replay: Self.replay(of: request), clock: ContinuousClock()) { attempt in
             guard attempt > 0 else { return try await session.data(for: request) }
             resends?.note()
-            let fresh = URLSession(configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
+            let fresh = CmuxEgress.session(site: "CmuxNextCloud.CloudConnectHedge", configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
             defer { fresh.finishTasksAndInvalidate() }
             return try await fresh.data(for: request)
         }
@@ -177,7 +179,7 @@ private enum HedgeEvent<T: Sendable>: Sendable {
 }
 
 /// Answers every redirect with "do not follow" (the completion-handler form: the async delegate form
-/// crashes swift 6.4 SILGen in this module, as `InstallHTTPTransport`'s does).
+/// crashes swift 6.4 SILGen in this module).
 private final class HedgeRefusesRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {

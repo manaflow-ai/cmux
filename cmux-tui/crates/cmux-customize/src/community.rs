@@ -8,7 +8,9 @@
 //! - A **theme** repository is marked by `cmux-theme.json` (a listing header)
 //!   and holds ordinary cmux theme files at `themes/NAME.json`
 //!   (`cmux_config::theme_file`). Installing one writes those files and sets
-//!   `appearance.themeFile` to the one the header names.
+//!   `appearance.themeFile` to the one the header names. It may carry art
+//!   ([`art`]) and an openly licensed font pack for the agent chat
+//!   ([`fonts`]).
 //! - A **snippet** repository is marked by `cmux-snippet.json`: a listing
 //!   header plus a `cmuxProfile` (the format `cmux customize save` writes): a
 //!   few settings and, at most, the per-surface stylesheets.
@@ -36,6 +38,7 @@ use serde_json::{Value, json};
 use crate::library::Changed;
 
 pub mod art;
+pub mod fonts;
 use crate::profile::{Profile, valid_name};
 use crate::{Customize, Error};
 
@@ -114,6 +117,8 @@ pub struct Package {
     pub profile: Profile,
     /// A theme's wallpapers, header image and flourishes (empty for a snippet).
     pub art: art::Art,
+    /// A theme's font pack (empty for a snippet).
+    pub fonts: fonts::Fonts,
 }
 
 /// Where an installed theme or snippet came from.
@@ -252,25 +257,32 @@ pub fn read_package(dir: &Path) -> Result<Package, Error> {
     let version = Some(header_text(&header, "version", marker, false)?).filter(|v| !v.is_empty());
     let entry = entry_name(tier, &id);
     debug_assert!(valid_name(&entry));
-    let (profile, themes, art) = match tier {
+    let (profile, themes, art, fonts) = match tier {
         Tier::Theme => {
             let art = art::read_art(dir, &header)?;
-            let (profile, themes) = theme_profile(dir, &header, &entry, &art)?;
-            (profile, themes, art)
+            let fonts = fonts::read_fonts(dir, &header)?;
+            let (profile, themes) = theme_profile(dir, &header, &entry, &art, &fonts)?;
+            (profile, themes, art, fonts)
         }
-        Tier::Snippet => (snippet_profile(dir, &header)?, Vec::new(), art::Art::default()),
+        Tier::Snippet => (
+            snippet_profile(dir, &header)?,
+            Vec::new(),
+            art::Art::default(),
+            fonts::Fonts::default(),
+        ),
     };
     let profile = Profile { name: entry, description: description.clone(), ..profile };
-    Ok(Package { tier, id, name, description, version, header, themes, profile, art })
+    Ok(Package { tier, id, name, description, version, header, themes, profile, art, fonts })
 }
 
-/// A theme repository's profile: its theme files (backdrop values pointed
-/// at the installed art), and the active one.
+/// A theme repository's profile: its theme files (backdrop and face values
+/// pointed at the installed art and fonts), and the active one.
 fn theme_profile(
     dir: &Path,
     header: &Value,
     entry: &str,
     art: &art::Art,
+    fonts: &fonts::Fonts,
 ) -> Result<(Profile, Vec<String>), Error> {
     let paths: Vec<String> = match header.get("themes") {
         None | Some(Value::Null) => {
@@ -309,6 +321,8 @@ fn theme_profile(
     let schema = Schema::embedded();
     let mut files = BTreeMap::new();
     let mut names = Vec::new();
+    // The flourishes, header and pane art as settings each theme file carries.
+    let flourishes = art::settings(art, entry);
     for path in &paths {
         let name = path
             .strip_prefix("themes/")
@@ -317,7 +331,11 @@ fn theme_profile(
             .ok_or_else(|| refuse(format!("{path}: a theme file is themes/NAME.json")))?;
         let text = read_text(dir, path, theme_file::MAXIMUM_BYTES as u64)?
             .ok_or_else(|| refuse(format!("{path}: not in the repository")))?;
-        let text = art::rewrite(&text, path, entry, art)?;
+        let installed = art::rewrite(&text, path, entry, art)?;
+        let installed = fonts::rewrite(&installed, path, entry, fonts)?;
+        let installed = art::with_settings(&installed, path, &flourishes)?;
+        // Checked as written, against the tree: its `../wallpapers/` and
+        // `../fonts/` values name files beside `themes/` there.
         let themes_dir = dir.join(theme_file::FOLDER_NAME);
         let file = ThemeFile::read(
             name,
@@ -334,7 +352,7 @@ fn theme_profile(
             }
             return Err(refuse(why));
         }
-        files.insert(path.clone(), text);
+        files.insert(path.clone(), installed);
         names.push(name.to_owned());
     }
     let active = match header.get("use") {
@@ -552,12 +570,16 @@ pub fn card(verb: &str, package: &Package, receipt: &Receipt, reviewed: bool) ->
         (None, None) => short(&receipt.commit).to_owned(),
     };
     let author = package.id.split('/').next().unwrap_or_default();
-    let images = package.art.images.len();
-    let with = if images == 0 {
-        String::new()
-    } else {
-        format!(", with {}", crate::count(images, "image"))
-    };
+    let mut carries = Vec::new();
+    if !package.art.images.is_empty() {
+        carries.push(crate::count(package.art.images.len(), "image"));
+    }
+    if !package.fonts.files.is_empty() {
+        let license = package.fonts.license.as_deref().unwrap_or_default();
+        carries.push(format!("{} ({license})", crate::count(package.fonts.files.len(), "font")));
+    }
+    let with =
+        if carries.is_empty() { String::new() } else { format!(", with {}", carries.join(", ")) };
     format!(
         "{verb} {} \"{}\" by {author} from {} @ {at}{with}: no code runs.{}",
         package.tier.name(),
@@ -676,15 +698,23 @@ impl Customize {
         let words = vec![format!("{} {}", package.tier.name(), receipt.reference)];
         let mut profile = package.profile.clone();
         profile.created_ms = now_ms;
-        // The art first, so the theme never points at pictures that are not
-        // there; a failed library change puts the earlier art back.
-        let staged = art::install(&self.roots().config_dir, &receipt.entry, &package.art)?;
+        // The art and fonts first, so the theme never points at files that
+        // are not there; a failed library change puts the earlier ones back.
+        let config_dir = &self.roots().config_dir;
+        let staged = art::install(config_dir, &receipt.entry, &package.art)?;
+        let staged_fonts = fonts::install(config_dir, &receipt.entry, &package.fonts)?;
         let change = self.library_put(profile, package.tier.name(), words, top, origin, now_ms)?;
         match staged {
             Some(staged) => staged.keep(),
             // An update that no longer carries art: the old copy goes.
             None => {
-                art::remove(&self.roots().config_dir, &receipt.entry)?;
+                art::remove(config_dir, &receipt.entry)?;
+            }
+        }
+        match staged_fonts {
+            Some(staged) => staged.keep(),
+            None => {
+                fonts::remove(config_dir, &receipt.entry)?;
             }
         }
         file.installed.retain(|have| have.entry != receipt.entry);
@@ -711,6 +741,7 @@ impl Customize {
             None
         };
         art::remove(&self.roots().config_dir, &receipt.entry)?;
+        fonts::remove(&self.roots().config_dir, &receipt.entry)?;
         let mut file = self.read_receipts()?;
         file.installed.retain(|have| have.entry != receipt.entry);
         self.write_receipts(&mut file)?;

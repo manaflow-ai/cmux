@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 8] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 13] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -92,6 +92,21 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 8] = [
     // must not hold it over the live setting. A chat another Mac started gets its own in its
     // session env, applied after (`hub/cmux_tools_answer.rs`).
     "CMUX_AGENT_TOOLS_ANSWER",
+    // A tool call's bound (leo-workspace tools/proc_env.py, glaeda-gh): the epoch second the call
+    // and all it started should be gone, and the tool that set it. The fleet's orphan reaper ends a
+    // process past it (exit 143), so a daemon a bounded command started handed it to every agent and
+    // terminal, which died minutes later, also after a relaunch kept them.
+    "CMUX_DEADLINE",
+    "CMUX_DEADLINE_OWNER",
+    // One command's wait cap (a caller sets these, 150 s, on a foreground wait it wants back
+    // within a prompt cache's life). A daemon that command started
+    // kept them, and so did every background task and agent it ran: 2026-11-27, a daemon
+    // started from a capped `task-wait` call cut a background task (`cmux-gh wait pr ...
+    // --timeout 2400`) to 150 s ("giving up after 150s with no change"), and handed every
+    // task-wait in a task a deadline hours past.
+    "GLAEDA_WAIT_CACHE_WARM_S",
+    "TASK_WAIT_MAX_S",
+    "TASK_WAIT_DEADLINE",
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the
@@ -138,5 +153,20 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
     for key in CHIEF_CREDENTIAL_ENV {
         cmd.env_remove(key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A tool call's wait cap is that call's alone: neither the daemon a capped call starts nor
+    /// an agent or background task it runs keeps it (`TURN_SCOPED_ENV`), so a background
+    /// `cmux-gh wait --timeout 2400` waits its 2400 s and not the starter's 150.
+    #[test]
+    fn a_tool_calls_wait_cap_is_caller_scoped() {
+        for key in ["GLAEDA_WAIT_CACHE_WARM_S", "TASK_WAIT_MAX_S", "TASK_WAIT_DEADLINE"] {
+            assert!(super::is_caller_scoped_key(key), "{key} is one call's");
+        }
+        // The switch a person sets on purpose (GLAEDA_WAIT_CACHE_WARM=0) is not a call's cap.
+        assert!(!super::is_caller_scoped_key("GLAEDA_WAIT_CACHE_WARM"));
     }
 }

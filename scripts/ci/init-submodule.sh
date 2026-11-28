@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# init-submodule.sh PATH
+# init-submodule.sh [--seed] PATH
 #
 # Run `git submodule update --init --depth 1 -- PATH` from the repository
 # root, and retry a failed network fetch. A runner that cannot reach
@@ -18,9 +18,28 @@
 # retrying an external network call, not synchronization: 5 s, then 15 s
 # (INIT_SUBMODULE_BACKOFF overrides the list). Exit status is the last
 # attempt's.
+#
+# Before the first attempt, in CI, the submodule's git directory comes from
+# the CI cache bucket when it is not on the machine yet: the exact pin
+# (`submodule-gitdir-v1-<name>-<pin>`, `-` in the name written `_`), else the
+# newest saved pin, so git fetches only the difference or nothing. Freestyle
+# runners read github.com at about 0.3-1 MB/s (a cold 630 MB cmux checkout
+# took 10-38 min there), and the ~33 MB depth-1 ghostty-next pack outran the
+# 120 s bound on all three attempts of 27 of 104 cmux-next fast tier (cargo)
+# jobs on 2026-11-23 (job 137511000146). INIT_SUBMODULE_CACHE_URL is the
+# bucket's public URL (default https://ci-cache-next.cmux.com when
+# GITHUB_ACTIONS is true; empty turns the cache off). A cache error is only
+# ever a miss.
+#
+# --seed fills the cache: when the bucket has no entry for the exact pin, it
+# fetches from the remote (no restore) and saves the git directory with the
+# bucket's write credentials (r2-cache.sh save's environment).
+# cmux-next-fast-tier-seed.yml runs it on every feat-cmux-next push.
 set -euo pipefail
 
-path="${1:?usage: init-submodule.sh PATH}"
+seed=false
+if [[ "${1:-}" == --seed ]]; then seed=true; shift; fi
+path="${1:?usage: init-submodule.sh [--seed] PATH}"
 attempts="${INIT_SUBMODULE_ATTEMPTS:-3}"
 attempt_timeout="${INIT_SUBMODULE_ATTEMPT_TIMEOUT:-120}"
 read -r -a backoff <<< "${INIT_SUBMODULE_BACKOFF:-5 15}"
@@ -34,6 +53,15 @@ name="$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
   exit 2
 }
 modules_dir="$(git rev-parse --absolute-git-dir)/modules/$name"
+pin="$(git ls-files -s -- "$path" | awk '$1 == "160000" { print $2; exit }')"
+url="$(git config -f .gitmodules --get "submodule.$name.url" || true)"
+r2_cache="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/r2-cache.sh"
+cache_url="${INIT_SUBMODULE_CACHE_URL-}"
+if [[ -z "${INIT_SUBMODULE_CACHE_URL+set}" && "${GITHUB_ACTIONS:-}" == true ]]; then
+  cache_url=https://ci-cache-next.cmux.com
+fi
+cache_prefix="submodule-gitdir-v1-${name//[^A-Za-z0-9._]/_}-"
+cache_key="$cache_prefix$pin"
 
 # GNU timeout only: Windows also ships an unrelated timeout.exe.
 timeout_cmd=()
@@ -53,15 +81,69 @@ reset_submodule() {
   mkdir -p "$path" || true
 }
 
+has_pin() { [[ -n "$pin" ]] && git --git-dir="$modules_dir" cat-file -e "$pin^{commit}" 2>/dev/null; }
+
+# A git directory from the cache, or nothing. Never one this machine already
+# has: a restore replaces the directory, and a populated one fetches less.
+cache_hit=false
+restore_gitdir() {
+  [[ -n "$cache_url" && -n "$pin" && -f "$r2_cache" ]] || return 0
+  [[ -e "$modules_dir" ]] && return 0
+  local t0 out
+  # The saved config names the work tree (core.worktree); git refuses a git
+  # directory whose work tree is missing.
+  mkdir -p "$path"
+  t0="$(date +%s)"
+  out="$(CI_CACHE_R2_PUBLIC_URL="$cache_url" CI_CACHE_R2_NAMESPACE=any GITHUB_OUTPUT= \
+    bash "$r2_cache" restore "$modules_dir" "$cache_key" "$cache_prefix" 2>&1)" || true
+  if [[ -d "$modules_dir" ]] && git --git-dir="$modules_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    # The origin is the one .gitmodules names, whatever the saving run had.
+    [[ -z "$url" ]] || git --git-dir="$modules_dir" config remote.origin.url "$url"
+    has_pin && cache_hit=true
+    echo "init-submodule: $path git directory from the cache in $(( $(date +%s) - t0 )) s ($(tail -1 <<<"$out"); pin present: $cache_hit)"
+  else
+    rm -rf "$modules_dir"
+    echo "init-submodule: no cached $path git directory ($(tail -1 <<<"$out")); fetching from $url"
+  fi
+}
+
+save_gitdir() {
+  [[ "$seed" == true ]] || return 0
+  has_pin || { echo "::error::the $path git directory lacks the pin ${pin:-?}; nothing saved" >&2; return 1; }
+  CI_CACHE_R2_PUBLIC_URL="$cache_url" CI_CACHE_R2_NAMESPACE=any GITHUB_OUTPUT= \
+    bash "$r2_cache" save "$modules_dir" "$cache_key"
+}
+
+if [[ "$seed" == true ]]; then
+  [[ -n "$cache_url" && -n "$pin" ]] || { echo "init-submodule: --seed needs a cache URL and a pinned $path" >&2; exit 2; }
+  for extension in tar.zst tar.gz; do
+    if curl --fail --silent --head --location --connect-timeout 15 --max-time 60 \
+        "${cache_url%/}/v1/any/objects/$cache_key.$extension" >/dev/null; then
+      echo "init-submodule: the cache already holds $cache_key.$extension"
+      exit 0
+    fi
+  done
+  for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET; do
+    [[ -n "${!var:-}" ]] || { echo "init-submodule: --seed needs $var (the bucket's write credentials)" >&2; exit 2; }
+  done
+else
+  restore_gitdir
+fi
+
 attempt=1
 while :; do
+  started="$(date +%s)"
   status=0
   # The +-expansion keeps an empty array legal under set -u in bash 3.2.
-  ${timeout_cmd[@]+"${timeout_cmd[@]}"} git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+  ${timeout_cmd[@]+"${timeout_cmd[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
     submodule update --init --depth 1 -- "$path" || status=$?
-  [[ "$status" -eq 0 ]] && exit 0
+  if [[ "$status" -eq 0 ]]; then
+    echo "init-submodule: $path at ${pin:0:12} in $(( $(date +%s) - started )) s (attempt $attempt)"
+    save_gitdir || exit $?
+    exit 0
+  fi
   if (( attempt >= attempts )); then
-    echo "::error::git submodule update for $path failed $attempt times (last exit $status)" >&2
+    echo "::error::git submodule update for $path failed $attempt times (last exit $status, $(( $(date +%s) - started )) s)" >&2
     exit "$status"
   fi
   delay="${backoff[attempt - 1]:-${backoff[${#backoff[@]} - 1]:-0}}"

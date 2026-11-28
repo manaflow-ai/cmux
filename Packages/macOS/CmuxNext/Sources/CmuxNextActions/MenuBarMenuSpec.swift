@@ -43,6 +43,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case computerUseResume(String)
         /// Rings the session's agent cursor where it is, so the person finds it.
         case computerUseShowCursor(String)
+        /// Shows (true) or hides (false) the floating live preview panel (`computerUse.floatingPreview`).
+        case computerUseFloatingPreview(Bool)
     }
 
     /// The most Computer Use sessions the row's submenu names.
@@ -103,6 +105,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         } else {
             account.append(.action("palette.auth.signIn", title: Self.text("menu.menuBar.signIn", "Sign In to cmux…"),
                                    symbol: "person.crop.circle"))
+            if let backend = state.signInBackend { account.append(.info(backend, symbol: nil, avatar: false)) }
         }
         var agents: [Item] = []
         if let awake = state.keepingAwake {
@@ -169,7 +172,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     /// the person takes over by using the mouse or keyboard (`computerUse.pauseOnTakeover`).
     private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
         guard let newest = state.session else {
-            return .computerUse(app: nil, bundleID: nil, items: [
+            return .computerUse(app: nil, bundleID: nil, items: floatingPreviewRows(state) + [
                 .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
                 .action("palette.computerUse.setup", title: nil, symbol: "gear"),
             ])
@@ -183,9 +186,22 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
             .action("computerUseStop", title: text("menu.menuBar.computerUse.stopAll", "Stop All Agents"), symbol: "stop.circle"),
             .separator,
-            .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
         ]
+        items += floatingPreviewRows(state)
+        items.append(.action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"))
         return .computerUse(app: newest.appName, bundleID: newest.bundleID, items: items)
+    }
+
+    /// Show or Hide Floating Preview while `computerUse.floatingPreview` is on (user 2026-11-22:
+    /// "WHERE IS THE FUCKING PREVIEW OF THE FUCKING RUNNING SITUATION AND THE ABILITY TO DRAG IT
+    /// AROUND AND FUCKING HIDE IT"); nothing while it is off.
+    private static func floatingPreviewRows(_ state: MenuBarMenuState.ComputerUse) -> [Item] {
+        guard let shown = state.floatingPreview else { return [] }
+        return [shown
+            ? .command(.computerUseFloatingPreview(false), title: text("menu.menuBar.computerUse.floatingPreview.hide", "Hide Floating Preview"),
+                       symbol: "pip.remove")
+            : .command(.computerUseFloatingPreview(true), title: text("menu.menuBar.computerUse.floatingPreview.show", "Show Floating Preview"),
+                       symbol: "pip")]
     }
 
     /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.
@@ -193,7 +209,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         let line = sessionLine(session)
         let symbol = session.stopped ? "stop.circle" : session.acting ? "cursorarrow.motionlines" : "cursorarrow"
         let title = session.stopped
-            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .module)
+            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .localizedModule)
             : line
         let stopOrResume: Item = session.stopped
             ? .command(.computerUseResume(session.id), title: text("menu.menuBar.computerUse.resume", "Resume"), symbol: "play.circle")
@@ -211,7 +227,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     static func sessionLine(_ session: MenuBarMenuState.ComputerUse.Session) -> String {
         switch (session.agent, session.appName) {
         case let (agent?, app?):
-            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .module)
+            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .localizedModule)
         case let (agent?, nil): agent
         case let (nil, app?): app
         case (nil, nil): text("menu.menuBar.computerUse.anAgent", "An agent")
@@ -219,18 +235,18 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     }
 
     static func agentsWorking(_ count: Int) -> String {
-        String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module)
+        String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .localizedModule)
     }
 
     static func commandsRunning(_ count: Int) -> String {
-        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .module)
+        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .localizedModule)
     }
 
     static func needsInput(_ count: Int) -> String {
-        String(localized: "menu.menuBar.needsInput", defaultValue: "Needs input: \(count)", table: "ProfileActions", bundle: .module)
+        String(localized: "menu.menuBar.needsInput", defaultValue: "Needs input: \(count)", table: "ProfileActions", bundle: .localizedModule)
     }
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
+        String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .localizedModule)
     }
 }

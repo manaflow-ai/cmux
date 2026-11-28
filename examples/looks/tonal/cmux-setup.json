@@ -1,0 +1,37 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/tonal-look",
+  "name": "Tonal",
+  "tagline": "One color in many shades, solid and calm.",
+  "description": "Built from one color in many shades: solid, calm surfaces with no glass. Comes in sage, clay and ink, light and dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Tonal (Light) by default; the five others sit beside it in themes/.
+    "appearance.themeFile": "tonal",
+
+    // The Markdown viewer in the system face at 15 px, the chat's line height and code scale.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.55,
+    "markdown.code.scale": 0.9,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+
+    // The chat in a 760 px column, no minimap, the context ring around Send.
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.composerRing": "context",
+
+    // The sidebar: comfortable rows, no timestamps.
+    "sidebar.density": "comfortable",
+    "sidebar.showTimestamps": false,
+
+    // The command bar: a capsule field, flat (tone, not shadow).
+    "browser.omnibar.cornerRadius": "capsule",
+    "browser.omnibar.shadow": false
+  }
+}

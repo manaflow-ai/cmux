@@ -14,11 +14,12 @@ public import Foundation
 /// pre-warmed this way and then renamed reached Home's first page in 1281 ms against 4688 ms for a cold
 /// copy and 3984 ms for one only `gktool scan`ned, as Sparkle does (a full launch first: 1303 ms).
 ///
-/// What runs, one after another, each stopped after `timeout`: the staged app's executable with
+/// What runs, all at once, each stopped after `timeout` and all of them after `total`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
-/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
-/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s), then every
-/// page of `Contents/Frameworks` read once (``readPages(under:)``), the framework code the helpers never ran.
+/// initializers run and nothing more), the bundled `cmux` and `cmux-tui` with `--version`, and
+/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s); once those
+/// ended, the app's Chromium start (``chromiumArgument``); then every page of `Contents/Frameworks` read once
+/// (``readPages(under:)``), the framework code the helpers never ran.
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -49,27 +50,37 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         public var arguments: [String]
     }
 
-    /// Sparkle's staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``).
-    public let installation: URL
+    /// Sparkle's staged installation folders, the app's own first
+    /// (``UpdateInstallPreflight/stagedInstallations(bundleIdentifier:accountHome:)``).
+    public let installations: [URL]
+    /// The app's own staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``);
+    /// nil when ``installations`` is empty.
+    public var installation: URL? { installations.first }
     public let bundleIdentifier: String
     /// The staged build (`CFBundleVersion`).
     public let build: String
 
     public init(installation: URL, bundleIdentifier: String, build: String) {
-        self.installation = installation
+        self.init(installations: [installation], bundleIdentifier: bundleIdentifier, build: build)
+    }
+
+    /// An empty `installations` finds no staged bundle, so the pre-warm runs nothing.
+    public init(installations: [URL], bundleIdentifier: String, build: String) {
+        self.installations = installations
         self.bundleIdentifier = bundleIdentifier
         self.build = build
     }
 
     /// The staged bundle of ``build``, or nil. Sparkle 2's installer extracts each update two
     /// folders under the installation folder (`Installation/<unique>/<unique>/<name>.app`,
-    /// `AppInstaller`); the newest bundle with this bundle id and build wins. Blocking: reads folders.
+    /// `AppInstaller`); the newest bundle with this bundle id and build, in any of ``installations``,
+    /// wins. Blocking: reads folders.
     public func stagedBundle() -> URL? {
         let files = FileManager.checked, keys: [URLResourceKey] = [.contentModificationDateKey]
         func children(_ url: URL) -> [URL] {
             (try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
         }
-        let candidates = children(installation).flatMap(children).flatMap(children).filter { url in
+        let candidates = installations.flatMap(children).flatMap(children).flatMap(children).filter { url in
             guard url.pathExtension == "app", let info = Self.info(url) else { return false }
             return info["CFBundleIdentifier"] as? String == bundleIdentifier && info["CFBundleVersion"] as? String == build
         }
@@ -133,13 +144,21 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// behind them ran after the person's click or never (Leo's NIGHTLY: staged 22:38:18Z, kept 22:38:45Z,
     /// clicked 22:39:16Z, no pre-warm line). The scan reads three folder levels and some Info.plists.
     ///
-    /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
-    /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
-    /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    /// With `marker`, a pre-warm that found the staged bundle replaces it at each ``Step``: ``Step/started`` before
+    /// the first run, ``Step/main`` once the staged app's executable ran, ``Step/full`` at the end. That build's first
+    /// launch reads it (``consumeLaunchVerdict(build:at:)``) and records whether it was pre-warmed and how far
+    /// (`cmux app launch-times`), so a pre-warm the relaunch cut short says where. Each write runs at
+    /// ``WorkPriority/userVisible`` too, for the same reason as the scan.
     ///
+    /// The runs start together, each stopped at `timeout`, and all of them at `total` (a stop ends the child's own
+    /// process group, ``AsyncProcess``). One after another under a load like Leo's (about 150-200), they took 95 s
+    /// and three passed a 20 s cap, the first helper among them, which pays the CEF framework's cold load for the
+    /// others (desktop-leo's third read-back). A helper started with no `--type` loads the framework, then
+    /// `CefExecuteProcess` returns -1 (CEFShim/src/helper_main.mm): exit 255 is a helper that ran to its end.
     /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil, urgency: Urgency = Urgency(),
+                        timeout: Duration = Self.runTimeout, total: Duration = Self.totalTimeout,
+                        clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil, urgency: Urgency = Urgency(),
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -147,30 +166,65 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         let scan = Self.milliseconds(ContinuousClock.now - asked)
         guard let staged = scanned ?? nil else {
-            return "launch pre-warm: no staged bundle of \(build) in \(installation.path) (scan \(scan) ms)"
+            return "launch pre-warm: no staged bundle of \(build) in \(installations.map(\.path).joined(separator: " or ")) (scan \(scan) ms)"
         }
         let bundle = staged.0, planned = staged.1
         progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")
-        var parts: [String] = []
-        for run in planned {
-            let started = ContinuousClock.now
-            let status: String
-            do {
-                let request = ProcessRequest(run.executable, run.arguments, timeout: timeout)
-                let outcome = try await withThrowingTaskGroup(of: ProcessOutcome.self) { group in
-                    group.addTask(priority: urgency.priority) { try await processes.run(request) }
-                    guard let outcome = try await group.next() else { throw CancellationError() }
-                    return outcome
-                }
-                // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
-                status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
-            } catch {
-                status = "failed (\(error))"
-            }
-            let part = "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms"
-            progress?("launch pre-warm of \(build): \(part)")
-            parts.append(part)
+        var parts: [Int: String] = [:]
+        let build = build, runsStarted = ContinuousClock.now
+        func mark(_ step: Step) async {
+            guard let marker else { return }
+            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, step: step, at: marker) }
         }
+        await mark(.started)
+        // Two waves under one cap: every `--version` run and the app's own exec together, then the app's Chromium
+        // start, which needs the CEF framework's first load (the helpers') already paid.
+        let chromium = planned.indices.filter { planned[$0].arguments == [Self.chromiumArgument] }
+        let first = planned.indices.filter { !chromium.contains($0) }
+        for wave in [first, chromium] where !wave.isEmpty {
+            let remaining = total - (ContinuousClock.now - runsStarted)
+            await withTaskGroup(of: (Int, String)?.self) { group in
+                for index in wave {
+                    let run = planned[index]
+                    group.addTask(priority: urgency.priority) {
+                        let started = ContinuousClock.now
+                        let status: String
+                        do {
+                            try Task.checkCancellation()
+                            // A stop reaches the run's whole process group: the Chromium start's renderer and GPU
+                            // helpers would outlive a stop of the app alone.
+                            let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout,
+                                                                                 terminationScope: .processGroup))
+                            // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
+                            status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
+                        } catch {
+                            status = error is CancellationError ? "stopped at the \(Self.milliseconds(total)) ms cap" : "failed (\(error))"
+                        }
+                        return (index, "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms")
+                    }
+                }
+                // The whole pre-warm's cap: cancelling the group stops every run still going.
+                group.addTask {
+                    try? await clock.sleep(for: max(remaining, .zero)) // wakeup-allow: one cap per wave of a staged build's pre-warm, cancelled once every run ended
+                    return nil
+                }
+                var ended = 0
+                for await result in group {
+                    guard case let (index, part)? = result else {
+                        group.cancelAll()
+                        continue
+                    }
+                    progress?("launch pre-warm of \(build): \(part)")
+                    parts[index] = part
+                    // The main executable's run alone takes almost all of the first launch's check (measured: 201/138/132 ms
+                    // against 2258/2067/2039 ms cold, and 136/143/136 ms after every run), so a pre-warm cut short after it counts.
+                    if planned[index].arguments == [Self.argument] { await mark(.main) }
+                    ended += 1
+                    if ended == wave.count { group.cancelAll() }
+                }
+            }
+        }
+        var ran = parts.keys.sorted().compactMap { parts[$0] }
         // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched
         // (``readPages(under:)``). Its own idle slot on the files lane: the best-effort one may still hold the
         // rollback keep, and nobody waits for this.
@@ -178,15 +232,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         if let pages = try? await work.run(.idle, mayBlock: .files, { Self.readPages(under: frameworks) }) {
             let part = "Frameworks read \(pages.files) files, \(pages.pages) pages \(Self.milliseconds(ContinuousClock.now - started)) ms"
             progress?("launch pre-warm of \(build): \(part)")
-            parts.append(part)
+            ran.append(part)
         }
-        if let marker {
-            let build = build
-            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
-        }
+        await mark(.full)
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
-            + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+            + (ran.isEmpty ? "nothing to run" : ran.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
     }
+
+    /// One run's cap: under a load like Leo's the first helper's cold framework load passed 20 s.
+    public static let runTimeout: Duration = .seconds(60)
+    /// The whole pre-warm's cap.
+    public static let totalTimeout: Duration = .seconds(90)
 
     /// A run's exit status for the update log. A Chromium helper with no `--type` exits 255 once it has loaded the
     /// CEF framework (`CefExecuteProcess` returns -1, "this is the browser process"; a failed load exits 1,
@@ -241,33 +297,59 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return Int(parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000)
     }
 
-    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until
-    /// that build's first launch consumes it. One line, rewritten by each pre-warm.
+    /// How far a pre-warm of a build got, as its marker says: ``started`` before the first run, ``main`` once the
+    /// staged app's own executable ran, ``full`` after every run, or ``skipped(_:)`` with why it never ran.
+    public enum Step: Equatable, Sendable {
+        case started, main, full
+        case skipped(String)
+    }
+
+    /// What a build's launch reads from the marker (Rust's `marker.verdict`): whether it was pre-warmed and why
+    /// (`main`, `full`, `full_legacy`, `started_not_finished`, `skipped:<why>`, `other_build:<b>`, `no_record`, `no_build`).
+    public struct Verdict: Equatable, Sendable {
+        public var preWarmed: Bool
+        public var reason: String
+        /// The marker is this build's: the launch removes it.
+        public var consume: Bool
+        /// What `launch-times.jsonl` records: `prewarmed` and `prewarm_reason`.
+        public var record: (preWarmed: Bool, reason: String) { (preWarmed, reason) }
+
+        public init(preWarmed: Bool, reason: String, consume: Bool) {
+            self.preWarmed = preWarmed
+            self.reason = reason
+            self.consume = consume
+        }
+    }
+
+    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: how far the last pre-warm of a build got,
+    /// until that build's first launch consumes it. One line, replaced by each step.
     public static func launchMarkerURL(bundleIdentifier: String) -> URL {
         let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager().homeDirectoryForCurrentUser.appending(path: "Library/Application Support", directoryHint: .isDirectory)
         return support.appending(path: bundleIdentifier, directoryHint: .isDirectory).appending(path: "launch-prewarm")
     }
 
-    /// Leaves `build` at `marker`. Blocking. A failure leaves no marker: that launch records itself as not pre-warmed.
-    static func writeLaunchMarker(build: String, at marker: URL) {
+    /// Replaces `marker` with `build`'s line at `step`, atomically: a cut write leaves the step before, never part
+    /// of a line. Blocking. A failure leaves the marker as it was.
+    static func writeLaunchMarker(build: String, step: Step, at marker: URL) {
+        guard let line = UpdatePrewarmRules.markerLine(build: build, step: step) else { return }
         try? FileManager.checked.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data("\(build)\n".utf8).blockingWrite(to: marker, options: .atomic)
+        try? Data(line.utf8).blockingWrite(to: marker, options: .atomic)
     }
 
-    /// Whether the marker names `build` (a pre-warm ran this build before this, its first launch); it is
-    /// then removed, so a relaunch of the same build is not pre-warmed. A marker of another build (a staged
-    /// update not installed yet) stays. Blocking.
-    public static func consumeLaunchMarker(build: String, at marker: URL) -> Bool {
-        guard !build.isEmpty, let data = try? Data(blockingContentsOf: marker),
-              String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == build else { return false }
-        try? FileManager.checked.removeItem(at: marker)
-        return true
+    /// What the marker says of `build`'s launch (``Verdict``); a marker of this build is then removed, so a
+    /// relaunch of the same build reads `no_record`. A marker of another build (a staged update not installed
+    /// yet) stays. Blocking.
+    public static func consumeLaunchVerdict(build: String, at marker: URL) -> Verdict {
+        let text = (try? Data(blockingContentsOf: marker)).map { String(decoding: $0, as: UTF8.self) }
+        let verdict = UpdatePrewarmRules.verdict(build: build, marker: text)
+        if verdict.consume { try? FileManager.checked.removeItem(at: marker) }
+        return verdict
     }
 
-    /// ``consumeLaunchMarker(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
-    public static func consumeLaunchMarker(build: String, bundleIdentifier: String) -> Bool {
-        consumeLaunchMarker(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
+    /// ``consumeLaunchVerdict(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
+    public static func consumeLaunchVerdict(build: String, bundleIdentifier: String) -> Verdict {
+        consumeLaunchVerdict(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
     }
 
     /// A bundle's Info.plist, or nil.

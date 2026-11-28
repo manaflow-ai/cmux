@@ -34,6 +34,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -47,9 +48,11 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
 KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
-# tree-preflight, select binary targets, the target builds, publish,
-# publish-tree. A reusable workflow call counts as its two serial jobs.
-PATH_BUDGET = 5
+# coalesce (base-coalesce.yml, a one-job reusable call: #48943 builds one tree per
+# 120-minute window), tree-preflight, select binary targets, the target builds,
+# publish, publish-tree. A reusable workflow call counts as its callee's own
+# serial job depth (queues() reads it).
+PATH_BUDGET = 6
 FAILURES = []
 
 
@@ -133,9 +136,42 @@ def simulate(all_jobs, base):
     return results
 
 
+class _CalleeValues(dict):
+    """Context values for a callee's `if`s: the caller's inputs, every callee job succeeding, outputs 'true'."""
+
+    def get(self, path, default=""):
+        if path.startswith("needs.") and ".outputs." in path:
+            return "true"
+        return super().get(path, default)
+
+
 def queues(job):
-    """Serial runner queues a job costs: a reusable call is select-targets then the builds."""
-    return 2 if "uses" in job else 1
+    """Serial runner queues a job costs: 1, or for a local reusable call the longest chain of the callee's
+    jobs that its `with:` inputs let run (build-package.yml: plan-build then the builds, 2; base-coalesce.yml: 1)."""
+    uses = job.get("uses")
+    if not uses:
+        return 1
+    with open(os.path.join(ROOT, uses.split("@")[0]), encoding="utf-8") as handle:
+        callee_workflow = yaml.safe_load(handle)
+    callee = callee_workflow["jobs"]
+    declared = (callee_workflow.get(True) or callee_workflow.get("on"))["workflow_call"].get("inputs", {})
+    # The push this test is about: a feat-cmux-next push (base-coalesce.yml's coalesce runs only on it).
+    values = _CalleeValues({"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next"})
+    values.update({f"inputs.{name}": spec.get("default", "") for name, spec in declared.items()})
+    values.update({f"inputs.{name}": value for name, value in (job.get("with") or {}).items()})
+    depth = {}
+    pending = dict(callee)
+    while pending:
+        for name, entry in list(pending.items()):
+            if any(n not in depth for n in needs(entry)):
+                continue
+            values["__needs__"] = needs(entry)
+            for n in needs(entry):
+                values[f"needs.{n}.result"] = "success" if depth[n] else "skipped"
+            ran = evaluate(entry["if"], values) if "if" in entry else all(depth[n] for n in needs(entry))
+            depth[name] = (1 + max((depth[n] for n in needs(entry)), default=0)) if ran else 0
+            del pending[name]
+    return max(depth.values())
 
 
 def longest_path(all_jobs, results, target):
@@ -297,7 +333,8 @@ def main():
     # 3. No build-ok hop: publish reads the build results itself.
     _check("build-ok" not in all_jobs, "no build-ok job between the build and publish")
     publish = all_jobs["publish"]
-    base = dict(owns, **{"__needs__": needs(publish), "needs.build-darwin-fallback.result": "skipped",
+    base = dict(owns, **{"__needs__": needs(publish), "needs.build-linux.result": "success",
+                         "needs.build-darwin-fallback.result": "skipped",
                          "needs.darwin-fallback-plan.result": "skipped"})
     for build, fallback, recovered, expected in (("success", "skipped", "", True), ("failure", "success", "false", True),
                                                  ("failure", "skipped", "true", True), ("failure", "failure", "false", False),
@@ -308,16 +345,52 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
-    # The shipped Linux targets build fat in `build`; build-linux is the Cloud machine channel's thin
-    # copy, which publish never reads or waits for.
-    _check("build-linux" not in needs(publish), "publish never waits for the machine channel's thin build-linux")
-    _check("build-linux" not in str(publish["if"]), "publish never reads build-linux's result")
+    # MUSL_BUILT_ONCE: the Linux targets build once, fat, in build-linux; `build` builds only macOS.
+    # LINUX_CALL_FOR_CHANNEL: the early channel point needs build-linux, not the macOS legs.
+    calls = [n for n, j in all_jobs.items() if j.get("uses", "").endswith("cmux-tui-build-package.yml")]
+    linux_calls = [n for n in calls if "linux" in str(all_jobs[n].get("with", {}).get("target_set", ""))
+                   and "machine_channel" not in str(all_jobs[n].get("with", {}).get("target_set", ""))]
+    _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
+    _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
+           "build-linux builds the shipped (fat) profile")
+    # MACHINE_CHANNEL_THIN: the channel's thin legs and points are cmux-machine-channel.yml's, outside the
+    # coalesce window (cmux#54889 waited 75 of 97 min for it); its points wait for those legs only.
+    _check(not {"build-machine-channel", "build-machine-channel-x86_64", "point-machine-channel-early",
+                "point-machine-channel-early-linux"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
+    # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
+    # `plan` (does the channel need this commit) runs before either leg, so it adds no wait.
+    # TWIN_BUILD: twin-x86_64 runs instead of build-x86_64 (a push an earlier push builds), never beside it.
+    _check(needs(channel["jobs"]["point-x86_64"]) == ["plan", "build-x86_64", "twin-x86_64"],
+           f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
+    _check(needs(channel["jobs"]["point-linux"]) == ["plan", "build-x86_64", "build-aarch64", "point-x86_64",
+                                                     "twin-linux"],
+           f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
+    # A pull request head (PR_HEAD_FAST_LANE) is superseded by its newer head; a push never cancels.
+    _check("coalesce" not in channel["jobs"]
+           and channel["concurrency"]["cancel-in-progress"] in (False, "${{ github.event_name == 'pull_request' }}"),
+           "no coalesce window, and a push never cancels")
+    # MACHINE_CHANNEL_STAGE_GROUPS: a push is never one run-wide group (the next build waited about 15 min for the
+    # last run's journey verdict, p50 45.7 min on 2026-11-26); each target's build, the plan and the channel
+    # writers each keep one running and one pending job per ref, never cancelling a started one.
+    _check("github.run_id" in channel["concurrency"]["group"],
+           f"a push run holds no run-wide group ({channel['concurrency']['group']})")
+    for job, stage in (("plan", "plan"), ("build-x86_64", "build-x86_64"), ("build-aarch64", "build-aarch64"),
+                       ("point-x86_64", "point"), ("point-linux", "point")):
+        group = channel["jobs"][job].get("concurrency") or {}
+        _check(str(group.get("group", "")).startswith(f"cmux-machine-channel-{stage}-")
+               and "github.ref" in str(group.get("group", "")) and group.get("cancel-in-progress") is False,
+               f"{job} waits in its own per-ref group {stage}, never cancelling ({group})")
+    for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
+        values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
+        _check(evaluate(publish["if"], values) == expected,
+               f"publish with build-linux {build_linux}: {'runs' if expected else 'skipped'}")
 
     # 3b. FALLBACK_AFTER_TIMEOUT: the macOS fallback is planned after a build that its timeout cancelled
     # (2026-11-13, run 43346255778: the leg on an owned Mac ended `cancelled`, the plan read only `failure`,
     # and the tree was never published), and it builds on the builder the first build did not use.
     plan = all_jobs["darwin-fallback-plan"]
-    planned = {"__needs__": needs(plan), "needs.build-linux.result": "success",
+    planned = {"__needs__": needs(plan),
                "needs.tree-preflight.outputs.darwin_builder": "linux"}
     for build, expected in (("failure", True), ("cancelled", True), ("success", False), ("skipped", False)):
         _check(evaluate(plan["if"], dict(planned, **{"needs.build.result": build})) == expected,
@@ -333,23 +406,16 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    builder = fallback["with"]["darwin_builder"]
-    for mac_runner, expected in (("an-owned-mac-label", "linux"), ("", "mac")):
-        # `a != '' && 'linux' || 'mac'` yields a string, not a truth value: evaluate both arms.
-        on_mac = evaluate("${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-                          {"needs.tree-preflight.outputs.darwin_mac_runner": mac_runner, "__needs__": []})
-        _check(builder == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}"
-               and ("linux" if on_mac else "mac") == expected,
-               f"the fallback after a first build {'on an owned Mac' if mac_runner else 'by the Linux cross build'} "
-               f"uses darwin_builder {expected}")
-    _check("darwin_mac_runner" not in fallback["with"],
-           "the fallback never goes back to the owned Mac whose build just ended without artifacts")
+    # FALLBACK_RETRIES_LOST_LEGS_ON_LINUX: the plan names the builder, a Mac unless every failed leg
+    # never reached its link (then Linux, once, on attempt 1).
+    _check(fallback["with"]["darwin_builder"] == "${{ needs.darwin-fallback-plan.outputs.builder }}"
+           and "builder=mac\n" in plan_steps and 'echo "builder=$builder" >> "$GITHUB_OUTPUT"' in plan_steps,
+           "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")
     plan_step = next(s for s in plan["steps"] if s.get("id") == "plan")
-    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}"
-           and plan_step["env"].get("FIRST_ON_MAC") == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
-           "the plan's annotation names the first build's result and builder")
+    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}",
+           "the plan's annotation reports the cross build's result")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]

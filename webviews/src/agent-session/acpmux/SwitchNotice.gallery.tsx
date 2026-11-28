@@ -6,7 +6,7 @@ import { type CloudSignIn, type LoginAgent, LoginStepError } from "./cloudAgentL
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
-import { startFailureView } from "./startFailure";
+import { startFailureClearsByItself, startFailureView } from "./startFailure";
 import { SwitchNotice } from "./SwitchNotice";
 
 /// `share`: how the fixture's Share with Me answers (a team admin's share, or the creator-or-admin refusal).
@@ -20,7 +20,8 @@ type Props = {
   share?: "shared" | "forbidden";
   harness?: LoginAgent | "pi" | "cmux";
   name?: string;
-  signIn?: "card" | "terminal" | "none";
+  /// `localCard`: a chat on this Mac whose daemon runs the agent's login (logins done right): the card.
+  signIn?: "card" | "localCard" | "terminal" | "none";
   signInExpired?: true;
   /// A chat on another machine (a Cloud machine): never Install, which runs on this Mac.
   elsewhere?: true;
@@ -59,6 +60,13 @@ function gallerySignIn(agent: LoginAgent): CloudSignIn {
     agent,
     start: async () => {
       if (agent === "gemini") throw new LoginStepError("unsupported");
+      if (agent === "codex")
+        return {
+          loginId: "gallery",
+          url: "https://auth.openai.com/codex/device",
+          userCode: "K7QX-29PF",
+          needsCode: false,
+        };
       if (agent === "grok")
         return { loginId: "gallery", url: "https://accounts.x.ai/device", userCode: "WDJB-MJHT", needsCode: false };
       return { loginId: "gallery", url: "https://cursor.com/loginDeepControl?challenge=gallery", needsCode: false };
@@ -135,14 +143,18 @@ function GallerySwitchNotice({
           ...(code && { code }),
           ...(signInExpired && { signInExpired }),
         }}
+        // A start that only lost the line to acpmux is started again by the pane (App.tsx useAutoRetry).
+        stillTrying={startFailureClearsByItself(code)}
         onRetry={() => setRan("retry")}
         onAction={(action) => {
           setRan(action);
           if (twoStep) setOpened(true);
         }}
         installs={!elsewhere || twoStep}
-        runsLogin={signIn === "terminal" || twoStep}
-        {...(signIn === "card" && harness && !twoStep && { agentSignIn: gallerySignIn(harness as LoginAgent) })}
+        runsLogin={signIn === "terminal" || signIn === "localCard" || twoStep}
+        {...((signIn === "card" || signIn === "localCard") &&
+          harness &&
+          !twoStep && { agentSignIn: gallerySignIn(harness as LoginAgent) })}
         {...(share && {
           share: {
             machine: "build-box",
@@ -252,6 +264,14 @@ export default componentEntry<Props>({
       props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "cursor", name: "Cursor", signIn: "terminal" },
       note: "Shipped. A chat on this Mac: Sign in to Cursor runs its login in a terminal tab, as the sign-in notice does; then Retry.",
     },
+    "sign-in-codex-this-mac-in-place": {
+      props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "codex", name: "Codex", signIn: "localCard" },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Codex" });
+        await ctx.waitFor(() => ctx.find({ selector: "[data-testid=cloud-signin-code]" }) !== null);
+      },
+      note: 'Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): a chat on this Mac whose daemon runs Codex\'s login signs in with the card, as a Cloud chat does; no terminal tab. An older daemon keeps sign-in-cursor-this-mac.',
+    },
     "sign-in-cursor-no-machine-sign-in": {
       props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "cursor", name: "Cursor", signIn: "none" },
       note: "Shipped. A machine with no sign-in for the agent (a new chat with no session there yet, an older cmux): the cause, where to sign in, and Retry. Never a login on this Mac.",
@@ -314,6 +334,10 @@ export default componentEntry<Props>({
     "route-unavailable-alternative-hint": {
       props: { error: ROUTER_WORDS, alternative: "route-hint" },
       note: "Alternative, not shipped: the shipped sentence plus a 'pick another agent' line. Rejected: a second line that repeats what Retry and the composer's agent picker already offer, and the card grows a row.",
+    },
+    "service-unreachable-still-trying": {
+      props: { error: "The connection to acpmux closed.", code: "transport.closed" },
+      note: "A start that never reached the agent because the line to acpmux dropped: the pane starts it again on its own, with no card and no Retry (Leo, 2026-11-22). Only past 25 s, this one quiet line.",
     },
     plain: {
       props: { error: "build-box did not start the agent in time. Try again." },

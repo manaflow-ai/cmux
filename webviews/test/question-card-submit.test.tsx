@@ -115,10 +115,11 @@ async function renderCard(
 }
 
 const submitButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-question-submit")!;
-/// The button's words, without its keycaps (⌘ and ↩ are one each, as the permission card's).
+/// The button's words, without its key hint (⌘↩, one KeyHint, as the permission card's) or the
+/// hidden word whose width it holds (Next holds Send's room and Send Next's, cmux#56534).
 const buttonLabel = (container: HTMLElement) => {
   const button = submitButton(container).cloneNode(true) as HTMLElement;
-  for (const key of button.querySelectorAll(".acpmux-keycap")) key.remove();
+  for (const key of button.querySelectorAll(".ui-key-hint, [aria-hidden='true']")) key.remove();
   return button.textContent?.trim() ?? "";
 };
 const activePosition = (container: HTMLElement) =>
@@ -337,4 +338,14 @@ test("a single question keeps the compact header without pagination", async () =
   const { container } = await renderCard({ ...question, items: [question.items[0]!] });
   expect(container.querySelector(".acpmux-question-navigation")).toBeNull();
   expect(container.querySelector('.acpmux-question-bar [aria-label="Dismiss"]')).not.toBeNull();
+});
+
+test("the pane's asks stack lets its card's tooltips open above it (#56534)", async () => {
+  // The stack scrolls and is as tall as its card (bottomStack.css), so a tooltip held inside it had
+  // no room above the bar and flipped below, over the question (ui/titleTooltips.ts boundsOf).
+  const app = await Bun.file(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url)).text();
+  const stack = app.match(/<div\s+className="acpmux-permission acpmux-asks-stack"[^>]*>/)?.[0] ?? "";
+  expect(stack).toContain("data-tooltip-escape");
+  const tooltips = await Bun.file(new URL("../src/ui/titleTooltips.ts", import.meta.url)).text();
+  expect(tooltips).toContain('hasAttribute("data-tooltip-escape")');
 });

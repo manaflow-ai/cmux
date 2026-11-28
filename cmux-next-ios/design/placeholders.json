@@ -1,0 +1,401 @@
+{
+  "about": "Every placeholder the iOS app draws, its bound, and the item that fixes its root (Leo 2026-11-24, brief leo-1124-placeholders.md: 1a tab grid, 1b chat, 3 connection chips, 1c the rest). Checked by scripts/ci/ios_placeholder_bounds.py (headless) and cmux-next-ios/UITests/PlaceholderBoundUITests.swift (simulator). Handbook: ios-placeholder-bounds.",
+  "max_bound_ms": 2000,
+  "known_over_bound": [
+    {
+      "id": "tabgrid.terminal.unavailable",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "chat.user.empty",
+      "item": "item 1b (ios-optimistic-send)",
+      "fix": "cmux#54993"
+    }
+  ],
+  "patterns": [
+    {
+      "name": "skeleton rows",
+      "regex": "\\bSkeletonList\\("
+    },
+    {
+      "name": "connection chip",
+      "regex": "\\bConnectionChip(\\.SymbolOnly)?\\("
+    },
+    {
+      "name": "terminal connecting cover",
+      "regex": "\\bTerminalConnectingView\\("
+    },
+    {
+      "name": "stand-in terminal page",
+      "regex": "\\bPlaceholderTerminalPage\\("
+    },
+    {
+      "name": "stand-in icon",
+      "regex": "(?<!UI)Image\\(systemName: (placeholder|\\\"globe\\\")\\)"
+    },
+    {
+      "name": "prohibited-sign or redacted stand-in",
+      "regex": "systemName: \\\"nosign\\\"|\\.redacted\\(reason: \\.placeholder\\)"
+    },
+    {
+      "name": "waiting text",
+      "regex": "(\\b(Text|status|label|loadingNote)\\(|title: )(String\\(localized: )?\\\"(Loading|Connecting|Opening|Preparing|Waiting for a connection)[^\\\"]*…"
+    }
+  ],
+  "placeholders": [
+    {
+      "id": "agentChats.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
+      "line": 302,
+      "bound_ms": 2000,
+      "waits_for": "the agent chats list's first load",
+      "root_fix": "1c"
+    },
+    {
+      "id": "agents.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChooser.swift",
+      "line": 52,
+      "bound_ms": 2000,
+      "waits_for": "the agent chooser's agents",
+      "root_fix": "1c"
+    },
+    {
+      "id": "browser.connection.chip",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedBrowserPage.swift",
+      "line": 219,
+      "bound_ms": 0,
+      "waits_for": "the streamed browser's link coming back",
+      "root_fix": "3"
+    },
+    {
+      "id": "browser.stream.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedBrowserPage.swift",
+      "line": 73,
+      "bound_ms": 2000,
+      "waits_for": "the streamed browser's first frame",
+      "root_fix": "1a"
+    },
+    {
+      "id": "chat.connection.chip",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
+      "line": 748,
+      "bound_ms": 0,
+      "waits_for": "the composer's \"Connecting to <Mac>\" chip after the 10 s quiet gate",
+      "root_fix": "3"
+    },
+    {
+      "id": "chat.destination.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentSessionDirectory.swift",
+      "line": 187,
+      "bound_ms": 2000,
+      "waits_for": "an agent chat opened from a notification before the workspaces list arrives",
+      "root_fix": "1b"
+    },
+    {
+      "id": "chat.history.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatPolishScreens.swift",
+      "line": 353,
+      "bound_ms": 2000,
+      "waits_for": "a replayed chat's history",
+      "root_fix": "1b"
+    },
+    {
+      "id": "chat.user.empty",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
+      "line": 1123,
+      "bound_ms": 0,
+      "waits_for": "a prompt row with no words and no attachment: an empty grey bubble; bound 0, never drawn",
+      "root_fix": "1b"
+    },
+    {
+      "id": "cloud.automations.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/CloudAutomationsScreen.swift",
+      "line": 35,
+      "bound_ms": 2000,
+      "waits_for": "Cloud automations' first load",
+      "root_fix": "1c"
+    },
+    {
+      "id": "cloud.chats.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/CloudChatsScreen.swift",
+      "line": 51,
+      "bound_ms": 2000,
+      "waits_for": "Cloud chats' first load",
+      "root_fix": "1c"
+    },
+    {
+      "id": "cloud.machines.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/CloudMachinesScreen.swift",
+      "line": 47,
+      "bound_ms": 2000,
+      "waits_for": "Cloud machines' first load",
+      "root_fix": "1c"
+    },
+    {
+      "id": "drafts.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerSheets.swift",
+      "line": 208,
+      "bound_ms": 2000,
+      "waits_for": "the task composer's drafts",
+      "root_fix": "1c"
+    },
+    {
+      "id": "home.conversations.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/ConversationsHome.swift",
+      "line": 411,
+      "bound_ms": 2000,
+      "waits_for": "the conversations home's first load",
+      "root_fix": "1c"
+    },
+    {
+      "id": "onboarding.teams.skeleton",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Setup.swift",
+      "line": 312,
+      "bound_ms": 2000,
+      "waits_for": "the team chooser's teams",
+      "root_fix": "1c"
+    },
+    {
+      "id": "panes.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/PanesScreen.swift",
+      "line": 108,
+      "bound_ms": 2000,
+      "waits_for": "a Mac's pane list",
+      "root_fix": "1c"
+    },
+    {
+      "id": "screenSharing.connecting",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/ScreenSharingPage.swift",
+      "line": 310,
+      "bound_ms": 2000,
+      "waits_for": "screen sharing waiting for the Mac",
+      "root_fix": "1c"
+    },
+    {
+      "id": "screenSharing.rd.connecting",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/MacScreenRdView.swift",
+      "line": 39,
+      "bound_ms": 2000,
+      "waits_for": "the Mac screen viewer connecting",
+      "root_fix": "1c"
+    },
+    {
+      "id": "screens.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/ScreensPage.swift",
+      "line": 83,
+      "bound_ms": 2000,
+      "waits_for": "a Mac's screen list",
+      "root_fix": "1c"
+    },
+    {
+      "id": "settings.macs.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/TerminalSizingPages.swift",
+      "line": 115,
+      "bound_ms": 2000,
+      "waits_for": "terminal sizing's Mac list",
+      "root_fix": "1c"
+    },
+    {
+      "id": "simulator.connection.chip",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedSimulatorPage.swift",
+      "line": 44,
+      "bound_ms": 0,
+      "waits_for": "the streamed simulator's link coming back",
+      "root_fix": "3"
+    },
+    {
+      "id": "simulator.stream.opening",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedSimulatorPage.swift",
+      "line": 50,
+      "bound_ms": 2000,
+      "waits_for": "the streamed simulator starting on the Mac",
+      "root_fix": "1a"
+    },
+    {
+      "id": "status.connection.chip",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/States.swift",
+      "line": 266,
+      "bound_ms": 0,
+      "waits_for": "the shared list status row's connection chip (lists that use ListStatusRow)",
+      "root_fix": "3"
+    },
+    {
+      "id": "tab.opening.chat",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceTabsSource+TerminalChat.swift",
+      "line": 301,
+      "bound_ms": 2000,
+      "waits_for": "a terminal tab's chat page opening",
+      "root_fix": "1b"
+    },
+    {
+      "id": "settings.trypr.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/TryPullRequestPages.swift",
+      "line": 57,
+      "bound_ms": 2000,
+      "waits_for": "Try a Pull Request's open iPhone pull requests, listed by the Mac",
+      "root_fix": "1c"
+    },
+    {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 77,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status from the cmux server",
+      "root_fix": "1c"
+    },
+    {
+      "id": "tabgrid.terminal.unavailable",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift",
+      "line": 142,
+      "bound_ms": 1000,
+      "waits_for": "a terminal tab the phone cannot open: a black card",
+      "root_fix": "1a"
+    },
+    {
+      "id": "teams.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TeamSidebar.swift",
+      "line": 40,
+      "bound_ms": 2000,
+      "waits_for": "the team sidebar's teams",
+      "root_fix": "1c"
+    },
+    {
+      "id": "terminal.connecting",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalScreen.swift",
+      "line": 36,
+      "bound_ms": 2000,
+      "waits_for": "the debug terminal screen before it attaches",
+      "root_fix": "1a"
+    },
+    {
+      "id": "terminal.page.connecting",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift",
+      "line": 154,
+      "bound_ms": 2000,
+      "waits_for": "an open terminal page before it attaches with no rows of its own",
+      "root_fix": "1a"
+    },
+    {
+      "id": "terminal.page.unavailable",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift",
+      "line": 137,
+      "bound_ms": 2000,
+      "waits_for": "an open terminal tab the phone cannot open",
+      "root_fix": "1a"
+    },
+    {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 78,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status, its first load (Settings > Cloud > Vault)",
+      "root_fix": "1c"
+    },
+    {
+      "id": "workspaces.page.skeleton",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift",
+      "line": 650,
+      "bound_ms": 2000,
+      "waits_for": "the workspaces page's skeleton rows taking over from the page's rows",
+      "root_fix": "1a"
+    },
+    {
+      "id": "workspaces.skeleton",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift",
+      "line": 425,
+      "bound_ms": 2000,
+      "waits_for": "the workspaces list's first load: 6 skeleton rows captioned \"Waiting for a connection\" or \"Loading workspaces\"",
+      "root_fix": "1a"
+    }
+  ],
+  "exempt": [
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/QuietUpdatingGallery.swift",
+      "text": "ConnectionChip(.init(.macOffline, sentence: \"Mac Studio is offline.\"), downSince: nil)",
+      "reason": "design gallery: the quiet-updating variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60)",
+      "reason": "design gallery: draws the state for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "CmuxSpinner(label: Text(\"Loading chats…\")).frame(height: 120)",
+      "reason": "design gallery"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "list(.topLeading) { ConnectionChip(ConnectionBannerState.connectionFailed.chip!, downSince: nil) }",
+      "reason": "design gallery"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TerminalChipPage.swift",
+      "text": "case .a: ConnectionChip(state, downSince: nil, retry: state.symbol == nil ? nil : {})",
+      "reason": "design gallery (chip variants)"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TerminalChipPage.swift",
+      "text": "case .b: ConnectionChip(state, downSince: nil)",
+      "reason": "design gallery (chip variants)"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileArtifacts/ArtifactsBrowser.swift",
+      "text": "Image(systemName: \"globe\")",
+      "reason": "a link artifact's real content: the domain under a link glyph, no page fetch"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline(\"Mac Studio\").chip!, downSince: nil) }",
+      "reason": "design gallery"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TerminalChipPage.swift",
+      "text": "case .c: ConnectionChip.SymbolOnly(state, downSince: nil)",
+      "reason": "design gallery (chip variants)"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ParityViews.swift",
+      "text": "Text(\"Preparing the summary…\").font(.footnote).foregroundStyle(.secondary)",
+      "reason": "work the person asked for (an agent writing a continuation summary), not content on its way: progress, not a placeholder"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"b\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .below)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"c\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .above)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"before\": SkeletonList(rows: 3, delay: .zero, caption: caption)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60, screenText: saved).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
+    }
+  ],
+  "known_layout_shifts": [
+    {
+      "flow": "offline-send",
+      "max_shift_frames": 4,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
+    }
+  ]
+}

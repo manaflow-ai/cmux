@@ -83,6 +83,7 @@ impl Hub {
     }
 
     /// The agent reports on `session`'s goal: running, blocked or complete, with an optional note.
+    /// Blocked or complete with no goal set records one (its done-when the chat's stop condition).
     pub(crate) fn goal_update(
         &self,
         session: &Session,
@@ -91,8 +92,35 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let value = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(goal) = m.goal.as_mut().filter(|g| generic_goal::is_generic(g)) else {
-                return Err(RpcError::invalid_params("this chat has no goal set with goal_set"));
+            let stop_condition = m.stop_condition.clone();
+            let harness_goal = m.goal.as_ref().is_some_and(|g| !generic_goal::is_generic(g));
+            let goal = match m.goal.as_mut().filter(|g| generic_goal::is_generic(g)) {
+                Some(goal) => goal,
+                // A stop: blocked or complete is recorded also with no goal set, as a goal whose
+                // done-when is the chat's stop condition. A Chief subagent works under that
+                // condition, not under a `goal_set` goal, and its "blocked on Lucas" was refused,
+                // so it had no way to say it waits (user, 2026-11-23). Running needs `goal_set`.
+                None if status == Reported::Running => {
+                    return Err(RpcError::invalid_params(
+                        "this chat has no goal set with goal_set",
+                    ));
+                }
+                // The harness's own goal (Claude's plan or loop) stays as it is.
+                None if harness_goal => {
+                    return Err(RpcError::invalid_params(
+                        "this chat's goal is its harness's own (a plan or loop), not one set with \
+                         goal_set; say what you wait for in your final reply",
+                    ));
+                }
+                None => {
+                    let request = GoalRequest {
+                        objective: note.unwrap_or("This chat's task").to_owned(),
+                        done_when: stop_condition.unwrap_or_default(),
+                        token_budget: None,
+                        time_budget_minutes: None,
+                    };
+                    m.goal.insert(generic_goal::new_goal(&request, now_ms()))
+                }
             };
             generic_goal::apply_report(goal, status, note, now_ms());
             goal.to_value()
@@ -207,75 +235,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hub() -> Arc<Hub> {
-        let mut config = Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
-        Hub::new(config, store)
-    }
-
-    fn chat(hub: &Hub) -> Arc<Session> {
-        let meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "g", "name": "pi chat", "harness": "pi",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        hub.store.save(&meta).unwrap();
-        hub.make_session(meta)
-    }
-
-    fn request(objective: &str) -> GoalRequest {
-        GoalRequest {
-            objective: objective.into(),
-            done_when: "cargo test passes".into(),
-            token_budget: None,
-            time_budget_minutes: None,
-        }
-    }
-
-    /// The provenance a continuation is sent with, as `continue_goal` makes it after its step.
-    fn step(session: &Session) -> Value {
-        let mut m = session.meta.lock().unwrap();
-        let goal = m.goal.as_mut().unwrap();
-        assert!(matches!(generic_goal::next_step(goal, None, now_ms()), Step::Continue(_)));
-        json!({"kind": "notice", "from": SENDER, MARK: generic_goal::mark(goal)})
-    }
-
-    fn moved_on(result: Result<(), RpcError>) -> bool {
-        result.is_err_and(|e| e.data.is_some_and(|d| d["reason"] == MOVED_ON))
-    }
-
-    /// A continuation that waited behind the person's prompt runs only while its goal is the
-    /// one it was sent for, still running. Codex review of #36413, finding F1.
-    #[test]
-    fn a_continuation_is_refused_once_its_goal_moved_on() {
-        let hub = hub();
-        let session = chat(&hub);
-        hub.goal_set(&session, &request("Make the suite pass")).unwrap();
-        let mark = step(&session);
-        assert!(check_goal_mark(&session, Some(&mark)).is_ok());
-        assert!(check_goal_mark(&session, None).is_ok());
-
-        // That turn's agent reported it complete.
-        hub.goal_update(&session, Reported::Complete, None).unwrap();
-        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
-
-        // Running again resets its count: the older continuation is still not this goal's.
-        hub.goal_update(&session, Reported::Running, None).unwrap();
-        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
-
-        // A new goal replaced it.
-        let mark = step(&session);
-        hub.goal_set(&session, &request("Ship the docs")).unwrap();
-        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
-
-        // A later turn's step sent a newer continuation.
-        let older = step(&session);
-        let newer = step(&session);
-        assert!(moved_on(check_goal_mark(&session, Some(&older))));
-        assert!(check_goal_mark(&session, Some(&newer)).is_ok());
-    }
-}
+#[path = "goal_tools_tests.rs"]
+mod tests;

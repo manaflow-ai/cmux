@@ -205,6 +205,7 @@ export function diffLineTotals(items: readonly DiffItem[]): { additions: number;
 // ---------------------------------------------------------------------------
 
 export type OverflowMenuItemId =
+  | "find"
   | "word-wrap"
   | "collapse-all"
   | "refresh"
@@ -265,6 +266,8 @@ export function overflowMenuItems(
   whitespaceHidden: boolean | null = null,
 ): OverflowMenuItem[] {
   return [
+    // Find is Cmd-F too; the pill keeps no button for it.
+    { id: "find", icon: "fileSearch", labelKey: "findInDiff", available: true },
     { id: "word-wrap", icon: "wrap", labelKey: "wordWrap", checked: options.wordWrap, available: true },
     {
       id: "collapse-all",
@@ -320,7 +323,7 @@ export function overflowMenuItems(
 // Floating toolbar pill
 // ---------------------------------------------------------------------------
 
-export type PillButtonId = "options" | "find" | "plainEnglish" | "layout" | "files";
+export type PillButtonId = "options" | "layout" | "files";
 
 export type PillButton = {
   id: PillButtonId;
@@ -352,32 +355,20 @@ const LAYOUT_NEXT_LABEL = {
 export type PlainEnglishPill = {
   on: boolean;
   availability: PlainEnglishAvailability;
-  /** A narrow viewer (`PLAIN_ENGLISH_MENU_ONLY`): the toggle is only in the "..." menu, so the pill
-   * keeps its width and the source controls beside it stay whole. */
-  menuOnly?: boolean;
 };
 
-/** Below this the pill has no room for one more button (test/diff-toolbar-narrow.test.ts). */
-export const PLAIN_ENGLISH_MENU_ONLY = "(max-width: 600px)";
-
 /**
- * The pill: the "..." menu, Find, Plain English where it fits, the layout and the files list.
- * Everything else is a row of the "..." menu (`overflowMenuItems`).
+ * The pill: the "..." menu, the layout and the files list. Everything else, Find and Plain English
+ * too, is a row of the "..." menu (`overflowMenuItems`, `plainEnglishMenuItem`).
  */
-export function toolbarPillButtons(
-  state: {
-    options: Pick<DiffViewerOptions, "layout">;
-    filesVisible: boolean;
-    optionsOpen: boolean;
-    findOpen: boolean;
-  },
-  plainEnglish?: PlainEnglishPill,
-): PillButton[] {
+export function toolbarPillButtons(state: {
+  options: Pick<DiffViewerOptions, "layout">;
+  filesVisible: boolean;
+  optionsOpen: boolean;
+}): PillButton[] {
   const { options } = state;
   return [
     { id: "options", domId: "options-button", icon: "dots", labelKey: "options", expanded: state.optionsOpen },
-    { id: "find", domId: "find-toggle", icon: "fileSearch", labelKey: "findInDiff", pressed: state.findOpen },
-    ...(plainEnglish && !plainEnglish.menuOnly ? [plainEnglishButton(plainEnglish)] : []),
     {
       // Shows the chosen layout (rows, columns, or the diagonal of auto) and names the next one.
       id: "layout",
@@ -393,18 +384,6 @@ export function toolbarPillButtons(
       pressed: state.filesVisible,
     },
   ];
-}
-
-function plainEnglishButton({ on, availability }: PlainEnglishPill): PillButton {
-  const button = { id: "plainEnglish", domId: "plain-english-toggle", icon: "book" } as const;
-  switch (availability.kind) {
-    case "ready":
-      return { ...button, labelKey: on ? "plainEnglishOn" : "plainEnglish", pressed: on };
-    case "checking":
-      return { ...button, labelKey: "plainEnglishChecking", pressed: false, unavailable: true };
-    case "unavailable":
-      return { ...button, labelKey: availability.reasonKey, pressed: false, unavailable: true };
-  }
 }
 
 /** Plain English's "..." menu row, at every width: checked while it shows, off with its reason. */

@@ -771,6 +771,20 @@ async function pasteParagraph(ctx: PlayContext, card: string) {
     throw new Error("a one-paragraph paste must say its size, never 1 line");
 }
 
+/// A Claude chat with the agent's everyday commands and two skills, for the discovery variants.
+function discoveryChat(): AcpmuxSnapshot {
+  return chat(finished, {
+    commands: [
+      { name: "clear", description: "Clear conversation history and free up context", source: "agent" },
+      { name: "compact", description: "Clear conversation history but keep a summary in context", source: "agent" },
+      { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation", source: "agent" },
+      { name: "review", description: "Review a pull request", source: "agent" },
+      { name: "release", description: "Cut a release with the team checklist", source: "skill" },
+      { name: "triage", description: "Sort new issues by area and urgency", source: "skill" },
+    ],
+  });
+}
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -1459,8 +1473,8 @@ export default agentPaneEntry({
           return Boolean(
             failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
-            failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
-            !failed.querySelector(".acpmux-attachment-retry"),
+            failed.querySelectorAll("button").length === 1 &&
+            failed.querySelectorAll(".acpmux-attachment-remove").length === 1,
           );
         });
       },
@@ -1650,6 +1664,19 @@ export default agentPaneEntry({
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
     },
+    // Leo, 2026-11-22: "when im pasting attachments or whatever, there's a breif moment where i see the
+    // caret at the beginning of the composer after the preview for the attachment has already shown
+    // up". The stages composer-caret-frames.browser.test.ts pastes, drops and types on, reading the
+    // caret every painted frame: an empty prompt, and one with a line of text.
+    "caret-frames-empty": {
+      note: 'Leo, 2026-11-22: "we can\'t have that". An empty prompt the caret-frames test pastes and types on; the caret stands where it ends up in every frame after the edit.',
+      snapshot: chat(finished),
+    },
+    "caret-frames-draft": {
+      note: 'Leo, 2026-11-22: "idk if there are other places where our caret/typing/perciee is lagging liek that". A line of text the caret-frames test pastes into the middle and end of.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
+    },
     "attachment-inline-reorder": {
       note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
       snapshot: chat(finished),
@@ -1802,7 +1829,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-inline-image-failed": {
-      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with only its x: drawing the same bytes again draws nothing more, so there is no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1815,8 +1842,8 @@ export default agentPaneEntry({
         const chip = ctx.find({ selector: tile });
         if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
           throw new Error("an inline image that cannot be drawn must say Couldn't load image");
-        if (!chip.querySelector("button.acpmux-attachment-retry"))
-          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (chip.querySelectorAll("button").length !== 1)
+          throw new Error("an inline image that cannot be drawn must offer no button but its remove");
         if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
           throw new Error("an inline image that cannot be drawn must keep its remove button");
         await ctx.hover({ selector: tile });
@@ -1866,7 +1893,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-failed": {
-      note: "A file the composer could not attach stays in the strip saying why (here the app could not save it), with Retry and its ×, instead of a placeholder that never loads.",
+      note: 'A file whose upload failed (here the app could not save it: the disk is full) keeps loading while it is uploaded again on its own; once that has lasted (at once here) its tile says "Still trying to upload…" and why in its tooltip, with only its ×, never a Retry (Leo, 2026-11-22: "vacuous decisions like that should be just done").',
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
@@ -1883,11 +1910,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment[data-still-trying]").length === 2);
+        for (const tile of ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment[data-still-trying]")) {
+          const title = tile.getAttribute("title") ?? "";
+          if (!title.startsWith("Still trying to upload") || !title.includes("The disk is full."))
+            throw new Error(`a still-trying tile's tooltip must say so and why, not ${JSON.stringify(title)}`);
+          if (tile.getAttribute("aria-busy") !== "true") throw new Error("a still-trying tile keeps loading");
+          if (tile.querySelectorAll("button").length !== 1) throw new Error("a still-trying tile offers only its ×");
+        }
       },
     },
     "image-original-failed": {
-      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, the original is uploaded again on its own, and once that has lasted (at once here) a small mark in its corner says so, its tooltip why; no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1905,11 +1939,13 @@ export default agentPaneEntry({
         });
         pasteFiles(ctx, [file]);
         await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-still"),
         );
-        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-still" });
         if (!badge.getAttribute("title")?.includes("The disk is full."))
-          throw new Error("the Retry badge's tooltip must say why the original failed");
+          throw new Error("the still-uploading mark's tooltip must say why the original failed");
+        if (badge.closest("button") || badge.querySelector("button"))
+          throw new Error("the still-uploading mark is no button: there is nothing to decide");
       },
     },
     draft: {
@@ -1953,7 +1989,7 @@ export default agentPaneEntry({
     },
     // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↩ steer and ⌘↩ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1998,7 +2034,7 @@ export default agentPaneEntry({
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
           const send = sends[0];
           const mic = ctx.document.querySelector(".acpmux-composer-actions .acpmux-fit-mic");
-          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↵ steer · ⌘↵ queue") return false;
+          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↩ steer · ⌘↩ queue") return false;
           const sendBox = send.getBoundingClientRect();
           const micBox = mic.getBoundingClientRect();
           return ctx.document.querySelector('[data-composer-look="codex"]')
@@ -2767,6 +2803,50 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
+    // Discovery without a bare "?" sheet (Leo 2026-11-22: "is there a /help? apparently not. welp. how
+    // should we do things?"): the real /help, then three disposable prototypes (discoveryPrototypes.tsx)
+    // mounted over the same chat for a taste pick.
+    "discovery-help-sheet": {
+      note: "Play: type /help and Return; the sheet lists the commands, the skills and the composer's keys, searchable.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/help");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-help-sheet [role='option']"));
+      },
+    },
+    "discovery-hint-line": {
+      note: "Prototype: a quiet line under the empty prompt names / @ ⌘↩ and /help.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountHintLine(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='hint-line']"));
+      },
+    },
+    "discovery-modifier-overlay": {
+      note: "Prototype: holding ⌘ a beat shows the composer's keys over the box; letting go hides them.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountModifierOverlay(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='modifier-overlay'] kbd"));
+      },
+    },
+    "discovery-help-button": {
+      note: "Prototype: a quiet ? before the context ring; pressing it opens /help.",
+      snapshot: discoveryChat(),
+      play: async (ctx) => {
+        (await import("./discoveryPrototypes")).mountHelpButton(ctx.document);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-prototype='help-button']"));
+        // What pressing it does: the same sheet as /help.
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/help");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-help-sheet [role='option']"));
+      },
+    },
     "slash-menu-full": {
       note: "Play: type / with an agent's full command list; in a small window the list goes past the window's edge (cx-6k6cg).",
       snapshot: chat(finished, {
@@ -2795,7 +2875,7 @@ export default agentPaneEntry({
     // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
     // labelled with the extension's name. Picking one writes its text over the typed /word.
     "slash-menu-extension-command": {
-      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup beside other sources, and picking it writes the extension's text in the prompt.",
       snapshot: chat(finished, {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
@@ -2807,9 +2887,12 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.click(prompt);
         await ctx.type("/st");
+        // The tag shows when the list holds more than one source (cmux's own /status matches too).
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
-            (label) => label.textContent?.trim() === "Standup",
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].some(
+            (option) =>
+              option.querySelector(".acpmux-slash-name")?.textContent === "/standup" &&
+              ["Standup", undefined].includes(option.querySelector(".acpmux-slash-source")?.textContent?.trim()),
           ),
         );
       },
@@ -2920,21 +3003,21 @@ export default agentPaneEntry({
     },
     "mention-picker": {
       checks: SEND_ARRIVES,
-      note: "Play: type @rea in the prompt; Ctrl-J/Ctrl-K move the file highlight, and Return writes @README.md into the prompt.",
+      note: "Play: type @read in the prompt (four letters list files); Ctrl-J/Ctrl-K move the file highlight, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),
       native: {
         "file.search": {
           root: CWD,
           results: [
-            { path: "README.md", matches: [0, 1, 2] },
-            { path: "src/reader.ts", matches: [4, 5, 6] },
+            { path: "README.md", matches: [0, 1, 2, 3] },
+            { path: "src/reader.ts", matches: [4, 5, 6, 7] },
           ],
         },
       },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
-        await ctx.type("Fix @rea");
+        await ctx.type("Fix @read");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
         await ctx.waitFor(() =>
           Array.from(ctx.document.querySelectorAll(".acpmux-mention-row")).some((row) =>
@@ -2963,11 +3046,11 @@ export default agentPaneEntry({
       checks: SEND_ARRIVES,
       note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
       snapshot: chat(finished),
-      native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
+      native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8, 9] }] } },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
-        await ctx.type("Read @ini");
+        await ctx.type("Read @init");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[role=option]") !== null);
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
@@ -2997,7 +3080,7 @@ export default agentPaneEntry({
     },
     "mention-mixed": {
       checks: SEND_ARRIVES,
-      note: "Play: type @proje; other chats list first with their project muted, then folders, then the chat folder's files, matched letters bold.",
+      note: "Play: type @proje beside other chats; the word names no plugin, so folders, then the chat folder's files list, matched letters bold, and no chat.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },
       play: async (ctx) => {
@@ -3009,45 +3092,33 @@ export default agentPaneEntry({
           ctx.document.querySelectorAll<HTMLElement>(".acpmux-mention-row"),
           (row) => row.dataset.mentionKind,
         );
-        if (kinds.join(",") !== "session,folder,file,file,file,file,file,file")
+        if (kinds.join(",") !== "folder,file,file,file,file,file,file")
           throw new Error(`the picker listed ${kinds.join(",")}`);
       },
     },
     "mention-session-pick": {
-      note: "Play: type @coord and press Return; the chat's title and id replace the @word, which an agent looks up with cmux.",
+      checks: SEND_ARRIVES,
+      note: "Play: type @coord, a word of another chat's title; the picker lists no chat, and says no files match.",
       snapshot: mentionChat(),
       native: { "file.search": { root: CWD, results: [] } },
-      checks: {
-        anchorMovePx: {
-          value: 24,
-          reason:
-            "A chat's title and full id wrap the prompt to a second line; the composer grows one line, as for typed text.",
-        },
-        layoutShiftMax: { value: 0.01, reason: "The same one-line growth of the prompt." },
-      },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
         await ctx.type("Read @coord");
         await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='session']") !== null,
+          () =>
+            ctx.document.querySelector(".acpmux-mention-menu .acpmux-file-note")?.textContent === "No matching files",
         );
-        // A chat is the pick once the word's files are in (none here), not while they are on their way.
-        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === "acpmux-mention-0");
-        await ctx.press("Enter");
-        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
-        const written = ctx.find(prompt).textContent ?? "";
-        if (
-          !written.includes(
-            'Read cmux session "Resume: projects-70 coordinator (0cfd5322)" (0cfd5322-a913-4e01-b71c-aaf0edfb4de8)',
-          )
-        )
-          throw new Error(`the chat pick wrote ${written}`);
+        const kinds = Array.from(
+          ctx.document.querySelectorAll<HTMLElement>(".acpmux-mention-row"),
+          (row) => row.dataset.mentionKind,
+        );
+        if (kinds.length > 0) throw new Error(`@coord listed ${kinds.join(",")}`);
       },
     },
     "mention-file-over-prompt-chat": {
       checks: SEND_ARRIVES,
-      note: "Play: type @app beside a chat named for a long prompt; the prompt's letters do not list the chat, and Return writes the file.",
+      note: "Play: type @app.ts beside a chat named for a long prompt; no chat lists, and Return writes the file.",
       snapshot: (() => {
         const base = chat(finished);
         return {
@@ -3063,14 +3134,14 @@ export default agentPaneEntry({
           ],
         };
       })(),
-      native: { "file.search": { root: CWD, results: [{ path: "src/app.ts", matches: [4, 5, 6] }] } },
+      native: { "file.search": { root: CWD, results: [{ path: "src/app.ts", matches: [4, 5, 6, 7, 8, 9] }] } },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
-        await ctx.type("Open @app");
+        await ctx.type("Open @app.ts");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='file']") !== null);
         if (ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='session']"))
-          throw new Error("a chat matched @app by its prompt's letters");
+          throw new Error("the picker listed a chat");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === "acpmux-mention-0");
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
@@ -3080,7 +3151,7 @@ export default agentPaneEntry({
     },
     "mention-recent-chats": {
       checks: SEND_ARRIVES,
-      note: "Play: a bare @ lists the most recent other chats before a word is typed.",
+      note: "Play: a bare @ beside other chats lists the plugins, Computer Use then Browser Use, and no chat.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },
       play: async (ctx) => {
@@ -3088,8 +3159,12 @@ export default agentPaneEntry({
         await ctx.focus(prompt);
         await ctx.type("@");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
-        const first = ctx.document.querySelector(".acpmux-mention-row .acpmux-slash-name")?.textContent;
-        if (first !== "Fix the dock") throw new Error(`the newest other chat is not first: ${first}`);
+        const rows = Array.from(ctx.document.querySelectorAll<HTMLElement>(".acpmux-mention-row"));
+        const listed = rows.map(
+          (row) => `${row.dataset.mentionKind}:${row.querySelector(".acpmux-slash-name")?.textContent}`,
+        );
+        if (listed.join(",") !== "tool:Computer Use,tool:Browser Use")
+          throw new Error(`a bare @ listed ${listed.join(",")}`);
       },
     },
     "slash-fork": {
@@ -3119,18 +3194,17 @@ export default agentPaneEntry({
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
         await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
-        if (
-          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
-          "Start a new chat with this transcript as its first prompt"
-        )
+        // The highlighted row shows what it does; the others say it to a screen reader only.
+        const said = (name: string) =>
+          row(name)?.querySelector(".acpmux-slash-description")?.textContent ??
+          row(name)?.getAttribute("aria-description");
+        if (said("import") !== "Start a new chat with this transcript as its first prompt")
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (
-          row("fork")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a new chat tab"
-        )
+        if (said("fork") !== "Fork this turn into a new chat tab")
           throw new Error("/fork description does not describe its new chat");
         // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
         // its name and its description.
-        if (row("side")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a side chat")
+        if (said("side") !== "Fork this turn into a side chat")
           throw new Error("/side description does not match /fork's wording");
         for (const name of ["fork", "side"])
           if (row(name)?.querySelector(".acpmux-slash-hint"))

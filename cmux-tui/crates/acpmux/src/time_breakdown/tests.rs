@@ -224,3 +224,107 @@ fn lifetime_totals_survive_completed_turn_eviction() {
     assert_eq!(result.spans.len(), MAX_SPANS);
     assert!(result.tokens_complete);
 }
+
+#[test]
+fn change_rows_carry_the_chart_only_when_a_turn_ended_or_the_running_one_is_due() {
+    let mut state = State::default();
+    assert!(state.row_snapshot(5, 101).is_none(), "an unseeded chart is not built for a row");
+    state.initialized = true;
+    state.record(&record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1})));
+    assert!(state.row_snapshot(10, 102).is_some(), "the first row carries it");
+    state.record(&record(2, 20, "agent_message_chunk", serde_json::json!({})));
+    assert!(state.row_snapshot(20, 103).is_none(), "a row inside the same turn leaves it out");
+    assert!(state.row_snapshot(10 + ROW_EVERY_MS, 104).is_some(), "a running turn refreshes it");
+    assert!(state.row_snapshot(11 + ROW_EVERY_MS, 105).is_none());
+    state.record(&record(3, 30 + ROW_EVERY_MS, "turn_end", serde_json::json!({})));
+    assert!(state.row_snapshot(30 + ROW_EVERY_MS, 106).is_none(), "turn_end alone changes nothing");
+    state.record(&record(4, 40 + ROW_EVERY_MS, "turn_result", serde_json::json!({})));
+    let ended =
+        state.row_snapshot(40 + ROW_EVERY_MS, 107).expect("the row after a turn ends carries it");
+    assert_eq!(ended, state.snapshot(40 + ROW_EVERY_MS));
+    assert!(
+        state.row_snapshot(10 * ROW_EVERY_MS, 108).is_none(),
+        "an idle chat does not resend it"
+    );
+    // Every build of the row that owed it carries it: a lean cell's build, or a rebuild after
+    // the shared copy was let go, takes nothing from the pane's.
+    state.record(&record(5, 50 + ROW_EVERY_MS, "turn_started", serde_json::json!({"turnSeq": 2})));
+    state.record(&record(6, 60 + ROW_EVERY_MS, "turn_result", serde_json::json!({})));
+    assert!(state.row_snapshot(60 + ROW_EVERY_MS, 6).is_some(), "the first build of record 6");
+    assert!(state.row_snapshot(61 + ROW_EVERY_MS, 6).is_some(), "another build of record 6");
+    assert!(
+        state.row_snapshot(62 + ROW_EVERY_MS, 7).is_none(),
+        "the next record's row leaves it out"
+    );
+}
+
+#[test]
+fn spans_name_the_prompt_their_turn_answers() {
+    use serde_json::json;
+    let mut state = State::default();
+    // The prompt's id comes with the user message, before the turn has a turn id.
+    state.record(&record(1, 10, "user_message", json!({"text": "hi", "promptId": "p1"})));
+    state.record(&record(2, 20, "turn_started", json!({"turnSeq": 70, "turnId": "t7"})));
+    state.record(&record(3, 30, "agent_message_chunk", json!({})));
+    state.record(&record(4, 40, "turn_result", json!({"turnId": "t7"})));
+    // A turn whose prompt id comes only with `turn_started`.
+    state.record(&record(
+        5,
+        50,
+        "turn_started",
+        json!({"turnSeq": 80, "turnId": "t8", "promptId": "p2"}),
+    ));
+    state.record(&record(6, 60, "agent_message_chunk", json!({})));
+    state.record(&record(7, 70, "turn_result", json!({"turnId": "t8"})));
+    // A turn from a log with no prompt id (its seq is its record's, 8), and an open one whose
+    // prompt id is empty (seq 11): none.
+    state.record(&record(8, 80, "user_message", json!({"text": "old"})));
+    state.record(&record(9, 90, "agent_message_chunk", json!({})));
+    state.record(&record(10, 100, "turn_result", json!({})));
+    state.record(&record(11, 110, "user_message", json!({"text": "blank", "promptId": ""})));
+    state.record(&record(12, 120, "agent_message_chunk", json!({})));
+    let spans = state.snapshot(130).spans;
+    let prompt = |seq: u64| {
+        let of: Vec<_> = spans
+            .iter()
+            .filter(|span| span.turn_seq == seq)
+            .map(|span| span.prompt_id.clone())
+            .collect();
+        assert!(!of.is_empty(), "no span for turn {seq}");
+        assert!(of.windows(2).all(|pair| pair[0] == pair[1]), "turn {seq}: {of:?}");
+        of[0].clone()
+    };
+    assert_eq!(prompt(70).as_deref(), Some("p1"));
+    assert_eq!(prompt(80).as_deref(), Some("p2"));
+    assert_eq!(prompt(8), None);
+    assert_eq!(prompt(11), None);
+    // On the wire: `promptId`, left off when there is none.
+    let wire = serde_json::to_value(&spans).expect("spans serialize");
+    let wire = wire.as_array().expect("an array");
+    assert!(wire.iter().any(|span| span["turnSeq"] == 70 && span["promptId"] == "p1"));
+    assert!(
+        wire.iter().filter(|span| span["turnSeq"] == 8).all(|span| span.get("promptId").is_none())
+    );
+}
+
+#[test]
+fn a_saved_turn_from_before_prompt_ids_restores_with_none() {
+    let mut state = State::default();
+    state.record(&record(
+        1,
+        10,
+        "user_message",
+        serde_json::json!({"text": "hi", "promptId": "p1"}),
+    ));
+    state.record(&record(2, 20, "agent_message_chunk", serde_json::json!({})));
+    let (bytes, _) = state.save().expect("saves");
+    // The same save written before spans named their prompt: no `prompt_id` on the open turn.
+    let mut saved: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    let turn = saved
+        .pointer_mut("/reducer/turn")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("an open turn");
+    assert!(turn.remove("prompt_id").is_some());
+    let restored = State::restore(&serde_json::to_vec(&saved).expect("json")).expect("restores");
+    assert!(restored.snapshot(30).spans.iter().all(|span| span.prompt_id.is_none()));
+}

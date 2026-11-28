@@ -70,7 +70,10 @@ nonisolated enum ContextMenuEssentials {
         .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("groupSelectedWorkspaces"), .separator,
                                   .action("workspace.duplicate"), .folder(.move, []), .action("palette.toggleWorkspacePin"),
                                   .action("workspace.toggleAudioMute"), .separator],
-                            close: ["closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
+                            // Archive opens the closing section here too, as on one row (#48595): every selected
+                            // row takes the right-clicked row's new state (`workspace.toggleArchive`). Leo, 2026-11-21:
+                            // "there's no right click archive chat in the left bit."
+                            close: ["workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
                             tail: ["reopenClosedWorkspace"]),
     ]
 

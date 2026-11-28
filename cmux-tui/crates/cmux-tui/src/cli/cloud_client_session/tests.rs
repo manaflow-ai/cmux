@@ -38,6 +38,12 @@ fn parses_create_and_exec() {
     ]))
     .unwrap();
     assert_eq!(exec.verb, Verb::Exec { command: "uname -a".into(), timeout_ms: 5000 });
+    // Several words keep their argv (each shell-quoted); one word is a shell line as written.
+    let quoted =
+        parse(&strings(&["exec", &format!("--target={VM}"), "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(quoted.verb, Verb::Exec { command: "sh -c 'cat > f'".into(), timeout_ms: 30_000 });
+    let line = parse(&strings(&["exec", &format!("--target={VM}"), "--", "ls | wc -l"])).unwrap();
+    assert_eq!(line.verb, Verb::Exec { command: "ls | wc -l".into(), timeout_ms: 30_000 });
     for bad in [
         vec!["create"],
         vec!["create", "--target", "machine:builder"],
@@ -152,6 +158,98 @@ fn exec_mints_then_runs_the_command_with_the_identity_token_and_never_prints_it(
     assert!(!run.to_ascii_lowercase().contains("authorization:"), "{run}");
     let body: Value = serde_json::from_str(run.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(body, json!({ "command": "echo hi", "linuxUser": "cmux", "timeoutMs": 30000 }));
+}
+
+/// A fake cmux API and a Freestyle whose edge cuts an exec held open (524, as production did
+/// at about 125 s on 2026-11-21): with `x-freestyle-background-after-secs` the exec answers 202
+/// and its stored answer is polled.
+fn fake_long_exec() -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let base = origin.clone();
+    let (sender, requests) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(3) {
+            let mut stream = stream.unwrap();
+            let mut buffer = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            let request = loop {
+                let n = stream.read(&mut chunk).unwrap();
+                buffer.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buffer).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if buffer.len() >= end + 4 + length || n == 0 {
+                        break text;
+                    }
+                }
+            };
+            let (status, body) = if request
+                .starts_with(&format!("POST /v1/cloud/machines/{VM}/client-session "))
+            {
+                (200, json!({ "ok": true, "value": { "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": TOKEN, "expires_at": 1_800_000_000_000_u64, "api_base_url": base, "ssh": null } }).to_string())
+            } else if request.starts_with("POST /v5/vms/fsvm-1/exec-await ") {
+                if request.to_ascii_lowercase().contains("x-freestyle-background-after-secs: 60") {
+                    (202, json!({ "requestId": "bg-1", "status": "pending" }).to_string())
+                } else {
+                    (524, "error code: 524".to_owned())
+                }
+            } else if request.starts_with("GET /v5/background-requests/bg-1 ") {
+                (200, json!({ "statusCode": 0, "stdout": "done\n", "stderr": "" }).to_string())
+            } else {
+                (404, "{}".to_owned())
+            };
+            let _ = stream.write_all(format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
+            let _ = sender.send(request);
+        }
+    });
+    (origin, requests)
+}
+
+#[test]
+fn exec_longer_than_the_provider_edge_holds_a_request_runs_as_a_background_request() {
+    let (origin, requests) = fake_long_exec();
+    let command = parse(&strings(&[
+        "exec",
+        "--target",
+        VM,
+        "--timeout-ms",
+        "290000",
+        "--",
+        "sleep",
+        "200;",
+        "echo",
+        "done",
+    ]))
+    .unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code =
+        run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err).unwrap();
+    assert_eq!(
+        (code, String::from_utf8(out).unwrap()),
+        (0, "done\n".to_owned()),
+        "{}",
+        String::from_utf8_lossy(&err)
+    );
+    let _mint = requests.recv().unwrap();
+    let _exec = requests.recv().unwrap();
+    let poll = requests.recv().unwrap().to_ascii_lowercase();
+    assert!(poll.starts_with("get /v5/background-requests/bg-1 "), "{poll}");
+    assert!(
+        poll.contains(&format!(
+            "x-freestyle-identity-access-token: {}",
+            TOKEN.to_ascii_lowercase()
+        )),
+        "{poll}"
+    );
+    assert!(!poll.contains("authorization:"), "{poll}");
 }
 
 #[test]
@@ -556,6 +654,32 @@ fn a_refused_machine_exec_route_prints_only_a_known_code() {
         let (origin, _requests) = fake_no_sessions(
             status,
             json!({ "ok": false, "error": { "code": code, "message": "secret-ish detail" } })
+                .to_string(),
+        );
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let message =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert!(message.ends_with(shown), "{message}");
+        assert!(!message.contains("secret-ish"), "{message}");
+    }
+}
+
+#[test]
+fn a_vm_unavailable_exec_says_which_rpc_failure_it_was_and_nothing_else() {
+    // cmux-platform MachineGuest.ts answers a thrown Durable Object call as 503 vm_unavailable
+    // with `reason` one of RpcReset.ts's three words; any other reason text is never printed.
+    for (reason, shown) in [
+        (json!("restarted"), "vm_unavailable (restarted)"),
+        (json!("overloaded"), "vm_unavailable (overloaded)"),
+        (json!("unreachable"), "vm_unavailable (unreachable)"),
+        (json!("secret-ish reason"), "503 Service Unavailable vm_unavailable"),
+        (json!(7), "503 Service Unavailable vm_unavailable"),
+    ] {
+        let (origin, _requests) = fake_no_sessions(
+            503,
+            json!({ "ok": false, "error": { "code": "vm_unavailable", "message": "secret-ish detail", "reason": reason } })
                 .to_string(),
         );
         let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();

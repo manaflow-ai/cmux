@@ -32,10 +32,18 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
+# scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
+# makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
+# sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
 INPUTS = [
     "webviews",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
+    "schemas/design-scale/design-scale.json",
+    "schemas/type-scale/type-scale.json",
+    "schemas/motion-scale/motion-scale.json",
     ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
@@ -53,7 +61,9 @@ INPUTS = [
 # narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
 CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
 GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
-GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+# A catalog is a file or a one-file-per-key directory (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py);
+# a directory is a pathspec of every file in it.
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings(?:\.d)?)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh).
@@ -121,9 +131,73 @@ def git_files(root, pathspecs):
     return sorted({os.fsdecode(p) for p in listed if p})
 
 
+SPEC_PATH = re.compile(r"""\.{1,2}/[^"'`)\s]+""")
+# SPECIFIER's lead-ins, each without the \s* that separates it from the path. The \b ones need a non-word character
+# (or the start) before them.
+LEADS = (("from", True), ("import", True), ("@import", False), ("@source", False), ("url(", True))
+
+
+def lead_before(text, end, floor):
+    """True when TEXT[:END] ends in one of SPECIFIER's lead-ins and its \\s* (and optional quote) starting at or
+    after FLOOR, the end of the previous match, as finditer would find it."""
+    if end > floor and text[end - 1] in "\"'`":
+        end -= 1
+    while end > floor and text[end - 1].isspace():
+        end -= 1
+    if end > floor and text[end - 1] == "(":
+        # import\s*\( : the paren, any space, then the word.
+        word_end = end - 1
+        while word_end > floor and text[word_end - 1].isspace():
+            word_end -= 1
+        if bounded_word_ends(text, word_end, "import", floor):
+            return True
+        # new\s+URL\( : URL right before the paren, at least one space, then new.
+        start = end - 1 - len("URL")
+        if start > floor and text.startswith("URL", start) and text[start - 1].isspace():
+            new_end = start - 1
+            while new_end > floor and text[new_end - 1].isspace():
+                new_end -= 1
+            if bounded_word_ends(text, new_end, "new", floor):
+                return True
+    for word, bounded in LEADS:
+        if bounded:
+            if bounded_word_ends(text, end, word, floor):
+                return True
+        elif end - len(word) >= floor and text.startswith(word, end - len(word)):
+            return True
+    return False
+
+
+def bounded_word_ends(text, end, word, floor):
+    """\\bWORD ends at END, starting at or after FLOOR (the \\b looks at the character before, as re's does)."""
+    start = end - len(word)
+    return start >= floor and text.startswith(word, start) and not (start and is_word(text[start - 1]))
+
+
+def is_word(char):
+    return char.isalnum() or char == "_"
+
+
+def relative_specifiers(text):
+    """SPECIFIER.finditer(TEXT)'s group 1, found from each "./" back to its lead-in rather than by trying every lead-in
+    at every character: the regex took 9.5 s on webviews/ (33 MB, direct.ts alone 1 MB) on Python 3.9, most of a
+    `cmux app try`'s plan (team-dev-build-swap's retry: plan 3.5 s of a 5 s budget). Same matches, in order, with
+    finditer's no-overlap rule (tests/test_web_bundle_key_specifiers.py holds it to the regex)."""
+    floor = 0
+    at = text.find("./")
+    while at != -1:
+        start = at - 1 if at and text[at - 1] == "." else at
+        path = SPEC_PATH.match(text, start)
+        if path and lead_before(text, start, floor):
+            yield path.group(0)
+            floor = path.end()
+            at = text.find("./", floor)
+        else:
+            at = text.find("./", at + 1)
+
+
 def specifiers(text):
-    for m in SPECIFIER.finditer(text):
-        yield m.group(1)
+    yield from relative_specifiers(text)
     for m in GLOB_CALL.finditer(text):
         for g in GLOB_STRING.finditer(m.group(1)):
             yield g.group(1)
@@ -184,6 +258,11 @@ def gen_strings_catalogs(root):
             text = f.read()
     except OSError:
         return None
+    return gen_strings_catalogs_in(text)
+
+
+def gen_strings_catalogs_in(text):
+    """gen_strings_catalogs over gen-strings.mjs's TEXT (hot-apply.py reads it from a commit, not a checkout)."""
     consts = dict(GEN_STRINGS_CONST.findall(text))
     found = set()
     for m in GEN_STRINGS_FILE.finditer(text):

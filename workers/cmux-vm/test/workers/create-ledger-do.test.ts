@@ -23,7 +23,7 @@ it("retains fork capture identity, quota and cancellation through native RPC", a
   await reloaded.snapshotCapture({ op: "fence", key: "child", expectedId: null, createdBy: "key:owner", labels: {} }, now + 2);
   expect(await reloaded.settleCancellation("fork", vmId)).toBe(true);
   expect((await Effect.runPromise(limits.inspect(tenant, "fork")))?.progress).toMatchObject({ phase: "capturing", cancelled: true });
-  expect(await reloaded.advance("fork", { phase: "done", vmId }, now + 3)).toBe(false);
+  expect(await reloaded.advance("fork", { phase: "done", vmId }, now + 3)).toBe("creation cancellation is fenced");
   await reloaded.begin("legacy", "old", 0);
   expect(await Effect.runPromise(limits.quarantineForkClaim(tenant, "legacy"))).toBe(true);
   await reloaded.begin("sweep", "unrelated", now + IDEMPOTENCY_TTL_MS * 3);

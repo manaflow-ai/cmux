@@ -37,6 +37,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         }
     }
     for (args, expected) in [
+        (vec!["settings", "undo", "--if-revision", "7"], "settings.undo"),
+        (vec!["settings", "restore", "12", "--if-revision", "7"], "settings.restore"),
+        (
+            vec!["settings", "reset", "--group", "editor", "--if-revision", "7"],
+            "settings.reset_group",
+        ),
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
         (vec!["notify", "--workspace", "current", "--desktop", "false"], "notification.create"),
         (vec!["notify", "--workspace", "current", "--reply"], "notification.create"),
@@ -84,6 +90,22 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
+        // Review threads: a threaded send, then the agent closing one.
+        (
+            vec![
+                "git",
+                "comments",
+                "send",
+                "dc_1",
+                "--root",
+                "/repo",
+                "--threads",
+                "--acp-session",
+                "ses_1",
+            ],
+            "diff.comments.send",
+        ),
+        (vec!["git", "comments", "resolve", "dc_1", "--root", "/repo"], "diff.comments.thread"),
         // The guarded end `worktree close` sends (#39092).
         (vec!["terminal", TERMINAL, "close", "--if-unplaced"], "terminal.close"),
         (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
@@ -183,6 +205,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                 TERMINAL,
                 "--payload-json",
                 r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which branch?","header":"Branch","options":[{"label":"main"},{"label":"dev"}]}]}}"#,
+            ],
+            "session.journal.append",
+        ),
+        // A terminal agent's approval (Claude's PermissionRequest) rides beside the event as
+        // live_approval.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PermissionRequest",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"make","description":"Build"}}"#,
             ],
             "session.journal.append",
         ),
@@ -348,6 +388,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "theme.scheme.convert"
                         | "theme.scheme.export"
                         | "theme.scheme.from_image"
+                        | "theme.slots.resolve"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"
@@ -366,23 +407,36 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The browser import is the app's: it reads
                         // another browser's files, by path.
                         | "browser_import.read"
+                        // The app's languages on first use: only the
+                        // verified app asks, with its bundle's manifest.
+                        | "language_packs.ensure"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
                         | "cloud.machine.chat_access"
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
+                        | "cloud.machine.chief_start"
+                        | "cloud.machine.chief_resize"
+                        | "cloud.machine.setup_desktop"
+                        | "cloud.machine.fork"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
                         | "cloud.owner.github_app"
+                        | "cloud.owner.github_clone_token"
+                        | "cloud.owner.github_complete"
                         | "cloud.owner.github_connect"
+                        | "cloud.owner.github_list"
                         | "cloud.owner.github_repos"
                         | "cloud.owner.handoff_begin_turn"
                         | "cloud.owner.handoff_open"
                         | "cloud.owner.handoff_wait"
                         | "cloud.owner.handoffs"
                         | "cloud.owner.harness_login_copy"
+                        | "cloud.owner.slack"
+                        | "cloud.owner.slack_awake"
+                        | "cloud.owner.op"
                         | "cloud.owner.turn_checkpoint"
                         | "cloud.owner.turn_rewind"
                         | "cloud.owner.turns"
@@ -461,6 +515,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // participant's own client (the Chief's brain); the
                         // CLI's `cmux chief` only reads them.
                         | "conversation.typing"
+                        // A review posts under the person's own GitHub
+                        // account from the diff viewer; agents leave drafts
+                        // (`git.review.comment`), as MCP's EXCLUDED says.
+                        | "git.review.post"
                         | "conversation.draft"
                         // `cmux chief engine|stop` and the chat's /model,
                         // /effort and Ctrl+C send these (cli/chief), outside
@@ -468,6 +526,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Home's Chief settings lists, pauses and deletes
+                        // the Chief's automations; the Chief has its own
+                        // `automation` tool (optchat-chief automations.rs).
+                        | "chief.automation.list"
+                        | "chief.automation.update"
                         | "chief.continue"
                         | "chief.retry"
                         // `cmux chief list|new|adopt|edit|delete` send these
@@ -490,7 +553,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "credential.verify"
                         | "credential.mint"
                         | "credential.rotate"
-                        // Apart from settings.list, daemon settings ops have no
+                        // Apart from settings.list and the recovery verbs (history,
+                        // undo, restore, reset --group), daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
                         | "settings.edit"
@@ -546,6 +610,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // The settings recovery verbs declare no origin: the daemon CLI has no
+        // fake approval path for user-only settings (cli.rs daemon_settings_scope);
+        // the app and MCP send theirs.
+        ("settings.undo", "origin"),
+        ("settings.restore", "origin"),
+        ("settings.reset_group", "origin"),
         // git.status's github: the Changes sidebar's pull request list asks for github_repo
         // (#44129); `cmux git status` prints the working tree's status and never sends it.
         ("git.status", "github"),

@@ -205,7 +205,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
   });
 
   for (const variant of ["steered-claude", "next-prompt-no-summary"])
-    test(`${variant}: every reply time hovers; the steered stretch's footer draws none`, async () => {
+    test(`${variant}: every reply time hovers, the steered stretch's footer's too`, async () => {
       const page = await open(STEERED, variant, { width: 760, height: 560 });
       try {
         const times = await page.evaluate(() =>
@@ -220,15 +220,15 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
             };
           }),
         );
-        // A turn's footer draws no time, the stretch the person came in on's too (Lawrence, 2026-11-11
-        // standup: the Codex app shows none); a reply's own row keeps its time, and it hovers.
+        // A turn's footer draws its age after its buttons, the stretch the person came in on's too,
+        // shown with the row on hover (Leo, 2026-11-22: "you hover and you get the timing"; this
+        // replaces Lawrence's 2026-11-11 no-time footer); every time hovers.
         const superseded = await page.evaluate(() =>
-          [...document.querySelectorAll('[data-row-id^="superseded"]')].map((row) =>
-            Boolean(row.querySelector(".cv-turn-time")),
-          ),
+          [...document.querySelectorAll('[data-row-id^="superseded"]')]
+            .filter((row) => row.querySelector(".cv-turn-actions .cv-turn-action-group"))
+            .map((row) => Boolean(row.querySelector(".cv-turn-actions .cv-turn-time"))),
         );
-        expect(superseded.length).toBeGreaterThan(0);
-        expect(superseded).not.toContain(true);
+        expect(superseded).not.toContain(false);
         for (const time of times) {
           expect([time.row, time.hit]).toEqual([time.row, true]);
           expect([time.row, time.tip]).toEqual([time.row, expect.stringMatching(/\S/)]);

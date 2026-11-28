@@ -240,7 +240,7 @@ fn median_cut(mut colors: Vec<[u8; 3]>, k: usize) -> Vec<(Rgb, f64)> {
 }
 
 /// Hue (0...360), saturation and lightness (0...1).
-fn hsl(c: Rgb) -> (f64, f64, f64) {
+pub(crate) fn hsl(c: Rgb) -> (f64, f64, f64) {
     let max = c.r.max(c.g).max(c.b);
     let min = c.r.min(c.g).min(c.b);
     let l = (max + min) / 2.0;
@@ -259,7 +259,7 @@ fn hsl(c: Rgb) -> (f64, f64, f64) {
     (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l)
 }
 
-fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
+pub(crate) fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let hp = h.rem_euclid(360.0) / 60.0;
     let x = c * (1.0 - (hp.rem_euclid(2.0) - 1.0).abs());
@@ -276,11 +276,11 @@ fn from_hsl(h: f64, s: f64, l: f64) -> Rgb {
 }
 
 /// Chroma (max - min channel), 0...1: how colorful, independent of lightness.
-fn chroma(c: Rgb) -> f64 {
+pub(crate) fn chroma(c: Rgb) -> f64 {
     c.r.max(c.g).max(c.b) - c.r.min(c.g).min(c.b)
 }
 
-fn hue_distance(a: f64, b: f64) -> f64 {
+pub(crate) fn hue_distance(a: f64, b: f64) -> f64 {
     let d = (a - b).rem_euclid(360.0);
     d.min(360.0 - d)
 }
@@ -297,7 +297,7 @@ fn toward(color: Rgb, pole: Rgb, done: impl Fn(Rgb) -> bool) -> Rgb {
 }
 
 /// ANSI 1...6's hues: red, green, yellow, blue, magenta, cyan.
-const ANSI_HUES: [f64; 6] = [0.0, 120.0, 55.0, 220.0, 300.0, 185.0];
+pub(crate) const ANSI_HUES: [f64; 6] = [0.0, 120.0, 55.0, 220.0, 300.0, 185.0];
 
 /// The scheme for an image's pixels. `appearance` `None` picks dark or
 /// light from the image's average lightness.
@@ -410,25 +410,5 @@ pub fn palette_from_image(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hsl_round_trips_the_primaries() {
-        for hex in [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF, 0x808080] {
-            let c = Rgb::hex(hex);
-            let (h, s, l) = hsl(c);
-            assert_eq!(from_hsl(h, s, l).to_hex(), hex, "{hex:06x}");
-        }
-    }
-
-    #[test]
-    fn median_cut_splits_two_tones_by_share() {
-        let mut colors = vec![[10u8, 20, 40]; 70];
-        colors.extend(vec![[220u8, 110, 30]; 30]);
-        let swatches = median_cut(colors, 8);
-        assert_eq!(swatches.len(), 2, "{swatches:?}");
-        assert_eq!(swatches[0].0.to_hex(), 0x0A1428);
-        assert!((swatches[0].1 - 0.7).abs() < 1e-9);
-    }
-}
+#[path = "image_palette_tests.rs"]
+mod tests;

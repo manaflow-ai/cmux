@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { appendAttachments } from "./attachmentIntakeModel";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
+import { holdSwapReveal } from "../../../pages/shared/swapHandoff";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
 /// the chat, restoring it from the archive or relaunching after a crash brings them back with the
@@ -63,7 +64,7 @@ export function useKeptAttachments(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   store: KeptAttachments | undefined,
   carrying: () => boolean,
-): void {
+): boolean {
   const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
   const written = useRef<{ sessionId?: string; ids: string; stored: Set<string> }>({ ids: "", stored: new Set() });
@@ -134,6 +135,8 @@ export function useKeptAttachments(
     // The last chat's chips reach the host before this chat's are read.
     flush();
     const keepHeld = carry.current();
+    // Not read until this read answers: a chat shown again reads its chips again.
+    setReadFor(undefined);
     let current = true;
     void store
       .read(sessionId)
@@ -219,6 +222,18 @@ export function useKeptAttachments(
     [],
   );
 
+  // GRACEFUL-SWAP: a swapped-in page stays under the host's still until the chat's kept chips are
+  // read back: the host's read can answer after the DOM went quiet, and a chip row arriving then
+  // pushed the composer up after the page showed (Leo 2026-11-22: "no shift, no anything").
+  useEffect(
+    () =>
+      holdSwapReveal(() => {
+        const { sessionId, readFor, store } = shown.current;
+        return sessionId && store && readFor !== sessionId ? "composer.chips-unread" : null;
+      }),
+    [],
+  );
+
   // A page closing or going away (its tab closed, the chat archived) with a write still resting
   // sends it now: the web page may be gone before React unmounts anything.
   useEffect(() => {
@@ -234,6 +249,9 @@ export function useKeptAttachments(
       flushNow.current();
     };
   }, []);
+  // Whether the chat's own chips were read: until then a read still out sets them over what the
+  // prompt holds (a stash restored meanwhile would lose its chips).
+  return !sessionId || !store || readFor === sessionId;
 }
 
 /// What a write would change: each chip's id; its source, which the host may say a moment after

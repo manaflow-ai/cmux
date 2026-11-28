@@ -10,7 +10,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         pan.name = "conversation.horizontalPan"
         collectionView.addGestureRecognizer(pan)
 
-        // Messages' context-menu timing (UIKit's click driver): the bubble
+        let select = UILongPressGestureRecognizer(target: self, action: #selector(handleTextPress(_:)))
+        select.minimumPressDuration = 0.45
+        select.name = Self.textPressName
+        select.delegate = self
+        collectionView.addGestureRecognizer(select)
+
+        // Messages' context-menu timing on non-text content: the attachment
         // starts growing at 0.15 s; the menu opens on a lift after 0.4 s or
         // by itself at 0.725 s.
         let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
@@ -41,12 +47,19 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // The press clock starts with each new touch on the transcript.
+        let point = touch.location(in: collectionView)
+        if gestureRecognizer.name == Self.textPressName {
+            return !isSelecting && !touchBelongsToTextSelection(point) && textCell(at: point) != nil
+        }
+        // The attachment press clock starts with each new touch.
         if gestureRecognizer.name == Self.pressName {
             touchDownUptime = touch.timestamp
             pressClaimedTouch = false
             pressOpenedMenu = false
             pressLiftUptime = nil
+        }
+        if gestureRecognizer.name == Self.pressName || gestureRecognizer.name == Self.pressTimeoutName {
+            return textCell(at: point) == nil
         }
         guard gestureRecognizer.name == "conversation.doubleTap" else { return true }
         // Not while bubble text is selected: that tap only ends the selection, at once.
@@ -66,6 +79,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         if gestureRecognizer.name == Self.composerSwipeDownName {
             return composerSwipeDownShouldBegin()
         }
+        if gestureRecognizer.name == Self.textPressName {
+            return textCell(at: gestureRecognizer.location(in: collectionView)) != nil
+        }
         if gestureRecognizer is UILongPressGestureRecognizer {
             return !isSelecting && !touchBelongsToTextSelection(gestureRecognizer.location(in: collectionView))
                 && messageCell(at: gestureRecognizer.location(in: collectionView), requireContentHit: true) != nil
@@ -74,6 +90,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Once a word is selected, the finger extends its range until it lifts.
+        if gestureRecognizer.name == Self.textPressName || other.name == Self.textPressName { return false }
         let a = pressArbitration(gestureRecognizer), b = pressArbitration(other)
         if a == .press || b == .press {
             // Taps stay alive beside the press and decide at the lift
@@ -102,6 +120,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         return !pressOpenedMenu && MessagePressTiming.tapOpensItem(afterHolding: lift - began)
     }
 
+    static let textPressName = "conversation.textPress"
     static let pressName = "conversation.press"
     static let pressTimeoutName = "conversation.pressTimeout"
 
@@ -166,6 +185,31 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     // MARK: Long press
 
+    /// Text and media can share a row. Only the text bubble (including its padding)
+    /// and the emoji text itself accept a word-selection press.
+    func textCell(at point: CGPoint) -> MessageCell? {
+        guard let cell = messageCell(at: point, requireContentHit: false), let label = cell.selectableLabel else { return nil }
+        let target: UIView = label === cell.textLabel ? cell.bubble : label
+        return target.bounds.insetBy(dx: -4, dy: -4).contains(target.convert(point, from: collectionView)) ? cell : nil
+    }
+
+    @objc private func handleTextPress(_ press: UILongPressGestureRecognizer) {
+        let point = press.location(in: collectionView)
+        switch press.state {
+        case .began:
+            guard let cell = textCell(at: point), let rowID = cell.model?.rowID else { return }
+            beginTextSelection(rowID: rowID, at: point)
+        case .changed:
+            if let selection = textSelection { selection.extendHold(to: press.location(in: selection)) }
+        case .ended:
+            textSelection?.finishHold()
+        case .cancelled, .failed:
+            endTextSelection()
+        default:
+            break
+        }
+    }
+
     @objc private func handleLongPress(_ press: UILongPressGestureRecognizer) {
         let point = press.location(in: collectionView)
         switch press.state {
@@ -207,7 +251,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         // growing bubble stops.
         collectionView.panGestureRecognizer.isEnabled = false
         collectionView.panGestureRecognizer.isEnabled = true
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ConversationHaptics.impact(.medium)
         showActions(overlay)
     }
 
@@ -324,11 +368,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     private func presentRetry(for model: MessageRowModel) {
         let sheet = UIAlertController(
             title: model.message.isScheduled
+                // retry-prompt-ok: re-sends a scheduled message
                 ? String(localized: "conversation.sendLater.failedTryAgain", defaultValue: "Your scheduled message was not sent. Tap “Try Again” to schedule this message.", bundle: .module)
                 : String(localized: "conversation.retry.title", defaultValue: "Your message was not delivered.", bundle: .module),
             message: nil,
             preferredStyle: .actionSheet
         )
+        // retry-prompt-ok: re-sends a failed message
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
             self?.store.retry(rowID: model.rowID)
         })
@@ -352,6 +398,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
+            // retry-prompt-ok: re-sends a failed message
             let tryAgain = UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
                 self?.store.retryUnsend(messageID: messageID)
             }

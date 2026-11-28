@@ -1,0 +1,680 @@
+{
+  "family": "cloud",
+  "ops": {
+    "cloud.allotment.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a24f88a2f0799132"
+    },
+    "cloud.auth.status": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "cfbb53895211d7d4"
+    },
+    "cloud.billing.checkout": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "a5fe0856a56f4a54"
+    },
+    "cloud.browser.open": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "da22950d582b642c"
+    },
+    "cloud.environment.boot": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "edab1ff0270d3657"
+    },
+    "cloud.environment.build": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "c4400bc2e6a28574"
+    },
+    "cloud.environment.delete": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "67e142cf73bdfda7"
+    },
+    "cloud.environment.list": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "aaca3f24434fb0cd"
+    },
+    "cloud.environment.set": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "5a2e8f5f7f52fb6c"
+    },
+    "cloud.file.pull": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "3de40d5d4b50918e"
+    },
+    "cloud.file.push": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "090dc88dbb4b64a1"
+    },
+    "cloud.file.transfer.cancel": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "c430bcdb69696447"
+    },
+    "cloud.file.transfer.list": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "7310e47a61948baa"
+    },
+    "cloud.fs.list": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "5050bcef5a958f4c"
+    },
+    "cloud.fs.mkdir": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "834dde9ccad799c6"
+    },
+    "cloud.fs.read": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "b8e0531a87cb08ed"
+    },
+    "cloud.fs.remove": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "dfe98d33d1c7050b"
+    },
+    "cloud.fs.stat": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "c621a5b07f6bd38a"
+    },
+    "cloud.fs.write": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "b760f312b5fb3f70"
+    },
+    "cloud.machine.archive_delete": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "b2916cf80742a092"
+    },
+    "cloud.machine.chat_access": {
+      "source": "local",
+      "class": "read",
+      "digest": "26233692f33bc45e"
+    },
+    "cloud.machine.chief_resize": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "ad13ba04bdd03341"
+    },
+    "cloud.machine.chief_start": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "edf066ffb33d01aa"
+    },
+    "cloud.machine.connect": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "317894f21752eb8a"
+    },
+    "cloud.machine.connect_info": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "ca1abdb1dd4c5cb2"
+    },
+    "cloud.machine.create": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "8b49f3a3ff528f5b"
+    },
+    "cloud.machine.delete": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "80969fb10f784046"
+    },
+    "cloud.machine.disconnect": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "386f1c6f21f27cb0"
+    },
+    "cloud.machine.fork": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2c91c140d5cebeff"
+    },
+    "cloud.machine.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a19a5ae152ae04a8"
+    },
+    "cloud.machine.idle_policy.set": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "a5933f0275dd5518"
+    },
+    "cloud.machine.io": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "7488dd783514ca2e"
+    },
+    "cloud.machine.keep": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "01883795c2a2e822"
+    },
+    "cloud.machine.link_token": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "a969e5aa7babbb34"
+    },
+    "cloud.machine.list": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "f7590ffcbcfa78ae"
+    },
+    "cloud.machine.pause": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "66d0f11463009d18"
+    },
+    "cloud.machine.pause_all": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "86f0a6736b97ebcc"
+    },
+    "cloud.machine.rename": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "01ded3e3dd22e5bc"
+    },
+    "cloud.machine.resize": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "ede6fe44ffcb2a4a"
+    },
+    "cloud.machine.setup_desktop": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e8130d729b74d5ac"
+    },
+    "cloud.machine.share_chat": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "66115d3db3b42123"
+    },
+    "cloud.machine.start": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "47ae1376e33493cc"
+    },
+    "cloud.machine.upgrade": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "476a6f7bda285f57"
+    },
+    "cloud.machine.watch": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "542f71ea8ec5900b"
+    },
+    "cloud.migration.start": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "8e2a671dad5afd78"
+    },
+    "cloud.migration.status": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "cd20633181c7f61b"
+    },
+    "cloud.owner.acpmux_keyed_start": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "cfb4ef12fcc3c728"
+    },
+    "cloud.owner.acpmux_person_holds": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.fork_run": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.github_app": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.github_clone_token": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_complete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_connect": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_list": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.github_repos": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.handoff_begin_turn": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.handoff_open": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.handoff_wait": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.handoffs": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.harness_login_copy": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.owner.op": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "873bd350087e96c1"
+    },
+    "cloud.owner.slack": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.slack_awake": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.turn_checkpoint": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.turn_rewind": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "810aed2ab9770c55"
+    },
+    "cloud.owner.turns": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
+    },
+    "cloud.plan.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "288c304741b24f78"
+    },
+    "cloud.port.close": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "06da335ded5c3823"
+    },
+    "cloud.port.forward": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "68cbc6bebc57a65f"
+    },
+    "cloud.port.list": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "digest": "5412cc6c5d728687"
+    },
+    "cloud.previews.create_link": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "86809c16d8c51d3c"
+    },
+    "cloud.previews.refresh": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "86809c16d8c51d3c"
+    },
+    "cloud.previews.revoke_link": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "86809c16d8c51d3c"
+    },
+    "cloud.rescue.open": {
+      "source": "app",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "70fe1942c600f318"
+    },
+    "cloud.retention.set": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "10c1c95149529011"
+    },
+    "cloud.runs.cancel": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bdaabcd100e379cd"
+    },
+    "cloud.runs.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bdaabcd100e379cd"
+    },
+    "cloud.runs.sandbox": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bdaabcd100e379cd"
+    },
+    "cloud.runs.start": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bdaabcd100e379cd"
+    },
+    "cloud.runs.wait": {
+      "source": "local",
+      "class": "read",
+      "digest": "e09d37624891d5e4"
+    },
+    "cloud.shell.open": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "28a65e56802099bf"
+    },
+    "cloud.snapshot.create": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "ae29d26dd2bf6cfc"
+    },
+    "cloud.snapshot.delete": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "3b82313482824417"
+    },
+    "cloud.snapshot.list": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "9259664c5a3feca6"
+    },
+    "cloud.snapshot.restore": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "1c035496909af896"
+    },
+    "cloud.surge.create": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "a94d9fec6dffd635"
+    },
+    "cloud.surge.preview": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "498711a0b2046067"
+    },
+    "cloud.usage.current": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "06cef7c508952184"
+    },
+    "cloud.vm.attention.emit": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "f05050a09bc45398"
+    },
+    "cloud.vm.domains": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.event.emit": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "8507274a61b44867"
+    },
+    "cloud.vm.firewall_create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.firewall_delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.firewall_get": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.firewall_list": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.machine.request": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "bd1a173ec0a3df5e"
+    },
+    "cloud.vm.network_policy": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "edae4004526ac134"
+    },
+    "cloud.vm.networks": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.provision_api": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.publication_api_keys": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.publications": {
+      "source": "local",
+      "class": "read",
+      "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.receiver.lifecycle": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "5e5a1338564e8eb9"
+    },
+    "cloud.vm.revoke_publication_api_key": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.scp_endpoint": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.self.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "77d0b1bee6b66976"
+    },
+    "cloud.vm.status.report": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "863430e41d6c3608"
+    },
+    "cloud.vm.tunnel_attach": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.tunnel_detach": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.tunnel_enroll": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.tunnel_revoke": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
+    "cloud.vm.tunnel_rotate_key": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    }
+  }
+}

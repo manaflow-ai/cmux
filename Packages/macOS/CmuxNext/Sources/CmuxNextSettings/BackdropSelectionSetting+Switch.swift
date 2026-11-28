@@ -52,20 +52,24 @@ extension BackdropSelectionSetting {
 
     /// Whether a value is valid for `appearance.backgroundLight` or `appearance.backgroundDark`.
     static func acceptsPicture(_ value: JSONValue) -> Bool {
-        value.stringValue.flatMap(picture) != nil
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("picture"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// Whether a value is valid for `appearance.backgroundSchedule`: an object (empty allowed) of
     /// valid times to fixed backgrounds.
     static func acceptsSchedule(_ value: JSONValue) -> Bool {
-        guard let members = value.objectValue else { return false }
-        return members.allSatisfy { key, value in
-            BackdropTimeOfDay.when(key) != nil && value.stringValue.flatMap(picture) != nil
-        }
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("schedule"), "value": value])["valid"]?.boolValue ?? false
+    }
+
+    /// Whether a value is valid for `appearance.backgroundMemory`, what each background mode last
+    /// showed: an object with at most `rotate` (`daily` or a folder), `folder` (a folder) and `off`
+    /// (`none` or a fixed picture). The Settings page reads and writes it; the engine never does.
+    static func acceptsMemory(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("memory"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// Whether a value is valid for `appearance.backgroundLocation`: `"LAT,LON"`.
     static func acceptsLocation(_ value: JSONValue) -> Bool {
-        value.stringValue.flatMap(BackdropLocation.init(text:)) != nil
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("location"), "value": value])["valid"]?.boolValue ?? false
     }
 }

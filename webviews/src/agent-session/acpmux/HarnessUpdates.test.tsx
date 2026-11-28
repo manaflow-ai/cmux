@@ -92,6 +92,7 @@ function List(props: {
   onUpdated(): void;
   closed(): void;
   offered?: (id: string) => boolean;
+  ownOnly?: boolean;
 }) {
   const updates = useHarnessUpdateList({
     rows: props.rows,
@@ -101,11 +102,12 @@ function List(props: {
     ...(props.offered ? { offered: props.offered } : {}),
     native: props.native,
     onUpdated: props.onUpdated,
+    ...(props.ownOnly ? { ownOnly: true } : {}),
   });
   return updates ? <HarnessUpdatesSection updates={updates} onOwnUpdate={props.closed} /> : null;
 }
 
-async function mount(rows: unknown[], offer?: UpdateOffer, offered?: (id: string) => boolean) {
+async function mount(rows: unknown[], offer?: UpdateOffer, offered?: (id: string) => boolean, ownOnly = false) {
   const container = installDom();
   const calls: Call[] = [];
   const log = { updated: 0, closed: 0 };
@@ -125,6 +127,7 @@ async function mount(rows: unknown[], offer?: UpdateOffer, offered?: (id: string
           onUpdated={() => log.updated++}
           closed={() => log.closed++}
           {...(offered ? { offered } : {})}
+          ownOnly={ownOnly}
         />,
       );
     });
@@ -203,6 +206,40 @@ test("Update all is the one default button; with one row, its Update is", async 
   expect(defaults()).toHaveLength(1);
   expect(defaults()[0]!.closest("[data-harness-update]")?.getAttribute("data-harness-update")).toBe("codex");
   expect(defaults()[0]!.textContent).toBe("Update");
+});
+
+// a1315 (UI simplification lead, Lawrence: "drastically simplify all parts of the UI"): with one
+// outdated agent there is no heading (its Update is the whole footer); a row's Update shows on hover
+// or focus only, beside a filled Update all; a failed row is one red line, its mark's space empty.
+test("one outdated agent is one row, no heading; row Updates wait for hover beside Update all", async () => {
+  const view = await mount([codex]);
+  expect(view.container.querySelector(".acpmux-harness-updates-head")).toBeNull();
+  expect(view.container.textContent).toBe("CodexUpdate");
+  // The section still says what it is to assistive tech; no tooltip covers the row on hover.
+  const section = view.container.querySelector("section")!;
+  expect(section.getAttribute("aria-label")).toBe("Harness updates available");
+  expect(section.hasAttribute("title")).toBe(false);
+  // The lone row's Update is always shown: it is the default.
+  expect(view.rowOf("codex")!.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(false);
+
+  await view.draw([codex, opencode]);
+  expect(view.container.querySelector(".acpmux-harness-updates-head")?.textContent).toBe(
+    "Harness updates availableUpdate all",
+  );
+  for (const id of ["codex", "opencode"])
+    expect(view.rowOf(id)!.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(true);
+});
+
+test("a failed row is one red line: no mark, its Try Again on hover", async () => {
+  const view = await mount([codex, opencode]);
+  await view.click(view.rowOf("codex")!.querySelector(".acpmux-harness-update-run"));
+  await act(async () => view.calls[0]!.resolve({ ok: false, error: "npm error code EACCES" }));
+  const failed = view.rowOf("codex")!;
+  expect(failed.getAttribute("data-phase")).toBe("failed");
+  expect(failed.querySelector("svg")).toBeNull();
+  expect(failed.querySelector(".agent-mark-empty")).not.toBeNull();
+  expect(failed.textContent).toBe("Couldn't update Codex.Try Again");
+  expect(failed.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-reveal")).toBe(true);
 });
 
 test("the chat's own offer leads, then the others; each Update runs its own update", async () => {
@@ -361,4 +398,35 @@ test("a version skipped for one profile of a binary holds for all of them", asyn
   localStorage.setItem(SKIPPED, JSON.stringify({ claude: "2.1.329" }));
   await view.draw([claudeAt("cmux"), claudeAt("claude"), codex]);
   expect(view.names()).toEqual(["codex"]);
+});
+
+// customize-app-profiles (Leo: "make customization for codex, t3code, claude code app (everything)"):
+// the Claude Code app profile's r27 capture showed a "Codex / Update" row in a Claude chat's model
+// picker; the Claude Code app offers only its own update. Only This Chat's Agent Updates (a look's
+// pick, off by default) keeps the chat's own offer and lists no other agent.
+const claudeOffer: UpdateOffer = {
+  harness: "claude",
+  agent: "Claude Code",
+  version: "2.1.30",
+  latest: "2.1.34",
+  update: () => undefined,
+  skip: () => undefined,
+};
+const claudeChatRows = () => [outdated("claude", "2.1.30", "2.1.34"), codex, opencode];
+
+test("own-only: the chat's own offer alone, no other outdated agent", async () => {
+  const view = await mount(claudeChatRows(), claudeOffer, undefined, true);
+  expect(view.names()).toEqual(["claude"]);
+  expect(view.container.textContent).not.toContain("Codex");
+});
+
+test("own-only with the chat's own agent current: no footer at all, not a Codex row", async () => {
+  const view = await mount(claudeChatRows(), undefined, undefined, true);
+  expect(view.names()).toEqual([]);
+  expect(view.container.querySelector("[data-harness-updates]")).toBeNull();
+});
+
+test("own-only off (the default): every outdated agent, as before", async () => {
+  const view = await mount(claudeChatRows(), claudeOffer);
+  expect(view.names()).toEqual(["claude", "codex", "opencode"]);
 });
