@@ -141,6 +141,7 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, raw: b
         argv += ["-H", "Accept: application/vnd.github.raw", "--allow-escape-sequences"]
     global _api_env, _spare_token
     limited = 0
+    spare_first = False  # this call moved onto the spare; its first answer tells whether the spare works
     for attempt in range(8):
         extra = {"env": _api_env} if _api_env is not None else {}
         out = run(argv, input=json.dumps(fields) if fields is not None else None, capture_output=True, text=True,
@@ -159,7 +160,16 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, raw: b
                   file=sys.stderr, flush=True)
             _api_env = {**os.environ, "GH_TOKEN": _spare_token}
             _spare_token = ""  # once: a spent spare is waited out like the first token
+            spare_first = True
             continue
+        spare_answer, spare_first = spare_first, False
+        if spare_answer and re.search(r"HTTP 401|Bad credentials", out.stderr):
+            # A spare that does not authenticate (expired, revoked, a half-minted value) is dropped, and this call
+            # goes back to the first token's limit, waited out as before, not raised as a real refusal.
+            print(f"red-autofix: {method} {path}: the spare token was refused ({out.stderr.strip()[-200:]}); "
+                  "back on the first token", file=sys.stderr, flush=True)
+            _api_env = None
+            rate_limited = True
         if rate_limited and limited < 4:
             limited += 1
             _api_wait(int(wait.group(1)) + 1 if wait else 30 * 2 ** limited, f"{method} {path}: rate-limited",

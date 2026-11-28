@@ -134,7 +134,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
-        run: gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY" || echo "::warning::rerun refused"
+        # A refused rerun fails this job: the red it was to clear stays red, and a green triage would say it was
+        # handled (CodeRabbit on #64290: "A rerun refused ... can now leave the job green with only a warning").
+        run: |
+          if ! gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"; then
+            echo "::error::rerun of run $RUN_ID refused: the infrastructure red was not rerun"
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: red-report
