@@ -111,3 +111,16 @@ async fn reconnect_authentication_stops_on_shutdown() {
         .expect("cancelled reconnect must fail");
     assert!(error.to_string().contains("SSH reconnect interrupted"), "{error}");
 }
+
+/// Enabling sharing must not add five minutes for every configured SSH route.
+#[test]
+fn reconnect_budget_does_not_preallocate_authentication_time() {
+    let mut options = reconnect_test_options(vec![
+        test_route("ssh://first.example"),
+        test_route("ssh://second.example"),
+    ]);
+    options.ssh.connection_share = cmux_remote::ssh_control::SshConnectionShare::new();
+    let source = RuntimeReconnectGroups::new(options, 0);
+    assert_eq!(source.resolution_timeout(Duration::from_millis(20)), Duration::from_millis(540));
+    assert_eq!(source.resolution_time_excluded(), Duration::ZERO);
+}
