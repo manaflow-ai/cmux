@@ -332,8 +332,11 @@ PARTS = [
     # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
     # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
     # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    # goal: NOW's infinite_chat_size_ratio_max (goal infinite-chats). Without it the part kept its PARTS place, 18th of
+    # 19 Mac parts: on 2026-11-28 a batch preempted at 14:21Z left its after number for cmux#65013 about 11 h out.
     {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size",
+     "goal": "infinite-chats", "goal_rows": r"chat_size\.ratio_max@", "run_seconds": 3600},
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
@@ -1764,7 +1767,8 @@ def supersede_for_unread(state, t, newest, supported_parts, changed=None):
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
+    PART_STALE_HOURS, oldest first, then the rest: those that feed a goal (PARTS "goal") first, each group oldest
+    store first, ties in their PARTS order. A part with no stored rows yet goes before
     the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
     yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
     38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
@@ -1803,7 +1807,16 @@ def part_order(state, todo, t):
     lead = [n for n in unseen if n not in failing and not PART_BY_NAME.get(n, {}).get("goal")]
     goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
     first = lead + goal + [n for n in first if n not in lead and n not in goal]
-    return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+    # The parts not due yet: a goal's part first, then the part furthest past its last store, so the order of a batch
+    # cut short does not decide which rows age. On 2026-11-28 every Mac part of tip cdf458ee had stored at 08:05Z, a
+    # preempted batch restarted from launch, and chat-size (goal infinite-chats) sat 18th of 19, about 11 h out.
+    rest = [(i, n) for i, n in enumerate(todo) if n != "build" and n not in first]
+    def rest_key(item):
+        i, n = item
+        e = stored.get(n)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) else None
+        return (not PART_BY_NAME.get(n, {}).get("goal"), at.timestamp() if at else 0.0, i)
+    return [n for n in todo if n == "build"] + first + [n for _, n in sorted(rest, key=rest_key)]
 
 
 def goal_rows_missing(state, name, stored):

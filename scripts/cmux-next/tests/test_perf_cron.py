@@ -317,11 +317,44 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "memory-agents"], t),
                          ["build", "memory-agents", "motion", "stress"])
 
-    def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
+    def test_a_part_with_a_goal_that_is_not_due_goes_before_the_other_parts_not_due(self):
         state = cron.empty_state(T0)
         t = at(1)
         state["part_stored"] = {"chat-anim": {"at": cron.iso(t)}, "motion": {"at": cron.iso(t)}}
-        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t), ["build", "motion", "chat-anim"])
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t), ["build", "chat-anim", "motion"])
+        # A due part still goes before it.
+        state["part_stored"]["motion"] = {"at": cron.iso(T0)}
+        late = at(cron.PART_STALE_HOURS + 0.5)
+        self.assertEqual(cron.part_order(state, ["build", "chat-anim", "motion"], late), ["build", "motion", "chat-anim"])
+
+    def test_the_part_furthest_past_its_store_goes_first_of_the_parts_not_due(self):
+        # Detector: a part past cadence behind N fresher parts. Before, the parts not due kept their PARTS order.
+        state = cron.empty_state(T0)
+        t = at(10)
+        state["part_stored"] = {"motion": {"at": cron.iso(at(9))}, "stress": {"at": cron.iso(at(2))},
+                                "sidebar": {"at": cron.iso(at(9))}}
+        self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "stress"], t),
+                         ["build", "stress", "motion", "sidebar"])
+
+    def test_chat_size_goes_right_after_the_requested_part_of_a_batch_whose_parts_stored_together(self):
+        # 2026-11-28: tip cdf458ee's 19 Mac parts all stored at 08:05Z; the batch preempted at 14:21Z restarted from
+        # launch with chat-size 18th, about 11 h out, while goal infinite-chats waited on its after number (cmux#65013).
+        part = cron.PART_BY_NAME["chat-size"]
+        self.assertEqual(part.get("goal"), "infinite-chats")
+        self.assertTrue(re.match(part["goal_rows"], "chat_size.ratio_max@cmux20-bench"))
+        todo = ["launch", "launch-dock", "launch-cold", "sidebar", "workspace-scaling", "home-idle", "idle-budget",
+                "chat-anim", "tabs", "memory-agents", "throughput", "cef-resize", "typing", "power", "wake",
+                "power-user-native", "typing-load", "chat-size", "chat-snappy"]
+        stored_at = cron.iso(T0)
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"at": stored_at} for n in todo}
+        state["part_rows"] = {"chat_size.ratio_max@h": {"p95": 8.2, "at": stored_at},
+                              "chat_snappy.none.send_paint@h": {"p95": 30, "at": stored_at}}
+        batch = cron.batch_parts(state, {"parts_todo": todo}, "launch", at(6))
+        goals = [n for n in todo if cron.PART_BY_NAME[n].get("goal")]
+        self.assertEqual(batch[:1 + len(goals)], ["launch", *goals])
+        self.assertLess(batch.index("chat-size"), 1 + len(goals))
+        self.assertEqual(sorted(batch), sorted(todo))
 
     def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
         state = cron.empty_state(T0)
