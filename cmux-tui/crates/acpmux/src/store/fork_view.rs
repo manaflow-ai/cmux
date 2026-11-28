@@ -1122,6 +1122,9 @@ impl Store for ForkView {
     fn briefs_path(&self) -> Option<PathBuf> {
         self.inner.briefs_path()
     }
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.inner.usage_tracker_dir()
+    }
     fn writes_history(&self) -> bool {
         self.inner.writes_history()
     }
