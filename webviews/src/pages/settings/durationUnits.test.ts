@@ -4,9 +4,11 @@
 import { expect, test } from "bun:test";
 import "./testCatalog";
 import { displayNumber, parseNumber, shownUnit, unitLabel } from "./format";
-import { rowsByKey, type NumberRange } from "./schema";
+import { hostRowsByKey, type NumberRange } from "./schema";
 
-const range = (key: string): NumberRange => rowsByKey.get(key)!.range!;
+// The update timing rows are page-hidden since one Automatic Updates choice replaced them (#51125);
+// the host still takes them, with the same ranges, so their units are read from the host's rows.
+const range = (key: string): NumberRange => hostRowsByKey.get(key)!.range!;
 
 test("Check Every reads in hours and stores seconds", () => {
   const every = range("updates.checkIntervalSeconds");

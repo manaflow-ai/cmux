@@ -29,7 +29,7 @@ import { turnView } from "./conversation/turns";
 import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { chatDisplay, currentChatMetrics, drawnFontSize } from "./chatDisplay";
-import { gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
+import { FOOTER_WORKING_GAP_LOOKS, gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
 import { setComposerSettings } from "./composerSettings";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
@@ -255,7 +255,7 @@ test("the chat's last footer is placed again when a prompt follows it", () => {
   expect(second).toEqual(layoutConversation([...rows, prompt("p")] as never, 720));
 });
 
-test("a footer over another agent's line or a task's result has the block gap under it, a prompt the turn gap", () => {
+test("a footer over a task's result has the block gap under it, another agent's line the run gap, a notice none, a prompt the turn gap", () => {
   const result = { id: "r", version: 1, at: 0, kind: "user", text: "Done", received: { offerId: "o", title: "Tests" } };
   const message = {
     id: "m",
@@ -266,9 +266,17 @@ test("a footer over another agent's line or a task's result has the block gap un
     incoming: { kind: "message", message: { name: "deputy-2", text: "Not idle.", raw: "Not idle." } },
   };
   const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
+  // Another agent's line is a step row: the run gap from the Copy/Branch row, as the next Working for (#57085; Leo,
+  // 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the next
+  // working for?"). A notice sits flush under the footer, as a status line (#61248, model.ts noticeUnderFooter).
+  const gaps = new Map<unknown, number>([
+    [result, gridLength("gap-block")],
+    [message, FOOTER_WORKING_GAP_LOOKS.run],
+    [notice, 0],
+  ]);
   for (const line of [result, message, notice]) {
     const layout = layoutConversation([reply("a", "Done."), footer("f"), line] as never, 720);
-    expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(gridLength("gap-block"));
+    expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(gaps.get(line)!);
   }
   // The person's prompt after it still starts a turn of its own.
   const turn = layoutConversation([reply("a", "Done."), footer("f"), prompt("p")] as never, 720);
@@ -766,15 +774,16 @@ const questionAsk = (count: number, description?: string): AcpmuxRow =>
 
 test("permission estimates use the grid frame and reserve a command preview only when drawn", () => {
   const plain = heightsOf([permissionAsk()])[0]!;
-  // 16px around the 18px title, then 12px above and 16px below a 28px button row.
-  expect(plain).toBeCloseTo(16 + 18 + 16 + 12 + 28 + 16);
+  // The ask Surface (#51793, permissions/cardHeight.ts): 16px padding all round, the 18px title, then the
+  // 28px button row a sibling 8px under it.
+  expect(plain).toBeCloseTo(16 + 18 + 8 + 28 + 16);
   const command = heightsOf([permissionAsk({ command: "pwd" })])[0]!;
-  // The details band's 12px, then the preview's 8px insets around one 12px/1.5 line.
-  expect(command - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8);
+  // The command, a sibling 8px apart, then the preview's 8px insets around one 12px/1.5 line.
+  expect(command - plain).toBeCloseTo(8 + 8 + 12 * 1.5 + 8);
   const scope = heightsOf([permissionAsk({ scope: { kind: "directory", value: "/project" } })])[0]!;
-  expect(scope - plain).toBeCloseTo(12 + 11 * 1.3);
+  expect(scope - plain).toBeCloseTo(8 + 11 * 1.3);
   const both = heightsOf([permissionAsk({ command: "pwd", scope: { kind: "directory", value: "/project" } })])[0]!;
-  expect(both - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8 + 8 + 11 * 1.3);
+  expect(both - plain).toBeCloseTo(8 + 8 + 12 * 1.5 + 8 + 8 + 11 * 1.3);
 });
 
 test("the first layout reserves every question option before placing the reply below", () => {
@@ -982,8 +991,8 @@ test("placed attachments wrap to a new line only when the line is full", () => {
 });
 
 // The strip attachment view (composerSettings.ts `attachmentView`) draws a placed prompt's
-// attachments in a row above its bubble and leaves the bubble its text (UserBubble.tsx); a placed
-// prompt's unmarked attachment draws in that row in the inline view too. The estimate measures that
+// attachments in a row above its bubble and leaves the bubble its text (UserBubble.tsx); the inline
+// view draws none there (#61287). The estimate measures that
 // row and a bubble of the text alone, so the row does not shift when it mounts. At 1543d956 every
 // such prompt was estimated as if each attachment sat on its text's line.
 test("a strip prompt is estimated as its attachment row over a bubble of its text", () => {
@@ -1017,15 +1026,19 @@ test("a strip prompt is estimated as its attachment row over a bubble of its tex
   } finally {
     setComposerSettings({ attachmentView: "inline" });
   }
-  // Inline, the placed prompt's unmarked image is the row above; the placed one stays in the text.
+  // Inline draws no band (#61287; Leo, 2026-11-27: "did we fix that inline + top isn't the thing that
+  // gets displayed when you select inline?"): the placed prompt's unmarked image draws at the bubble's
+  // end, after its text, as if it were placed there.
   const placedOnly = row([{ kind: "text", text: "look" }, image("a"), { kind: "text", text: "then words" }]);
-  const withBand = row([
+  const unmarked = row([
     { kind: "text", text: "look" },
     image("a"),
     { kind: "text", text: "then words" },
     image("b", false),
   ]);
-  expect(heightsOf([withBand])[0]).toBeCloseTo(heightsOf([placedOnly])[0]! + tile, 5);
+  const atEnd = row([{ kind: "text", text: "look" }, image("a"), { kind: "text", text: "then words" }, image("b")]);
+  expect(heightsOf([unmarked])[0]).toBeCloseTo(heightsOf([atEnd])[0]!, 5);
+  expect(heightsOf([unmarked])[0]).not.toBeCloseTo(heightsOf([placedOnly])[0]! + tile, 5);
 });
 
 // Leo, 2026-11-08: "the text in this situation isn't from the subagent?". A turn the agent ran on

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../context";
-import { STATUS } from "../components/CloudEnvironmentsCard";
+import { STATUS } from "../components/cloudEnvironmentStatus";
 import type { CloudEnvironmentRow } from "../ops";
 import { t } from "../strings";
 import { Select } from "./Select";

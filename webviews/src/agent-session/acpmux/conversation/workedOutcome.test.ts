@@ -106,7 +106,7 @@ test("tool-row-words: plain verbs by default, Claude Code's words on its now arm
   expect(mcpLabel(t, [blame], new Map())).toBe("Used repo: blame src/App.tsx");
   expect(mcpLabel(t, [bare], new Map())).toBe("Used linear");
   // A call in flight keeps its words; a tool that starts with a verb keeps today's line.
-  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep");
+  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep retry");
   expect(mcpLabel(t, [send], new Map())).toBe(mcpLabelOff(send));
 });
 

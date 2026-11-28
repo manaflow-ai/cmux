@@ -136,6 +136,9 @@ test("only page.css imports the page's sheets", () => {
   );
   const importers: string[] = [];
   for (const file of new Glob("**/*.{ts,tsx,css}").scanSync(src)) {
+    // A test reads the sheets as text (glassControls.test.tsx checks page.css's @import order, #54090);
+    // it never loads them into the page.
+    if (/\.test\.tsx?$/.test(file)) continue;
     const path = join(src, file);
     for (const [, spec] of readFileSync(path, "utf8").matchAll(/(?:import\s*\(?|@import)\s*["'](\.[^"']+\.css)["']/g)) {
       if (sheets.has(resolve(dirname(path), spec!))) importers.push(relative(src, path));

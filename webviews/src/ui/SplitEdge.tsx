@@ -98,7 +98,16 @@ export function splitEdgeWidth(
 export function SplitEdge({ side, property, storageKey, unit = "px", min, max, on = "pane" }: SplitEdgeProps) {
   const handle = useRef<HTMLDivElement>(null);
   const drag = useRef<
-    { pane: DOMRect; side: "left" | "right"; value: number; frame: number; moved: boolean } | undefined
+    | {
+        pane: DOMRect;
+        side: "left" | "right";
+        value: number;
+        frame: number;
+        moved: boolean;
+        /** Ends the drag's resize declaration (`split edge drag`). */
+        undeclare: () => void;
+      }
+    | undefined
   >(undefined);
   const target = () => {
     const pane = handle.current?.parentElement ?? undefined;
@@ -120,6 +129,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
       // A pane that leaves mid-drag gets no pointerup: its markers leave with it.
       if (drag.current) {
         cancelAnimationFrame(drag.current.frame);
+        drag.current.undeclare();
         drag.current = undefined;
         delete document.documentElement.dataset.splitResizing;
       }
@@ -131,8 +141,11 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     const state = drag.current;
     if (!state) return;
     cancelAnimationFrame(state.frame);
+    state.undeclare();
     // A press that never moved (half of a double-click) changes and saves nothing.
     if (state.moved) {
+      // The release's own write moves each box once more.
+      declareSplitResize("split edge release");
       apply(state.value);
       writeStored(storageKey, state.value);
     }
@@ -157,7 +170,10 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
         const rect = pane.getBoundingClientRect();
         const rtl = getComputedStyle(pane).direction === "rtl";
         const physical = side === "start" ? (rtl ? "right" : "left") : side === "end" ? (rtl ? "left" : "right") : side;
-        drag.current = { pane: rect, side: physical, value: 0, frame: 0, moved: false };
+        // Every box beside the edge moves on every frame of the drag: the split's resize, declared
+        // while it runs (schemas/layout-motion/contract.json `resize`, #46599).
+        const undeclare = declareMove({ event: "resize", scope: "all", by: "split edge drag" });
+        drag.current = { pane: rect, side: physical, value: 0, frame: 0, moved: false, undeclare };
         pane.dataset.splitResizing = "";
         // The page's too: the resize cursor holds over the other pane and its frames while dragging.
         document.documentElement.dataset.splitResizing = "";
@@ -178,6 +194,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
       onPointerCancel={end}
       onLostPointerCapture={end}
       onDoubleClick={() => {
+        declareSplitResize("split edge reset");
         apply(undefined);
         writeStored(storageKey, undefined);
       }}

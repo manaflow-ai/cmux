@@ -101,13 +101,15 @@ test("a finished and a stopped shell fold with the lines, as background updates"
   const saved = globalThis.cmuxExperiments;
   globalThis.cmuxExperiments = { ...saved, "subagent-tray-fold-head": "groups" };
   try {
-    const view = asView(rows, new Set());
+    // Fresh rows: turnView keeps its last view for the same rows, and the arm is read only when it shapes.
+    const view = asView([...prompt(), line("a"), note("stop", "stopped"), line("b")], new Set());
     const run = view.at(-1)!;
     expect(run.backgroundRun).toMatchObject({ finished: 2, stopped: 1 });
     const html = renderToStaticMarkup(<BackgroundTurnLine row={run} expanded={false} onToggle={() => {}} />);
     expect(html).toContain("3 background updates");
   } finally {
-    globalThis.cmuxExperiments = saved;
+    if (saved === undefined) delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+    else globalThis.cmuxExperiments = saved;
   }
 });
 

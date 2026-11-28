@@ -72,7 +72,8 @@ for (const quiet of [true, false])
         }
       }
     } finally {
-      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = saved;
+      if (saved === undefined) delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+      else (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = saved;
     }
   });
 
