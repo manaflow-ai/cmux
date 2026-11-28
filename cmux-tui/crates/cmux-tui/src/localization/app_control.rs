@@ -74,6 +74,8 @@ pub(crate) struct AppControlMessages {
     pub cloud_team_keys_help: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
+    /// `cmux update status` (cli/app/update_status.rs): its usage, labels and reasons.
+    pub update_status: UpdateStatusMessages,
     /// `cmux nightly list|install` (cli/app/nightly.rs).
     pub nightly: NightlyMessages,
     /// `cmux app try <PR|branch|sha>|undo|status` (cli/app/try_cmd.rs).
@@ -380,6 +382,44 @@ pub(crate) struct NightlyMessages {
     pub direct_done: &'static str,
 }
 
+/// `cmux update status`'s usage, text labels and pause reasons; the JSON keys and codes stay English.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UpdateStatusMessages {
+    pub usage: &'static str,
+    pub automatic: &'static str,
+    pub running: &'static str,
+    pub paused: &'static str,
+    pub why: &'static str,
+    pub checks: &'static str,
+    pub every: &'static str,
+    pub on: &'static str,
+    pub off: &'static str,
+    pub downloads: &'static str,
+    pub automatically: &'static str,
+    pub on_click: &'static str,
+    pub install_held: &'static str,
+    pub held_since: &'static str,
+    pub last_check: &'static str,
+    pub last_error: &'static str,
+    pub never: &'static str,
+    pub channel: &'static str,
+    pub installed: &'static str,
+    pub available: &'static str,
+    pub none_known: &'static str,
+    pub updater_off: &'static str,
+    pub unknown: &'static str,
+    pub build_pause: &'static str,
+    pub managed_policy: &'static str,
+    pub starting: &'static str,
+    pub checks_off: &'static str,
+    pub downloads_by_click: &'static str,
+    pub off_managed_channel: &'static str,
+    pub network_pending: &'static str,
+    pub low_data: &'static str,
+    pub expensive_link: &'static str,
+    pub downloads_off: &'static str,
+}
+
 /// The labels of `cmux version`'s text report; the JSON keys stay English.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VersionLabels {
@@ -475,6 +515,41 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         no_app: "no cmux app around this CLI: run the CLI bundled in the app, or set CMUX_BUNDLE_ID",
         empty: "no launches recorded yet in {path}",
         unreadable: "cannot read {path}: {error}",
+    },
+    update_status: UpdateStatusMessages {
+        usage: "usage: cmux update status [--json]\nWhether the app's automatic updater runs now and, if not, why (the build's pause, Automatic Updates set to\nOff or Notify Only, an organization policy, Low Data Mode); its last check, channel, installed version and the\nnewest version it found. Read from the running app's updater; nothing changes.",
+        automatic: "Automatic updates",
+        running: "running",
+        paused: "paused",
+        why: "  why",
+        checks: "Checks",
+        every: "every {interval}",
+        on: "on",
+        off: "off",
+        downloads: "Downloads",
+        automatically: "automatic",
+        on_click: "on a click",
+        install_held: "Install held",
+        held_since: "{reason} since {since}",
+        last_check: "Last check",
+        last_error: "Last check error",
+        never: "none yet",
+        channel: "Channel",
+        installed: "Installed",
+        available: "Available",
+        none_known: "none found",
+        updater_off: "the updater does not run in this build ({reason})",
+        unknown: "this app does not report why (its updates.status predates the automation facts)",
+        build_pause: "this build pauses automatic updates: checks, downloads and installs run only on a click",
+        managed_policy: "an organization policy turns updates off",
+        starting: "the app has not applied its update settings yet",
+        checks_off: "automatic checks are off (Automatic Updates: Off)",
+        downloads_by_click: "found updates wait for a click (Automatic Updates: Notify Only)",
+        off_managed_channel: "this app is not on the organization's update channel",
+        network_pending: "the network has not reported its kind yet",
+        low_data: "Low Data Mode defers downloads",
+        expensive_link: "an expensive link (cellular, a hotspot) defers downloads",
+        downloads_off: "automatic downloads are off",
     },
     version: VersionLabels {
         cli: "CLI",
@@ -693,5 +768,5 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
-    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  live          Edit cmux's web UI while it runs, from a checkout (start, stop, status)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  live          Edit cmux's web UI while it runs, from a checkout (start, stop, status)\n  update        Automatic updates: running or paused, why, last check, channel (status)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };

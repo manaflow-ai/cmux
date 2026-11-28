@@ -46,7 +46,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{
     AppControlMessages, ChatMemoryMessages, NightlyMessages, RecordMessages, ShareMessages,
-    TryMessages, VersionLabels,
+    TryMessages, UpdateStatusMessages, VersionLabels,
 };
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;
