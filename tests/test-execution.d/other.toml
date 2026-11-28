@@ -674,6 +674,10 @@ path = "tests/test_network_allowlist.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_new_tab_split_acceptance.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_new_tab_startup_bench.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_new_tab_startup_bench.py"

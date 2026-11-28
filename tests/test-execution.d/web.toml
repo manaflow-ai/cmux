@@ -6,6 +6,10 @@ path = "tests/test_web_bundle_matrix.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_cas_upload_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_coalesce.py"
 lane = "linux-guard"
 
