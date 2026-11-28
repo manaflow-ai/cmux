@@ -1,5 +1,5 @@
 #!/bin/bash
-# The dependency-cache bench for .github/workflows/machine-join-e2e.yml (bench=deps): run by
+# The dependency-cache bench for .github/workflows/machine-vault-e2e.yml (suite=machine-join, bench=deps): run by
 # machine-join-e2e.ts as the disposable user while its machine is joined to the development platform.
 #
 #   deps-bench.sh ACPMUX
