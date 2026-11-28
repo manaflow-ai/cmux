@@ -448,13 +448,26 @@ function Columns({
   // checked model). The menu grows by the card's height, away from the chip, as far as it has room
   // (heightOf), so the lists keep theirs; past the room the card scrolls and the lists keep a floor
   // (quickModelColumns.css). Its height is its content's, whatever room it was given.
+  // Read from the card's content (its body), which keeps its height while the card scrolls, plus the
+  // rule under the card; the observer goes with the body as the card closes.
   const [cardHeight, setCardHeight] = useState(0);
-  useLayoutEffect(() => {
-    const card = profileOpen ? popupRef.current?.querySelector<HTMLElement>(".acpmux-cols-card") : null;
-    // The card and the rule under it.
-    const next = card ? card.scrollHeight + (card.nextElementSibling?.getBoundingClientRect().height ?? 0) : 0;
-    if (next !== cardHeight) setCardHeight(next);
-  });
+  const cardWatch = useRef<ResizeObserver | null>(null);
+  const cardBodyRef = useCallback((body: HTMLDivElement | null) => {
+    cardWatch.current?.disconnect();
+    cardWatch.current = null;
+    if (!body) {
+      setCardHeight(0);
+      return;
+    }
+    const measure = () => {
+      const rule = body.parentElement?.nextElementSibling?.getBoundingClientRect().height ?? 0;
+      setCardHeight(body.scrollHeight + rule);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    cardWatch.current = new ResizeObserver(measure);
+    cardWatch.current.observe(body);
+  }, []);
   // The card opening, growing as its accounts load, or closing grows or shrinks the whole menu by
   // design: the rail and the models move down with its grips and the effort foot (or back up). An
   // expand on the menu, so the motion judge and the gallery's shift score relate those moves to it
@@ -1416,87 +1429,88 @@ function Columns({
 
   const card = profileOpen && (
     <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
-      <div className="acpmux-cols-card-head">
-        <Avatar face={face} size={32} {...(badge ? { badge } : {})} />
-        <span className="acpmux-cols-card-who">
-          {/* tooltip-allow: a reported sign-in names where it came from ("SR2 token (sr2 claude)") */}
-          <span className="acpmux-cols-card-name" title={signIn ? menu.signIn : undefined}>
-            {faceName}
+      <div ref={cardBodyRef} className="acpmux-cols-card-body">
+        <div className="acpmux-cols-card-head">
+          <Avatar face={face} size={32} {...(badge ? { badge } : {})} />
+          <span className="acpmux-cols-card-who">
+            <span className="acpmux-cols-card-name">{faceName}</span>
+            <span className="acpmux-cols-detail">{faceDetail}</span>
           </span>
-          <span className="acpmux-cols-detail">{faceDetail}</span>
-        </span>
-      </div>
-      {canSignIn && (
-        <div className="acpmux-cols-card-cta">
-          <button
-            type="button"
-            className="acpmux-cols-signin"
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={() => {
-              close();
-              if (owner?.logIn) owner.logIn();
-              else auth?.onLogin?.();
-            }}
-          >
-            {owner?.logInLabel ?? t("picker.signInTo", { harness: ownerName })}
-          </button>
         </div>
-      )}
-      {(others.length > 0 || accountsLoading || accounts.switchFailed) && (
-        <>
-          <hr className="acpmux-cols-sep" />
-          <div className="acpmux-cols-card-list">
-            <div className="acpmux-cols-caption">{t("picker.otherAccounts", { harness: ownerName })}</div>
-            {onChatTab && accounts.switchFailed && (
-              <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                {t("picker.accountSwitchFailed")}
-              </div>
-            )}
-            {accountsLoading && (
-              <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                {accounts.failed ? t("picker.accountFailed") : "…"}
-              </div>
-            )}
-            {others.map((other) => (
-              <DrivenRow
-                tabbable
-                key={other.key}
-                kind="button"
-                aria-disabled={other.disabled ? true : undefined}
-                className="acpmux-cols-row"
-                title={other.detail ? `${other.name} · ${other.detail}` : other.name}
-                onPick={() => {
-                  if (!other.disabled) other.pick();
-                }}
-              >
-                <Avatar face={other.face} size={20} />
-                <span className="acpmux-cols-name">{other.name}</span>
-                {other.detail && <span className="acpmux-cols-detail">{other.detail}</span>}
-              </DrivenRow>
-            ))}
+        {canSignIn && (
+          <div className="acpmux-cols-card-cta">
+            <button
+              type="button"
+              className="acpmux-cols-signin"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => {
+                close();
+                if (owner?.logIn) owner.logIn();
+                else auth?.onLogin?.();
+              }}
+            >
+              {owner?.logInLabel ?? t("picker.signInTo", { harness: ownerName })}
+            </button>
           </div>
-        </>
-      )}
-      {(canAdd || (signedOut && onChatTab && auth?.onRefresh)) && (
-        <>
-          <hr className="acpmux-cols-sep" />
-          <div className="acpmux-cols-card-list">
-            {canAdd && (
-              <DrivenRow tabbable kind="button" className="acpmux-cols-row acpmux-cols-add" onPick={openAdd}>
-                <span className="acpmux-cols-addicon">
-                  <PlusIcon />
-                </span>
-                <span className="acpmux-cols-name">{t(signedOut ? "picker.useApiKey" : "picker.addAccountMore")}</span>
-              </DrivenRow>
-            )}
-            {signedOut && onChatTab && auth?.onRefresh && (
-              <DrivenRow tabbable kind="button" className="acpmux-cols-row" onPick={() => auth.onRefresh?.()}>
-                <span className="acpmux-cols-name">{t("harnesses.checkAgain")}</span>
-              </DrivenRow>
-            )}
-          </div>
-        </>
-      )}
+        )}
+        {(others.length > 0 || accountsLoading || accounts.switchFailed) && (
+          <>
+            <hr className="acpmux-cols-sep" />
+            <div className="acpmux-cols-card-list">
+              <div className="acpmux-cols-caption">{t("picker.otherAccounts", { harness: ownerName })}</div>
+              {onChatTab && accounts.switchFailed && (
+                <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                  {t("picker.accountSwitchFailed")}
+                </div>
+              )}
+              {accountsLoading && (
+                <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                  {accounts.failed ? t("picker.accountFailed") : "…"}
+                </div>
+              )}
+              {others.map((other) => (
+                <DrivenRow
+                  tabbable
+                  key={other.key}
+                  kind="button"
+                  aria-disabled={other.disabled ? true : undefined}
+                  className="acpmux-cols-row"
+                  title={other.detail ? `${other.name} · ${other.detail}` : other.name}
+                  onPick={() => {
+                    if (!other.disabled) other.pick();
+                  }}
+                >
+                  <Avatar face={other.face} size={20} />
+                  <span className="acpmux-cols-name">{other.name}</span>
+                  {other.detail && <span className="acpmux-cols-detail">{other.detail}</span>}
+                </DrivenRow>
+              ))}
+            </div>
+          </>
+        )}
+        {(canAdd || (signedOut && onChatTab && auth?.onRefresh)) && (
+          <>
+            <hr className="acpmux-cols-sep" />
+            <div className="acpmux-cols-card-list">
+              {canAdd && (
+                <DrivenRow tabbable kind="button" className="acpmux-cols-row acpmux-cols-add" onPick={openAdd}>
+                  <span className="acpmux-cols-addicon">
+                    <PlusIcon />
+                  </span>
+                  <span className="acpmux-cols-name">
+                    {t(signedOut ? "picker.useApiKey" : "picker.addAccountMore")}
+                  </span>
+                </DrivenRow>
+              )}
+              {signedOut && onChatTab && auth?.onRefresh && (
+                <DrivenRow tabbable kind="button" className="acpmux-cols-row" onPick={() => auth.onRefresh?.()}>
+                  <span className="acpmux-cols-name">{t("harnesses.checkAgain")}</span>
+                </DrivenRow>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </InlineCard>
   );
 
