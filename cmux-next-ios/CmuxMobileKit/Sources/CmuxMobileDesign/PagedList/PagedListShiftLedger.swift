@@ -7,6 +7,8 @@ import CoreGraphics
 struct PagedListShiftLedger {
     /// Offset moves since the last sample that the scroll explains.
     private(set) var explained: CGFloat = 0
+    /// The same since the last committed frame (the committed-frame measure's interval).
+    private(set) var committedExplained: CGFloat = 0
     /// Corrections the layout or UIKit asked for and has yet to apply.
     private(set) var pending: CGFloat = 0
     /// The corrections owed for rows that sized above the reader, by row: the layout may ask for
@@ -19,6 +21,12 @@ struct PagedListShiftLedger {
     /// An offset move the scroll explains: the finger, a fling, the list's own deliberate move.
     mutating func explain(_ delta: CGFloat) {
         explained += delta
+        committedExplained += delta
+    }
+
+    /// A committed frame was sampled: its interval starts empty.
+    mutating func resetCommitted() {
+        committedExplained = 0
     }
 
     /// The layout asked to move the offset by `delta` to keep the rows below a row that changed

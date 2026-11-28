@@ -23,6 +23,10 @@ struct PagedStressLoad: Sendable {
     var total = 6000
     /// Each tick (20 a second) the main thread is kept busy this long (a busy app).
     var busyMs = 0.0
+    /// Rows next to the reader that start or stop typing, a second: each swaps its text for a short
+    /// typing bubble (or back) in place, a height change on reconfigure just above what is read, as
+    /// Home's Chiefs do (HomeStressUITests homelive, frame 1476 of step 87db292d).
+    var typingPerSecond = 0.0
 
     static let named: [String: PagedStressLoad] = [
         "calm": PagedStressLoad(newestPerSecond: 0, updatesPerSecond: 0, insertsPerSecond: 0, removesPerSecond: 0,
@@ -37,6 +41,9 @@ struct PagedStressLoad: Sendable {
         // bounded window (`-cmux-mobile-paged-lab-window`) keeps to a few hundred rows in memory.
         "huge": PagedStressLoad(newestPerSecond: 10, updatesPerSecond: 60, insertsPerSecond: 10, removesPerSecond: 5,
                                 movesPerSecond: 5, burst: 1000, latency: 0.02...0.05, failEvery: 0, pageSize: 200, total: 100_000),
+        // 25 rows' worth of typing around the reader, 20 changes a second, nothing else.
+        "typing": PagedStressLoad(newestPerSecond: 0, updatesPerSecond: 0, insertsPerSecond: 0, removesPerSecond: 0,
+                                  movesPerSecond: 0, burst: 0, latency: 0.2...0.4, failEvery: 0, typingPerSecond: 20),
         // The flood with the main thread kept busy 4 ms of every 50 (an app doing other work).
         "busy": PagedStressLoad(newestPerSecond: 40, updatesPerSecond: 120, insertsPerSecond: 20, removesPerSecond: 6,
                                 movesPerSecond: 6, burst: 1000, latency: 0.05...0.8, failEvery: 9, busyMs: 4),
@@ -58,6 +65,9 @@ final class PagedStressSource: PagedListSource {
     private var nextLive = -1
     private var nextInserted = 1_000_000
     private var edits = 0
+    /// The rows typing now (the `typing` load).
+    private var typing: Set<Int> = []
+    private var typingOwed = 0.0
     private var continuation: AsyncStream<[PagedListChange<PagedLabItem>]>.Continuation?
     private var ticking: Task<Void, Never>?
 
@@ -116,6 +126,11 @@ final class PagedStressSource: PagedListSource {
                     if let change = make(kind) { batch.append(change) }
                 }
             }
+            typingOwed += load.typingPerSecond * step
+            while typingOwed >= 1 {
+                typingOwed -= 1
+                if let change = toggledTyping() { batch.append(change) }
+            }
             sinceBurst += step
             if load.burst > 0, sinceBurst >= 2 {
                 sinceBurst = 0
@@ -128,6 +143,20 @@ final class PagedStressSource: PagedListSource {
                 while CFAbsoluteTimeGetCurrent() < until {}
             }
         }
+    }
+
+    /// One of the newest 40 rows starts or stops typing, as Home's live Chiefs do at the top of its
+    /// list: the reader passes above and below them as they scroll back to the newest rows. (The row
+    /// being read moves only when a scroll ends, so aiming at it put the changes off screen during
+    /// a fling: step e5a40416 stayed green.)
+    private func toggledTyping() -> PagedListChange<PagedLabItem>? {
+        let range = 0..<min(served.count, 40)
+        guard !range.isEmpty else { return nil }
+        let id = served[Int.random(in: range, using: &rng)]
+        let now = !typing.contains(id)
+        if now { typing.insert(id) } else { typing.remove(id) }
+        let base = Self.item(id)
+        return .update([PagedLabItem(id: id, mine: base.mine, text: base.text, typing: now)])
     }
 
     /// A served row in the head, middle or tail (a third each).

@@ -82,6 +82,25 @@ struct PagedLabDriver {
         return app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lab.row.'")).firstMatch
     }
 
+    /// Whether `condition` stays true for `seconds` (a bounded wait that fails as soon as it turns
+    /// false: an inverted expectation on its opposite).
+    func staysTrue(for seconds: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {
+        let broken = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !condition() }, object: nil)
+        broken.isInverted = true
+        return XCTWaiter.wait(for: [broken], timeout: seconds) == .completed
+    }
+
+    /// How many lab rows the list draws inside its frame, read in one snapshot (no element looked up
+    /// again later: under a load the rows move between a lookup and its use).
+    func rowsOnScreen() -> Int {
+        guard let snapshot = try? list.snapshot() else { return 0 }
+        let frame = list.frame
+        func rows(_ element: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
+            (element.identifier.hasPrefix("lab.row.") ? [element] : []) + element.children.flatMap(rows)
+        }
+        return rows(snapshot).filter { $0.frame.intersects(frame) && !$0.frame.isEmpty }.count
+    }
+
     /// The list's bottom edge as drawn: the top of the lowest bar under it (the ops, the measurement
     /// line, the composer).
     var floor: CGFloat {
@@ -146,6 +165,12 @@ struct PagedLabReading {
     var maxShift: Double { number("maxShift") }
     /// The worst per-frame move of the row being read that the scroll does not explain (pt).
     var frameShift: Double { number("frameShift") }
+    /// The rows around the eye line (the neighbour measure), the largest drawn move beyond the scroll.
+    var neighbourShift: Double { number("neighbourShift") }
+    var neighbourShifted: Int { Int(number("neighbourShifted")) }
+    /// One-frame jumps of everything drawn (the push measure), the largest, in pt over the threshold's.
+    var pushShift: Double { number("pushShift") }
+    var pushShifted: Int { Int(number("pushShifted")) }
     var samples: Int { Int(number("samples")) }
     var shiftedFrames: Int { Int(number("shiftedFrames")) }
     var frames: Int { Int(number("frames")) }

@@ -36,7 +36,7 @@ public struct PagedListLabRoot: View {
     /// `-cmux-mobile-paged-lab-stress LOAD`: the stress bench's source instead.
     @State private var stress: PagedStressSource?
     @State private var hud = PagedLabHUD()
-    @State private var probe = PagedListProbe()
+    @State private var probe: PagedListProbe
     @State private var draft = ""
     /// The top banner (`lab.op.banner`): a top inset that comes and goes mid-list, like "Updating…".
     @State private var banner = false
@@ -58,6 +58,8 @@ public struct PagedListLabRoot: View {
         let memory = value("-cmux-mobile-paged-lab-window").flatMap(Int.init).map(PagedListMemory.window) ?? .unbounded
         let source = PagedLabSource(scenario: scenario)
         _source = State(initialValue: source)
+        let probe = PagedListProbe()
+        _probe = State(initialValue: probe)
         if let name = value("-cmux-mobile-paged-lab-stress"), let load = PagedStressLoad.named[name] {
             let stress = PagedStressSource(load: load)
             _stress = State(initialValue: stress)
@@ -122,6 +124,13 @@ public struct PagedListLabRoot: View {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
             probe.frameShift = { [hud] shift in hud.sampled(shift) }
+            probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
+            probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
+            probe.drawnShift = { [hud] shift, detail in hud.drawnSampled(shift, detail) }
+            probe.neighbourShift = { [hud] shift, detail in hud.neighbourSampled(shift, detail) }
+            probe.pushShift = { [hud] size, detail in hud.pushSampled(size, detail) }
+            probe.dragPush = { [hud] size in hud.dragSampled(size) }
+            probe.boundedFrame = { [hud] in hud.boundedFrames += 1 }
             probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
@@ -276,9 +285,12 @@ struct PagedLabItem: Identifiable, Equatable, Sendable, Codable {
     let id: Int
     let mine: Bool
     let text: String
+    /// The row's text stands aside for a typing bubble (the stress bench's `typing` load).
+    var typing = false
 
-    init(id: Int, mine: Bool? = nil, text: String? = nil) {
+    init(id: Int, mine: Bool? = nil, text: String? = nil, typing: Bool = false) {
         self.id = id
+        self.typing = typing
         self.mine = mine ?? (abs(id) % 3 == 0)
         let words = ["the", "list", "keeps", "what", "you", "read", "in", "place", "while", "older", "pages", "land",
                      "above", "and", "below", "with", "no", "jump", "flicker", "or", "hitch"]
@@ -397,6 +409,15 @@ final class PagedLabHUD {
     /// Layout passes the measure sampled, and those whose shift passed half a point.
     var samples = 0
     var shiftedFrames = 0
+    /// The same measure at each layout pass (the probe's `passFrameShift`), kept beside the committed
+    /// frames' so a run shows what moved from counted to not counted: its worst, its shifted samples,
+    /// those taken while the list was mid-placement, and the worst one's detail.
+    var passFrameShift: CGFloat = 0
+    var passShifted = 0
+    var passMidPlacement = 0
+    var passWorstShift = ""
+    /// The committed-frame measure's own time per drawn frame (ms): all samples, kept for the mean and p99.
+    @ObservationIgnored var samplerCosts: [Double] = []
     /// Slides to the newest end, and the display frames the last one took (1: a jump).
     var slides = 0
     var slideFrames = 0
@@ -435,6 +456,72 @@ final class PagedLabHUD {
         if abs(shift) > frameShift { frameShift = abs(shift) }
     }
 
+    /// The drawn measure: the worst drawn shift beyond the scroll, how many frames drew one over half
+    /// a point, and the worst one's detail.
+    var drawnShift: CGFloat = 0
+    var drawnShifted = 0
+    var drawnWorst = ""
+
+    /// The neighbour measure: the rows around the eye line (``PagedListProbe/neighbourShift``).
+    @ObservationIgnored var neighbourShift: CGFloat = 0
+    @ObservationIgnored var neighbourShifted = 0
+    @ObservationIgnored var neighbourWorst = ""
+
+    /// The push measure (``PagedListProbe/pushShift``): one-frame jumps of everything drawn.
+    @ObservationIgnored var pushShift: CGFloat = 0
+    @ObservationIgnored var pushShifted = 0
+    @ObservationIgnored var pushWorst = ""
+
+    /// Pushes under a finger (recorded, not asserted): how many, the largest, and their sizes' p90.
+    @ObservationIgnored var dragPushes: [CGFloat] = []
+    /// Frames the newest edge moved exactly with arriving content (not judged as pushes).
+    @ObservationIgnored var boundedFrames = 0
+
+    func dragSampled(_ size: CGFloat) {
+        dragPushes.append(size)
+    }
+
+    func pushSampled(_ size: CGFloat, _ detail: String?) {
+        guard size > 0 else { return }
+        pushShifted += 1
+        if size > pushShift {
+            pushShift = size
+            pushWorst = detail ?? ""
+        }
+    }
+
+    func neighbourSampled(_ shift: CGFloat, _ detail: String?) {
+        guard abs(shift) > 0.5 else { return }
+        neighbourShifted += 1
+        if abs(shift) > neighbourShift {
+            neighbourShift = abs(shift)
+            neighbourWorst = detail ?? ""
+        }
+    }
+
+    func drawnSampled(_ shift: CGFloat, _ detail: String?) {
+        guard abs(shift) > 0.5 else { return }
+        drawnShifted += 1
+        if abs(shift) > drawnShift {
+            drawnShift = abs(shift)
+            drawnWorst = detail ?? ""
+        }
+    }
+
+    func samplerCost(_ ms: Double) {
+        samplerCosts.append(ms)
+    }
+
+    func passSampled(_ shift: CGFloat, midPlacement: Bool, detail: String?) {
+        guard abs(shift) > 0.5 else { return }
+        passShifted += 1
+        if midPlacement { passMidPlacement += 1 }
+        if abs(shift) >= passFrameShift {
+            passFrameShift = abs(shift)
+            passWorstShift = "mid=\(midPlacement) " + (detail ?? "")
+        }
+    }
+
     func shifted(_ shift: CGFloat, _ detail: String) {
         if abs(shift) >= frameShift { worstShift = detail }
     }
@@ -465,7 +552,9 @@ final class PagedLabHUD {
 
     func json(edge: String, newer: String = "end", changes: Int = 0, flushes: Int = 0) -> String {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)"}"#
+        let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
+        let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)","bounded":\#(boundedFrames),"dragPushes":\#(dragPushes.count),"dragPushMax":\#(dragPushes.max() ?? 0),"dragPushP90":\#(dragPushes.isEmpty ? 0 : dragPushes.sorted()[min(dragPushes.count - 1, dragPushes.count * 9 / 10)])}"#
     }
 }
 
@@ -477,9 +566,13 @@ struct PagedLabRow: View {
             Text("Item \(item.id)")
                 .font(theme.type.rowTitle)
                 .foregroundStyle(theme.colors.label.color)
-            Text(item.text)
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2.color)
+            if item.typing {
+                PagedLabTypingBubble()
+            } else {
+                Text(item.text)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2.color)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -490,6 +583,30 @@ struct PagedLabRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("lab.row.\(item.id)")
     }
+}
+
+/// A short typing bubble in place of a row's text: a fixed-height capsule around a UIKit view, as
+/// Home's typing bubble is (a row's height changes on reconfigure, and part of it is a UIKit view).
+struct PagedLabTypingBubble: View {
+    var body: some View {
+        PagedLabTypingDots()
+            .frame(width: 34, height: 8)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(theme.colors.surfaceRaised.color, in: .capsule)
+            .accessibilityLabel("Typing")
+    }
+}
+
+private struct PagedLabTypingDots: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .secondaryLabel
+        view.layer.cornerRadius = 4
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {}
 }
 
 struct PagedLabBubble: View {
