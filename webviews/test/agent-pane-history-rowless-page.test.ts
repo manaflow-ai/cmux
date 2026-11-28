@@ -195,13 +195,11 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
       .rows.filter((row) => row.kind === "assistant")
       .map((row) => row.text ?? "")
       .join("");
-  expect(reply().startsWith("1")).toBe(false);
 
-  // The first ask makes the cut reply whole under its prompt before reading the long turn above
-  // (direct.ts cutOpener): the first row stays turn 3's prompt, and the oldest held event moves to
-  // it, so the loader (VirtualTranscript.tsx olderLoadKey) asks again.
-  await client.loadOlder();
-  await settle();
+  // The first older ask, the open's own backfill under its first page (direct.ts backfillOpen), makes
+  // the cut reply whole under its prompt before reading the long turn above (direct.ts cutOpener):
+  // the first row stays turn 3's prompt, and the oldest held event moves to it, so the loader
+  // (VirtualTranscript.tsx olderLoadKey) asks again.
   expect(questions(snapshot().rows)).toEqual(["Question 3"]);
   expect(reply().startsWith("1".repeat(40 * 1024) + "2")).toBe(true);
   expect(snapshot().historyFrom).toBe(history.find((record) => record.msg.promptId === "p-3")!.seq);

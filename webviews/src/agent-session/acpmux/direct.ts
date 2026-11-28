@@ -7424,7 +7424,8 @@ export class AcpmuxDirectClient {
       if (!current()) return [];
     }
     this.emit("attached");
-    this.backfillOpen(sessionId, generation);
+    // A reconnect's laid forward page adds to rows already held: no first page to backfill under.
+    if (!forward?.laid) this.backfillOpen(sessionId, generation);
     return page;
   }
 

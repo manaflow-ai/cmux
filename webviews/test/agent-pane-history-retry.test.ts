@@ -27,11 +27,12 @@ const history: Rec[] = Array.from({ length: TURNS }, (_, index) => {
   .map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
 const lastSeq = history.length;
 
-/// A daemon over a fake socket whose first transcript read fails, as a dropped connection's does.
+/// A daemon over a fake socket whose next transcript read after `failNext` fails, as a dropped
+/// connection's does (armed after the open, whose own backfill reads the page under its first page).
 function fakeDaemon() {
   let socket: any;
   let olderReads = 0;
-  let failNext = true;
+  let failNext = false;
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -92,7 +93,14 @@ function fakeDaemon() {
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  return { open, olderReads: () => olderReads };
+  return {
+    open,
+    olderReads: () => olderReads,
+    failNext: () => {
+      failNext = true;
+      olderReads = 0;
+    },
+  };
 }
 
 const settle = async () => {
@@ -109,6 +117,7 @@ test("an older page asked for inside the back-off after a failed one still reads
     daemon.open,
   );
   await settle();
+  daemon.failNext();
   expect(snapshot.canLoadOlder).toBe(true);
   const from = snapshot.historyFrom!;
   expect(from).toBeGreaterThan(1);

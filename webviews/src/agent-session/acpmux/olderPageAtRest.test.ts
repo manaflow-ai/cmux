@@ -21,6 +21,12 @@ afterAll(async () => {
 
 const TURNS = 2000;
 
+/// Reads started after an ask settle once the client has had a few turns of the event loop.
+const drain = async () => {
+  // fixed-wait: the read-ahead chain runs on the mock's immediate answers; a few ticks end it.
+  for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setTimeout(resolve, 5));
+};
+
 async function openChat() {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -51,15 +57,11 @@ async function openChat() {
     },
   );
   await client.select(socket!.seedLoadSession(TURNS));
+  // The open's own backfill (one rest page after first paint) is not the ask under test.
+  await drain();
   reads.length = 0;
   return { client, reads };
 }
-
-/// Reads started after an ask settle once the client has had a few turns of the event loop.
-const drain = async () => {
-  // fixed-wait: the read-ahead chain runs on the mock's immediate answers; a few ticks end it.
-  for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setTimeout(resolve, 5));
-};
 
 test("an older ask at rest reads one short page and none ahead", async () => {
   const { client, reads } = await openChat();
