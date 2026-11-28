@@ -244,16 +244,18 @@ const replies = (snapshot: any): number[] =>
   [...JSON.stringify(snapshot.rows ?? []).matchAll(/Reply (\d+)\./g)].map((match) => Number(match[1]));
 
 test("a reconnect with nothing new asks only past its records, reads no gap and keeps its history state", async () => {
-  // A chat longer than its first page: older history is left to read.
-  const history = chat(300);
-  const fake = daemon(history, { pageFrom: 401 });
+  // Longer than the first page plus the open's backfill (one rest page of 400), so older stays left.
+  const history = chat(500);
+  const fake = daemon(history, { pageFrom: 801 });
   const session = await connect(fake);
   try {
+    // The open's backfill (`backfillOpen`) lands before the reconnect.
+    for (let pass = 0; pass < 50; pass += 1) await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.snapshot().canLoadOlder).toBe(true);
     const shown = replies(session.snapshot());
     await reconnect(fake, session);
     const asked = fake.wire.attaches.at(-1)!.params;
-    expect(asked.afterSeq).toBe(600);
+    expect(asked.afterSeq).toBe(1000);
     expect(asked.settled).toBeUndefined();
     expect(fake.wire.attaches).toHaveLength(2);
     expect(fake.wire.gapReads).toHaveLength(0);

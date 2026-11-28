@@ -697,6 +697,31 @@ const NO_ROWS: ReadonlyMap<string, AcpmuxRow> = new Map();
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
 /// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
 const OPEN_PAGE_BYTES = 128 * 1024;
+/// The page a chat's open paints first: about a screenful, newest kept. The open page refolded in full on
+/// every open, 400 records and 73 KiB for a 300-turn chat, and that refold was most of attach_to_latest
+/// on the small chat (2.00x calibration, goal chat-attach-p95); the god chat's 112 KiB of tool output
+/// cost the same on a slower runner. A fixed page makes the open cost the same at any chat size. What
+/// the open page held past it comes back in the older page read once the first one painted
+/// (`backfillOpen`), and the reader's scroll up reads on from there as before. A reconnect's forward
+/// page still asks OPEN_PAGE_BYTES: it must bring every record the pane missed.
+export const FIRST_PAGE_BYTES = 16 * 1024;
+export const FIRST_PAGE_RECORDS = 64;
+/// Whether an open's page may have stopped at the first page's bounds rather than where the old open
+/// page (OPEN_PAGE_BYTES) would: it holds FIRST_PAGE_RECORDS, or a quarter of FIRST_PAGE_BYTES (the
+/// daemon stops before the record that would cross the cap, so a cut page holds most of it unless the
+/// next record is large). A smaller page is the page the old open read too: nothing to backfill, and
+/// the reader's scroll up reads on as before.
+export function firstPageCut(page: readonly { msg?: unknown }[]): boolean {
+  if (page.length >= FIRST_PAGE_RECORDS) return true;
+  let bytes = 0;
+  for (const event of page) {
+    bytes += JSON.stringify(event).length;
+    if (bytes >= FIRST_PAGE_BYTES / 4) return true;
+  }
+  return false;
+}
+/// How long after the first page painted its backfill waits for an idle main thread, at most.
+const BACKFILL_IDLE_MS = 600;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// An older ask the reader is not scrolling up for (`loadOlder`'s `rising` false: an open filling
 /// the view, a chat at rest within OLDER_AHEAD_VIEWPORTS of its loaded top) reads the page it read
@@ -903,6 +928,19 @@ export function settledAppend(
   return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
 }
 
+/// A first page that has older records past it, from its first record that opens a turn on: the
+/// partial turn before it is read with the older page (`backfillOpen`), so the first paint draws
+/// whole turns only. A page with no turn start past its first record, or one that holds what
+/// configures the chat (`COMMANDS_KIND`), is kept whole.
+export function firstTurnOnward(page: EventRecord[], hasMore: boolean): EventRecord[] {
+  if (!hasMore || page.length < 2) return page;
+  const sorted = [...page].sort((a, b) => a.seq - b.seq);
+  const at = sorted.findIndex((event) => startsTurn(event));
+  if (at <= 0) return page;
+  if (sorted.slice(0, at).some((event) => event.kind === COMMANDS_KIND)) return page;
+  return sorted.slice(at);
+}
+
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
 /// with the page, `server/requests/turn_opener.rs`): `undefined` when the reply does not say (an
 /// older acpmux) or the rows start before the page (a kept tail drawn first), so the pane reads it
@@ -916,6 +954,9 @@ function servedTurnOpener(
   if (!result || !("turnOpener" in result)) return undefined;
   const first = page[0];
   if (!first || rows[0]?.seq !== first.seq) return undefined;
+  // A page that starts on a turn's opener (`firstTurnOnward`) has no turn it starts inside: the
+  // opener named was of the partial turn the trim left to the older page.
+  if (startsTurn(first)) return null;
   const opener = result.turnOpener as EventRecord | null | undefined;
   if (!opener || typeof opener !== "object" || typeof opener.seq !== "number") return null;
   if (opener.seq >= first.seq || !startsTurn(opener)) return null;
@@ -6758,7 +6799,9 @@ export class AcpmuxDirectClient {
           visible,
           attending,
           local: guess ? guess.local : this.localOrigin,
-          maxBytes: OPEN_PAGE_BYTES,
+          ...(forward && afterSeq !== undefined && afterSeq > 0
+            ? { maxBytes: OPEN_PAGE_BYTES }
+            : { maxBytes: FIRST_PAGE_BYTES, limit: FIRST_PAGE_RECORDS }),
           afterSeq: forward ? afterSeq : undefined,
         }),
       );
@@ -7131,7 +7174,11 @@ export class AcpmuxDirectClient {
       if (!sent.reads) this.startAttachReads(sessionId);
       return [];
     }
-    const page = records(result?.events);
+    // The open's first page (`FIRST_PAGE_BYTES`) is cut by bytes, so it usually starts inside a
+    // turn: drawn, that turn's tail lays out unfolded under the newest turns, more to draw than the
+    // whole turns the old 128 KiB page started with. The records before its first whole turn are
+    // left to the backfill (`firstTurnOnward`), which reads them with the rest of the older page.
+    const page = forward ? records(result?.events) : firstTurnOnward(records(result?.events), result?.hasMore === true);
     const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
     // A forward page continues the rows held only when the machine read it as one, of the same
     // session, with its log still past them. A session recreated meanwhile (another `createdAt` than
@@ -7418,7 +7465,31 @@ export class AcpmuxDirectClient {
       if (!current()) return [];
     }
     this.emit("attached");
+    // A reconnect's laid forward page adds to rows already held: no first page to backfill under.
+    if (!forward?.laid && firstPageCut(page)) this.backfillOpen(sessionId, generation);
     return page;
+  }
+
+  /// Reads the older page under an open's first page (FIRST_PAGE_BYTES) once it painted, on an idle main
+  /// thread, so the history the open page used to hold is held again a moment later, read in the
+  /// background instead of before the first frame. One read, the at-rest page (OLDER_REST_PAGE_BYTES,
+  /// more than the old open page); `loadOlder` keeps the reader's place as it does for a scroll up.
+  private backfillOpen(sessionId: string, generation: number): void {
+    if (!this.seqHistoryLeft()) return;
+    const run = () => {
+      if (this.closed || this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
+      if (!this.seqHistoryLeft()) return;
+      this.loadOlder(undefined, false, false).catch(ignore);
+    };
+    const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
+      .requestIdleCallback;
+    // After the frame the first page paints in (the pane renders the attach's snapshot in a task of its own,
+    // so the first frame can come before its rows: a second frame is after them), then when the main thread
+    // is idle. With one frame, the god chat's backfill page folded before its newest row painted (A/B
+    // 46151212950: god attach_to_latest p95 109.5 -> 120.2 ms).
+    const later = () => (idle ? idle(run, { timeout: BACKFILL_IDLE_MS }) : setTimeout(run, 0));
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(later));
+    else setTimeout(later, 0);
   }
 
   /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
