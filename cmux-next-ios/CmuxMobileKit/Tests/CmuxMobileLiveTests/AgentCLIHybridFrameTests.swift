@@ -177,10 +177,21 @@ import Testing
     }
 
     @Test func theCapabilityFollowsTheSetting() throws {
+        // Off by default, the attach is the one before the phone-grid path.
         #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v1"))
+        #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v1"))
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
-        #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
+        for hybrid in [false, true] {
+            #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: hybrid).contains("agent-cli-phone-grid-v1"))
+        }
+        // Claude Code at Phone Size on: an agent CLI's frames at the phone's own grid.
+        for capability in ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2", "agent-cli-phone-grid-v1"] {
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: false, phoneGrid: true).contains(capability))
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true, phoneGrid: true).contains(capability))
+        }
+        let fresh = try #require(UserDefaults(suiteName: "phone-grid-\(UUID().uuidString)"))
+        #expect(!DaemonTerminalSession.agentCLIPhoneGridEnabled(fresh))
         for capability in ["terminal-shell-lines-v1", "attach-output-coalesce-v1"] {
             #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains(capability))
             #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains(capability))

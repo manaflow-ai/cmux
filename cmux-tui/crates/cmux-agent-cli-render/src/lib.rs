@@ -15,6 +15,7 @@
 
 pub mod adapter;
 pub mod claude;
+pub mod claude_facts;
 pub mod hybrid;
 pub mod lean;
 pub mod stream;

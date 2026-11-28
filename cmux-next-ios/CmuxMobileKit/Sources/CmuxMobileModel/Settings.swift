@@ -264,6 +264,9 @@ public final class SettingsStore {
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
+    /// Settings → Transport → Claude Code at Phone Size (off by default): Claude Code drawn at
+    /// this phone's grid by the Mac (`agent-cli-phone-grid-v1`). Read at each terminal attach.
+    public var agentCLIPhoneGrid: Bool { didSet { save(agentCLIPhoneGrid, "agentCLIPhoneGrid") } }
     /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing views a Mac
     /// that streams its display on the link (`mac-display-v1`) over that link, view only. Read by
     /// Screen Sharing (`CmuxMobilePreferences.Key.macScreenOverLink`) through the same key.
@@ -339,6 +342,7 @@ public final class SettingsStore {
         lanDirect = bool("lanDirect", true)
         quietCloudConnect = bool("quietCloudConnect", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
+        agentCLIPhoneGrid = bool("agentCLIPhoneGrid", false)
         macScreenOverLink = bool("macScreenOverLink", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))

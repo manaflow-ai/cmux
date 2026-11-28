@@ -685,6 +685,16 @@ impl Mux {
             .and_then(|record| record.agent.clone())
     }
 
+    /// The agent `terminal` runs and its native session id, while one runs and its hook said.
+    pub(crate) fn running_agent_session(
+        &self,
+        terminal: &TerminalPublicId,
+    ) -> Option<(String, String)> {
+        let records = self.agent_records.lock().unwrap_or_else(PoisonError::into_inner);
+        let record = records.get(terminal).filter(|record| record.state != AgentState::Done)?;
+        Some((record.agent.clone()?, record.agent_session_id.clone()?))
+    }
+
     /// Test only: `terminal` runs the agent `adapter`, as its hook would report.
     #[cfg(test)]
     pub(crate) fn note_running_agent_for_test(&self, terminal: &TerminalPublicId, adapter: &str) {

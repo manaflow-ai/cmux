@@ -52,6 +52,10 @@ public enum CmuxMobilePreferences {
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Claude Code at Phone Size (off by default): the Mac draws Claude
+        /// Code at this phone's grid and never resizes for it. Read at each terminal attach
+        /// (`DaemonTerminalSession.agentCLIPhoneGridDefaultsKey`).
+        public static let agentCLIPhoneGrid = "cmuxMobile.settings.agentCLIPhoneGrid"
         /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing shows a
         /// Mac that lists `mac-display-v1` as rd/1 on its cmux-wg link (`surface` tab `d~0`, view
         /// only) instead of the device hub's WebRTC session. Read when a Mac is opened.

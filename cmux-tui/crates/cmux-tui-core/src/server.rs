@@ -333,6 +333,8 @@ use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
 mod agent_cli_hybrid;
+mod agent_cli_phone;
+pub use agent_cli_phone::AGENT_CLI_PHONE_GRID_CAPABILITY;
 mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
@@ -2636,6 +2638,13 @@ enum Command {
         hybrid_stream: Option<String>,
         #[serde(default)]
         hybrid_frame: Option<u64>,
+        /// Bytes mode, `agent-cli-phone-grid-v1`: the viewer's own grid, which an agent
+        /// CLI's frames are drawn at (`server/agent_cli_phone.rs`); never a size report, so
+        /// the terminal keeps its size. Both or neither.
+        #[serde(default)]
+        view_cols: Option<u16>,
+        #[serde(default)]
+        view_rows: Option<u16>,
         /// Bytes mode, `terminal-resume-v1`: the last `offset` this viewer
         /// applied and the `generation` that stamped it (both or neither). The
         /// reply says `resume: "exact"` with only the missing bytes, or

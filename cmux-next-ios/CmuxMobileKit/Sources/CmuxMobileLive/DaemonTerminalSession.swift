@@ -171,7 +171,13 @@ public final class DaemonTerminalSession: TerminalSession {
     private var resyncAfterClose = false
     /// The session declares the hybrid capabilities: the setting is on and its frames did
     /// not fail twice.
+    /// The Mac's daemon draws an agent CLI at this phone's grid (`identify` lists
+    /// ``agentCLIPhoneGridCapability``).
+    private var phoneGridOffered = false
     private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Settings → Transport → Claude Code at Phone Size (off by default), and its frames did not
+    /// fail twice.
+    private var phoneGridWanted: Bool { Self.agentCLIPhoneGridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
     /// Where the setting is read (tests give each session its own).
     var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of
@@ -1237,6 +1243,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// ``historyAllowance`` rows (nil: all of them).
     private func historyAttachParams(size: (columns: Int, rows: Int)) -> sending [String: Any] {
         var params: [String: Any] = ["surface": surface, "cols": size.columns, "rows": size.rows]
+        if phoneGridOffered, let view = lastSize ?? pendingSize {
+            params["view_cols"] = view.columns
+            params["view_rows"] = view.rows
+        }
         if windowReplay, let start = historyWindowStart {
             params["replay_history_rows"] = Self.historyWindowRows
             params["replay_history_start"] = start
@@ -1489,7 +1499,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease), identify
             // and, replacing a live attach, the attach.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted, phoneGrid: phoneGridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
             log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
@@ -1542,6 +1552,8 @@ public final class DaemonTerminalSession: TerminalSession {
             shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
             leased = shortLease || (identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false)
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            // Only with the setting on: off, the attach sends no view grid (the path before it).
+            phoneGridOffered = phoneGridWanted && (identify.map { Self.lists(Self.agentCLIPhoneGridCapability, $0) } ?? false)
             sendKeys = identify.map { Self.lists(Self.sendKeyCapability, $0) } ?? false
             // A daemon that does not list the hybrid stream would refuse a resume's fields
             // (one older than it, or one this phone reached after a Mac update rolled back).
@@ -1568,6 +1580,17 @@ public final class DaemonTerminalSession: TerminalSession {
             func attachSurface(_ size: (columns: Int, rows: Int)?) async throws -> Data {
                 // Each request gets its own literal: a dictionary sent to the
                 // client actor is never touched again here (Swift 6 regions).
+                // `agent-cli-phone-grid-v1`: this phone's own grid, which the Mac draws an agent
+                // CLI at (never a size report: the Mac keeps its size).
+                let view = phoneGridOffered ? (lastSize ?? pendingSize) : nil
+                func attachRequest(_ params: sending [String: Any]) async throws -> Data {
+                    var params = params
+                    if let view {
+                        params["view_cols"] = view.columns
+                        params["view_rows"] = view.rows
+                    }
+                    return try await client.request("attach-surface", params: params)
+                }
                 func send(historyRows: Int?) async throws -> Data {
                     // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
                     // the hybrid stream from the frame this mirror drew.
@@ -1582,15 +1605,15 @@ public final class DaemonTerminalSession: TerminalSession {
                             // The window too (attach-replay-history-window-v1).
                             if windowReplay, let start = historyWindowStart { params["replay_history_start"] = start }
                         }
-                        return try await client.request("attach-surface", params: params)
+                        return try await attachRequest(params)
                     }
                     // A window far above the screen (attach-replay-history-window-v1).
                     if let rows = historyRows, windowReplay, let start = historyWindowStart {
                         if let size {
-                            return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows,
+                            return try await attachRequest(["surface": surface, "cols": size.columns, "rows": size.rows,
                                                                                        "replay_history_rows": rows, "replay_history_start": start])
                         }
-                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows,
+                        return try await attachRequest(["surface": surface, "replay_history_rows": rows,
                                                                                    "replay_history_start": start])
                     }
                     // In bytes mode from a known position: the missed bytes, or (a gap) the
@@ -1606,17 +1629,17 @@ public final class DaemonTerminalSession: TerminalSession {
                             params["replay_history_rows"] = historyRows
                             if windowReplay, let start = historyWindowStart { params["replay_history_start"] = start }
                         }
-                        return try await client.request("attach-surface", params: params)
+                        return try await attachRequest(params)
                     }
                     switch (size, historyRows) {
                     case let (size?, rows?):
-                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
+                        return try await attachRequest(["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
                     case let (size?, nil):
-                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                        return try await attachRequest(["surface": surface, "cols": size.columns, "rows": size.rows])
                     case let (nil, rows?):
-                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows])
+                        return try await attachRequest(["surface": surface, "replay_history_rows": rows])
                     case (nil, nil):
-                        return try await client.request("attach-surface", params: ["surface": surface])
+                        return try await attachRequest(["surface": surface])
                     }
                 }
                 if tailReplay, windowReplay, historyWindowStart != nil {
@@ -2954,9 +2977,35 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// What `set-client-info` declares: the lean stream (agent CLIs, shells, full-screen
     /// programs, coalesced PTY bytes for everything else) only with the setting on.
-    static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid ? clientCapabilities + leanStreamCapabilities : clientCapabilities
+    /// With `phoneGrid` (its own setting, off by default) Claude Code also comes drawn at the
+    /// phone's grid; off, the attach is exactly what it was before that path.
+    static func capabilities(agentCLIHybrid: Bool, phoneGrid: Bool = false) -> [String] {
+        switch (agentCLIHybrid, phoneGrid) {
+        case (true, true): return clientCapabilities + leanStreamCapabilities + [agentCLIPhoneGridCapability]
+        case (true, false): return clientCapabilities + leanStreamCapabilities
+        case (false, true): return clientCapabilities + agentCLIPhoneGridCapabilities
+        case (false, false): return clientCapabilities
+        }
     }
+
+    /// Settings → Transport → Claude Code at Phone Size, the
+    /// `CmuxMobilePreferences.Key.agentCLIPhoneGrid` key; read at each attach.
+    nonisolated static let agentCLIPhoneGridDefaultsKey = "cmuxMobile.settings.agentCLIPhoneGrid"
+
+    nonisolated static func agentCLIPhoneGridEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: agentCLIPhoneGridDefaultsKey)
+    }
+
+    /// Claude Code drawn at this phone's own grid by the Mac's daemon, from its transcript and
+    /// the Mac screen's facts (cmux-tui `agent-cli-phone-grid-v1`, `server/agent_cli_phone.rs`):
+    /// the Mac never resizes for it (Leo, 2026-11-25: "do everything at parity on the phone").
+    /// Off by default until it is no worse than Claude Code's own screen for daily use (Leo,
+    /// 2026-11-27: "what about in comparison to the previous thing?"; the table on #56889).
+    /// Shells and full-screen programs keep the byte stream and the phone's own reflow.
+    nonisolated static let agentCLIPhoneGridCapability = "agent-cli-phone-grid-v1"
+    /// What a phone declares with only Claude Code at Phone Size on: an agent CLI's frames,
+    /// packed, at its own grid; nothing else changes.
+    nonisolated static let agentCLIPhoneGridCapabilities = [agentCLIHybridCapability, agentCLIHybridLeanCapability, agentCLIPhoneGridCapability]
 
     /// The lean stream's names: cmux-mobile-link `names::TERMINAL_LEAN_STREAM` on the phone
     /// (with `terminal-full-screen-frames-v1`), today's four where the link library is absent.

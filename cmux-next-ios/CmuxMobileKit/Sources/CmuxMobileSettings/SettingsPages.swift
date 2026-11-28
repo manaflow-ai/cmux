@@ -735,6 +735,14 @@ struct TransportPage: View {
                 Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             Section {
+                Toggle(isOn: $settings.agentCLIPhoneGrid) {
+                    Text("Claude Code at Phone Size")
+                }
+                .accessibilityIdentifier("settings.transport.agentCLIPhoneGrid")
+            } footer: {
+                Text("Your Mac draws Claude Code at this iPhone's own size and keeps its own window size. Off: the terminal shows Claude Code's own screen, as the Mac sends it. Applies when a terminal opens or reconnects.")
+            }
+            Section {
                 Toggle(isOn: $settings.macScreenOverLink) {
                     Text("Mac Screen over Link")
                 }

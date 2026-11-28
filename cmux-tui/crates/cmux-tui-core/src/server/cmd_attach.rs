@@ -23,6 +23,7 @@ use super::TERMINAL_RESUME_CAPABILITY;
 use super::VtStateMessage;
 use super::agent_cli_hybrid;
 use super::agent_cli_hybrid::{HybridOut, HybridViewer};
+use super::agent_cli_phone::{self, AGENT_CLI_PHONE_GRID_CAPABILITY};
 use super::attach_output_coalesce;
 use super::attach_output_coalesce::OutputCoalescer;
 use super::attach_overflow_json;
@@ -194,7 +195,7 @@ pub(super) fn attach_surface(
     replay_history_rows: Option<u32>,
     output_coalesce_ms: Option<u32>,
     replay_history_start: Option<u64>,
-    (hybrid_stream, hybrid_frame): (Option<String>, Option<u64>),
+    (hybrid_stream, hybrid_frame, view): (Option<String>, Option<u64>, Option<(u16, u16)>),
     (resume_offset, resume_generation, resume_max_bytes): (
         Option<u64>,
         Option<String>,
@@ -312,7 +313,23 @@ pub(super) fn attach_surface(
     // A viewer that asked for full-screen frames gets any terminal as an agent CLI's: frames
     // throughout, the alternate screen and input modes as bytes, never the PTY bytes.
     let shell_viewer = shell_lines && adapter == Adapter::Lines && !full_screen_frames;
-    let hybrid = adapter == Adapter::Agent
+    // `agent-cli-phone-grid-v1`: Claude Code drawn at the viewer's own grid, from its
+    // transcript and the Mac screen's facts (server/agent_cli_phone.rs).
+    let phone_grid_declared =
+        mux.control_clients.supports_capability(client, AGENT_CLI_PHONE_GRID_CAPABILITY);
+    let phone = view.filter(|_| adapter == Adapter::Agent && phone_grid_declared).and_then(
+        |(cols, rows)| {
+            let terminal = surface.terminal_public_id()?;
+            let (agent, session) = mux.running_agent_session(terminal)?;
+            matches!(agent.as_str(), "claude" | "claude-code").then_some(())?;
+            let transcript = agent_cli_phone::transcript_of(&session)?;
+            agent_cli_phone::PhoneGrid::new(cols, rows, transcript)
+        },
+    );
+    // A viewer that declared the phone grid without the whole lean stream (the phone's
+    // default) gets frames only for an agent CLI drawn at its grid; any other keeps its bytes.
+    let agent_frames = phone.is_some() || shell_lines || !phone_grid_declared;
+    let hybrid = (adapter == Adapter::Agent && agent_frames)
         || shell_viewer
         || (full_screen_frames && adapter == Adapter::Lines);
     // Only the plain byte attach coalesces; render mode keeps its own frames.
@@ -630,7 +647,7 @@ pub(super) fn attach_surface(
     let attach_stamp = attach.stamp;
     let mut hybrid_viewer = None;
     let sent = if hybrid {
-        let started = HybridViewer::start(
+        let started = HybridViewer::start_with(
             surface_id,
             attach.cols,
             attach.rows,
@@ -642,6 +659,7 @@ pub(super) fn attach_surface(
                 lines: shell_lines,
                 display_frames: full_screen_frames && adapter == Adapter::Lines,
             },
+            phone,
         );
         let (mut viewer, first) = match started {
             Ok(started) => started,

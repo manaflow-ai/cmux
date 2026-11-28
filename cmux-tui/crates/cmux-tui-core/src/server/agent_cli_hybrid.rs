@@ -52,6 +52,8 @@ use cmux_agent_cli_render::stream::{
 };
 use cmux_agent_cli_render::vt;
 use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE};
+
+use super::agent_cli_phone::PhoneGrid;
 use serde_json::{Value, json};
 
 use crate::panic_free::RecoverPoison;
@@ -121,6 +123,16 @@ impl ScreenModes {
                 .filter(|mode| term.mode(*mode, false))
                 .collect(),
         }
+    }
+
+    /// The modes a viewer drawn at its own grid follows (`agent_cli_phone.rs`): the primary
+    /// screen, so its rows scroll into its own history, and no mouse tracking, so a swipe
+    /// scrolls the phone and never the Mac's screen.
+    fn of_phone(term: &ghostty_vt::Terminal) -> ScreenModes {
+        let mut modes = ScreenModes::of(term);
+        modes.alternate = false;
+        modes.input.retain(|mode| !matches!(mode, 1000 | 1002 | 1003 | 1005 | 1006 | 1015));
+        modes
     }
 
     /// The bytes that take a terminal in these modes to `next`'s: the input mode sets and
@@ -208,6 +220,11 @@ pub(super) struct HybridViewer {
     /// The pacer's interval: [`FRAME_INTERVAL`], or [`DISPLAY_FRAME`] for a viewer that asked
     /// for full-screen frames.
     pace: Duration,
+    /// Claude Code drawn at the viewer's own grid (`agent-cli-phone-grid-v1`), and the rows
+    /// above its first frame, not yet sent.
+    phone: Option<PhoneGrid>,
+    phone_history: Option<Vec<Vec<Cell>>>,
+    phone_started: bool,
 }
 
 /// What a viewer declared: the lean frames (`agent-cli-hybrid-v2`), the shell adapter for
@@ -225,7 +242,9 @@ impl HybridViewer {
     /// The viewer of a terminal of `cols` x `rows` whose screen `replay` rebuilds, and its
     /// first `agent-cli-frame`: a keyframe, or a delta from the frame `resume` names when its
     /// stream is still kept. A shell's viewer whose terminal is full-screen has no first frame:
-    /// the attach sends `vt-state`, and frames start when the program ends.
+    /// the attach sends `vt-state`, and frames start when the program ends. The attach calls
+    /// [`HybridViewer::start_with`]; this is the tests' form, with no phone grid.
+    #[cfg(test)]
     pub(super) fn start(
         surface: SurfaceId,
         cols: u16,
@@ -234,12 +253,31 @@ impl HybridViewer {
         resume: Option<(String, u64)>,
         wants: Wants,
     ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
+        Self::start_with(surface, cols, rows, replay, resume, wants, None)
+    }
+
+    /// [`HybridViewer::start`], drawing Claude Code at the viewer's own grid when `phone` is
+    /// given (`agent_cli_phone.rs`): the stream is that grid's, and never resumes.
+    pub(super) fn start_with(
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+        replay: &[u8],
+        resume: Option<(String, u64)>,
+        wants: Wants,
+        phone: Option<PhoneGrid>,
+    ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
         let Wants { lean, shell, lines, display_frames } = wants;
         let pace = if display_frames { DISPLAY_FRAME } else { FRAME_INTERVAL };
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
+        let phone = phone.filter(|_| !shell);
+        let resume = resume.filter(|_| phone.is_none());
+        let (cols, rows) = phone.as_ref().map_or((cols, rows), |p| (p.cols, p.rows));
         // An agent CLI's viewer follows the modes of its screen, which frames do not carry.
-        let modes = (!shell).then(|| ScreenModes::of(&term));
+        let modes = (!shell).then(|| {
+            if phone.is_some() { ScreenModes::of_phone(&term) } else { ScreenModes::of(&term) }
+        });
         let kept = resume.as_ref().and_then(|(id, _)| {
             let mut parked = parked().lock().recover_poison();
             parked.retain(|_, entry| entry.at.elapsed() < PARKED_FOR);
@@ -272,6 +310,9 @@ impl HybridViewer {
             scan: (lines || shell).then(FullScreenScan::new),
             told: None,
             pace,
+            phone,
+            phone_history: None,
+            phone_started: false,
         };
         if let Some(shell) = viewer.shell.as_mut()
             && full_screen(&viewer.term)
@@ -303,6 +344,11 @@ impl HybridViewer {
     /// For an agent CLI's viewer whose first frame is a keyframe of the alternate screen: the
     /// switch to it, which goes before that frame (after it, the switch would blank the frame).
     pub(super) fn screen_before_first_frame(&mut self) -> Option<Vec<u8>> {
+        if self.phone.is_some() {
+            // The primary screen: the rows above the first frame, into the viewer's history.
+            let history = self.phone_history.take()?;
+            return Some(vt::history_bytes(&history, self.stream.size().1));
+        }
         let told = self.told.as_mut()?;
         let alternate = self.term.active_screen() == ghostty_vt::Screen::Alternate;
         if told.alternate || !alternate {
@@ -316,8 +362,9 @@ impl HybridViewer {
     /// a lines viewer or an agent CLI's viewer needs after its first frame (`None` for any
     /// other viewer, or when none is set).
     pub(super) fn input_modes(&mut self) -> Option<Vec<u8>> {
-        if let Some(told) = self.told.as_mut() {
-            let now = ScreenModes::of(&self.term);
+        if self.told.is_some() {
+            let now = self.modes_now();
+            let told = self.told.as_mut()?;
             let bytes = told.changes(&now);
             *told = now;
             return (!bytes.is_empty()).then_some(bytes);
@@ -384,8 +431,11 @@ impl HybridViewer {
     /// nothing); a switch of screens goes as bytes too, then the screen switched to as a
     /// keyframe, since the viewer's terminal no longer shows the frame before.
     fn follow_modes(&mut self, now: Instant, out: &mut Vec<HybridOut>) -> anyhow::Result<()> {
+        if self.told.is_none() {
+            return Ok(());
+        }
+        let next = self.modes_now();
         let Some(told) = self.told.as_ref() else { return Ok(()) };
-        let next = ScreenModes::of(&self.term);
         if *told == next {
             return Ok(());
         }
@@ -489,6 +539,8 @@ impl HybridViewer {
     /// The terminal changed size and `replay` rebuilds its screen: a keyframe at that size.
     pub(super) fn resized(&mut self, cols: u16, rows: u16, replay: &[u8]) -> anyhow::Result<Value> {
         self.term = shadow(cols, rows, replay)?;
+        // A viewer drawn at its own grid keeps it whatever size the Mac's terminal takes.
+        let (cols, rows) = self.phone.as_ref().map_or((cols, rows), |p| (p.cols, p.rows));
         self.stream.resize(cols, rows);
         self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
         let (real, cursor) = self.screen()?;
@@ -569,7 +621,25 @@ impl HybridViewer {
     fn screen(&mut self) -> anyhow::Result<(Grid, Option<ghostty_vt::CursorInfo>)> {
         self.render.update(&mut self.term)?;
         let frame = self.render.build_frame()?;
-        Ok((grid(&frame), frame.cursor))
+        let mac = grid(&frame);
+        let Some(phone) = self.phone.as_mut() else { return Ok((mac, frame.cursor)) };
+        // Claude Code draws its own cursor in the prompt (the terminal's is hidden).
+        let alternate = self.term.active_screen() == ghostty_vt::Screen::Alternate;
+        let (history, drawn) = phone.draw(&mac, alternate);
+        // Only the first frame's: later rows reach the viewer's history by the frames' scroll.
+        if !std::mem::replace(&mut self.phone_started, true) {
+            self.phone_history = Some(history);
+        }
+        Ok((drawn, None))
+    }
+
+    /// The modes the viewer's terminal should be in now.
+    fn modes_now(&self) -> ScreenModes {
+        if self.phone.is_some() {
+            ScreenModes::of_phone(&self.term)
+        } else {
+            ScreenModes::of(&self.term)
+        }
     }
 }
 
@@ -593,7 +663,7 @@ impl Drop for HybridViewer {
     }
 }
 
-fn shadow(cols: u16, rows: u16, replay: &[u8]) -> anyhow::Result<ghostty_vt::Terminal> {
+pub(super) fn shadow(cols: u16, rows: u16, replay: &[u8]) -> anyhow::Result<ghostty_vt::Terminal> {
     let mut term = ghostty_vt::Terminal::new(
         cols,
         rows,
@@ -633,7 +703,7 @@ fn underline(cell: &ghostty_vt::Cell) -> u16 {
         }
 }
 
-fn grid(frame: &ghostty_vt::RenderFrame) -> Grid {
+pub(super) fn grid(frame: &ghostty_vt::RenderFrame) -> Grid {
     let (cols, rows) = frame.size;
     let mut grid = Grid::blank(cols, rows);
     for (slot, row) in grid.cells.iter_mut().zip(frame.styled_rows()) {
