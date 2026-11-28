@@ -993,6 +993,7 @@ class GlaedaKeptLog(unittest.TestCase):
                          "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_artifacts_retry.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_channel_heal.py": "not switched yet (cmux#64931 reads a failed run's job logs as "
                                     "cmux_tui_tree_handoff does): follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",

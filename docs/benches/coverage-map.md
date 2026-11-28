@@ -128,6 +128,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `agent-quota` | CI and agents | one PR | no |
 | `agent-turn` | acpmux daemon | stand-in model | no |
 | `app-stream-bytes` | agent pane transport | 20 chats | no |
+| `app-try-plan` | team dev build (`cmux app try dir:`) | cmux checkout | no |
 | `ask-card-wait` | agent chat | replayed logs | no |
 | `autocloud-repo-ready` | cloud | real repo | no |
 | `bundle` | app bundle | n/a | no |
@@ -260,7 +261,6 @@ whether it fails on a number.
 | `TerminalScrollBenchUITests` | `cmux-next-ios/UITests/TerminalScrollBenchUITests.swift` | UI test plan | yes |
 | `TerminalReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift` | `CMUX_READ_FIRST_R1` | no |
 | `TranscriptReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift` | none | no |
-| `WorkspaceCacheSaveBurstPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/WorkspaceCacheSaveBurstPerfTests.swift` | none | burst of 50 or 500 saves writes ≤ 2 times, wall ≤ 3 single writes |
 | `WorkspaceSyncPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/WorkspaceSyncPerformanceTests.swift` | none | no |
 
 A row whose path cell reads "pending <branch>" is a suite on an open branch: the test lets it be absent until the branch lands, then wants its path.

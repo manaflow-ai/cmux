@@ -546,6 +546,7 @@
         "Wipe this job's credentials and temp files": {"plumbing": true},
         "Remove this job's checkout, DMG and deltas": {"plumbing": true}},
       "restore-historical-notes": {
+        "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Take the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
         "Restore and verify the public signed pair": {"nightly_only": "a workflow_dispatch on nightly-next with a restore provenance input writes archived signed notes back to the nightly-next R2 bucket with its release-next secrets (scripts/ci/nightly-notes-restore.py, #62726); a pull request holds no R2 write credentials"},
         "Release the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"}},
