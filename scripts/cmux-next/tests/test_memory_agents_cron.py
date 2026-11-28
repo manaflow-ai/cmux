@@ -394,6 +394,38 @@ class IdleGpuDiskTests(unittest.TestCase):
             self.assertEqual(only, r["name"] not in (cron.GPU_ROW, cron.DISK_ROW), r["name"])
             self.assertEqual(perf_cron.part_for_row(r["name"]), "memory-agents")
 
+    def settled_report(self, launch_disk=577.5, settled_disk=0.25, settled_gpu=0.5):
+        rep = self.report()
+        rep["samples"][0] = windowed(EMPTY, {"app": launch_disk}, 0.6)
+        rep["samples"] += [windowed(SETTLED_EMPTY, {"app": settled_disk}, settled_gpu),
+                           windowed(SETTLED_TEN, {"tui-daemon": 0.5}, 0.45)]
+        return rep
+
+    def test_a_run_with_settled_samples_reads_them_not_the_launch(self):
+        # cmux17, 2026-11-26 (step 6b4a829c): the idle-launch window, 20 s after a fresh launch, read 577.5 MB/h.
+        got = {r["name"]: r for r in cron.idle_rows(self.settled_report())}
+        self.assertEqual(got[cron.DISK_ROW]["p95"], 0.5)
+        self.assertEqual(got[cron.DISK_ROW]["window"], "settled-10")
+        self.assertEqual(got[cron.GPU_ROW]["p95"], 0.1, "settled-launch 0.5 minus the no-app 0.4")
+        self.assertEqual(got[cron.GPU_ROW]["window"], "settled-launch")
+
+    def test_the_launch_writes_stay_as_a_report_only_row(self):
+        got = {r["name"]: r for r in cron.idle_rows(self.settled_report())}
+        launch = got[cron.BREAKDOWN_PREFIX + "launch_disk_write_mb_per_h"]
+        self.assertEqual((launch["p95"], launch["window"]), (577.5, "idle-launch"))
+        self.assertTrue(perf_cron.REPORT_ONLY_ROW_RE.match(launch["name"]))
+
+    def test_a_run_without_settled_samples_keeps_the_settle_windows(self):
+        got = {r["name"]: r for r in cron.idle_rows(self.report())}
+        self.assertEqual(got[cron.DISK_ROW]["window"], "idle-10")
+        self.assertNotIn(cron.BREAKDOWN_PREFIX + "launch_disk_write_mb_per_h", got)
+
+    def test_a_partial_settled_count_is_no_window(self):
+        rep = self.settled_report()
+        rep["samples"][-1] = dict(rep["samples"][-1], workspaces=8)
+        got = {r["name"]: r for r in cron.idle_rows(rep)}
+        self.assertEqual(got[cron.DISK_ROW]["window"], "settled-launch")
+
     def test_the_part_asks_for_gpu_counters(self):
         import argparse
         ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", settled_at="150", no_app_vm=False,
