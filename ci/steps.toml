@@ -300,6 +300,27 @@ inputs = [
 ]
 run = "python3 tests/test_vendored_cmux_agent_cursor.py"
 
+# Native split detector fixtures exercise the same acceptance command used on dev captures.
+[step.new-tab-split-acceptance]
+job = "linux"
+timeout = 120
+title = "New Tab split first-frame acceptance"
+about = "reject late or blank split content against an independently settled frame"
+inputs = [
+  "scripts/cmux-next/new_tab_split_acceptance.py",
+  "scripts/cmux-next/fixtures/new-tab-split-baseline/**",
+  "tests/test_new_tab_split_acceptance.py",
+]
+run = '''
+if ! python3 -c 'from PIL import Image, ImageChops' 2>/dev/null; then
+  detector_python="$CI_TOOLS/new-tab-split-python"
+  python3 -m venv --system-site-packages "$detector_python"
+  "$detector_python/bin/python" -m pip install --disable-pip-version-check --no-input --quiet Pillow==11.3.0
+  export PATH="$detector_python/bin:$PATH"
+fi
+python3 tests/test_new_tab_split_acceptance.py
+'''
+
 [step.r2-upload]
 job = "linux"
 timeout = 300
