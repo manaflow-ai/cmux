@@ -396,7 +396,7 @@ impl Hub {
             (removed, restart)
         };
         tracing::info!(count = removed.len(), "pooled agents died; they are removed");
-        self.pool_discard(removed);
+        self.pool_end_unused(removed);
         if !restart.is_empty() {
             {
                 let mut queue = lock(&self.pool.spare_restart);
