@@ -339,7 +339,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
 
         values, unresolved = workflow_jobs.runs_on_values(job)
         self.assertEqual(values, {"ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404", "cmux-linux"})
-        self.assertEqual(unresolved, {"vars.CI_OVERFLOW_LINUX"})
+        self.assertEqual(unresolved, set())
         runs = [s.get("run", "") for s in job["steps"]]
         self.assertIn("python3 -I tests/test_ci_spec_checks.py", runs)
         self.assertTrue(any('python3 -I scripts/ci/spec_checks.py run "${base[@]}"' in r and "--base HEAD^1" in r

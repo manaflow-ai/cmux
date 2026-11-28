@@ -233,7 +233,7 @@ SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
 # CI v2's scheduler-granted label (cmuxterm-hq docs/design/ci-v2.md, "The queue and the grant"): one label per run
 # and attempt, which nothing but the one-job JIT runner the scheduler starts for that run carries (hq
 # tools/fleet-reconcilers/runner_pool.py scheduler_plan). It is never a single host, and its fallback is the
-# overflow switch the same runs-on reads first (vars.CI_OVERFLOW_LINUX, declared in variables). Only this exact
+# one owned label the same runs-on falls back to (cmux-linux; overflow is the scheduler relabeling, not a variable). Only this exact
 # form is settled; any other format() stays a finding.
 SCHEDULER_GRANT = re.compile(
     r"format\(\s*'cmux-\{0\}-\{1\}-(?:linux|mac)'\s*,\s*github\.run_id\s*,\s*github\.run_attempt\s*\)")

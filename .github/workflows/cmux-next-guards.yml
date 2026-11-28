@@ -1485,13 +1485,13 @@ jobs:
   # every check at once. A red check runs again on the base (the merge commit's first parent): a red the base has too,
   # with no line of its own, is a warning, not this change's. The spec inventory stops at its first problem, so while
   # the base is red there a change's later problem shows only once the base is fixed (the push run judges it then). Own branches use the cmux-linux pool (the one label for
-  # own-branch Linux jobs, or vars.CI_OVERFLOW_LINUX), fork pull requests Blacksmith; never a GitHub-hosted runner
+  # own-branch Linux jobs; overflow is the scheduler relabeling, not a variable), fork pull requests Blacksmith; never a GitHub-hosted runner
   # for this repository. tests/test_cmux_next_guards_route.py, tests/test_ci_spec_checks.py.
   spec-checks:
     needs: [coalesce, workflow-start-lint]
     name: spec checks (cmux-tui spec, bindings, server events)
     if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && needs.workflow-start-lint.outputs.spec_checks != 'false' && (github.event_name != 'pull_request' || needs.workflow-start-lint.result == 'success' || needs.workflow-start-lint.result == 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read

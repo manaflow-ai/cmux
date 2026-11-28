@@ -45,7 +45,7 @@ jobs:
   ios-runner:
     name: ios runner
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read

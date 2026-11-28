@@ -91,10 +91,6 @@
       "fallback": "unset by default, so a fork pull_request's Linux job (pinned-files-mirror.yml mirror, swift-linux-packages.yml linux-targets) takes GitHub-hosted ubuntu-24.04 in the same runs-on (`vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'`); it is read only on a pull_request from a fork, never on a push or a same-repository pull_request, which take cmux-linux. Clearing it puts fork runs back on ubuntu-24.04",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so every job on the ci-v2 one-label form (pr-pipeline's linux job, the PR checks moved in hq#13994 step 8) runs on cmux-linux, the label every owned Linux pool host carries (many hosts, not one); the overflow switch sets it to an overflow label while cmux-linux starts nothing, and deletes it to put the jobs back",
-      "after_minutes": 5
-    },
     "CI_RELEASE_PIN_SLOT": {
       "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
@@ -304,10 +300,6 @@
     "CI_FORK_LINUX_RUNNER": {"fallback": "unset by default, so a fork pull request's pinned-files-mirror mirror and swift-linux-packages linux-targets jobs take GitHub-hosted ubuntu-24.04 (the `|| 'ubuntu-24.04'` in the same runs-on); a same-repository run takes cmux-linux, which every owned Linux pool host carries. An operator sets it only to move fork runs to another hosted Linux label, and clearing it puts them back", "after_minutes": 5},
     "CI_LINUX_GATE_OWNED_RUNNER": {
       "fallback": "unset by default, so the no-kernel Linux gates (cmux ci.yml macos-admission-gate, linux-preflight and ci-status; ci-web.yml react-apps-check-shard, react-apps-base-check and react-apps-check) take fromJSON(vars.RUNNER_POOLS).linux or their Blacksmith literal in the same runs-on (cmux#30435). An operator sets it only during a Blacksmith backlog, and cmux scripts/ci/runner_label_policy.py holds it to the side-lane rule: an owned glaeda-side-<class>-xcode-<version> pool label, never one host, and it is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically (ci-owned-pool-rescue only alarms on an active PR run); clearing the variable puts new runs back on the Blacksmith route. after_minutes is the side-lane rescue window, as for CI_SIDE_LANE_RUNNER",
-      "after_minutes": 5
-    },
-    "CI_REACT_SHARD_RUNNER": {
-      "fallback": "unset by default, so the React shards (cmux ci-web.yml react-apps-check-shard, react-apps-base-early and react-apps-base-check) take the one owned cmux-linux label in the same runs-on (`vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'`), as every own-branch Linux job does. Its one intended value is cmux-freestyle-react, a label of no single host: the Freestyle runner rung makes a one-job VM per queued job (hq freestyle_runners.py REACT_LABEL), from the react class template when it exists, else the plain template. It is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically; clearing the variable puts new runs back on the earlier route. after_minutes is the side-lane rescue window, as for CI_LINUX_GATE_OWNED_RUNNER",
       "after_minutes": 5
     },
     "CI_NIGHTLY_MINI": {
