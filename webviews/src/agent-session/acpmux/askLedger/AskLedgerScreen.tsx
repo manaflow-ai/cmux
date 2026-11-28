@@ -22,7 +22,6 @@ export function AskLedgerScreen({ load }: { load(): Promise<unknown> }) {
   const [entries, setEntries] = useState<AskLedgerEntry[]>();
   const [failed, setFailed] = useState(false);
   const loadRef = useRef(load);
-  loadRef.current = load;
   useEffect(() => {
     let active = true;
     void loadRef.current().then(
