@@ -43,8 +43,34 @@ public struct DiffHunkSummarizer: Sendable {
 extension DiffPageProvider {
     static let summaryOp = "cmux.diff.summary"
     static let summaryCheckOp = "cmux.diff.summaryCheck"
-    /// The longest patch relayed, as acpmux's own limit.
-    static let maximumSummaryPatchBytes = 256 * 1024
+    /// The part of a patch relayed: acpmux's prompt reads no more than its first 4 KiB.
+    static let summaryPatchBytes = 4 * 1024
+
+    /// `patch` cut to its first ``summaryPatchBytes`` of UTF-8 as whole lines, or as whole
+    /// characters when its first line alone is longer. Every hunk gets a sentence from its start.
+    static func summaryPatch(_ patch: String) -> String {
+        guard patch.utf8.count > summaryPatchBytes else { return patch }
+        var lines: [Substring] = []
+        var bytes = 0
+        // "\r\n" is one Character, so it is a line end too.
+        for line in patch.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" }) {
+            let cost = line.utf8.count + (lines.isEmpty ? 0 : 1)
+            if bytes + cost > summaryPatchBytes { break }
+            lines.append(line)
+            bytes += cost
+        }
+        let kept = lines.joined(separator: "\n")
+        if !kept.allSatisfy(\.isWhitespace) { return kept }
+        var head = ""
+        bytes = 0
+        for character in patch {
+            let cost = character.utf8.count
+            if bytes + cost > summaryPatchBytes { break }
+            head.append(character)
+            bytes += cost
+        }
+        return head
+    }
 
     /// Answers the two summary ops; nil for any other op.
     func summariesCall(_ op: String, params: JSONValue) async throws -> JSONValue? {
@@ -65,11 +91,11 @@ extension DiffPageProvider {
             }
         }
         guard let path = params["path"]?.stringValue, let patch = params["patch"]?.stringValue,
-              !patch.isEmpty, patch.utf8.count <= Self.maximumSummaryPatchBytes else {
+              !patch.isEmpty else {
             throw PageError.invalidParams("path and patch are required")
         }
         do {
-            return try JSONValue.parse(try await summarizer.summarize(path, patch))
+            return try JSONValue.parse(try await summarizer.summarize(path, Self.summaryPatch(patch)))
         } catch is CancellationError {
             throw CancellationError()
         } catch {
