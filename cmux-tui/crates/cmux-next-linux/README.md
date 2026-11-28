@@ -5,7 +5,7 @@ cmux NEXT's agent chat in a Linux desktop window (cmux#330). One binary starts a
 on the pane. Closing the window stops both processes it started.
 
 ```sh
-sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev   # build deps
+sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev   # build deps
 cd cmux-tui/crates/cmux-next-linux && cargo build
 (cd ../../../webviews && bun install --frozen-lockfile)
 target/debug/cmux-next-linux --webviews ../../../webviews --acpmux "$(command -v acpmux)" --cwd ~/src/project
