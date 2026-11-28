@@ -62,6 +62,20 @@ cmux hooks opencode install --project
 
 That writes `.opencode/plugins/cmux-feed.js` in the current directory.
 
+## Agents declared in cmux.json
+
+An agent that isn't in the table above can report through the same hooks once it's declared under `vault.agents` in `~/.config/cmux/cmux.json` or a project `cmux.json` ([vault.md](vault.md)). Its `id` is the hook target, so it must use only lowercase letters, digits, `.`, `_` and `-`:
+
+```bash
+echo '{"session_id":"abc","cwd":"/repo"}' | cmux hooks my-agent session-start
+echo '{"session_id":"abc","prompt":"..."}' | cmux hooks my-agent prompt-submit
+echo '{"session_id":"abc","message":"Run the tests?","notification_type":"permission_prompt"}' | cmux hooks my-agent notification
+echo '{"session_id":"abc","last_assistant_message":"Done"}' | cmux hooks my-agent stop
+echo '{"session_id":"abc"}' | cmux hooks my-agent session-end
+```
+
+The sidebar shows its running, needs-input and idle state, and turn-complete and permission notifications follow the same notification settings as the built-in agents. cmux ignores lifecycle from an id that no `vault.agents` entry declares. There's nothing to install: `cmux hooks my-agent install` fails. Session restore uses the entry's `resumeCommand`.
+
 ## What the hooks record
 
 Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, current lifecycle (`running`, `idle`, `needsInput`, or `unknown`), and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
