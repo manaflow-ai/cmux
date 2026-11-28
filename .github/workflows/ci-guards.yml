@@ -231,6 +231,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
 
+      - name: Validate every artifact download fails a stalled download
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_download_artifact_stall.py
+
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
@@ -844,6 +848,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 -I tests/test_ci_red_fix_mine.py
 
+      - name: Validate the classic NIGHTLY release compile on the PR path
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_nightly_pr_build.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
@@ -943,6 +951,10 @@ jobs:
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate the queue janitor's stale-ref routing pass (base merge, shed, leave alone)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_stale_route_runs.py
 
       - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
         if: ${{ matrix.group == 'ci' }}
@@ -1111,6 +1123,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_api_call_log_bootstrap.py
 
+      - name: Validate the nightly artifact wait stops at its deadline
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_wait_for_run_artifact.py
+
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
@@ -1178,6 +1194,10 @@ jobs:
       - name: Validate the nightly-next train runs only feat-cmux-next code with the release App
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_train_drive_pin.py
+
+      - name: Validate the fast-checks warm checkout stays a repository
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
 
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
@@ -1391,6 +1411,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_console_session_env_forwarding.py
 
+      - name: Validate console-session sudo probe
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_console_session_sudo_probe.py
+
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
@@ -1471,6 +1495,12 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
+      - name: Validate app-host cache measurement orchestration
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: |
+          python3 tests/test_app_host_cache_measure.py
+          bash -n scripts/measure/app-host-cache.sh
+
       - name: Validate TestFlight notes generator
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_notes.py
@@ -1493,7 +1523,10 @@ jobs:
 
       - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
         if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_asc_ops.py
+        run: |
+          python3 tests/test_ios_asc_ops.py
+          python3 -I tests/test_ios_publication_snapshot.py
+          python3 -I tests/test_ios_snapshot_dispatch.py
 
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
@@ -1615,6 +1648,7 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_publication_marker.py
+          python3 tests/test_publication_guard_release_read.py
           python3 tests/test_nightly_resume_tracks.py
 
       - name: Validate the nightly-next canary runs the installed app
@@ -1746,10 +1780,6 @@ jobs:
       - name: Validate the nightly signing-input download fails fast and resumes
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact.py
-
-      - name: Validate the nightly publish guard reads the release through gh with retries
-        if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_publication_guard_release_read.py
 
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}

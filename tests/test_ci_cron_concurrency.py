@@ -87,6 +87,15 @@ class RepositoryTests(unittest.TestCase):
                             ("ci-queue-janitor.yml", "workflow_dispatch"), ("ci.yml", "pull_request")):
             self.assertFalse(cc.collapsible_run(path, event), (path, event))
 
+    def test_guard_attribution_main_group_takes_only_mains_push_and_dispatch_runs(self):
+        # A merge_group, feat-cmux-next or scheduled source run skips in `analyze`; in the main group it
+        # replaced main's pending report (one pending run per group), so a red main lost its attribution.
+        workflow = next(w for w in self.workflows if w.name == "ci-guard-attribution.yml")
+        group = workflow.doc["concurrency"]["group"]
+        self.assertIn("github.event.workflow_run.head_branch == 'main' && contains(fromJSON('[\"push\",\"workflow_dispatch\"]')",
+                      group)
+        self.assertIn("format('{0}-{1}-{2}', github.event.workflow_run.event, github.event.workflow_run.head_branch", group)
+
     def test_per_source_run_entries_are_still_needed(self):
         by_name = {w.name: w for w in self.workflows}
         for name in list(cc.PER_SOURCE_RUN):

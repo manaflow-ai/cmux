@@ -210,6 +210,10 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertRegex(text, r"sparse-checkout: \|\n\s+scripts/ci/fast_checks_runner\.py\n\s+scripts/ci/pr_runner_pool\.py")
         # pr_runner_pool imports github_spend at load (#34270): without it every admit step failed.
         self.assertRegex(admission, r"\n\s+scripts/ci/github_spend\.py\n")
+        # The #52730 pin imports deadline_http at load, and reads the published census (its fleet tallies) first:
+        # #34270's live read saw 500 of the fleet group's ~3,700 registrations, none online (run 46049698131).
+        self.assertRegex(admission, r"\n\s+scripts/ci/deadline_http\.py\n")
+        self.assertIn("CI_RUNNER_STATE: ${{ vars.FAST_CHECKS_LIVE_CENSUS != '1' && vars.CI_RUNNER_STATE || '' }}", admission)
         self.assertIn("needs: admit", text)
         self.assertIn("if: startsWith(needs.admit.outputs.runner, 'blacksmith-')", text)
 

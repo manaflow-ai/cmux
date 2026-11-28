@@ -75,6 +75,10 @@ on:
         description: "A commit already on feat-cmux-next to run instead of its head (time both sides of a change)"
         type: string
         default: ""
+      exec_conformance:
+        description: "Run acpmux exec-router conformance on the journey's machine, every routed side on a run VM (dispatch only: it forks one run VM per case)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -149,16 +153,20 @@ jobs:
       # login (its artifact's route.txt says login; runs before route.txt used the login). That run read a reply (its
       # probe.json has a first_text mark): the login has quota, so the tick uses it. A run that read a reply but went
       # red on a later step (run 45571173365: first text in 10.1 s, then the cold create booted at another size) still
-      # proves the login has quota. Otherwise (the weekly limit, or no such run) the tick passes no login and takes the
-      # machine's own model route, the product default every Cloud account gets (SR2/CodeRouter, cloud-claude-matrix's
-      # sr2 row): the real model still answers, so the hour is a real sample instead of a skip. The six-hourly canary
-      # always tries the login, so a reset quota is found within six hours.
+      # proves the login has quota. Only a run whose reply hit the login's usage limit (its probe.json names the limit)
+      # moves the tick off the login: it then passes no login and takes the machine's own model route, the product
+      # default every Cloud account gets (SR2/CodeRouter, cloud-claude-matrix's sr2 row), so the hour is a real sample
+      # instead of a skip. A run that failed for any other reason says nothing about the quota and keeps the login:
+      # run 46052332424's canary lost its machine (503 vm_unavailable (restarted)), the gate read it as a spent login,
+      # and the 19:47Z tick on the machine route found no model at all (the test team has no gateway: run 46059370159).
+      # The six-hourly canary always tries the login, so a reset quota is found within six hours.
       - name: Pick the hourly real tick's route from the newest login run
         id: gate
         if: env.SELECTED == 'true' && github.event.schedule == '47 1-5,7-11,13-17,19-23 * * *'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          MACHINE_ROUTE_MODEL: ${{ vars.CMUX_JOURNEY_MACHINE_ROUTE_MODEL }}
         run: |
           set -uo pipefail
           verdict=""
@@ -178,13 +186,36 @@ jobs:
             gh api "repos/$GH_REPO/actions/artifacts/$art/zip" > "$RUNNER_TEMP/real-probe.zip" || continue
             # A tick on the machine's route says nothing about the login's quota: look further back.
             [ "$(unzip -p "$RUNNER_TEMP/real-probe.zip" route.txt 2>/dev/null | tr -d '[:space:]')" = machine ] && continue
-            if unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json | grep -q '"first_text"'; then replied=yes; fi
+            probe="$(unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json 2>/dev/null || true)"
+            # probe.json cuts its error at 300 characters, before the turn_error that names the limit (run 46099930567
+            # ends "... usage_limi"), so the limit is read from journey.json and summary.md too, which keep the whole step.
+            full="$(unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json journey.json summary.md 2>/dev/null || true)"
+            if printf '%s' "$probe" | grep -q '"first_text"'; then replied=yes
+            # Claude Code's own words for a spent login: "Claude AI usage limit reached", "You've hit your (weekly) limit",
+            # "5-hour limit reached ∙ resets 3pm".
+            # The session records' words when the login is refused before any text (run 46109302040, 04:47Z: ten
+            # "claude.system.api_retry: attempt N/14 rate_limit" and a usage_limits record, then no reply in 300 s;
+            # the gate read "reply no" and kept the login, so the next hour spent another 300 s on it).
+            elif printf '%s' "$full" | grep -Eqi "usage limit|hit your (session |weekly |opus )?limit|(5-hour|weekly|session) limit|limit reached|api_retry: attempt [0-9]+/[0-9]+ rate_limit|usage_limits=[1-9]"; then replied=spent
+            fi
             verdict="$c, reply $replied (run $id)"; break
           done
           echo "newest real run on the login: ${verdict:-none found}"
-          case "$verdict" in *"reply yes"*) echo "route=login" >> "$GITHUB_OUTPUT" ;; *)
+          case "$verdict" in *"reply spent"*)
             echo "route=machine" >> "$GITHUB_OUTPUT"
-            echo "Hourly real tick on the machine's own model route: the newest real run on the login did not read a reply (${verdict:-none found})." >> "$GITHUB_STEP_SUMMARY"
+            # The machine route answers only once the test team has a model there (a gateway or the house route): until
+            # then every machine-route tick took a machine for 25 min and failed at the reply with no model (runs
+            # 46059370159 and every hourly tick 11-26 to 11-28: model-plane.env team=none, gateway off, "Not logged in").
+            # While the repository variable CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1 the tick ends here as a skip
+            # (no machine, no probe row, not judged), the way a spent login's tick was a skip before #58192.
+            if [ "${MACHINE_ROUTE_MODEL:-}" != 1 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Hourly real tick skipped: no model: the login is spent (${verdict}) and the machine route has no model (CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            ;; *)
+            echo "route=login" >> "$GITHUB_OUTPUT"
             ;;
           esac
 
@@ -202,28 +233,38 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...feat-cmux-next" --jq .status)"
-          case "$status" in ahead|identical) echo "journey commit $sha is on feat-cmux-next ($status)" ;; *) echo "::error::journey_ref $sha is not on feat-cmux-next (compare: $status)"; exit 1 ;; esac
+          # Asked of git, not the REST compare endpoint: a spent installation REST budget failed this gate before any
+          # journey step ran (run 46107610051). Commits only (tree:0), unshallowed so merge-base can walk history.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          deepen=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then deepen=(--unshallow); fi
+          git -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --filter=tree:0 "${deepen[@]}" \
+            origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          if git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
+            echo "journey commit $sha is on feat-cmux-next"
+          else
+            echo "::error::journey_ref $sha is not on feat-cmux-next"; exit 1
+          fi
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
         run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           workspaces: cmux-tui
@@ -231,7 +272,7 @@ jobs:
           cache-bin: false
       - name: Build the shipped Linux cmux-tui
         id: build-cmux-tui
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         working-directory: cmux-tui
         env:
           CARGO_NET_RETRY: "10"
@@ -243,7 +284,7 @@ jobs:
           test -x target/debug/cmux-tui
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           bun-version: "1.4.4"
       - name: Cloud journey (prod, ${{ matrix.agent == 'codex' && 'codex, ' || '' }}${{ matrix.model }} model)
@@ -258,6 +299,7 @@ jobs:
           # The hourly tick's gate picks route=machine when the login is spent: no login, the machine's own model route.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
           REAL_ROUTE: ${{ steps.gate.outputs.route || 'login' }}
+          NO_MODEL: ${{ steps.gate.outputs.skip }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && matrix.model == 'real' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
@@ -265,6 +307,10 @@ jobs:
           # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
           # GitHub cells and, with the real model, the agent's. Unset (the repository variable is not set): skipped.
           CMUX_JOURNEY_GITHUB_REPO: ${{ vars.CMUX_JOURNEY_GITHUB_REPO }}
+          # Leo, 2026-11-26: "100% identical on prod". The exec router's conformance suite on this run's machine with its
+          # sign-in and AutoCloud on (cloud-journey-exec-conformance.ts). Dispatch only: each case forks a run VM, and the
+          # test team's create limit is 20 an hour.
+          CMUX_JOURNEY_EXEC_CONFORMANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.exec_conformance && '1' || '' }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
@@ -278,6 +324,10 @@ jobs:
           if [ "$AGENT" = claude ] && [ "$MODEL" = real ]; then
             echo "$REAL_ROUTE" > "$out/route.txt"
             echo "Real model route: $REAL_ROUTE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${NO_MODEL:-}" = true ]; then
+            printf '%s\n' '| result | step | ms | detail |' '|---|---|---:|---|' '| skip | real model route | 0 | no model: the login is spent and the machine route has no model; no production machine was created |' > "$out/summary.md"
+            exit 0
           fi
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
@@ -333,7 +383,7 @@ jobs:
           route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Open, update or close the red-journey issue
-        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_SPARE_WAIT_SECONDS: "600"  # after the journey, inside the job's 75 min

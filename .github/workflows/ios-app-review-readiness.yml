@@ -10,8 +10,8 @@ name: iOS App Review readiness
 # guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo.
 # The review-gate job dispatches that workflow on feat-cmux-next for the
 # feat-cmux-next head and takes its run's conclusion, as
-# ios-reliability-matrix.yml starts the matrix. It holds no secret: the gate
-# runs as feat-cmux-next's own run, and main's release key never reaches a
+# ios-reliability-matrix.yml starts the matrix. The dispatch uses an App token.
+# The gate runs as feat-cmux-next's own run, and main's release key never reaches a
 # workflow defined on another branch.
 #
 # A dispatched gate runs on refs/heads/feat-cmux-next, where its asc-validate

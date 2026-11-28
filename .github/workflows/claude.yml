@@ -61,11 +61,33 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
+      # The pool action lives on main; a base checkout (e.g. feat-cmux-next) may not carry it.
+      - name: Checkout the Claude login pool action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .claude-pool
+          sparse-checkout: .github/actions/claude-pool
+          persist-credentials: false
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.claude-pool/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
+      - name: Keep the pool checkout out of Claude's commits
+        run: echo /.claude-pool/ >> .git/info/exclude
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@781d62e9d5fbd78b24dcdfd42858332d485fe462 # v1.0.212
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Through the pool when it answers (the gateway ignores the key); else the shared token.
+          claude_code_oauth_token: ${{ steps.pool.outputs.base-url == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          anthropic_api_key: ${{ steps.pool.outputs.base-url != '' && 'subrouter2' || '' }}
+          settings: ${{ steps.pool.outputs.base-url != '' && format('{{"env":{{"ANTHROPIC_BASE_URL":"{0}"}}}}', steps.pool.outputs.base-url) || '' }}
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

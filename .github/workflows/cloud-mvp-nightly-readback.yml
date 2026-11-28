@@ -32,7 +32,7 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: holds the production agent Stack pair, by literal
     timeout-minutes: 60
     steps:
       - name: Check the build input

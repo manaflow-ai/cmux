@@ -58,6 +58,9 @@ SIGNING = ("holds a release signing, notary or App Store key; an owned Mac takes
 PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("accounts-nightly-probe.yml", "probe"):
         "holds the test accounts' Stack and GitHub credentials, which only a throwaway Mac may read",
+    ("nightly-next-update-e2e.yml", "update"): (
+        "installs the published Nightly into /Applications and has Sparkle replace and relaunch it; a persistent Mac "
+        "keeps the last run's app, its update state and other jobs' installs, so only a fresh image proves an update"),
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-outer"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-stapled"): SIGNING,
@@ -78,6 +81,8 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("rcodesign-parity-proof.yml", "gatekeeper-reference"): SIGNING,
     ("rcodesign-parity-proof.yml", "sparkle"): SIGNING,
     ("signing-keychain-macos.yml", "real-import"): "imports a real certificate into a keychain to test the import itself",
+    ("cloud-mvp-nightly-readback.yml", "readback"):
+        "signs the production agent Stack account in; a secret-bearing job runs only on a throwaway VM",
     ("relay-tls.yml", "system-keychain"): "writes the System keychain's trust settings, which only a throwaway VM may",
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "builds the published GhosttyKit against the macOS 15 SDK image and holds the Ghostty release token",

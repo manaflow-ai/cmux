@@ -40,7 +40,12 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    # The PR control one-job JIT label, as risk-tier.yml's risk evidence: this job holds the PR's verdict (the
+    # last check on Aziz's iOS heads, goal ios-ci-under-5min), and cmuxterm-hq runner_pool.py serves
+    # PR_CONTROL_JIT_LABEL at CONTROL_PRIORITY. One-job ephemeral, so the write App key stays safe. On
+    # cmux-gcp-secret-jit-x64 it queued behind that pool's bulk: 2026-11-27 jobs 140511930833 and 140636466817 ran
+    # 42 s and 50 s after waiting 13.2 min and 10.6 min for a runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: contents-write App token on the PR head
     timeout-minutes: 10
     permissions:
       contents: write

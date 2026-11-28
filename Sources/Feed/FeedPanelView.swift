@@ -1088,7 +1088,7 @@ struct FeedItemRow: View, Equatable {
             Spacer(minLength: 4)
             HStack(spacing: 4) {
                 chip(
-                    text: snapshot.source.rawValue.capitalized,
+                    text: snapshot.source.displayName,
                     fg: sourceChipForeground,
                     bg: sourceChipBackground
                 )
@@ -1262,6 +1262,7 @@ struct FeedItemRow: View, Equatable {
             )
         case .stop:
             StopActionArea(
+                source: snapshot.source,
                 draft: $stopDraft,
                 focusRequest: $stopFocusRequest,
                 onFocusRow: onControlFocus,
@@ -1277,16 +1278,16 @@ struct FeedItemRow: View, Equatable {
     private var primaryTitle: String {
         switch snapshot.payload {
         case .permissionRequest(_, let toolName, _, _):
-            return "\(snapshot.source.rawValue.capitalized) · \(toolName)"
+            return "\(snapshot.source.displayName) · \(toolName)"
         case .exitPlan:
-            return "\(snapshot.source.rawValue.capitalized) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
+            return "\(snapshot.source.displayName) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
         case .question:
-            return "\(snapshot.source.rawValue.capitalized) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
+            return "\(snapshot.source.displayName) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
         default:
             if let title = snapshot.title, !title.isEmpty {
-                return "\(snapshot.source.rawValue.capitalized) · \(title)"
+                return "\(snapshot.source.displayName) · \(title)"
             }
-            return snapshot.source.rawValue.capitalized
+            return snapshot.source.displayName
         }
     }
 
@@ -1385,7 +1386,7 @@ private struct FeedContextBlock: View {
     }
 
     private var agentLabel: String {
-        "\(source.rawValue.capitalized):"
+        "\(source.displayName):"
     }
 }
 
@@ -2266,8 +2267,11 @@ private struct ExitPlanActionArea: View {
             if status.isPending {
                 TextField(
                     String(
-                        localized: "feed.exitplan.feedback.placeholder",
-                        defaultValue: "Tell Claude what to change…"
+                        format: String(
+                            localized: "feed.exitplan.feedback.placeholder",
+                            defaultValue: "Tell %@ what to change…"
+                        ),
+                        source.displayName
                     ),
                     text: $feedback,
                     axis: .vertical
@@ -2700,7 +2704,7 @@ private struct QuestionActionArea: View {
     }
 
     private var agentLabel: String {
-        "\(source.rawValue.capitalized):"
+        "\(source.displayName):"
     }
 
     /// Long-form rendering: single question with rich options. Each
@@ -3661,11 +3665,12 @@ private struct FlowLayout: Layout {
     }
 }
 
-/// Renders a Stop event (Claude finished a turn and is waiting for
+/// Renders a Stop event (the agent finished a turn and is waiting for
 /// the next user prompt). Shows a text field + Send button that
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
+    let source: WorkstreamSource
     @Binding var draft: FeedStopDraft
     @Binding var focusRequest: Int
 
@@ -3694,14 +3699,14 @@ private struct StopActionArea: View {
                 Image(systemName: "checkmark.circle")
                     .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
-                Text(String(localized: "feed.stop.label", defaultValue: "Claude finished — reply to continue"))
+                Text(String(format: String(localized: "feed.stop.label", defaultValue: "%@ finished — reply to continue"), source.displayName))
                     .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
             FeedInlineTextField(
                 text: replyBinding,
                 focusRequest: focusRequest == 0 ? nil : focusRequest,
-                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+                placeholder: String(format: String(localized: "feed.stop.placeholder", defaultValue: "Reply to %@…"), source.displayName),
                 isEnabled: true,
                 font: replyFont,
                 onFocus: onFocusRow,
@@ -3730,7 +3735,7 @@ private struct StopActionArea: View {
                 requestReplyFocus()
             }
             FeedButton(
-                label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
+                label: String(format: String(localized: "feed.stop.send", defaultValue: "Send to %@"), source.displayName),
                 leadingIcon: "arrow.up.circle.fill",
                 kind: canSend ? .primary : .soft,
                 size: .medium,

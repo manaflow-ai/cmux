@@ -15,6 +15,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/cmux_tui_artifacts_retry.py"
 spec = importlib.util.spec_from_file_location("retry", SCRIPT)
@@ -95,6 +96,54 @@ class RetryPolicyTests(unittest.TestCase):
         decision = retry.decide(run(), [job(1, "success"), job(2, "failure")], {2: []})
         self.assertEqual(decision.action, "skip")
         self.assertIn("tree", decision.reason)
+
+    def published_with_daemon(self, *steps, conclusion="failure"):
+        return tree_jobs(
+            {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"},
+            {"id": 8, "name": "publish the Mac live update", "conclusion": "success"},
+            {"id": 9, "name": "cmux_next_ daemon tests", "conclusion": conclusion,
+             "steps": [{"name": name, "conclusion": state} for name, state in steps]},
+            {"id": 10, "name": "mark the published tree as daemon-tested", "conclusion": "skipped"},
+        )
+
+    def test_runner_shutdown_after_publication_retries_only_daemon_job(self):
+        # Run 46018008596: the only annotation was "The operation was canceled."
+        jobs = self.published_with_daemon(("cargo test cmux_next_", "cancelled"), ("Complete job", "success"))
+        jobs.append(job(11, "failure"))  # A recovered build leg must not run again.
+        base = "https://api.github.com/repos/owner/repo"
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run):
+                replies = [run(), {"jobs": jobs}, [{"message": "The operation was canceled."}], [], None]
+                with patch.dict("os.environ", GH_TOKEN="test"), patch.object(retry, "_api", side_effect=replies) as api:
+                    args = ["--repo", "owner/repo", "--run-id", "1"] + (["--dry-run"] if dry_run else [])
+                    self.assertEqual(retry.main(args), 0)
+                posts = [c.args[1] for c in api.call_args_list if c.args[0] == "POST"]
+                self.assertEqual(posts, [] if dry_run else [base + "/actions/jobs/9/rerun"])
+
+    def test_runner_loss_retry_stops_after_one_attempt_and_respects_conflicts(self):
+        jobs = self.published_with_daemon(("cargo test cmux_next_", "cancelled"))
+        for attempt in (2, 3):
+            with self.subTest(attempt=attempt):
+                self.assertEqual(retry.decide(run(run_attempt=attempt), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(conclusion="cancelled"), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(), jobs, {9: [{"title": "immutable-r2-conflict"}]}).action, "refuse")
+
+    def test_disconnected_runner_reported_only_in_annotations(self):
+        notes = {9: [{"message": "The self-hosted runner: worker-7 lost communication with the server."}]}
+        decision = retry.decide(run(), self.published_with_daemon(), notes)
+        self.assertEqual((decision.action, decision.job_id), ("rerun-job", 9))
+
+    def test_daemon_failure_needs_runner_loss_evidence(self):
+        for jobs in (
+            self.published_with_daemon(("cargo test cmux_next_", "failure")),
+            self.published_with_daemon(("cargo test cmux_next_", "failure"), ("cleanup", "cancelled")),
+            self.published_with_daemon(("cargo test cmux_next_", "cancelled"), conclusion="timed_out"),
+            self.published_with_daemon(("cargo test cmux_next_", "cancelled"), conclusion="cancelled"),
+            self.published_with_daemon(),
+        ):
+            with self.subTest(daemon=jobs[3]):
+                self.assertEqual(retry.decide(run(), jobs, {9: [{"message": "The operation was canceled."}]}).action,
+                                 "skip")
 
     def test_missing_mac_live_delivery_is_retried_after_tree_publication(self):
         published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}

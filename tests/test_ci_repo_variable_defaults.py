@@ -91,6 +91,9 @@ GATE_EXEMPT_REPORTING_READS = {
         "checks each runs-on variable's value for one machine; gating would check empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
+    # #63586 added the macOS half of the same record (cloud_overflow_switch.MACOS_CLOUD_LABELS --rescue-dead).
+    ("ci-cloud-overflow-probe.yml", "MACOS_RUNNER_VARIABLES"):
+        "the overflow switch records each macOS value to put back; gating would record empty",
 }
 
 
