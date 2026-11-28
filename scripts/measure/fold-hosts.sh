@@ -82,9 +82,7 @@ for label in base head; do
   while IFS= read -r name; do
     [[ -e "$bin/$name" ]] && folded+=("$name")
   done < <("$root/scripts/cmux-next/link-folded-hosts.sh" --list "$bin/cmux")
-  if [[ -n ${folded[*]-} ]]; then
-    "$root/scripts/cmux-next/link-folded-hosts.sh" "$bin" ${folded[@]+"${folded[@]}"} | sed "s/^/FOLD-LINK $label /"
-  fi
+  (( ${#folded[@]} )) && "$root/scripts/cmux-next/link-folded-hosts.sh" "$bin" "${folded[@]}" | sed "s/^/FOLD-LINK $label /"
   total=0
   for file in "$bin"/*; do
     if [[ -L "$file" ]]; then echo "FOLD-SIZE $label $(basename "$file") link"; continue; fi
