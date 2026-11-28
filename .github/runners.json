@@ -541,8 +541,8 @@
       "class": "apple-signing-release",
       "picker_followup": "retired (if: false), so it never starts; should it run again, it follows promote-nightly-next on a main dispatch with no pick of its own and takes promote-nightly-next's route, which admits the exclusive claim the release App key needs"
     },
-    "nightly.yml#refresh-compilation-cache": "apple-app-build",
-    "nightly.yml#refresh-test-compilation-cache": {
+    "nightly-compilation-cache.yml#refresh-compilation-cache": "apple-app-build",
+    "nightly-compilation-cache.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
