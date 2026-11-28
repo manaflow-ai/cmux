@@ -28,7 +28,7 @@ struct DesktopNotifierSystemCenterTests {
     @Test func aDeliveredBannerThatShowsLateIsFoundWithinTheBound() async {
         final class Reads: @unchecked Sendable { var n = 0 }
         let reads = Reads()
-        let got = await DesktopNotifier.readUntilFound(within: .seconds(2), every: .milliseconds(5)) {
+        let got = await DesktopNotifier.readUntilFound(within: .seconds(2), first: .milliseconds(5), cap: .milliseconds(5)) {
             reads.n += 1
             return reads.n < 3 ? (false, nil) : (true, 77)
         }
@@ -39,7 +39,7 @@ struct DesktopNotifierSystemCenterTests {
     @Test func aDeliveredBannerThatNeverShowsIsNotFoundPastTheBound() async {
         final class Reads: @unchecked Sendable { var n = 0 }
         let reads = Reads()
-        let got = await DesktopNotifier.readUntilFound(within: .milliseconds(40), every: .milliseconds(5)) {
+        let got = await DesktopNotifier.readUntilFound(within: .milliseconds(40), maxReads: 100, first: .milliseconds(5), cap: .milliseconds(5)) {
             reads.n += 1
             return (false, nil)
         }

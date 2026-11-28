@@ -304,7 +304,7 @@ package final class DesktopNotifier: NSObject {
     package func deliveredSurface(_ id: String, within: Duration = Self.deliveredWait)
         async -> (found: Bool, surface: UInt64?, waitedMs: Int) {
         guard configuredCenter() != nil else { return (false, nil, 0) }
-        return await Self.readUntilFound(within: within, every: .milliseconds(100)) { [weak self] in
+        return await Self.readUntilFound(within: within) { [weak self] in
             await self?.deliveredOnce(id) ?? (false, nil)
         }
     }
@@ -312,19 +312,25 @@ package final class DesktopNotifier: NSObject {
     /// How long `deliveredSurface` re-reads a missing banner.
     package nonisolated static let deliveredWait: Duration = .seconds(2)
 
-    /// Runs `read` until it finds, or once more past `within` (every `every`): what it found and when, in ms.
-    package nonisolated static func readUntilFound(within: Duration, every: Duration,
+    /// Runs `read` until it finds, or once more past `within`, at most `maxReads` times: what it found and when,
+    /// in ms. Notification Center posts no event when its delivered list fills after a launch, so the re-reads
+    /// are spaced by `Backoff` from `first`, doubling to `cap`, and end at the deadline.
+    package nonisolated static func readUntilFound(within: Duration, maxReads: Int = 12,
+                                                   first: Duration = .milliseconds(100),
+                                                   cap: Duration = .milliseconds(400),
                                                    read: @Sendable () async -> (found: Bool, surface: UInt64?))
         async -> (found: Bool, surface: UInt64?, waitedMs: Int) {
         let clock = ContinuousClock()
         let start = clock.now
-        while true {
-            let got = await read()
-            let waited = start.duration(to: clock.now)
-            let ms = Int(waited.components.seconds * 1000 + waited.components.attoseconds / 1_000_000_000_000_000)
-            if got.found || waited >= within { return (got.found, got.surface, ms) }
-            try? await Task.sleep(for: every)
+        var backoff = Backoff(initial: first, maximum: cap, jitter: 0)
+        var got: (found: Bool, surface: UInt64?) = (false, nil)
+        for attempt in 0..<max(maxReads, 1) {
+            got = await read()
+            if got.found || start.duration(to: clock.now) >= within || attempt == maxReads - 1 { break }
+            do { try await backoff.wait(owner: "notifications.delivered-reread", clock: clock) } catch { break }
         }
+        let waited = start.duration(to: clock.now)
+        return (got.found, got.surface, Int(waited.inSeconds * 1000))
     }
 
     private func deliveredOnce(_ id: String) async -> (found: Bool, surface: UInt64?) {
