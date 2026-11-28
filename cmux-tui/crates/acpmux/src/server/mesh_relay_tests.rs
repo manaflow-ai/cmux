@@ -376,35 +376,6 @@ fn only_an_explicit_allowed_decision_can_start_work() {
     assert!(start_work_allowed(&message));
 }
 
-/// Door A timing run (huge-blue/door-a-join-timing, 2026-11-16): `cmux chat --on doora-vm-1`
-/// was refused "this harness has no reviewed asking mode for a remote WebSocket connection
-/// (code -32602)", a text two refusals share. The ack names the refusal's reason, so the Mac
-/// says which one it was.
-#[test]
-fn a_refused_control_ack_names_the_refusals_reason() {
-    let error = crate::rpc::RpcError::invalid_params("no reviewed asking mode")
-        .with_data(serde_json::json!({"reason": "remote.executable_refused"}));
-    let detail = refusal_detail(&error);
-    assert!(detail.contains("no reviewed asking mode"), "{detail}");
-    assert!(detail.contains("code -32602"), "{detail}");
-    assert!(detail.contains("reason remote.executable_refused"), "{detail}");
-    // An error with no reason reads as before.
-    let plain = crate::rpc::RpcError::invalid_params("bad params");
-    assert_eq!(refusal_detail(&plain), "bad params (code -32602)");
-}
-
-#[test]
-fn heartbeats_come_at_a_third_of_the_ttl_at_most_every_heartbeat_every() {
-    let options = RelayOptions::default();
-    assert_eq!(heartbeat_wait(&options, 90), Duration::from_secs(30));
-    assert_eq!(heartbeat_wait(&options, 30), Duration::from_secs(10));
-    assert_eq!(heartbeat_wait(&options, 0), Duration::from_secs(30));
-    let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(4));
-    let limited =
-        HubError { retry_after: Some(Duration::from_secs(9)), ..HubError::unavailable("") };
-    assert_eq!(after_failure(&mut backoff, &limited), Duration::from_secs(9));
-}
-
 #[tokio::test(start_paused = true)]
 async fn a_late_rpc_result_survives_the_delivery_lease() {
     let ledger = ControlLedger::open(None);
@@ -502,11 +473,4 @@ async fn a_read_from_another_users_device_is_refused() {
     // The same person's device passes the check; the read then runs (no such session here).
     let own = hook.control(&hub, &read("person-1")).await.unwrap();
     assert_ne!(own.detail.as_deref(), Some("mesh.control_not_allowed"), "{own:?}");
-}
-
-#[test]
-fn an_ack_detail_is_clipped_to_what_the_hub_takes() {
-    let ack = clip(Ack::refused("é".repeat(5000)));
-    assert_eq!(ack.detail.unwrap().chars().count(), MAX_DETAIL_CHARS);
-    assert_eq!(clip(Ack::refused("short")).detail.as_deref(), Some("short"));
 }

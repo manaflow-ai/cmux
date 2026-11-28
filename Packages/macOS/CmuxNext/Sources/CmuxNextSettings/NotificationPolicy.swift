@@ -31,18 +31,12 @@ public nonisolated struct NotificationPolicy: Sendable {
     }
 
     static func clears(_ trigger: NotificationTrigger, mode: NotificationDismissal) -> Bool {
-        switch mode {
-        case .focus: trigger != .timeout
-        case .click: [.click, .keystroke, .open].contains(trigger)
-        case .keystroke: [.keystroke, .open].contains(trigger)
-        case .explicit: trigger == .open
-        case .timeout: [.open, .timeout].contains(trigger)
-        case .never: false
-        }
+        let request: JSONValue = ["prefs": ["dismissal": .string(mode.rawValue)], "trigger": .string(trigger.rawValue)]
+        return SettingsRust.answer("notifications.clears", request)["clears"]?.boolValue ?? false
     }
 
     /// What the app knows when a notification arrives.
-    public struct Arrival: Hashable, Sendable {
+    public struct Arrival: Hashable, Sendable, Encodable {
         public var source: NotificationSource
         public var workspaceMuted = false
         /// The pane is the focused pane of the key window and cmux is active.
@@ -65,7 +59,7 @@ public nonisolated struct NotificationPolicy: Sendable {
         }
     }
 
-    public struct Decision: Hashable, Sendable {
+    public struct Decision: Hashable, Sendable, Decodable {
         /// Acknowledge at once: it is already seen.
         public var acknowledge = false
         /// Draw the pane attention ring.
@@ -90,48 +84,9 @@ public nonisolated struct NotificationPolicy: Sendable {
         public init() {}
     }
 
+    /// What an arrival shows and sounds (Rust `notifications.decide`).
     public func decide(_ arrival: Arrival) -> Decision {
-        var decision = Decision()
-        let mode = prefs.dismissal(for: arrival.source)
-        if prefs.suppressWhileTypingSeconds > 0, let typed = arrival.typedAgo, typed <= prefs.suppressWhileTypingSeconds {
-            decision.acknowledge = true
-            decision.attention = false
-            return decision
-        }
-        let quiet = prefs.quietHours?.contains(minuteOfDay: arrival.minuteOfDay) ?? false
-        if mode == .focus && arrival.paneIsViewed {
-            decision.acknowledge = true
-            decision.attention = false
-            // Read on sight, but `sounds.when = always` means always: the viewed pane still sounds.
-            if prefs.sounds.when == .always { chooseSound(for: arrival, quiet: quiet, into: &decision) }
-            return decision
-        }
-        if arrival.workspaceMuted { decision.attention = false }
-        if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
-            switch prefs.desktop {
-            case .always: decision.alerts = true
-            case .unlessFocused: decision.alerts = !arrival.paneIsViewed
-            case .whenInactive: decision.alerts = !arrival.appActive
-            case .never: decision.alerts = false
-            }
-        }
-        decision.desktop = decision.alerts && arrival.bannerAllowed
-        chooseSound(for: arrival, quiet: quiet, into: &decision)
-        if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
-        // A poster asking for no banner (`notify --desktop false`) gets no bounce either.
-        if decision.desktop, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
-        return decision
-    }
-
-    /// The arrival's sound event, and its sound when `notifications.sounds.when` plays it and
-    /// neither a muted workspace nor quiet hours silence it.
-    private func chooseSound(for arrival: Arrival, quiet: Bool, into decision: inout Decision) {
-        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
-        decision.soundEvent = event
-        guard !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
-              let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) else { return }
-        decision.sound = choice.name
-        decision.soundVolume = choice.volume
-        decision.soundLevel = choice.level
+        let reply = SettingsRust.answer("notifications.decide", ["prefs": SettingsRust.json(prefs), "arrival": SettingsRust.json(arrival)])
+        return SettingsRust.decode(reply["decision"]) ?? Decision()
     }
 }
