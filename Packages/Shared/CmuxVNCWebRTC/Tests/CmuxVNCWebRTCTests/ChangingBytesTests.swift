@@ -67,7 +67,7 @@ struct ChangingBytesTests {
     }
 
     /// The shipped encoding keeps text at full size and spends little on a
-    /// small change. Measured on aws-m4pro-2 (#58093): typing 102, pane 163,
+    /// small change. Measured on a fleet Mac (#58093): typing 102, pane 163,
     /// full scroll 304 kbit/s at 1280x800. No knob tried (bitrate caps, 30 fps,
     /// balanced or maintain-framerate degradation, a ceiling following the
     /// changed area) spent less beyond run-to-run noise; a camera
