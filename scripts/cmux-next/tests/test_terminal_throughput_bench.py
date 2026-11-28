@@ -46,6 +46,39 @@ class Rows(unittest.TestCase):
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.5)
         self.assertTrue(all(r["budget"] is None for r in rows.values()), "reporting only")
 
+    def test_the_redraw_block_is_whole_grid_frames(self):
+        a = tput.redraw_payload_block()
+        self.assertEqual(a, tput.redraw_payload_block())
+        frames = tput.redraw_frames(frames=4)
+        self.assertGreaterEqual(len(a), 1 << 20)
+        self.assertTrue(a.startswith(frames[0]))
+        for f in frames:
+            text = f.decode()
+            self.assertTrue(text.startswith("\x1b[H"))
+            self.assertNotIn("\n", text)  # nothing scrolls
+            self.assertEqual(text.count(" "), tput.REDRAW_COLS * tput.REDRAW_ROWS)  # every cell, every frame
+            for y in range(1, tput.REDRAW_ROWS + 1):
+                self.assertIn(f"\x1b[{y};1H", text)
+        self.assertNotEqual(frames[1], frames[2])  # the animation moves
+
+    def test_the_fire_reaches_the_top_half(self):
+        text = tput.redraw_frames(frames=2)[1].decode()
+        upper = text.split(f"\x1b[{tput.REDRAW_ROWS // 2};1H")[0]
+        hot = {f"\x1b[48;5;{c}m" for c in tput.FIRE_PALETTE[4:]}
+        self.assertTrue(any(h in upper for h in hot))
+
+    def test_the_redraw_arm_has_frame_rows(self):
+        prefix = tput.ROW_PREFIX["redraw"]
+        fb = tput.mean_frame_bytes()
+        self.assertGreater(fb, tput.REDRAW_COLS * tput.REDRAW_ROWS)
+        rows = tput.report_rows(100.0, 200.0, None, prefix) + tput.fps_rows(100.0, 200.0, fb, prefix)
+        names = [r["name"] for r in rows]
+        self.assertEqual(names, ["terminal.throughput_redraw.next_mb_s", "terminal.throughput_redraw.ghostty_mb_s",
+                                 "terminal.throughput_redraw.ratio", "terminal.throughput_redraw.next_fps",
+                                 "terminal.throughput_redraw.ghostty_fps"])
+        self.assertAlmostEqual(rows[3]["p50"], round(100.0 * tput.MB / fb, 1))
+        self.assertEqual(tput.fps_rows(None, 200.0, fb, prefix)[0]["name"], "terminal.throughput_redraw.ghostty_fps")
+
     def test_the_sgr_arm_has_its_own_row_names(self):
         names = [r["name"] for r in tput.report_rows(150.0, 300.0, None, tput.ROW_PREFIX["sgr"])]
         self.assertEqual(names, ["terminal.throughput_sgr.next_mb_s", "terminal.throughput_sgr.ghostty_mb_s",

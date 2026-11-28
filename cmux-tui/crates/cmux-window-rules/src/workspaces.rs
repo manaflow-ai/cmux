@@ -233,7 +233,6 @@ pub enum Confirmation {
     SpaceDelete,
     /// Clear Space Terminal Defaults ([`space_clear_defaults`]).
     SpaceClearDefaults,
-    RemoteInstall,
     /// A tab group's close follows the tab close rule.
     TabGroupClose,
     KillProcess,
@@ -254,7 +253,6 @@ pub fn confirmation(id: &str, stash: bool) -> Confirmation {
         "browser.allowAgentWithExtensions" => Confirmation::AgentExtensions,
         "space.delete" => Confirmation::SpaceDelete,
         "space.clearDefaults" => Confirmation::SpaceClearDefaults,
-        "remote.install" => Confirmation::RemoteInstall,
         "tabGroup.close" => Confirmation::TabGroupClose,
         "taskManager.killProcess" => Confirmation::KillProcess,
         "home.deleteChief" => Confirmation::DeleteChief,

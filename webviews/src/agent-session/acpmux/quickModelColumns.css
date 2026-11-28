@@ -147,9 +147,9 @@
 }
 
 /* The account card: a strip under the search row, in the flow over the rail and the models. Drawn
-   over them, it hid the checked model (cmux#63167). The menu grows by its height as far as it has
-   room (QuickModelColumns heightOf); past that the card scrolls as one block and the lists keep two
-   rows (.acpmux-cols-body:has(.acpmux-cols-card)). It never widens the menu: the columns set it. */
+   over them, it hid the checked model (cmux#63167). It never grows the menu (QuickModelColumns
+   heightOf): it takes its room from the lists, which keep two rows, and past that it scrolls as one
+   block (.acpmux-cols-body:has(.acpmux-cols-card)). It never widens the menu: the columns set it. */
 .acpmux-cols-card {
   contain: inline-size;
   flex: 0 1 auto;

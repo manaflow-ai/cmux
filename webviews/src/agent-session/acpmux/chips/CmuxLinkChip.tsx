@@ -26,9 +26,8 @@ import { useSessionHover } from "../started/useSessionHover";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
 import { useHoverCard, type HoverCard } from "./useHoverCard";
-import { CMUX_LINK_ICONS, useCmuxLink, type CmuxLinkInfo, type CmuxLinkKind } from "./cmuxLinkResolve";
-
-export { CMUX_LINK_ICONS };
+import { CMUX_LINK_ICONS, useCmuxLink, type CmuxLinkInfo } from "./cmuxLinkResolve";
+import { useKindWord } from "./cmuxLinkKindWord";
 import { namesChat, type CmuxLinkTarget } from "../conversation/cmuxLinks";
 import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { SubsessionContext } from "../subagents/subsessions";
@@ -36,19 +35,6 @@ import { installSelectionCopy } from "../conversation/selectionCopy";
 import { cmuxLinkLook, type CmuxLinkLook } from "./cmuxLinkLook.experiment";
 import "./linkCard.css";
 import "./cmuxLinkChip.css";
-
-const KIND_KEYS = {
-  chat: "cmuxLink.kind.chat",
-  workspace: "cmuxLink.kind.workspace",
-  pane: "cmuxLink.kind.pane",
-  tab: "cmuxLink.kind.tab",
-} as const;
-
-/// The kind word of `kind`, in the pane's language.
-export function useKindWord(): (kind: CmuxLinkKind) => string {
-  const t = useT();
-  return (kind) => t(KIND_KEYS[kind]);
-}
 
 /// The chip's content in `look`: the icon, the title and the machine, or the kind word and title.
 /// `label`: a Markdown link's own words, drawn in the title's place.

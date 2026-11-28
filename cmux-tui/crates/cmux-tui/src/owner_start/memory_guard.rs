@@ -153,7 +153,7 @@ fn append(path: &Path, line: &serde_json::Value) {
 
 #[cfg(unix)]
 fn build_identity() -> Option<&'static str> {
-    Some(cmux_build_identity::BUILD_IDENTITY)
+    Some(crate::build_identity::identity())
 }
 
 #[cfg(not(unix))]
