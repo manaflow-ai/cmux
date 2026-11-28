@@ -402,7 +402,9 @@ try {
           if (process.env.BENCH_LOG_ASKS) {
             const p = message.params ?? {};
             const n = (result as { events?: unknown[] } | null)?.events?.length;
-            console.log(`ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`);
+            console.log(
+              `ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`,
+            );
           }
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
@@ -529,6 +531,8 @@ try {
             const reason = text.split(" ")[1]!;
             held.set(reason, (held.get(reason) ?? 0) + 1);
           }
+          if (process.env.BENCH_LOG_ASKS)
+            console.log(`PAGELOG ${Date.now()} ${index} ${message.type()}: ${text.slice(0, 200)}`);
           said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
           if (said.length > 40) said.shift();
         });
@@ -1261,6 +1265,14 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.BENCH_LOG_ASKS) {
+        for (const [i, { page }] of pages.entries()) {
+          const n = await page
+            .evaluate(() => `${document.visibilityState} ${document.getElementsByTagName("*").length}`)
+            .catch((e) => String(e).slice(0, 80));
+          console.log(`PAGEDOM ${name} ${i} ${n}`);
+        }
+      }
       if (HEAP_SNAPSHOT) {
         // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
         fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
