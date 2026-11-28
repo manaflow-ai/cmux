@@ -27,10 +27,7 @@ fn a_first_fill_asks_github_for_the_repository_size() {
         assert_eq!(api_repo_url(other), None, "{other}");
     }
     // manaflow-ai/cmux's answer on 2026-11-26 was about this size.
-    assert_eq!(
-        api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#),
-        Some(16_252_928 * 1024)
-    );
+    assert_eq!(api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#), Some(16_252_928 * 1024));
     assert_eq!(api_size_bytes(b"{}"), None);
     assert_eq!(api_size_bytes(b"not json"), None);
 }
@@ -127,8 +124,7 @@ fn a_cut_fetchs_lock_goes_and_its_pack_stays() {
     std::fs::write(pack.join("pack-cut.keep"), format!("fetch-pack {} on {here}\n", i32::MAX))
         .unwrap();
     let me = std::process::id();
-    std::fs::write(pack.join("pack-live.keep"), format!("fetch-pack {me} on {here}\n"))
-        .unwrap();
+    std::fs::write(pack.join("pack-live.keep"), format!("fetch-pack {me} on {here}\n")).unwrap();
     std::fs::write(pack.join("pack-hand.keep"), b"").unwrap();
     assert_eq!(sweep_stale_partial_writes(root.path()), (1, 1000));
     let mut left: Vec<String> = std::fs::read_dir(&pack)
@@ -261,10 +257,7 @@ async fn a_pack_a_cut_fill_finished_is_named_so_the_next_fill_fetches_only_the_r
     sh_git(up.path(), &["init", "-q", "-b", "main"]);
     std::fs::write(up.path().join("a"), b"one").unwrap();
     sh_git(up.path(), &["add", "a"]);
-    sh_git(
-        up.path(),
-        &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"],
-    );
+    sh_git(up.path(), &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"]);
     sh_git(up.path(), &["tag", "v1"]);
     let tip = sh_git(up.path(), &["rev-parse", "HEAD"]);
     let url = format!("file://{}", up.path().display());
@@ -287,10 +280,7 @@ async fn a_pack_a_cut_fill_finished_is_named_so_the_next_fill_fetches_only_the_r
 
     assert_eq!(Mirrors::adopt_cut_fetch_packs(&dir, &url, None).await, 1);
     assert!(!keep.exists(), "the stale keep stays");
-    assert_eq!(
-        sh_git(&dir, &["for-each-ref", "--format=%(refname)"]),
-        format!("{KEPT_REFS}{tip}")
-    );
+    assert_eq!(sh_git(&dir, &["for-each-ref", "--format=%(refname)"]), format!("{KEPT_REFS}{tip}"));
     // The next fill negotiates from the named tip: it writes no second pack.
     sh_git(&dir, &args);
     assert_eq!(packs(&dir), before, "the next fill downloaded the repository again");

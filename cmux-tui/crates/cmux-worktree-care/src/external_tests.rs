@@ -14,17 +14,11 @@ fn simulators_are_pruned_only_with_developer_tools_installed() {
         "/Applications/Xcode.app",
         "/Library/Developer/CommandLineTools",
     ] {
-        assert!(
-            developer_tools_installed(None, &|p: &Path| p == Path::new(folder)),
-            "{folder}"
-        );
+        assert!(developer_tools_installed(None, &|p: &Path| p == Path::new(folder)), "{folder}");
     }
     let dir = "/opt/Xcode-beta.app/Contents/Developer";
     assert!(developer_tools_installed(Some(dir.into()), &|p: &Path| p == Path::new(dir)));
-    assert!(
-        !developer_tools_installed(Some(dir.into()), &none),
-        "a DEVELOPER_DIR that is gone"
-    );
+    assert!(!developer_tools_installed(Some(dir.into()), &none), "a DEVELOPER_DIR that is gone");
     if !cfg!(target_os = "macos") {
         assert!(!simulators_present());
     }

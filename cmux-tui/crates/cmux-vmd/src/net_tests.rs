@@ -14,10 +14,9 @@ fn slot_addresses_are_unique_per_slot() {
 
 #[test]
 fn allow_rules_split_families_and_refuse_injection() {
-    let rules = egress_rules(&Egress::Allow {
-        cidrs: vec!["1.2.3.0/24".into(), "2001:db8::/32".into()],
-    })
-    .unwrap();
+    let rules =
+        egress_rules(&Egress::Allow { cidrs: vec!["1.2.3.0/24".into(), "2001:db8::/32".into()] })
+            .unwrap();
     assert!(rules.contains("ip daddr { 1.2.3.0/24 } accept"), "{rules}");
     assert!(rules.contains("ip6 daddr { 2001:db8::/32 } accept"), "{rules}");
     assert!(rules.ends_with("drop"));
