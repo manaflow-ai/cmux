@@ -66,11 +66,13 @@ impl Refusal {
     }
 
     fn json(&self) -> Value {
-        let mut error = json!({ "id": self.id, "args": self.args });
+        let mut error = Map::new();
+        error.insert("id".into(), json!(self.id));
+        error.insert("args".into(), json!(self.args));
         if let Some(data) = &self.data {
-            error["data"] = data.clone();
+            error.insert("data".into(), data.clone());
         }
-        error
+        Value::Object(error)
     }
 }
 
@@ -286,7 +288,10 @@ fn exact_int(raw: &Value) -> Option<i64> {
         return (number.unsigned_abs() < 1_000_000_000_000_000).then_some(number);
     }
     let number = raw.as_f64()?;
-    (number.round() == number && number.abs() < 1e15).then_some(number as i64)
+    if number.round() != number || number.abs() >= 1e15 {
+        return None;
+    }
+    format!("{number:.0}").parse().ok()
 }
 
 /// A number or flag as `JSONValue.compactText` writes it.
