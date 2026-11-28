@@ -156,8 +156,11 @@ fn args(value: &Value) -> Option<Vec<String>> {
 /// agent: env is how a registry entry could redirect credentials or load
 /// code into the agent.
 fn env_allowed(id: &str, key: &str) -> bool {
-    let own = format!("{}_", id.to_ascii_uppercase().replace(['-', '.'], "_"));
-    key.starts_with(&own)
+    let prefix = |name: &str| format!("{}_", name.to_ascii_uppercase().replace(['-', '.'], "_"));
+    key.starts_with(&prefix(id))
+        // Its pinned program's own keys too (muse-code's `MUSE_EXPERIMENTAL_ACP`): that list
+        // is ours, so an entry cannot name `node` to reach `NODE_OPTIONS`.
+        || pinned_programs(id).iter().any(|p| key.starts_with(&prefix(p)))
         || key.contains("AUTO_UPDATE")
         || matches!((id, key), ("vtcode", "VT_ACP_ENABLED" | "VT_ACP_ZED_ENABLED"))
 }
@@ -306,24 +309,35 @@ pub fn program_name(cmd: &str) -> Option<String> {
     plain.then(|| base.to_owned())
 }
 
-/// The program an installed agent is, when it is not the registry id
+/// The programs an installed agent is, when it is not the registry id
 /// itself: checked against each agent's own package or archive. A registry
-/// entry cannot point acpmux at another program on PATH.
-fn pinned_program(id: &str) -> Option<&'static str> {
-    Some(match id {
-        "github-copilot-cli" => "copilot",
-        "qwen-code" => "qwen",
-        "factory-droid" => "droid",
-        "codebuddy-code" => "codebuddy",
-        "qoder" => "qodercli",
-        "mistral-vibe" => "vibe-acp",
-        "cortex-code" => "cortex",
-        "corust-agent" => "corust-agent-acp",
+/// entry cannot point acpmux at another program on PATH. An archive named
+/// per platform (poolside's `pool-linux-amd64`) lists each name.
+fn pinned_programs(id: &str) -> &'static [&'static str] {
+    match id {
+        "github-copilot-cli" => &["copilot"],
+        "qwen-code" => &["qwen"],
+        "factory-droid" => &["droid"],
+        "codebuddy-code" => &["codebuddy"],
+        "qoder" => &["qodercli"],
+        "mistral-vibe" => &["vibe-acp"],
+        "cortex-code" => &["cortex"],
+        "corust-agent" => &["corust-agent-acp"],
+        "kiro" => &["kiro-cli"],
+        "muse-code" => &["muse"],
+        "poolside" => &[
+            "pool-linux-amd64",
+            "pool-linux-arm64",
+            "pool-darwin-amd64",
+            "pool-darwin-arm64",
+            "pool-windows-amd64",
+            "pool-windows-arm64",
+        ],
         // Google's Antigravity ACP server (t3code's Antigravity driver runs
         // the same program); sign in with `cmux harness login antigravity`.
-        "antigravity-acp" => "agy_acp_server.par",
-        _ => return None,
-    })
+        "antigravity-acp" => &["agy_acp_server.par"],
+        _ => &[],
+    }
 }
 
 /// Programs that never count as an installed agent, whatever the registry
@@ -367,7 +381,7 @@ const NEVER_PROGRAMS: &[&str] = &[
 
 /// True when `program` on PATH may stand for registry agent `id`.
 fn program_is_agent(id: &str, program: &str) -> bool {
-    !NEVER_PROGRAMS.contains(&program) && (program == id || pinned_program(id) == Some(program))
+    !NEVER_PROGRAMS.contains(&program) && (program == id || pinned_programs(id).contains(&program))
 }
 
 /// Harness ids registry discovery never takes: acpmux's own Claude routes
@@ -458,8 +472,10 @@ impl Agent {
             return Some(Launch::Installed { argv, env: target.env.clone() });
         }
         let npx = self.npx.as_ref()?;
-        let program = pinned_program(&self.id).filter(|p| program_is_agent(&self.id, p))?;
-        let path = which(program)?;
+        let path = pinned_programs(&self.id)
+            .iter()
+            .filter(|p| program_is_agent(&self.id, p))
+            .find_map(|p| which(p))?;
         let mut argv = vec![path];
         argv.extend(npx.args.iter().cloned());
         Some(Launch::Installed { argv, env: npx.env.clone() })
