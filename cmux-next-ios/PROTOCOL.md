@@ -1213,6 +1213,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   JSON never starts with `0x00`, and the lengths say where the envelope ends
   among the frames and bound its inflate (hostd `link_deflate.rs`, phone
   `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+
+  **acpmux compression (`zstd-stream-v1`, added 2026-11-24, backward compatible).**
+  A phone that also sends `"compressions":"zstd-stream-v1,deflate"` (a JSON array
+  of names reads the same) gets every message from a Mac that lists
+  `zstd-stream-v1` (Capabilities), any size, through one zstd stream kept for
+  the channel's life: level 3, a 1 MiB window (window log 20), no checksum, no
+  dictionary, flushed after each message. Each message is one envelope:
+  `0x01`, the text length (u32 big-endian), the zstd length (u32 big-endian),
+  then the flushed zstd bytes. JSON never starts with `0x01`. The envelopes
+  decode only in order, each after every earlier one on the channel; the
+  phone's decoder refuses a window over 1 MiB, a text over 64 MiB and any
+  envelope that does not decode to exactly its text length, and a refusal
+  loses the context, so the phone closes the channel and opens a new one
+  (hostd `link_zstd.rs`, codec cmux-mobile-link `zstd_stream.rs`, phone
+  cmux-mobile-link-ffi `ZstdStreamDecoder`). A Mac before it reads only
+  `compression` and sends deflate envelopes or text; a phone that sends no
+  `compressions` gets those as before. Chat events are mostly under deflate's
+  16 KiB floor and crossed as text; through the stream they cost about 15 % of
+  their raw bytes (real acpmux session events, 2026-11-24).
+
+  Keeping context across messages is WebSocket permessage-deflate's context
+  takeover: a message that repeats something sent earlier on the channel comes
+  out smaller, so its size can hint that it repeats earlier content. Only the
+  link's endpoints see the plaintext; an observer of the WireGuard tunnel sees
+  encrypted datagram sizes, which deflate already made content-dependent per
+  message, and the phone never sends attacker-chosen text into the Mac's
+  stream (it compresses only the Mac's messages to the phone). See SECURITY.md.
   The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
   newest page, and the phone is ready with it; the rest comes from
   `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
@@ -1782,6 +1809,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `phone-page-v1` | hostd `version` | (2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089). |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
+| `zstd-stream-v1` | hostd `version` | (2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md "acpmux compression"). |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

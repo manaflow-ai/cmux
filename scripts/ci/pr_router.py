@@ -42,6 +42,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
              train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
              it on every landing head again (land_ask_only_on);
+  trunk_only true for a callee that runs on the feat-cmux-next tip instead (its own coalesced push trigger): it
+             starts on no pull request unless $CI_NIGHTLY_PR_BUILD_PER_PR=1 (per_pr_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -116,6 +118,18 @@ def handoff_label_skip() -> bool:
 # PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
 # repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
 # reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+# A trunk_only callee (nightly-pr-build.yml) runs once per 30-minute window on the feat-cmux-next tip, coalesced by
+# base-coalesce.yml, and base-red-watch bisects a red to name the PR. At 00Z 2026-11-28, after the land-ask cut above,
+# it still took ~690 runner-min/h (~16.5k/day) on ~28 PR heads an hour, while the Nightly compiles the same
+# configuration on the tip every 15 minutes. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again (passed in by pr-router.yml).
+
+
+def per_pr_on() -> bool:
+    """Whether a trunk_only callee also starts on pull requests ($CI_NIGHTLY_PR_BUILD_PER_PR, off unless 1)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_PER_PR", "0").strip() == "1"
 
 
 def land_ask_only_on() -> bool:
@@ -257,6 +271,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
     for name, config in sorted(callees.items()):
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
+            continue
+        if config.get("trunk_only") and not per_pr_on():
+            why[name] = ("trunk only: runs once per 30-minute window on the feat-cmux-next tip (base-red-watch bisects a "
+                         "red); $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests too")
             continue
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a

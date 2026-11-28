@@ -5,6 +5,7 @@ import {
   enrollVmTunnel,
   isWireGuardPublicKey,
   networkSlugForTeam,
+  teamNetworkCidr,
   networkSlugForUser,
   privateNetworkErrorDescription,
   readVmTunnel,
@@ -596,7 +597,7 @@ describe("resolveOwnerNetwork", () => {
   });
 
   test("creates a new isolated team network for a capable multi-member team", async () => {
-    let ensureOptions: { slug?: string; displayName?: string; membersRule?: boolean } | undefined;
+    let ensureOptions: { slug?: string; displayName?: string; cidr?: string; membersRule?: boolean } | undefined;
     let upserts = 0;
     const repo = {
       ...testRepo({ network: networkRow() }),
@@ -621,6 +622,7 @@ describe("resolveOwnerNetwork", () => {
     expect(ensureOptions).toEqual({
       slug: networkSlugForTeam("team-1"),
       displayName: networkSlugForTeam("team-1"),
+      cidr: teamNetworkCidr("team-1"),
       membersRule: false,
     });
     expect(upserts).toBe(0);
