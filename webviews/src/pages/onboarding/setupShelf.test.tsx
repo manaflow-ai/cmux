@@ -179,8 +179,9 @@ test("every key a setup writes is one the host allows (FirstRunChoicesSettingsSo
       [...m[1].matchAll(/"([^"]+)"/g)].map((s) => s[1]).join("."),
     );
   };
-  // The picks' paths are named by their settings' constants; the density is the one a setup writes.
-  const allowed = new Set([...block("walkPaths"), ...block("setupPaths"), "appearance.density"]);
+  // The picks' paths (`pickPaths`) are named by their settings' constants; a setup writes two of them:
+  // the density and the new-tab template (terminal-first, #60084).
+  const allowed = new Set([...block("walkPaths"), ...block("setupPaths"), "appearance.density", "tabs.newTabTemplate"]);
   for (const setup of SHELF_SETUPS) {
     for (const path of Object.keys(setup.settings)) expect([setup.id, allowed.has(path)]).toEqual([setup.id, true]);
   }
