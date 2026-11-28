@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -43,9 +44,13 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const { mountSidebarChats } = await import("../src/pages/sidebar-chats/mount");
-const { SidebarChatsOps, blockHeight, parseBlock, rowLabel } = await import("../src/pages/sidebar-chats/model");
-const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await import("../src/pages/sidebar-chats/fixtures");
+const { mountSidebarChats } = await importWithDom(() => import("../src/pages/sidebar-chats/mount"));
+const { SidebarChatsOps, blockHeight, parseBlock, rowLabel } = await importWithDom(
+  () => import("../src/pages/sidebar-chats/model"),
+);
+const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await importWithDom(
+  () => import("../src/pages/sidebar-chats/fixtures"),
+);
 
 type Call = { op: string; params: Record<string, unknown> };
 const mounted: Array<{ unmount(): void }> = [];

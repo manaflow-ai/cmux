@@ -73,6 +73,14 @@ the lint is fixed forward. The check fails only when the code does not build: a 
 no code), a failed `cargo metadata`, or a stale lockfile. The panic ratchet (--panic-ratchet) still fails on
 a new panic site: it guards against crashes in production code, not style.
 
+A base red costs no whole run. cmux-tui-clippy-seed.yml's whole-workspace run records which members its commit fails
+to compile (CMUX_CLIPPY_VERDICT_OUT, write_verdict()), with the ids of everything each red rests on; a pull request's
+step reads the newest one (CMUX_CLIPPY_BASE_VERDICT, scripts/ci/clippy-base-seed.sh verdict) and neither lints nor
+ratchet-judges a member it does not touch that is red there with the same inputs at its base (or a user of such a
+member's library). The members it touches are linted and judged as before, and the step prints the base-red notice
+beside their own pass or fail. Before, the step learned of the base red only after its whole run: 32% of 60 failed
+clippy-changed steps sampled on 2026-11-27 ended in a base red, ~12 min each.
+
 --autofixed-ok HEAD_SHA (feat-cmux-next pull requests, while vars.CMUX_PR_AUTOFIX_PUSH is 1): a red that
 the PR autofix repairs is not a red (with lints capped, the red this still covers is one no JSON
 diagnostic explains, such as a lint cargo stopped on). The job applies what cmux-next-pr-autofix.yml applies
@@ -187,11 +195,13 @@ def stale_lock_error(title: str, lock: str) -> str:
             f"root and commit the Cargo.lock files it changed; rerunning the job does not help")
 
 
-def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str], dict[str, set[str]]]:
+def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str], dict[str, set[str]],
+                                     dict[str, set[str]]]:
     """The members' directories (repository-relative) with their package names, each
     member's dependents (the members naming it as a path dependency of any kind),
-    the members with a library target, and the members using each dependency key
-    (its `rename` or name, as `[workspace.dependencies]` keys it)."""
+    the members with a library target, the members using each dependency key
+    (its `rename` or name, as `[workspace.dependencies]` keys it), and each member's
+    path dependencies' directories (repository-relative, members or not)."""
     meta = json.loads(subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         cwd=repo / ROOT, check=True, stdout=subprocess.PIPE, text=True,
@@ -204,15 +214,20 @@ def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[s
     by_dir = {top / path: name for path, name in names.items()}
     dependents: dict[str, set[str]] = {name: set() for name in names.values()}
     uses: dict[str, set[str]] = defaultdict(set)
+    requires: dict[str, set[str]] = {name: set() for name in names.values()}
     for package in packages:
         for dependency in package["dependencies"]:
             uses[dependency.get("rename") or dependency["name"]].add(package["name"])
+            if dependency.get("path"):
+                where = Path(dependency["path"]).resolve()
+                if where.is_relative_to(top):
+                    requires[package["name"]].add(where.relative_to(top).as_posix())
             target = by_dir.get(Path(dependency["path"]).resolve()) if dependency.get("path") else None
             if target and target != package["name"]:
                 dependents[target].add(package["name"])
     libs = {package["name"] for package in packages
             if any(LIB_KINDS & set(target.get("kind", [])) for target in package.get("targets", []))}
-    return names, dependents, libs, uses
+    return names, dependents, libs, uses, requires
 
 
 def at(repo: Path, rev: str, path: str) -> str:
@@ -366,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     flags = ratchet_flags(repo)
     args_for_lint, hidden = lint_args(flags), flag_lints(flags)
     try:
-        workspace, dependents, libs, uses = workspace_of(repo)
+        workspace, dependents, libs, uses, requires = workspace_of(repo)
     except subprocess.CalledProcessError:
         print("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed in cmux-tui (its error is above); "
               "fix the manifest it names")
@@ -382,6 +397,9 @@ def main(argv: list[str] | None = None) -> int:
         except subprocess.CalledProcessError:
             ratchet_inputs_changed = True
     reached = None if paths is None else narrowed(repo, base, paths, workspace, uses)
+    skipped: list[str] = []
+    base_reds: dict[str, dict] = {}
+    verdict_sha = ""
     if paths is None or reached is None or ratchet_inputs_changed or any(path in EVERY_MEMBER for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare,
@@ -405,6 +423,18 @@ def main(argv: list[str] | None = None) -> int:
         selected = sorted(with_dependents(changed, dependents))
         if users := [name for name in selected if name not in changed]:
             print(f"cmux-tui-clippy-changed: {', '.join(users)} depend on {', '.join(sorted(changed))}")
+        # A member this change does not touch that the base already fails to compile (the recorded verdict) is
+        # not linted again: it would only fail the step, after the whole run, with a base red (32% of the 60 failed
+        # clippy-changed steps sampled on 2026-11-27 ended so, ~12 min each). The members it touches still are.
+        base_reds, verdict_sha = trusted_base_reds(repo, base, workspace)
+        if skipped := base_red_skips(selected, changed, base_reds, dependents):
+            selected = [name for name in selected if name not in skipped]
+            print(f"cmux-tui-clippy-changed: {', '.join(skipped)} already fail(s) to compile on the base "
+                  f"{base[:12]} (verdict recorded at {verdict_sha[:12]}) and this change does not touch them: "
+                  f"not linted", flush=True)
+            if not selected:
+                report_base_red_skips(skipped, base_reds, dependents, base, verdict_sha, "", True)
+                return 0
         packages = [arg for name in selected for arg in ("-p", name)]
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
@@ -417,6 +447,9 @@ def main(argv: list[str] | None = None) -> int:
     text: list[str] = []
     result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text, hidden)
     report_lints(result.lints, scope)
+    if paths is None and (verdict_out := os.environ.get("CMUX_CLIPPY_VERDICT_OUT")):
+        # cmux-tui-clippy-seed.yml on feat-cmux-next: the whole workspace's verdict, which pull requests read.
+        write_verdict(repo, Path(verdict_out), result, workspace, requires)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
         return 0
@@ -443,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
             return (0 if lints_only else run.rc), "".join(out)
 
         rc, _ = oops.isolated_run("cargo-member", command, runner=again, first=(rc, "".join(text)))
+    if skipped:
+        report_base_red_skips(skipped, base_reds, dependents, base, verdict_sha, scope, not rc)
     if rc:
         print(f"::error title=cmux-tui clippy::clippy found compile errors in {scope}; "
               f"run `{' '.join(command)}` in cmux-tui and fix each error (lints alone never fail this check)")
@@ -664,6 +699,142 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
             Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
+VERDICT_VERSION = 1
+
+
+def tree_oids(repo: Path, rev: str, paths: list[str]) -> dict[str, str]:
+    """Each path's blob or tree id at REV (a path REV lacks is left out), from one `git ls-tree`."""
+    out = fmt_changed.git(repo, "ls-tree", "-z", "--full-tree", rev, "--", *paths)
+    oids = {}
+    for entry in out.split("\0"):
+        if "\t" in entry:
+            meta, path = entry.split("\t", 1)
+            oids[path] = meta.split()[2]
+    return oids
+
+
+def package_inputs(package: str, workspace: dict[str, str], requires: dict[str, set[str]]) -> list[str]:
+    """What one member's clippy result rests on: its directory, its path dependencies' directories (through any
+    member), the workspace manifest and lockfile, and the workspace-wide inputs (EVERY_MEMBER)."""
+    by_name = {name: path for path, name in workspace.items()}
+    dirs, seen, queue = {by_name[package]}, {package}, deque([package])
+    while queue:
+        for path in requires.get(queue.popleft(), ()):
+            dirs.add(path)
+            if (name := workspace.get(path)) and name not in seen:
+                seen.add(name)
+                queue.append(name)
+    return sorted(dirs | {MANIFEST, LOCKFILE} | EVERY_MEMBER)
+
+
+def owner_of(path: str, workspace: dict[str, str], others: set[str]) -> tuple[str, str] | None:
+    """The member owning PATH (relative to cmux-tui, as cargo names it) and PATH relative to the member, or None
+    for a file of no member: outside them, or in a path dependency that is not one (OTHERS, such as vendor/)."""
+    full = f"{ROOT}/{path}"
+    for where in sorted(set(workspace) | others, key=len, reverse=True):
+        if full.startswith(where + "/"):
+            return (workspace[where], full[len(where) + 1:]) if where in workspace else None
+    return None
+
+
+def write_verdict(repo: Path, out: Path, result: ClippyRun, workspace: dict[str, str],
+                  requires: dict[str, set[str]]) -> None:
+    """Record the whole-workspace run's verdict for the commit it linted (cmux-tui-clippy-seed.yml saves it), so a
+    pull request on this base can leave out a member the base already fails to compile (trusted_base_reds()).
+    Each red member keeps the ids of everything its result rests on (package_inputs()): a later base with the same
+    ids has the same red. A red file no member owns, a compile error with no file, or a stale lock is no verdict
+    (`complete: false`), and nothing is ever left out on it."""
+    red: dict[str, dict] = {}
+    complete = not result.lock
+    others = {path for paths in requires.values() for path in paths} - set(workspace)
+    if result.rc and result.compile_errors:
+        if not result.red_files:
+            complete = False
+        for path in result.red_files:
+            owner = owner_of(path, workspace, others)
+            if owner is None:
+                complete = False
+                continue
+            name, inside = owner
+            row = red.setdefault(name, {"files": [], "lib": False})
+            row["files"].append(f"{ROOT}/{path}")
+            # A library source or build script that fails takes every member using it down with it.
+            if inside == "build.rs" or (inside.startswith("src/") and inside != "src/main.rs"
+                                        and not inside.startswith("src/bin/")):
+                row["lib"] = True
+    head = fmt_changed.git(repo, "rev-parse", "HEAD").strip()
+    if complete:
+        for name, row in red.items():
+            inputs = package_inputs(name, workspace, requires)
+            oids = tree_oids(repo, head, inputs)
+            row["inputs"] = {path: oids.get(path) for path in inputs}
+    doc = {"version": VERDICT_VERSION, "sha": head, "complete": complete, "red": red if complete else {}}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"cmux-tui-clippy-changed: verdict for {head[:12]} written to {out}: "
+          + (f"red in {', '.join(sorted(red))}" if red else "green" if complete else "no verdict (unattributed red)"))
+
+
+def trusted_base_reds(repo: Path, base: str, workspace: dict[str, str]) -> tuple[dict[str, dict], str]:
+    """The members the base fails to compile, from the recorded verdict at $CMUX_CLIPPY_BASE_VERDICT (write_verdict(),
+    for the base or an earlier feat-cmux-next commit), and that verdict's commit. A member counts only when every
+    input its recorded result rests on has the same id at the base, so an older commit's verdict holds exactly
+    where nothing it depends on changed since. A missing, unreadable or incomplete verdict trusts none."""
+    where = os.environ.get("CMUX_CLIPPY_BASE_VERDICT", "")
+    if not where or not base or set(base) == {"0"}:
+        return {}, ""
+    try:
+        doc = json.loads(Path(where).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}, ""
+    if not isinstance(doc, dict) or doc.get("version") != VERDICT_VERSION or doc.get("complete") is not True:
+        return {}, ""
+    sha = str(doc.get("sha") or "")
+    members = set(workspace.values())
+    trusted: dict[str, dict] = {}
+    for name, row in (doc.get("red") or {}).items():
+        inputs = row.get("inputs") if isinstance(row, dict) else None
+        if name not in members or not isinstance(inputs, dict) or not inputs:
+            continue
+        try:
+            now = tree_oids(repo, base, sorted(inputs))
+        except subprocess.CalledProcessError:
+            continue
+        if all(now.get(path) == oid for path, oid in inputs.items()):
+            trusted[name] = row
+        else:
+            print(f"cmux-tui-clippy-changed: the verdict at {sha[:12]} has {name} red, but its inputs changed "
+                  f"before the base {base[:12]}; linting it", flush=True)
+    return trusted, sha
+
+
+def base_red_skips(selected: list[str], changed: set[str], reds: dict[str, dict],
+                   dependents: dict[str, set[str]]) -> list[str]:
+    """The selected members this change does not touch that the base already fails to compile: a recorded red
+    member, or a user of a recorded red member's library. A member the change touches is always linted."""
+    roots = {name for name in reds if name not in changed}
+    down = set(roots) | with_dependents({name for name in roots if reds[name].get("lib")}, dependents)
+    return sorted((set(selected) - changed) & down)
+
+
+def report_base_red_skips(skipped: list[str], reds: dict[str, dict], dependents: dict[str, set[str]],
+                          base: str, sha: str, scope: str, passed: bool | None) -> None:
+    """The base-red notice for the members left out, then the verdict on the members this change reaches."""
+    left = set(skipped)
+    for name in sorted(reds):
+        reached = name in left or bool(left & with_dependents({name}, dependents))
+        if not reached:
+            continue
+        for path in reds[name].get("files", []):
+            print(f"::warning title=cmux-tui clippy (base red)::{path} is red and this change does not touch it: "
+                  f"the base {base[:12]} already fails here (recorded at {sha[:12]}), so this check did not lint "
+                  f"{', '.join(skipped)}. Fix it on the base branch in its own pull request")
+    if passed is None:
+        return
+    print(f"cmux-tui-clippy-changed: verdict for the members this change reaches ({scope or 'none'}): "
+          f"{'pass' if passed else 'FAIL'}; not linted (red on the base): {', '.join(skipped)}", flush=True)
+
+
 RED_CRATE = re.compile(r"^  ([A-Za-z0-9_.-]+): clippy::[a-z_]+ [0-9]+ > ")
 
 
@@ -680,6 +851,44 @@ def still_red(ratchet_out: str, packages: list[str], libs: set[str] | None) -> t
     if selected is not None and not set(crates) <= selected:
         return None
     return [arg for crate in crates for arg in ("-p", crate)], any(crate in libs for crate in crates)
+
+
+def artifact_package(package_id: str) -> str:
+    """The package name in a cargo JSON `package_id`: `name 1.0 (path+file://...)` on older cargo,
+    `path+file:///.../dir#1.0` or `path+file:///.../dir#name@1.0` on newer."""
+    if not package_id.startswith(("path+", "registry+", "git+", "sparse+")):
+        return package_id.split(" ", 1)[0]
+    location, _, fragment = package_id.rpartition("#")
+    if "@" in fragment:
+        return fragment.split("@", 1)[0]
+    return location.rstrip("/").rsplit("/", 1)[-1]
+
+
+def head_features(clippy_json: Path, crates: list[str]) -> list[str] | None:
+    """`--no-default-features --features ...` that give each of `crates` the features cargo unified for it in the
+    head run, or None when the run names no artifact for one of them. Linting a crate alone resolves only its own
+    defaults: cmux#45686 (2026-11-28) linted acpmux with cmux-tui (hub-carrier) and cmux-tui-core (test-support),
+    then linted the base with `-p acpmux` alone, so the base counted fewer hits (indexing_slicing 788 vs the head's
+    870) and the hits a dependent's features compile read as the change's."""
+    found: dict[str, set[str]] = {}
+    try:
+        lines = clippy_json.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if '"compiler-artifact"' not in line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        name = artifact_package(str(message.get("package_id", "")))
+        if name in crates:
+            found.setdefault(name, set()).update(message.get("features") or [])
+    if set(crates) - set(found):
+        return None
+    wanted = sorted(f"{crate}/{feature}" for crate in crates for feature in found[crate])
+    return ["--no-default-features", *(["--features", ",".join(wanted)] if wanted else [])]
 
 
 def ratchet_targets(has_lib):
@@ -756,11 +965,13 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         base_command = command
         base_scope = scope
         red = still_red(untouched.stdout, packages, libs)
-        if red is not None:
+        # The narrowed lint keeps the head run's unified features, else it lints every selected package as before.
+        features = head_features(out, red[0][1::2]) if red is not None else None
+        if red is not None and features is not None:
             red_packages, red_has_lib = red
             targets = ratchet_targets(red_has_lib)
-            base_command = ["cargo", "clippy", "--locked", *red_packages, *targets, "--message-format=json", "--",
-                            *flags, *CAP_LINTS]
+            base_command = ["cargo", "clippy", "--locked", *red_packages, *features, *targets,
+                            "--message-format=json", "--", *flags, *CAP_LINTS]
             base_scope = ", ".join(red_packages[1::2])
             judge += ["--untouched-is-base", "--diff-base", compare]
         print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {base_scope} at the base {compare}",
