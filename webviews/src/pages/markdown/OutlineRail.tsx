@@ -8,6 +8,11 @@ import type { Strings } from "../shared/i18n";
 import type { Outline } from "./outline";
 import { L } from "./strings";
 
+/** A pointer rests this long on the rail before the contents open (a sweep past the edge opens nothing),
+ *  and the contents stay this long after it leaves, so crossing the gap never flickers them. */
+const OPEN_DWELL = 140;
+const CLOSE_GRACE = 200;
+
 /** How the panel is open: by pointing (closes when the pointer leaves) or pinned by a click. */
 type OpenState = "hover" | "pinned" | null;
 
@@ -15,12 +20,19 @@ export function OutlineRail({ outline, strings }: { outline: Outline; strings: S
   const { headings, active } = useSyncExternalStore(outline.subscribe, outline.getState);
   const [open, setOpen] = useState<OpenState>(null);
   const rail = useRef<HTMLButtonElement | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const clearTimer = () => {
+    if (timer.current !== undefined) clearTimeout(timer.current);
+    timer.current = undefined;
+  };
+  useEffect(() => clearTimer, []);
   const show = headings.length >= 2;
   useEffect(() => (show ? outline.attach() : undefined), [outline, show]);
   if (!show) return null;
   const top = Math.min(...headings.map((heading) => heading.level));
   const label = strings.t(L.outlineLabel);
   const close = (focusRail: boolean) => {
+    clearTimer();
     setOpen(null);
     if (focusRail) focusRoute(rail.current, "person", "Escape closed the outline contents");
   };
@@ -36,7 +48,11 @@ export function OutlineRail({ outline, strings }: { outline: Outline; strings: S
         className="md-outline"
         aria-label={label}
         data-open={open ?? undefined}
-        onPointerLeave={() => setOpen((state) => (state === "hover" ? null : state))}
+        onPointerEnter={clearTimer}
+        onPointerLeave={() => {
+          clearTimer();
+          timer.current = setTimeout(() => setOpen((state) => (state === "hover" ? null : state)), CLOSE_GRACE);
+        }}
         onKeyDown={onKeyDown}
       >
         <button
@@ -45,8 +61,15 @@ export function OutlineRail({ outline, strings }: { outline: Outline; strings: S
           className="md-outline-rail"
           aria-label={strings.t(L.outlineShow)}
           aria-expanded={open !== null}
-          onPointerEnter={() => setOpen((state) => state ?? "hover")}
-          onClick={() => setOpen((state) => (state === "pinned" ? null : "pinned"))}
+          onPointerEnter={(event) => {
+            clearTimer();
+            if (event.buttons !== 0) return;
+            timer.current = setTimeout(() => setOpen((state) => state ?? "hover"), OPEN_DWELL);
+          }}
+          onClick={() => {
+            clearTimer();
+            setOpen((state) => (state === "pinned" ? null : "pinned"));
+          }}
         >
           {headings.map((heading, index) => (
             <span
