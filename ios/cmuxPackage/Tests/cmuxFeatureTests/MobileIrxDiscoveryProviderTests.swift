@@ -42,7 +42,8 @@ struct MobileIrxDiscoveryProviderTests {
             discover: { discovery },
             invalidateSnapshot: {},
             revokeBinding: { onRevoke?($0) },
-            authenticatedAccountID: { accountID }
+            authenticatedAccountID: { accountID },
+            authenticatedScopeID: { accountID.map { $0 + ":team-a" } }
         )
     }
 
@@ -78,6 +79,19 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(candidates.isEmpty)
     }
 
+    @Test("a missing team scope fails closed instead of using the account identity")
+    func missingScopeFailsClosed() async throws {
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "mac-record", deviceID: "123e4567-e89b-42d3-a456-426614174011", platform: "mac")
+        ])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil,
+            discover: { response }, invalidateSnapshot: {}, revokeBinding: { _ in },
+            authenticatedAccountID: { "account-a" }
+        )
+        #expect(await provider.discoverLiveMacs().isEmpty)
+    }
+
     @Test("an older discovery revision cannot overwrite the current projection")
     func staleRevisionIsIgnored() async throws {
         let newerMac = Self.binding(
@@ -100,7 +114,8 @@ struct MobileIrxDiscoveryProviderTests {
         let provider = MobileIrxDiscoveryProvider(
             preferredTag: "default", compatibilityPolicy: nil,
             discover: { sequence.next() }, invalidateSnapshot: {},
-            revokeBinding: { _ in }, authenticatedAccountID: { "account-a" }
+            revokeBinding: { _ in }, authenticatedAccountID: { "account-a" },
+            authenticatedScopeID: { "account-a:team-a" }
         )
 
         let first = await provider.discoverLiveMacs()
@@ -154,6 +169,27 @@ struct MobileIrxDiscoveryProviderTests {
                 expectedAccountID: "account-a"
             )
         }
+    }
+
+    @Test("forget refuses when the authenticated team scope is missing")
+    func forgetMissingScopeGuard() async throws {
+        let mac = "123e4567-e89b-42d3-a456-426614174011"
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "mac-record", deviceID: mac, platform: "mac")
+        ])
+        let revoked = RevokedBox()
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil,
+            discover: { response }, invalidateSnapshot: {},
+            revokeBinding: { revoked.append($0) },
+            authenticatedAccountID: { "account-a" }
+        )
+        await #expect(throws: MobileIrxForgetError.discoveryUnavailable) {
+            try await provider.forgetComputer(
+                macDeviceID: mac, instanceTag: nil, expectedAccountID: "account-a"
+            )
+        }
+        #expect(revoked.values.isEmpty)
     }
 }
 
