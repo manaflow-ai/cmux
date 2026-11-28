@@ -75,6 +75,13 @@ mod runtime;
 mod runtime_io;
 #[path = "peer_runtime_requests.rs"]
 mod runtime_requests;
+
+tokio::task_local! {
+    /// Told when a `session/prompt` sent from inside its scope is handed to the link (queued on
+    /// it, ahead of every later frame): a prompt held for its chat's turn gives the turn up there,
+    /// not when the far daemon's turn ends (`server/peer_forward/prompt_order.rs`).
+    pub(crate) static PROMPT_ON_WIRE: Arc<tokio::sync::Notify>;
+}
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };

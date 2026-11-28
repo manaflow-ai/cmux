@@ -136,7 +136,12 @@ impl Peer {
             }
         };
         match sending.await {
-            Ok(Ok(())) => forget.cancel = cancel,
+            Ok(Ok(())) => {
+                forget.cancel = cancel;
+                if m == method::SESSION_PROMPT {
+                    let _ = super::PROMPT_ON_WIRE.try_with(|on_wire| on_wire.notify_one());
+                }
+            }
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
