@@ -85,7 +85,6 @@ export function VirtualList({
   tabIndex,
   onKeyDown,
   itemKey,
-  rowCount,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();
@@ -188,7 +187,6 @@ export function VirtualList({
       aria-rowcount={role === "grid" ? rowCount : undefined}
       tabIndex={tabIndex}
       onKeyDown={onKeyDown}
-      aria-rowcount={role === "grid" ? rowCount : undefined}
     >
       <div
         ref={space}

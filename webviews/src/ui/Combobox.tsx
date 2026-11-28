@@ -314,9 +314,6 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
-  // A pinned list, or one whose caller asked for virtual rows, scrolls inside a ScrollArea; a long
-  // plain list windows inside the list itself (`virtualized` below).
-  const hasScroller = hasPinned || virtualRows !== undefined;
   const edges = useScrollEdges();
   const pinnedEdges = useScrollEdges();
   const deliberatelyHighlighted = useRef(false);
@@ -353,11 +350,6 @@ export function Combobox({
     : enabledSuggestions.length;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
   const scrollingRows = hasPinned ? scrollingCount : enabledSuggestions.length;
-  // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
-  // and back must not rebuild the window (and measure its rows again) on each key.
-  const [windowing, setWindowing] = useState(() => scrollingRows > COMBOBOX_VIRTUAL_AFTER);
-  if (!windowing && scrollingRows > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
-  const virtualized = virtualRows !== undefined || windowing || scrollingRows > COMBOBOX_VIRTUAL_AFTER;
   // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
   // and back must not rebuild the window (and measure its rows again) on each key. A list that opens
   // long windows from its first render; one that grows past the bound switches on as it does.
