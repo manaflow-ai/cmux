@@ -8,7 +8,7 @@ legacy-identity requirement is a dispatch-time variable.
 
 - check-nightly-webviews runs the gating webview checks on the exact build commit beside the app build, and
   publish-nightly's Final publication gate refuses a build without them green (scripts/ci/nightly_publish_guard.py
-  webview-verdict).
+  webview-verdict) when NIGHTLY_COMPONENT_GATES is block; otherwise it publishes with a "Nightly stale part" warning.
 - .github/nightly-known-bad.json, read live from feat-cmux-next, holds a build whose commit contains a listed bad
   commit without its fix, in publish-nightly, before anything is uploaded.
   Held is not failed; an unreadable list publishes with a warning.
@@ -349,7 +349,7 @@ class WorkflowTests(unittest.TestCase):
         shelf_workflow = (ROOT / ".github/workflows/app-store-shelf.yml").read_text()
         self.assertIn("bash scripts/ci/app-store-shelf-check.sh", shelf_workflow)
         script = (ROOT / "scripts/ci/app-store-shelf-check.sh").read_text()
-        for test in ("every_shipped_store_listing_installs_and_has_something_to_open",
+        for test in ("every_shipped_store_listing_has_an_open_target_or_working_setting_switch",
                      "a_command_only_store_listing_has_nothing_to_open_after_install"):
             self.assertIn(test, script)
 

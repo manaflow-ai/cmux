@@ -57,6 +57,11 @@ use super::*;
 /// that waits for the chat's batch instead of waking it at once.
 pub const GATHER_META: &str = "gather";
 
+/// The explicit batch request kept with the sender's provenance in the inbox journal.
+pub(super) fn requested(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(GATHER_META)) == Some(&Value::Bool(true))
+}
+
 /// What a `--gather` send would do that a batch cannot wait for, as the refusal the daemon
 /// answers it with; None when it joins the window. `agent` is whether it names another sender
 /// (else it is the person's own prompt), `fire` whether it is a fire notice, and `wakes_now`
@@ -227,18 +232,28 @@ pub(crate) const NO_EXPIRY_TTL_MS: u64 = 5 * 60_000;
 /// under [`MIN_BATCH_TOKENS`].
 pub(crate) fn coldness(meta: &SessionMeta, now: u64) -> Option<(u64, u64)> {
     let usage = meta.usage.as_ref();
-    let expires =
-        usage.and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt")).and_then(Value::as_u64);
-    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
-    // The later of the two: a turn that ended after the usage that named the expiry (one that
-    // reported none) still warmed the cache.
-    let expires = match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
-        (Some(a), Some(b)) => a.max(b),
-        (a, b) => a.or(b)?,
-    };
+    let expires = cache_expires_at(meta)?;
     let cold = now.checked_sub(expires).filter(|c| *c > 0)?;
     let tokens = usage.and_then(|u| u.get("used")).and_then(Value::as_u64).unwrap_or(0);
     (tokens >= MIN_BATCH_TOKENS).then_some((cold, tokens))
+}
+
+/// When the chat's prompt cache lapses: its last `usage_update`'s `cacheExpiresAt`, or
+/// [`NO_EXPIRY_TTL_MS`] after its last turn ended, the later of the two; None when neither is
+/// known. The inbox's warm hold (`inbox.rs` `WARM_HOLD_MS`) ends by it.
+pub(crate) fn cache_expires_at(meta: &SessionMeta) -> Option<u64> {
+    let expires = meta
+        .usage
+        .as_ref()
+        .and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt"))
+        .and_then(Value::as_u64);
+    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
+    // The later of the two: a turn that ended after the usage that named the expiry (one that
+    // reported none) still warmed the cache.
+    match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// The batch window of a chat `cold_ms` cold with `tokens` of context (module docs).

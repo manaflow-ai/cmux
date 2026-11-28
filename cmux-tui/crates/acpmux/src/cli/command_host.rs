@@ -41,6 +41,19 @@ pub enum PeerCmd {
     /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
     /// and the registry, and changes nothing.
     Cells,
+    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
+    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
+    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
+    Unreachable {
+        /// The machine the transfer could not reach.
+        name: String,
+        /// What failed, shown in the pick's reason.
+        #[arg(long)]
+        why: Option<String>,
+        /// It answers again: forget its failure.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -68,6 +81,34 @@ pub enum PeerCmd {
         watch: bool,
         #[command(flatten)]
         lines: crate::host_load_watch::Lines,
+    },
+    /// This machine's working set, measured (RFD 0182 B11): asks the kernel to reclaim a small
+    /// step of a cgroup's memory at a time (`memory.reclaim`) and stops once the pages it takes
+    /// come straight back (refaults) or nothing more can be reclaimed; the size left is the
+    /// working set, as JSON. Default cgroup: this user's `acpmuxsessions.slice`. It costs the
+    /// refaults it causes, so run it on an idle machine; at most `--max-steps` steps of
+    /// `--settle-ms` each. Linux only (cgroup v2, 5.19+); without swap anonymous memory counts
+    /// as working set.
+    #[command(name = "working-set")]
+    WorkingSet {
+        /// A cgroup path under /sys/fs/cgroup.
+        #[arg(long)]
+        cgroup: Option<String>,
+        /// Each step's share of the cgroup, in parts per thousand.
+        #[arg(long, default_value_t = 20)]
+        step_permille: u64,
+        /// Stop once a step's refaults pass this share of it, in parts per thousand.
+        #[arg(long, default_value_t = 100)]
+        refault_permille: u64,
+        /// Time between a step and reading its refaults.
+        #[arg(long, default_value_t = 1000)]
+        settle_ms: u64,
+        /// The most steps.
+        #[arg(long, default_value_t = 60)]
+        max_steps: u32,
+        /// Never reclaim below this many MiB.
+        #[arg(long, default_value_t = 64)]
+        floor_mb: u64,
     },
     /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
     /// it in the background when the last split is old.
@@ -166,6 +207,12 @@ pub enum PeerCmd {
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
+    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
+    Grantors {
+        #[command(subcommand)]
+        cmd: GrantorsCmd,
     },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
@@ -296,6 +343,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -372,6 +429,19 @@ pub enum PeerCmd {
         /// Where to listen (a stale socket there is replaced; a served one is left alone).
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
+    },
+    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
+    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
+    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
+    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
+    /// pipes gets a plain pipe, which ends with its circuit.
+    Pipe {
+        /// A machine name in the hub's address book, or its node key.
+        #[arg(value_name = "MACHINE")]
+        machine: String,
+        /// The far machine's loopback port (the one its `remote_daemon` admits).
+        #[arg(long, default_value_t = 22)]
+        port: u16,
     },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
@@ -627,6 +697,17 @@ pub enum ConsentCmd {
         /// Control from this person's other machines signed in to the same account.
         #[arg(long)]
         signed_in_machines: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GrantorsCmd {
+    /// The pinned Macs (id, name, account, key words) and the pending ask.
+    List,
+    /// Stop a Mac's grants here at once, and drop its pending ask.
+    Rm {
+        /// The Mac's grantor id (`mac-` and 16 hex digits).
+        id: String,
     },
 }
 

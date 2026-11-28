@@ -124,6 +124,10 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub harness_sandbox_failing: bool,
+    /// The refused operation, redacted and bounded; cleared on recovery.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_error: Option<String>,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -234,6 +238,13 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub working_below: bool,
+    /// What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),
+    /// `busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's
+    /// period (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident
+    /// chat. Absent from a peer on an older acpmux: unknown, not idle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub residency: Option<Value>,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded

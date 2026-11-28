@@ -96,8 +96,9 @@ extension AgentPaneImageCopies {
     /// `composer.copy`: spends the person's Copy key, writes each data or text item as a file under
     /// its own plain name in the copies folder (``writeComposerFile(_:item:fallback:in:)``; an SVG
     /// rebuilt first), checks each path again, and replaces the general pasteboard's contents with the
-    /// text (when there is any), then one file item per attachment kept, in order. An item that is
-    /// refused or cannot be read is left out; with no text and nothing kept, nothing is written.
+    /// text (when there is any, with its images as RTFD), then one file item per attachment kept, in
+    /// order. An item that is refused or cannot be read is left out; with no text and nothing kept,
+    /// nothing is written.
     @MainActor static func copyComposer(text: String, items: [AgentPaneComposerCopyItem], in model: AgentPaneModel,
                                        references: [String: URL]? = nil, order: String? = nil,
                                        published: @MainActor (Set<Int>) -> Void = { _ in }) async -> [String: Any] {
@@ -118,13 +119,22 @@ extension AgentPaneImageCopies {
         guard !Task.isCancelled, model.droppedPaths.generation == generation,
               model.replyLinks.composerCopyRevision == revision else { return AgentPaneModel.replyFailure(.openFailed) }
         guard !files.isEmpty || !text.isEmpty else { return AgentPaneModel.replyFailure(.openFailed) }
+        // Text and images together as one rich document on the text's item: an app that pastes rich
+        // text (Notes, Mail, Messages, TextEdit) takes both, where the separate items alone gave it
+        // the text and a file name but no picture (issue 59851).
+        let rtfd = text.isEmpty ? nil : await composerRTFD(text, images: files.compactMap { file in
+            file.image.map { (name: file.file.lastPathComponent, data: $0) }
+        })
         var board: [NSPasteboardItem] = []
         if !text.isEmpty {
             let item = NSPasteboardItem()
             item.setString(text, forType: .string)
+            if let rtfd { item.setData(rtfd, forType: .rtfd) }
             board.append(item)
         }
-        board += files.map { composerPasteboardItem($0) }
+        // Beside the copied text, a file's name as text read as part of the prompt in apps that
+        // join every item's text; the file URL still names it.
+        board += files.map { composerPasteboardItem($0, namedAsText: text.isEmpty) }
         board[0].setString(html, forType: .html)
         guard model.replyLinks.copyItems(board) else { return AgentPaneModel.replyFailure(.openFailed) }
         published(Set(files.map(\.index)))
@@ -149,12 +159,29 @@ extension AgentPaneImageCopies {
         return html + "<span hidden data-cmux-composer-order=\"\(metadata[0])\" data-cmux-composer-files=\"\(metadata[1])\"></span>"
     }
 
+    /// The copy as one rich text document: each image, in order, then the text. None without an
+    /// image (the plain text says it all) or when AppKit cannot encode it.
+    @concurrent static func composerRTFD(_ text: String, images: [(name: String, data: Data)]) async -> Data? {
+        guard !images.isEmpty else { return nil }
+        let document = NSMutableAttributedString()
+        for image in images {
+            let wrapper = FileWrapper(regularFileWithContents: image.data)
+            wrapper.preferredFilename = image.name
+            let attachment = NSTextAttachment()
+            attachment.fileWrapper = wrapper
+            document.append(NSAttributedString(attachment: attachment))
+            document.append(NSAttributedString(string: "\n"))
+        }
+        document.append(NSAttributedString(string: text))
+        return document.rtfd(from: NSRange(location: 0, length: document.length), documentAttributes: [:])
+    }
+
     /// The pasteboard item of one attachment: as ``pasteboardItem(_:data:)``, with the TIFF made
     /// off the main actor.
-    @MainActor static func composerPasteboardItem(_ copy: ComposerFile) -> NSPasteboardItem {
+    @MainActor static func composerPasteboardItem(_ copy: ComposerFile, namedAsText: Bool = true) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         item.setString(copy.file.absoluteString, forType: .fileURL)
-        item.setString(copy.file.lastPathComponent, forType: .string)
+        if namedAsText { item.setString(copy.file.lastPathComponent, forType: .string) }
         if let type = copy.imageType, let image = copy.image {
             item.setData(image, forType: NSPasteboard.PasteboardType(type))
             if let tiff = copy.tiff { item.setData(tiff, forType: .tiff) }

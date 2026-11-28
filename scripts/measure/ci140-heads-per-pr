@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Runner minutes per merged PR, split by the multiplier: heads pushed per merged PR x minutes per head,
+plus minutes on PRs that never merge.
+
+  minutes/merged PR = (heads per merged PR) x (minutes per head) + minutes on PRs that close unmerged or stay draft
+
+Inputs (all local, no GitHub calls):
+  --feed     job rows (JSONL) from the timing feed /v1/github/timing/records: at (= completed_at), seconds, queue,
+             run, workflow, workflow_path, job, conclusion, branch, seg
+  --prs      {key: {number, headRefName, state, isDraft, mergedAt, closedAt, createdAt, baseRefName}} from a GraphQL
+             search of PRs updated in the window
+  --parents  "SHA PARENT..." lines for the `cmux-next · SHA` merge-ref commits (head = second parent); only for
+             feed rows without their own `sha` (before 11-26)
+  --git      a bare repo holding the PR heads, for trees and subjects (optional; without it (d) is not measured)
+
+Buckets:
+  (a) distinct heads that ran CI per PR merged in the window, and their distribution
+  (b) minutes on PRs closed unmerged, still draft, or still open
+  (c) job minutes on a head after a newer head of the same branch was pushed, on jobs that were not cancelled
+      (the part `cancel-in-progress` would have cut), by workflow file
+  (d) minutes on heads whose tree equals the previous head's (empty commit) or whose subject is wip/checkpoint
+
+Run: scripts/measure/ci140-heads-per-pr --feed feed.jsonl --prs prs.json --parents parents.txt --git trees.git
+     [--since 2026-11-25T22:00:00Z --until 2026-11-26T22:00:00Z] [--json]
+"""
+import argparse, bisect, collections, datetime, json, os, re, subprocess, sys
+
+def ts(s):
+    return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+
+WIP = re.compile(r"^(wip|checkpoint|tmp|temp|retrigger|re-?run|rerun ci|trigger ci|ci: ?(kick|retrigger|rerun)|empty commit|"
+                 r"fixup!|squash!|save|snapshot)\b", re.I)
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--feed", required=True); ap.add_argument("--prs", required=True)
+    ap.add_argument("--parents"); ap.add_argument("--git")
+    ap.add_argument("--since", default="2026-11-25T22:00:00Z"); ap.add_argument("--until", default="2026-11-26T22:00:00Z")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--base-branches", default="feat-cmux-next,main,nightly-next",
+                    help="branches whose pushes the feed tags seg=pr; they are no PR's heads and are left out"); ap.add_argument("--top", type=int, default=15)
+    a = ap.parse_args()
+    t0, t1 = ts(a.since), ts(a.until)
+    bases = set(filter(None, a.base_branches.split(",")))
+    par = {}
+    for l in (open(a.parents) if a.parents else []):
+        p = l.split()
+        if p: par[p[0]] = p[1:]
+
+    # job rows -> runs
+    jobs = []; runs = {}
+    for l in open(a.feed):
+        r = json.loads(l)
+        if r.get("seg") != "pr" or not r.get("branch") or r["branch"] in bases: continue
+        end = ts(r["at"])
+        if not (t0 <= end < t1): continue
+        sec = int(r.get("seconds") or 0); start = end - sec
+        rid = r["run"]
+        x = runs.setdefault(rid, {"b": r["branch"], "created": start - int(r.get("queue") or 0), "sha": None,
+                                  "path": r.get("workflow_path") or r["workflow"], "min": 0.0})
+        x["created"] = min(x["created"], start - int(r.get("queue") or 0)); x["min"] += sec / 60
+        w = r["workflow"]
+        if r.get("sha"):  # the feed's own head_sha (schema 2 rows from 11-26 on)
+            x["sha"] = r["sha"]
+        m = None if r.get("sha") else re.match(r"cmux-next(?: base tier)? · ([0-9a-f]{40})$", w)
+        if m and m.group(1) in par:
+            p = par[m.group(1)]; x["sha"] = p[1] if len(p) == 2 else m.group(1)
+        m = None if r.get("sha") else re.match(r"v1;sha=([0-9a-f]{40})", w)
+        if m: x["sha"] = m.group(1)
+        jobs.append((rid, start, end, sec / 60, r["conclusion"], r.get("workflow_path") or w))
+
+    # head sequence per branch: a head's push time = earliest creation of a run naming it
+    push = collections.defaultdict(dict)
+    for rid, x in runs.items():
+        if x["sha"]:
+            d = push[x["b"]]; d[x["sha"]] = min(d.get(x["sha"], 1e18), x["created"])
+    seqs = {b: sorted((t, h) for h, t in d.items()) for b, d in push.items()}
+    pos = {(b, h): i for b, s in seqs.items() for i, (_, h) in enumerate(s)}
+    times = {b: [e[0] for e in s] for b, s in seqs.items()}
+    def head_at(b, t):
+        s = seqs.get(b)
+        if not s: return None, None
+        i = bisect.bisect_right(times[b], t + 60) - 1
+        i = max(i, 0)
+        return i, s
+    for rid, x in runs.items():
+        if not x["sha"]:
+            i, s = head_at(x["b"], x["created"])
+            x["sha"] = s[i][1] if s else None
+        x["idx"] = pos.get((x["b"], x["sha"]))
+
+    # PRs: branch -> the PR open at the run's time (latest created before it)
+    prs = json.load(open(a.prs)); by_b = collections.defaultdict(list)
+    for p in prs.values(): by_b[p["headRefName"]].append(p)
+    for v in by_b.values(): v.sort(key=lambda p: p["createdAt"])
+    def pr_for(b, t):
+        v = by_b.get(b) or []
+        best = None
+        for p in v:
+            if ts(p["createdAt"]) <= t + 3600: best = p
+        return best or (v[0] if v else None)
+    def state(p, t):
+        if p is None: return "no-pr"
+        if p["mergedAt"]: return "merged"
+        if p["state"] == "CLOSED": return "closed-unmerged"
+        return "open-draft" if p["isDraft"] else "open-ready"
+
+    total = sum(j[3] for j in jobs)
+    merged_in = [p for p in prs.values() if p["mergedAt"] and t0 <= ts(p["mergedAt"]) < t1]
+    M = len(merged_in)
+    per = lambda v: round(v / M, 1)
+
+    # (b) minutes by PR state
+    bstate = collections.Counter(); bpath = collections.defaultdict(collections.Counter)
+    for rid, x in runs.items():
+        p = pr_for(x["b"], x["created"]); s = state(p, x["created"]); x["pr"] = p; x["state"] = s
+        bstate[s] += x["min"]; bpath[s][x["path"]] += x["min"]
+
+    # (a) heads per merged PR
+    hcount = []
+    for p in merged_in:
+        s = seqs.get(p["headRefName"]) or []
+        hcount.append((len(s), p["number"], p["headRefName"]))
+    hcount.sort(reverse=True)
+    dist = collections.Counter()
+    for n, _, _ in hcount:
+        dist["0" if n == 0 else "1" if n == 1 else "2-3" if n <= 3 else "4-9" if n <= 9 else "10-19" if n <= 19 else "20+"] += 1
+    merged_min = collections.Counter(); merged_heads = 0
+    mset = {p["number"] for p in merged_in}
+    for rid, x in runs.items():
+        if x["pr"] and x["pr"]["number"] in mset: merged_min["all"] += x["min"]
+    merged_heads = sum(n for n, _, _ in hcount)
+    min_by_heads = collections.Counter()
+    for rid, x in runs.items():
+        if x["pr"] and x["pr"]["number"] in mset:
+            n = len(seqs.get(x["b"]) or [])
+            min_by_heads["20+" if n >= 20 else "10-19" if n >= 10 else "4-9" if n >= 4 else "1-3"] += x["min"]
+
+    # (c) superseded, not cancelled
+    csum = 0.0; cfull = 0.0; cpath = collections.Counter(); cconcl = collections.Counter()
+    for rid, start, end, mins, concl, path in jobs:
+        x = runs[rid]; i = x["idx"]; s = seqs.get(x["b"])
+        if i is None or not s or i + 1 >= len(s) or concl == "cancelled": continue
+        nxt = s[i + 1][0]
+        ov = max(0.0, end - max(start, nxt)) / 60
+        if ov <= 0: continue
+        csum += ov; cpath[path] += ov; cconcl[concl] += ov
+        if start >= nxt: cfull += mins
+
+    # (d) empty or wip heads
+    tree = {}; subj = {}
+    def git(*args):
+        p = subprocess.run(["git", "-C", a.git, *args], capture_output=True, text=True,
+                           env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
+        return p.stdout.strip() if p.returncode == 0 else None
+    dkind = {}
+    if a.git:
+        shas = sorted({h for s in seqs.values() for _, h in s})
+        p = subprocess.run(["git", "-C", a.git, "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                           input="\n".join(shas), capture_output=True, text=True,
+                           env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
+        have = {l.split()[0] for l in p.stdout.splitlines() if l.endswith(" commit")}
+        out = git("log", "--no-walk=unsorted", "--format=%H %T %P%x09%s", *have) if have else ""
+        info = {}
+        for l in (out or "").splitlines():
+            head, _, s_ = l.partition("\t"); f = head.split()
+            info[f[0]] = (f[1], f[2:], s_)
+        for b, s in seqs.items():
+            for i, (_, h) in enumerate(s):
+                if h not in info: dkind[h] = "unknown"; continue
+                t, ps, sj = info[h]
+                prev = s[i - 1][1] if i else None
+                if prev and prev in info and info[prev][0] == t: dkind[h] = "same-tree-as-prev"
+                elif len(ps) == 1 and ps[0] in info and info[ps[0]][0] == t: dkind[h] = "empty-commit"
+                elif len(ps) == 1 and WIP.search(sj): dkind[h] = "wip-subject"
+                else: dkind[h] = "other"
+    dmin = collections.Counter(); dheads = collections.Counter()
+    for h, k in dkind.items(): dheads[k] += 1
+    for rid, x in runs.items():
+        dmin[dkind.get(x["sha"], "unmapped" if x["sha"] is None else "unknown")] += x["min"]
+
+    res = {
+        "window": [a.since, a.until], "merged_prs": M, "total_min": round(total), "min_per_merged_pr": per(total),
+        "a": {"heads_per_merged_pr": round(merged_heads / M, 2) if M else None,
+              "min_per_head_on_merged": round(merged_min["all"] / merged_heads, 1) if merged_heads else None,
+              "min_on_merged_prs_per_merged_pr": per(merged_min["all"]),
+              "dist_merged_prs_by_heads": dict(dist),
+              "merged_min_per_merged_pr_by_heads_bucket": {k: per(v) for k, v in min_by_heads.items()},
+              "top": [{"pr": n, "branch": b, "heads": c} for c, n, b in hcount[:a.top]]},
+        "b": {k: per(v) for k, v in bstate.items()},
+        "b_top_paths": {s: [(k, per(v)) for k, v in bpath[s].most_common(6)] for s in ("closed-unmerged", "open-draft", "open-ready")},
+        "c": {"min_per_merged_pr": per(csum), "jobs_started_after_newer_push_min_per_pr": per(cfull),
+              "by_conclusion": {k: per(v) for k, v in cconcl.items()},
+              "by_workflow": [(k, per(v)) for k, v in cpath.most_common(a.top)]},
+        "d": {"min_per_merged_pr": {k: per(v) for k, v in dmin.items()}, "heads": dict(dheads)},
+    }
+    if a.json: print(json.dumps(res, indent=1)); return
+    print(f"window {a.since}..{a.until}: {M} PRs merged, {round(total)} PR job min = {per(total)} min/merged PR")
+    A = res["a"]
+    print(f"(a) heads that ran CI per merged PR: {A['heads_per_merged_pr']}; min per head on merged PRs: "
+          f"{A['min_per_head_on_merged']}; merged PRs' own min = {A['min_on_merged_prs_per_merged_pr']}/merged PR")
+    print(f"    merged PRs by head count: {A['dist_merged_prs_by_heads']}")
+    print(f"    merged-PR min/merged PR by that PR's head count: {A['merged_min_per_merged_pr_by_heads_bucket']}")
+    print("    most heads:", ", ".join(f"#{t['pr']}={t['heads']}" for t in A["top"]))
+    print(f"(b) min/merged PR by PR state now: {res['b']}")
+    for s, v in res["b_top_paths"].items(): print(f"    {s}: {v}")
+    C = res["c"]
+    print(f"(c) min/merged PR after a newer head was pushed, not cancelled: {C['min_per_merged_pr']} "
+          f"(jobs that started only after the newer push: {C['jobs_started_after_newer_push_min_per_pr']}); by conclusion {C['by_conclusion']}")
+    for k, v in C["by_workflow"]: print(f"    {v:6} {k}")
+    print(f"(d) min/merged PR by head kind: {res['d']['min_per_merged_pr']}; heads: {res['d']['heads']}")
+
+if __name__ == "__main__":
+    main()

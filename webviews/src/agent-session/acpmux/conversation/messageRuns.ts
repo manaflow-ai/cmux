@@ -30,6 +30,7 @@ import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, ty
 import { toolRunPhrases, toolRunCategories } from "./toolRunSummary";
 import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
+import { RowMemo } from "../../shared/rowMemo";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
 
@@ -58,7 +59,7 @@ type Member = {
 /// turn on every record, and a run's member groups its calls and parses each command line
 /// (`toolGroups`). The running turn's earlier runs keep their row objects across records (turns.ts
 /// `earlierRun`), so a record reads only the rows it changed.
-const memberOf = new WeakMap<AcpmuxRow, Member | null>();
+const memberOf = new RowMemo<AcpmuxRow, Member | null>();
 
 function member(row: AcpmuxRow): Member | undefined {
   let kept = memberOf.get(row);
@@ -258,9 +259,15 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false
   if (look === "turn-end") return rows;
   let out: AcpmuxRow[] | undefined;
   let index = 0;
+  // Rows an open background run already holds (backgroundRuns.ts, which runs first) are its own: a
+  // run of task notifications or peers there is never grouped a second time.
+  let held: Set<string> | undefined;
+  const joins = (row: AcpmuxRow) => member(row) && !held?.has(row.id);
   while (index < rows.length) {
+    const run = rows[index]!.backgroundRun;
+    if (run?.rows.length && rows[index]!.foldOpen) for (const id of run.rows) (held ??= new Set()).add(id);
     let end = index;
-    while (end < rows.length && member(rows[end]!)) end += 1;
+    while (end < rows.length && joins(rows[end]!)) end += 1;
     if (end === index) {
       out?.push(rows[index]!);
       index += 1;

@@ -37,7 +37,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
     /// has now; one that cannot lays out live, as it would at the hold's start.
     func resumePageHold() {
         guard pageMotionHold != nil, heldPageSize == nil, !pageFollowsPane else { return }
-        if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
+        if startPageHold() { requestLayout() } else { pageMotionHold = nil }
     }
 
     /// The page window stays attached through the hold (RESIZE P0 5): only a divider drag detaches it (``paneMotion(active:)``).
@@ -57,7 +57,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         }
         if pageFollowsPane {
             pageMotionHold = hold
-            needsLayout = true
+            requestLayout()
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
@@ -66,7 +66,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             pageHoldTopLeft = true
         }
         pageMotionHold = hold
-        needsLayout = true
+        requestLayout()
     }
 }
 
@@ -95,8 +95,10 @@ extension CEFTabContentView {
     /// update, so that update moves no window (``CEFLayerHosting/resizeMotion(active:)``). A page whose pane the drag
     /// never moves stays attached: no detach at the press and no attach at the landing, each a fork call that orders
     /// a child window out or in (1-4 ms each, RESIZE P0 5) and runs Chromium's window observers.
-    func pageWillMoveInMotion() {
+    func pageWillMoveInMotion(postedBy host: CEFHostView? = nil) {
         guard paneMotionAwaitsMove else { return }
+        // A geometry post alone (an occlusion or clip change, a tracker nudge) is no move: a frame change reports its own.
+        if let host, let start = paneMotionStartRect, host.convert(host.bounds, to: nil) == start { return }
         paneMotion(active: true)
     }
 

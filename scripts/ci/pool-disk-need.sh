@@ -19,6 +19,13 @@
 # here), and never touches another runner's live job. Run it before anything restores into this runner's
 # caches (the R2 registry restore). Still short: a ::warning:: with the numbers, and the hook has named
 # what holds the disk in this log. Never fails the leg; off a pool VM (no hook) it only prints df.
+#
+# On a pool VM it also declares the need, whether or not the disk holds it now: NEED_GIB in bytes goes to
+# ~/.cmux-job-disk-need (CMUX_JOB_NEED_FILE), which the VM's meter reads for as long as this job runs (cmuxterm-hq
+# pool.sh job_disk). Before, a check that passed said nothing more: the meter's disk guard and packer charged this leg
+# one 17 GiB job, so another runner took a job beside it and the two filled the disk. cmux job 140998370954 (run
+# 46151055654, cmux-runner-pool-e5c-0210-2, 2026-11-28 13:47Z) passed "45 GiB: ok" in 0 s and died 3 min later in
+# "Restore the workspace delta from R2", "No space left on device" on /home/runner2/actions-runner/_diag.
 # scripts/ci/tests/pool-disk-need.test.sh.
 set -uo pipefail
 
@@ -38,6 +45,13 @@ if [[ ! -x "$hook" ]]; then
   echo "pool disk: $(gib "$free") GiB free on $disk, this leg needs ${need_gib} GiB (no $hook: not a pool VM)"
   exit 0
 fi
+need_file="${CMUX_JOB_NEED_FILE:-${HOME:-/nonexistent}/.cmux-job-disk-need}"
+if printf '%s\n' "$need" > "$need_file.tmp" 2>/dev/null && mv -f "$need_file.tmp" "$need_file" 2>/dev/null; then
+  echo "pool disk: declared ${need_gib} GiB for this job to the VM's disk guard ($need_file)"
+else
+  rm -f "$need_file.tmp" 2>/dev/null
+  echo "pool disk: could not declare ${need_gib} GiB ($need_file not writable); the guard charges this job 17 GiB"
+fi
 if ((free >= need)); then
   echo "pool disk: $(gib "$free") GiB free on $disk, this leg needs ${need_gib} GiB: ok"
   echo "pool disk: $(gib "$free") GiB free, need ${need_gib} GiB, ok" >> "$summary"
@@ -48,7 +62,7 @@ t0=$SECONDS
 wait_s="${CMUX_DISK_START_WAIT:-180}"
 [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=180
 CMUX_DISK_JOB_BYTES="$need" CMUX_DISK_FLOOR_BYTES="$need" CMUX_DISK_START_WAIT="$wait_s" \
-  CMUX_DISK_PATH="$disk" timeout -k 5 "$((wait_s + 30))" "$hook" started || true
+  CMUX_DISK_PATH="$disk" bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" --kill-after=5 "$((wait_s + 30))" "$hook" started || true
 after="$(avail)"
 [[ "$after" =~ ^[0-9]+$ ]] || after=0
 line="pool disk: $(gib "$free") -> $(gib "$after") GiB free in $((SECONDS - t0)) s, need ${need_gib} GiB"

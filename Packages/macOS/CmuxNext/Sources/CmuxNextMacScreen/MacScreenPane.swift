@@ -131,6 +131,8 @@ public final class MacScreenPane {
     private var retryFailure: MacScreenRetryCover?
     /// The current transport's clipboard sync (cap `clipboard.text`); nil until a session offers it.
     private var clipboardBridge: RemoteClipboardBridge?
+    /// The recording a replay pane plays (``init(replay:name:preferences:)``); nil for a device's screen.
+    private var replaySource: RemoteMovieReplaySource?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -168,6 +170,20 @@ public final class MacScreenPane {
         observeRetry()
     }
 
+    /// A recorded screen share played through this pane's decoder and presenter with no peer
+    /// (`mac_screen.replay`, goal screen-share-viewer-present): `mac_screen.state` reads its
+    /// Decode and Present as it would a live stream's. No hub, no input, nothing reconnects.
+    init(replay source: RemoteMovieReplaySource, name: String, preferences: ScreenPreferences) {
+        let session = MacScreenSession(title: name, preferences: preferences, signaling: { nil })
+        model = MacScreenPaneModel(session: session, name: name, gate: .open)
+        inputSink = nil
+        replaySource = source
+        view = MacScreenPaneView(model: model)
+        wire(session)
+        session.beginReplay(width: source.width, height: source.height)
+        startDecoding(source) { [weak session] in session?.endReplay() }
+    }
+
     /// A tab restored on an old pairing-link record: link pairing is no
     /// longer supported, so it says so (Close Tab, Open Screen Sharing).
     public init(unsupportedLink: Void) {
@@ -197,7 +213,11 @@ public final class MacScreenPane {
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
             if focused { clipboardBridge?.checkNow() }
-            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly,
+                                                                                hasFrame: model.hasFrame,
+                                                                                sessionConnected: model.session?.phase == .connected,
+                                                                                stalled: model.session?.isStalled == true,
+                                                                                reconnecting: model.session?.isReconnecting == true)
             handlers.keyboardChanged()
         }
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
@@ -255,6 +275,19 @@ public final class MacScreenPane {
             bridge.start()
             clipboardBridge = bridge
         }
+        startDecoding(transport)
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        }
+    }
+
+    /// `source`'s video through the remote view decoder into the presenter, its frames counted on the session.
+    /// `ended` runs on the main actor once the source finishes (a replay's file played out).
+    private func startDecoding(_ source: any RemoteViewStreamSource, ended: (@MainActor () -> Void)? = nil) {
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
@@ -265,15 +298,11 @@ public final class MacScreenPane {
                                      decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
-        // task-owner: this transport's decoder; ends with its stream or the next session's
-        decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
-        cursorTask?.cancel()
-        view.cursor.setRemoteCursor(nil)
-        let cursors = transport.cursorUpdates()
-        // task-owner: this transport's cursor feed; ends with its stream or the next session's
-        cursorTask = Task { [weak self] in
-            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        let pipeline = RemoteDecodePipeline(source: source, deliver: deliver, presented: { counter.shown($0) })
+        // task-owner: this source's decoder; ends with its stream or the next session's
+        decodeTask = Task.detached(priority: .userInitiated) {
+            await pipeline.run()
+            if let ended, !Task.isCancelled { await ended() }
         }
     }
 
@@ -307,7 +336,9 @@ public final class MacScreenPane {
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
-                if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
+                if case let .failed(message, _) = session.phase, model.hub?.phase.streamingScope != nil {
+                    model.hub?.streamFailed(stage: session.connectStage.name, message: message)
+                }
                 view.needsLayout = true
                 handlers.keyboardChanged()
                 observePhase(session)
@@ -367,6 +398,7 @@ public final class MacScreenPane {
         retry.setInSight(false)
         model.recording.stop()
         decodeTask?.cancel()
+        replaySource?.stop()
         retryWatch?.cancel()
         cursorTask?.cancel()
         visible = false
@@ -597,15 +629,15 @@ public final class MacScreenPaneView: NSView {
         }
     }
 
-    /// Input goes to the other Mac only while the screen is live with no card
-    /// over it (connected, with a picture), and the keyboard state says
-    /// exactly that. Under a card a click neither reaches the host nor takes
-    /// the keyboard. A screen that had the keyboard before a drop keeps it
-    /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
-    /// the picture is back; a released one still needs a click.
+    /// Input goes to the other Mac only while the screen has a current live frame.
+    /// A hidden reconnect card must not make a stale frame interactive; turning
+    /// the mode off also releases any held host keys through the input controller.
     func syncInputGate() {
-        // The live card, not the held one: no input reaches a screen that is still coming up.
-        let live = Self.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
+        let live = Self.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly,
+                                   hasFrame: model.hasFrame,
+                                   sessionConnected: model.session?.phase == .connected,
+                                   stalled: model.session?.isStalled == true,
+                                   reconnecting: model.session?.isReconnecting == true)
         input.controlMode = live
         input.acceptsPointer = live
         let captures = input.hasKeyboard
@@ -613,11 +645,13 @@ public final class MacScreenPaneView: NSView {
         onInputGateChange?()
     }
 
-    /// Whether the screen takes input: open, with no card (live, with a
-    /// picture), and not a View Only session (its keys, clicks and scrolls
-    /// stay here; the host would ignore them too).
-    static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?, viewOnly: Bool = false) -> Bool {
-        gate == .open && card == nil && !viewOnly
+    /// Whether the screen takes input: open, with no card, a current frame and
+    /// a connected, unstalled session. Card visibility is not enough because
+    /// automatic reconnect keeps the last frame visible without a card.
+    static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?, viewOnly: Bool = false,
+                           hasFrame: Bool, sessionConnected: Bool,
+                           stalled: Bool = false, reconnecting: Bool = false) -> Bool {
+        gate == .open && card == nil && hasFrame && sessionConnected && !stalled && !reconnecting && !viewOnly
     }
 
     /// Tells the session how fast this window's display refreshes (nil: no

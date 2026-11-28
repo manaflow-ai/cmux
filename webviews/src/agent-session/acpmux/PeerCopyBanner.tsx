@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAutoRetry } from "./autoRetry";
 import { LINK_DOWN_SAID_MS, RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import type { PeerCopyState } from "./peerCopy";
@@ -87,7 +87,7 @@ function PeerCopyBannerBody({
     return (
       <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top" data-machine="starting">
         <output className="acpmux-peer-copy-title">
-          <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
+          <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />
           {t("peerCopy.starting.title", { machine: copy.peer })}
         </output>
         <p className="acpmux-watch-hint">{detail}</p>

@@ -565,6 +565,30 @@ test("setup hint becomes a link when an environment callback is provided", () =>
   expect(html).toContain('class="acpmux-cloud-start__link"');
 });
 
+test("a failed setup keeps the environment target and opens its editor for repair", async () => {
+  const opened: unknown[] = [];
+  const failed: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    environment: "env_selected",
+    environmentId: "env_resolved",
+    setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+    step: undefined,
+    retryable: true,
+    message: "Environment setup failed.",
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onOpenEnvironment={(options) => opened.push(options)} />);
+  });
+  const link = container.querySelector<HTMLButtonElement>("[data-step-id=setup] button");
+  expect(link?.textContent).toBe("Edit cloud environment");
+  expect(container.querySelector('[data-step-id="setup"]')?.textContent).toContain("setup exited with status 1");
+  await act(async () => link?.click());
+  expect(opened).toEqual([{ environmentId: "env_resolved", section: "script" }]);
+});
+
 test("the harness row says Starting until the harness has started", () => {
   const running = startupChecklist({ key: "k", task: "hi", state: "starting", step: "opening", agent: "Claude" });
   expect(running[3]?.status).toBe("running");
@@ -909,4 +933,29 @@ test("every failed start offers a way on in the card: the folder, a new Cloud ch
     ),
   );
   expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
+});
+
+test("the connection card offers the preserved send on This Mac", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const task = "keep this prompt";
+  const local: string[] = [];
+  const connect: string[] = [];
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ key: "k", task, state: "failed", code: "cloud_setup_required", cloudSetup: { family: "codex" } }}
+        onRunHere={() => local.push(task)}
+        onSetUp={(action) => connect.push(action)}
+        onSetUpDismiss={() => undefined}
+      />,
+    ),
+  );
+  const buttons = [...container.querySelectorAll("button")];
+  expect(buttons.map((button) => button.dataset.action)).toEqual(["addKey", "run-here", "dismiss"]);
+  expect(buttons[1]?.textContent).toBe("Run on This Mac");
+  expect(container.textContent).toContain(task);
+  await act(async () => buttons[1]!.click());
+  expect(local).toEqual([task]);
+  expect(connect).toEqual([]);
 });
