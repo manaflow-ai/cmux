@@ -1029,6 +1029,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_hashfiles_in_workspace.py
 
+      - name: Check that no workflow reads a fleet step id with a grep that ends the step on no match
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_step_id_grep_guarded.py
+
       - name: Check that no workflow submits a build-fleet job with a lapsing --pool
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflows_pin_no_fleet_pool.py
@@ -2844,6 +2848,7 @@ jobs:
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_nightly_source.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_web_cas_upload_rerun.py
