@@ -213,49 +213,25 @@ async fn variation(
         }
     };
     if let Some(turn) = turn {
-        let _ = hub.cancel(&parent).await;
+        let _ = bounded("cancel", hub.cancel(&parent)).await?;
         let _ = bounded("the chat's cancelled turn", turn).await?;
     }
     let forked = forked?;
-    if let Some(why) = must_refuse(from, state, onto) {
-        return match forked {
-            Ok(fork) => Err(format!("forked to {}, want a refusal: {why}", fork.id)),
-            Err(e) if !e.message.contains(why) => {
-                Err(format!("refused {:?}, want {why}", e.message))
-            }
-            Err(_) if parent.meta().harness != from => {
-                Err(format!("refused, but the chat now runs {}", parent.meta().harness))
-            }
-            Err(_) => Ok(()),
-        };
-    }
-    let fork = forked.map_err(|e| format!("refused: {}", e.message))?;
     let mut broke = Vec::new();
-    let meta = fork.meta();
-    if meta.harness != onto.unwrap_or(from) {
-        broke.push(format!("runs {}", meta.harness));
-    }
-    if meta.parent_id.as_deref() != Some(parent.id.as_str()) {
-        broke.push(format!("parent is {:?}", meta.parent_id));
-    }
-    if live(hub) != before + 1 {
-        broke.push(format!("{} live sessions after one fork, {before} before", live(hub)));
-    }
-    let shown = prompts(hub, &fork);
-    if !matches!(state, State::Fresh) && !shown.iter().any(|p| p == &said) {
-        broke.push(format!("shows {shown:?}, not the chat's turn"));
-    }
-    let ask = format!("FORK-{}", fork.id);
-    let heard = replies(hub, &fork).len();
-    match bounded("the fork's first prompt", hub.prompt(&fork, text(&ask), "test", false)).await {
-        Err(e) => broke.push(e),
-        Ok(Err(e)) => broke.push(format!("its first prompt failed: {}", e.message)),
-        Ok(Ok(_)) => {
-            let answer = replies(hub, &fork)[heard..].to_owned();
-            if answer.is_empty() || (echoes(&meta.harness) && !answer.contains(&ask)) {
-                broke.push(format!("its first prompt got no answer: {answer:?}"));
+    if let Some(why) = must_refuse(from, state, onto) {
+        match forked {
+            Ok(fork) => return Err(format!("forked to {}, want a refusal: {why}", fork.id)),
+            Err(e) if !e.message.contains(why) => {
+                return Err(format!("refused {:?}, want {why}", e.message));
             }
+            Err(_) => {}
         }
+        // A refusal leaves nothing behind: no leaked child, and the chat (checked below) as it was.
+        if live(hub) != before {
+            broke.push(format!("{} live sessions after a refusal, {before} before", live(hub)));
+        }
+    } else {
+        fork_checks(hub, &parent, &said, before, state, from, onto, forked, &mut broke).await;
     }
     // The chat is as it was, and still answers.
     if parent.meta().harness != from {
@@ -278,6 +254,52 @@ async fn variation(
         broke.push(format!("the chat's turns became {now:?}, want {want:?}"));
     }
     if broke.is_empty() { Ok(()) } else { Err(broke.join("; ")) }
+}
+
+/// What a fork that went through must show: its harness, its parent, one more live session, the
+/// chat's turn, and an answer to its first prompt.
+#[allow(clippy::too_many_arguments)]
+async fn fork_checks(
+    hub: &Arc<Hub>,
+    parent: &Arc<Session>,
+    said: &str,
+    before: usize,
+    state: State,
+    from: &str,
+    onto: Option<&str>,
+    forked: Result<Arc<Session>, crate::rpc::RpcError>,
+    broke: &mut Vec<String>,
+) {
+    let fork = match forked {
+        Ok(fork) => fork,
+        Err(e) => return broke.push(format!("refused: {}", e.message)),
+    };
+    let meta = fork.meta();
+    if meta.harness != onto.unwrap_or(from) {
+        broke.push(format!("runs {}", meta.harness));
+    }
+    if meta.parent_id.as_deref() != Some(parent.id.as_str()) {
+        broke.push(format!("parent is {:?}", meta.parent_id));
+    }
+    if live(hub) != before + 1 {
+        broke.push(format!("{} live sessions after one fork, {before} before", live(hub)));
+    }
+    let shown = prompts(hub, &fork);
+    if !matches!(state, State::Fresh) && !shown.iter().any(|p| p == said) {
+        broke.push(format!("shows {shown:?}, not the chat's turn"));
+    }
+    let ask = format!("FORK-{}", fork.id);
+    let heard = replies(hub, &fork).len();
+    match bounded("the fork's first prompt", hub.prompt(&fork, text(&ask), "test", false)).await {
+        Err(e) => broke.push(e),
+        Ok(Err(e)) => broke.push(format!("its first prompt failed: {}", e.message)),
+        Ok(Ok(_)) => {
+            let answer = replies(hub, &fork)[heard..].to_owned();
+            if answer.is_empty() || (echoes(&meta.harness) && !answer.contains(&ask)) {
+                broke.push(format!("its first prompt got no answer: {answer:?}"));
+            }
+        }
+    }
 }
 
 fn report(failed: &[String], ran: usize) {
@@ -333,18 +355,24 @@ async fn a_chain_of_forks_through_every_flavor_keeps_every_turn() {
     let order = ["native", "codex", "opencode", "plain", "acp-claude", "nofork", "slow"];
     assert_eq!(order.len(), FLAVORS.len());
     let hub = hub();
-    let mut chat = hub
-        .new_session(NewRequest {
+    let mut chat = bounded(
+        "new chat",
+        hub.new_session(NewRequest {
             harness: Some(order[0].into()),
             cwd: Some(std::env::temp_dir()),
             ..Default::default()
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let mut said = Vec::new();
     for (i, flavor) in order.iter().enumerate().skip(1) {
         let words = format!("STEP-{i}");
-        hub.prompt(&chat, text(&words), "test", false).await.unwrap();
+        bounded("chain prompt", hub.prompt(&chat, text(&words), "test", false))
+            .await
+            .unwrap()
+            .unwrap();
         said.push(words);
         let to = Retarget { harness: (*flavor).into(), model: None, remote: false };
         chat = bounded(
@@ -357,7 +385,7 @@ async fn a_chain_of_forks_through_every_flavor_keeps_every_turn() {
         assert_eq!(chat.meta().harness, *flavor);
         assert_eq!(prompts(&hub, &chat), said, "onto {flavor}");
     }
-    hub.prompt(&chat, text("LAST"), "test", false).await.unwrap();
+    bounded("last prompt", hub.prompt(&chat, text("LAST"), "test", false)).await.unwrap().unwrap();
     let heard = replies(&hub, &chat);
     for words in &said {
         assert!(
