@@ -9,8 +9,10 @@
 //!    keeps the patch from other users there, from the first byte.
 //! 3. `exec /bin/bash` on it. The script removes its folder before anything else runs.
 //!
-//! When a step fails or is refused after the folder exists, this removes the folder
-//! (`exec rm -rf`), so no payload stays behind. The output prints here when the run ends (the far
+//! When a step fails or is refused after the folder exists, this asks the far machine to remove
+//! the folder (`exec rm -rf`). That call can be refused too (control revoked mid-run: the grant is
+//! checked on every call), so a failure that could not clean up says so and names the private
+//! folder left there, still 0700. The output prints here when the run ends (the far
 //! machine's `exec` holds a run to ten minutes, 256 KB per stream), and this exits with the run's
 //! exit code.
 
@@ -127,11 +129,20 @@ pub(crate) async fn deliver(
         Ok(_) => call(exec).await.with_context(|| format!("{machine}: run the script")),
         Err(e) => Err(e).with_context(|| format!("{machine}: send the run's script")),
     };
-    if ran.is_err() {
-        // The far side may never have started bash, so its own first line never ran.
-        let _ = call(cleanup_call(machine, &folder)).await;
-    }
-    ran
+    let Err(failed) = ran else { return ran };
+    // The far side may never have started bash, so its own first line never ran.
+    let left = match call(cleanup_call(machine, &folder)).await {
+        Ok(reply) if reply.get("exit").and_then(Value::as_i64) == Some(0) => return Err(failed),
+        Ok(reply) => {
+            let err = reply.get("stderr").and_then(Value::as_str).unwrap_or_default();
+            err.trim().to_owned()
+        }
+        Err(e) => format!("{e:#}"),
+    };
+    Err(failed.context(format!(
+        "{machine}: and removing the run's private folder failed too ({left}); {folder} is still \
+         there (0700, only the account the run used can read it): remove it by hand"
+    )))
 }
 
 pub async fn run(args: RunElsewhereCarrierArgs) -> Result<i32> {
