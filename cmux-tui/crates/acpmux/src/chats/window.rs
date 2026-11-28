@@ -338,6 +338,7 @@ fn ranked_rows(
     activity: &ChatActivity,
     text: Option<&ChatText>,
 ) -> WindowRows {
+    let t_start = std::time::Instant::now();
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
     let mut entries = Vec::new();
@@ -366,6 +367,7 @@ fn ranked_rows(
         ));
         candidates.push((key, chat));
     }
+    let t_build = t_start.elapsed();
     let t0 = std::time::Instant::now();
     let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
     let t_rank = t0.elapsed();
@@ -405,11 +407,13 @@ fn ranked_rows(
             rows.push((key.clone(), value));
         }
     }
-    if std::env::var_os("CHAT_SEARCH_STAGES").is_some() {
+    if true {
         eprintln!(
-            "STAGE q={query:?} rank {:.2} ms total-after-rank {:.2} ms rows {}",
+            "STAGE q={query:?} build {:.2} rank {:.2} after-rank {:.2} all {:.2} rows {}",
+            t_build.as_secs_f64() * 1e3,
             t_rank.as_secs_f64() * 1e3,
             t0.elapsed().as_secs_f64() * 1e3,
+            t_start.elapsed().as_secs_f64() * 1e3,
             rows.len()
         );
     }
