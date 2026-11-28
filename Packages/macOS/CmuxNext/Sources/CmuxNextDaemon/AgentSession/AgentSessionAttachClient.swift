@@ -58,13 +58,61 @@ public actor AgentSessionAttachClient {
     /// provider override after `app-server`, where codex keeps it (cmux#45774; cmux-tui `agent_session_start.rs`). An older
     /// one advertises ``startCredentialsCapability`` yet drops the override, and the chat runs on no key. Served beside it.
     public static let startCodexCredentialsCapability = "agent-session-start-codex-credentials-v1"
+    /// The machine can take a Revision 3 endpoint credential with a start.
+    public static let startEndpointCredentialsCapability = "agent-session-start-endpoint-credentials-v1"
+    public static let startSubscriptionCredentialsCapability = "agent-session-start-subscription-credentials-v1"
+
+    private static func isChatGPTRefresh(_ env: [String: String]) -> Bool {
+        env.count == 1 && env["CMUX_CHATGPT_ACCESS_TOKEN"] != nil
+    }
+
+    private static func needsSubscriptionCapability(_ credentials: [String: String]?) -> Bool {
+        credentials?["CMUX_GROK_PLAN_ACCESS_TOKEN"] != nil || credentials?["CMUX_COPILOT_GITHUB_TOKEN"] != nil
+    }
+
+    /// A start reached a machine that needs an update to take its endpoint credential.
+    public static let endpointCredentialsUnsupported = "app.endpoint_credentials_update"
+
+    /// The non-secret metadata sent with the endpoint key.
+    public struct LaunchEndpoint: Decodable, Sendable, Equatable {
+        public enum Kind: String, Decodable, Sendable {
+            case anthropic
+            case openAI = "openai"
+        }
+
+        public let kind: Kind
+        public let baseUrl: String
+        public let models: [String]
+
+        public init(kind: Kind, baseUrl: String, models: [String]) {
+            self.kind = kind
+            self.baseUrl = baseUrl
+            self.models = models
+        }
+
+        var wire: [String: any Sendable] {
+            ["kind": kind.rawValue, "baseUrl": baseUrl, "models": models]
+        }
+    }
+
+    private static func needsKeyWithdrawal(_ endpoint: LaunchEndpoint?, _ credentials: [String: String]?) -> Bool {
+        endpoint != nil || credentials?["ANTHROPIC_API_KEY"] != nil || credentials?["OPENAI_API_KEY"] != nil
+            || hasNativeCloudKey(credentials)
+    }
+
+    private static func hasNativeCloudKey(_ credentials: [String: String]?) -> Bool {
+        credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
+    }
+
     /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
     /// before it is sent; `AgentRemoteStartRefusal.olderDaemonCodes` updates the machine and starts again.
     public static let codexCredentialsUnsupported = "app.codex_credentials_update"
     /// The capability a start of `harness` needs to carry the owner's model credential: a Codex one needs
     /// ``startCodexCredentialsCapability``, every other one ``startCredentialsCapability``.
-    public static func credentialsCapability(harness: String?) -> String {
-        harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
+    public static func credentialsCapability(harness: String?, nativeKey: Bool = false, subscription: Bool = false) -> String {
+        if subscription { return startSubscriptionCredentialsCapability }
+        if nativeKey { return Self.boundCredentialsCapability }
+        return harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
     }
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
@@ -101,6 +149,28 @@ public actor AgentSessionAttachClient {
     /// the attachment (cleared to retire it silently).
     private var newest: (transport: ObjectIdentifier, number: Int, tells: OSAllocatedUnfairLock<Bool>)?
 
+    /// An owner Cloud start can select the machine's Claude sign-in.
+    public static let startClaudeMachineLoginCapability = "agent-session-start-claude-machine-login-v1"
+    /// Owner Cloud VM only (cmux-tui-core `serves_owner_cloud_start`): credential writes name the tab's durable session.
+    public static let boundCredentialsCapability = "agent-session-bound-credentials-v1"
+    /// Owner Cloud VM only: the owner's Mac withdraws credentials by scoped binding, also with no tab.
+    public static let credentialWithdrawalCapability = "agent-session-credential-withdrawal-v1"
+    public static let startClaudeTeamRouteCapability = "agent-session-start-claude-team-route-v1"
+
+    /// An explicit Claude credential source for a new owner Cloud chat.
+    public enum ClaudeAuth: Equatable, Sendable {
+        case own, team
+
+        public var capability: String {
+            switch self {
+            case .own: AgentSessionAttachClient.startClaudeMachineLoginCapability
+            case .team: AgentSessionAttachClient.startClaudeTeamRouteCapability
+            }
+        }
+    }
+
+    private static let credentialReattachCapability = "agent-session-credential-reattach-v1"
+
     private struct Served: Sendable {
         /// `agent-session-start-v1`.
         var start = false
@@ -122,6 +192,13 @@ public actor AgentSessionAttachClient {
         var credentials = false
         /// `agent-session-start-codex-credentials-v1`.
         var codexCredentials = false
+        var endpointCredentials = false
+        var subscriptionCredentials = false
+        var credentialReattach = false
+        var boundCredentials = false
+        var credentialWithdrawal = false
+        var claudeMachineLogin = false
+        var claudeTeamRoute = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -142,6 +219,7 @@ public actor AgentSessionAttachClient {
         var login = false
         /// `agent-session-login-machine-v1`.
         var loginMachine = false
+        var loginSettings = false
         /// `agent-session-content-v1`.
         var content = false
         /// `agent-session-context-v1`.
@@ -237,7 +315,8 @@ public actor AgentSessionAttachClient {
     /// goes out over a new one.
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil, permissionMode: String? = nil, startMode: String? = nil,
-                      credentials: [String: String]? = nil) async throws -> String {
+                      credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil,
+                      credentialConnection: String? = nil, claudeAuth: ClaudeAuth? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -248,15 +327,44 @@ public actor AgentSessionAttachClient {
             guard model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
             }
-            guard credentials == nil || harness != "codex" || served.codexCredentials else {
+            guard !Self.needsSubscriptionCapability(credentials) || (served.subscriptionCredentials && served.credentials && served.vmKind) else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take subscription credentials")
+            }
+            guard launchEndpoint == nil || (served.endpointCredentials && served.credentials && served.vmKind) else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take endpoint credentials")
+            }
+            // A saved API key can be turned off for Cloud. Persist its binding for reattach.
+            // Read-only endpoint profiles can serve Cloud without a Settings toggle or a binding.
+            guard !Self.needsKeyWithdrawal(launchEndpoint, credentials)
+                    || (served.boundCredentials && served.credentialReattach
+                        && (launchEndpoint != nil || credentialConnection?.contains(":") == true)) else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the Cloud key requires credential withdrawal and a saved connection binding")
+            }
+            if let claudeAuth {
+                let supportsAuth = claudeAuth == .own ? served.claudeMachineLogin : served.claudeTeamRoute
+                guard supportsAuth, served.vmKind, ownerLink != nil else {
+                    throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not support selecting Cloud Claude authentication")
+                }
+            }
+            guard credentialConnection == nil || served.credentials && served.vmKind else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take model credentials")
+            }
+            let chatGPT = credentials.map(Self.isChatGPTRefresh) == true
+            guard !chatGPT || (served.credentials && served.vmKind),
+                  credentials == nil || !(harness == "codex" || chatGPT) || served.codexCredentials else {
                 throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would drop the Codex credential")
             }
         }
+        let connection = credentialConnection.map { served.boundCredentials ? $0 : String($0.prefix(while: { $0 != ":" })) }
+        guard claudeAuth == nil || callerOwnsVM else { throw Self.notOwner }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
-                                      servesCredentials: served.credentials, credentials: credentials)
+                                      servesCredentials: served.credentials, credentials: credentials, servesBoundCredentials: served.boundCredentials,
+                                      servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint,
+                                      credentialConnection: served.credentialReattach ? connection : nil,
+                                      claudeAuth: claudeAuth)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -278,30 +386,33 @@ public actor AgentSessionAttachClient {
     /// VM, so it is no ``DaemonCapability`` case, as ``startCredentialsCapability``.
     public static let prewarmCapability = "agent-session-prewarm-v1"
 
-    /// ``prewarm(cwd:harness:ownerLink:model:permissionMode:startMode:credentials:)`` with no folder: the daemon makes the
+    /// ``prewarm(cwd:harness:ownerLink:model:permissionMode:startMode:credentials:launchEndpoint:)`` with no folder: the daemon makes the
     /// chat's own `~/chats/<id>` (the folder a no-folder start of the tab runs in) and warms the agent there. An older
     /// daemon refuses a prewarm without a folder, so none is sent to it.
     public static let prewarmChatFolderCapability = "agent-session-prewarm-chat-folder-v1"
 
     /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
-    /// of this tab will run, on the owner's own Cloud VM, so that start takes a running agent instead of a cold one. It sends
-    /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
-    /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
+    /// of this tab will run, on the owner's own Cloud VM. The hint uses the start's launch inputs (``startParams``), so
+    /// the machine's acpmux keys the warmed agent as that start's `session/new`. A start with different inputs starts cold.
+    /// Binds nothing and answers whether acpmux took the hint.
+    /// Saved API keys and Claude setup tokens go only to the bound start so withdrawal can reach them.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
     public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
-                        startMode: String? = nil, credentials: [String: String]? = nil) async throws -> Bool {
-        guard mode == .attach else { return false }
+                        startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil) async throws -> Bool {
+        guard mode == .attach, !Self.needsKeyWithdrawal(launchEndpoint, credentials),
+              credentials?["ANTHROPIC_AUTH_TOKEN"] == nil, credentials?["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
             guard served.start, model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
             }
         }
-        guard callerOwnsVM else { return false }
+        guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials else { return false }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
-                                      servesCredentials: served.credentials, credentials: credentials)
+                                      servesCredentials: served.credentials, credentials: credentials, servesBoundCredentials: served.boundCredentials,
+                                      servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint)
         let data = try await call("agent-session-prewarm", params, timeout: requestTimeout, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
     }
@@ -337,7 +448,9 @@ public actor AgentSessionAttachClient {
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false, servesPermissionMode: Bool = false, permissionMode: String? = nil,
                             startMode: String? = nil, servesStartMode: Bool = false,
-                            servesCredentials: Bool = false, credentials: [String: String]? = nil) -> [String: any Sendable] {
+                            servesCredentials: Bool = false, credentials: [String: String]? = nil, servesBoundCredentials: Bool = false,
+                            servesEndpointCredentials: Bool = false, launchEndpoint: LaunchEndpoint? = nil,
+                            credentialConnection: String? = nil, claudeAuth: ClaudeAuth? = nil) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -347,7 +460,11 @@ public actor AgentSessionAttachClient {
             params["require_person_key"] = true
             if let instance = personKey.instance { params["person_instance"] = instance }
         }
-        if callerOwnsVM, servesVMKind { params["vm_kind"] = "owner" }
+        if callerOwnsVM, servesVMKind {
+            params["vm_kind"] = "owner"
+            if claudeAuth == .own { params["claude_machine_login"] = true }
+            if claudeAuth == .team { params["claude_team_route"] = true }
+        }
         // The person's start mode, which the daemon reads only on their own Cloud VM (`agent-session-start-permission-mode-v1`).
         if callerOwnsVM, servesPermissionMode, let mode = startPermissionMode(permissionMode) { params["permission_mode"] = mode }
         // The mode pick goes only with the owner word: the daemon applies it on the caller's own
@@ -355,7 +472,19 @@ public actor AgentSessionAttachClient {
         if callerOwnsVM, servesVMKind, servesStartMode, let startMode, !startMode.isEmpty { params["mode"] = startMode }
         // The owner's model credential, only over the owner answer of the link to their own Cloud VM
         // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
-        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty { params["credentials"] = ["env": credentials] }
+        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty,
+           launchEndpoint == nil || servesEndpointCredentials {
+            var env = credentials
+            // Use the legacy name only on older guests. Bound updates send the saved name as-is.
+            if !servesBoundCredentials, !servesEndpointCredentials, launchEndpoint == nil, credentials.count == 1,
+               let token = credentials["ANTHROPIC_AUTH_TOKEN"], token.hasPrefix("sk-ant-oat") {
+                env = ["CLAUDE_CODE_OAUTH_TOKEN": token]
+            }
+            var payload: [String: any Sendable] = ["env": env]
+            if let launchEndpoint { payload["endpoint"] = launchEndpoint.wire }
+            if let credentialConnection { payload["connection"] = credentialConnection }
+            params["credentials"] = payload
+        }
         return params
     }
 
@@ -402,10 +531,13 @@ public actor AgentSessionAttachClient {
     /// (resuming the chat); answers acpmux's `restart` (`now`, `afterTurn`, `none`). Sent only over the
     /// owner answer of the link to the owner's own Cloud VM (``ownedConnection(_:check:)``); refused
     /// here otherwise, never sent.
-    public func updateCredentials(_ env: [String: String], ownerLink: OwnerLink?) async throws -> String? {
+    public func updateCredentials(_ env: [String: String], sessionID: String, ownerLink: OwnerLink?, launchEndpoint: LaunchEndpoint? = nil) async throws -> String? {
         guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
-        let (transport, _, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
-            guard served.credentials else {
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            let legacyRefresh = Self.isChatGPTRefresh(env) && launchEndpoint == nil && served.codexCredentials && served.vmKind
+            guard served.credentials, served.boundCredentials || legacyRefresh,
+                  (!Self.needsSubscriptionCapability(env) || served.subscriptionCredentials),
+                  (launchEndpoint == nil || served.endpointCredentials) else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not take model credentials")
             }
         }
@@ -413,8 +545,38 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the credential was sent")
         }
-        let data = try await call("agent-session-credentials", ["env": env, "vm_kind": "owner"], on: transport)
+        var params: [String: any Sendable] = ["env": env, "vm_kind": "owner"]
+        if served.boundCredentials { params["session"] = sessionID }
+        if let launchEndpoint { params["endpoint"] = launchEndpoint.wire }
+        let data = try await call("agent-session-credentials", params, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
+    }
+
+    /// Withdraws all copies of the scoped bindings on the owner's guest, even without a tab.
+    package func withdrawCredentials(bindings: [String], ownerLink: @escaping OwnerLink) async throws {
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard callerOwnsVM else { throw Self.notOwner }
+        guard served.credentialWithdrawal else { return }
+        _ = try await call("agent-session-credentials", ["withdraw_bindings": bindings, "vm_kind": "owner"],
+                           timeout: .seconds(65), on: transport)
+    }
+
+    /// The connection recorded by this tab's own session, read over the owner's link.
+    public struct CredentialStatus: Decodable, Sendable {
+        public let connection: String?
+        public let held: Bool
+        public let model: String?
+        public let harness: String
+        public let claudeTokenRecovery: String?
+    }
+
+    public func credentialStatus(sessionID: String, ownerLink: OwnerLink?) async throws -> CredentialStatus? {
+        guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard callerOwnsVM else { throw Self.notOwner }
+        guard served.boundCredentials else { return nil }
+        let data = try await call("agent-session-credentials", ["vm_kind": "owner", "session": sessionID], on: transport)
+        return try JSONDecoder().decode(CredentialStatus.self, from: data)
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
@@ -770,6 +932,33 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-login", params, timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
     }
 
+    public static func isClaudeSignedIn(endpoint: @escaping EndpointProvider, ownerLink: @escaping OwnerLink) async -> Bool {
+        let client = AgentSessionAttachClient(surface: 0, endpoint: endpoint)
+        let data = try? await client.settingsClaudeLogin("status", ["agent": "claude"], ownerLink: ownerLink)
+        await client.close()
+        guard let data, let reply = try? JSONDecoder().decode(JSONValue.self, from: data) else { return false }
+        return reply["signedIn"]?.boolValue == true
+    }
+
+    /// A Claude Code sign-in step on the owner machine selected by Settings.
+    public func settingsClaudeLogin(_ op: String, _ fields: [String: String], ownerLink: @escaping OwnerLink) async throws -> Data {
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard callerOwnsVM, served.loginSettings else {
+            return Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+        }
+        var params: [String: any Sendable] = ["op": op, "vm_kind": "owner"]
+        if let session = fields["recoverySession"] {
+            params["op"] = "recover_" + op
+            params["recovery_session"] = session
+        }
+        for key in ["agent", "loginId", "code"] {
+            if let value = fields[key] { params[key == "loginId" ? "login_id" : key] = value }
+        }
+        if op == "start", fields["reauthenticate"] == "true" { params["reauthenticate"] = true }
+        return try await call("agent-session-login-settings", params,
+                              timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
+    }
+
     /// The code ``btw(_:)`` throws for a daemon without `agent-session-btw-v1`.
     public static let btwUnsupported = "agent_session.btw_unsupported"
 
@@ -969,6 +1158,13 @@ public actor AgentSessionAttachClient {
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
                             codexCredentials: identity.supports(Self.startCodexCredentialsCapability),
+                            endpointCredentials: identity.supports(Self.startEndpointCredentialsCapability),
+                            subscriptionCredentials: identity.supports(Self.startSubscriptionCredentialsCapability),
+                            credentialReattach: identity.supports(Self.credentialReattachCapability),
+                            boundCredentials: identity.supports(Self.boundCredentialsCapability),
+                            credentialWithdrawal: identity.supports(Self.credentialWithdrawalCapability),
+                            claudeMachineLogin: identity.supports(Self.startClaudeMachineLoginCapability),
+                            claudeTeamRoute: identity.supports(Self.startClaudeTeamRouteCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
@@ -979,6 +1175,7 @@ public actor AgentSessionAttachClient {
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
                             loginMachine: identity.supports(DaemonCapability.agentSessionLoginMachine.rawValue),
+                            loginSettings: identity.supports(DaemonCapability.agentSessionLoginSettings.rawValue),
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             steer: identity.supports(DaemonCapability.agentSessionSteer.rawValue),
