@@ -3815,6 +3815,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-url-input",
  "cmux-usage-patterns",
+ "fancy-regex 0.16.2",
  "flate2",
  "fs4",
  "futures-util",
