@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1531,
+    "entries": 1533,
     "shortcuts": 208
   },
   "sections": [
@@ -194,6 +194,12 @@
           "title": "Exit Key Mode",
           "shortcut": null,
           "command": "cmux app key-mode-exit"
+        },
+        {
+          "id": "feed.show",
+          "title": "Feed",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "window.focusDock",
@@ -6896,6 +6902,12 @@
           "title": "Fork To…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.deliverSecrets",
+          "title": "Give Secrets to This Chat…",
+          "shortcut": null,
+          "command": "cmux agent deliver-secrets"
         },
         {
           "id": "palette.computerUse.accessibility",

@@ -190,6 +190,13 @@
 #           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
 #           its hostd freeze for each drop; the phone must reattach within 30 s
 #           with no tap; reconnect-after-drop.mp4 records the phone).
+#   open-live [runs=N]   (also `pair-e2e open-live=N`, `shots open-live=N`)
+#           pair-e2e, then one Claude chat on the paired Mac and N (5-20, default 5)
+#           launches of the phone into it (CMUX_MOBILE_OPEN_URL=cmux://tab/ID): launch
+#           to the chat's latest output line on screen, in ms (LaunchMarks
+#           chat_latest_output_frame), idle fixture and duress (the chat streams a
+#           long reply as the phone opens); open-live.mp4 and open-live.json. Send it
+#           with `cmux-ci run --sign-in agent`.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -365,6 +372,23 @@ fi
 if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
+fi
+# open-live: pair-e2e (the tagged Mac app, QR pairing with no seed), then one Claude chat on that Mac
+# and RUNS launches of the phone straight into it, each timed from process start to the chat's latest
+# output line on screen (LaunchMarks chat_latest_output_frame), at rest (idle fixture) and while the
+# chat streams a long reply (duress), with the screen recorded (open-live.mp4, open-live.json).
+# Forms: `open-live [runs=N]`, and `pair-e2e open-live=N` / `shots open-live=N` while the fleet
+# controller's MODE list does not name open-live. N is 5-20 (default 5). Send it with
+# `cmux-ci run --sign-in agent`: both apps sign in from the step's agent session.
+if [[ "$mode" == open-live || ( ( "$mode" == pair-e2e || "$mode" == shots ) && $# -eq 2 && "${2:-}" == open-live=* ) ]]; then
+  open_live_runs=5
+  [[ "${2:-}" == open-live=* ]] && open_live_runs="${2#open-live=}"
+  [[ "$mode" == open-live && "${2:-}" == runs=* ]] && open_live_runs="${2#runs=}"
+  [[ "$open_live_runs" =~ ^[0-9]+$ && $open_live_runs -ge 5 && $open_live_runs -le 20 ]] ||
+    { echo "cmux-next-ios-sim.sh: open-live wants runs=N (or open-live=N), N from 5 to 20, got '$open_live_runs'" >&2; exit 2; }
+  export CMUX_PAIR_E2E_OPEN_LIVE_RUNS="$open_live_runs"
+  set -- pair-e2e
+  mode=pair-e2e
 fi
 case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch|ui-build) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, ui-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
@@ -2550,7 +2574,18 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  if [[ $status -ne 0 || ! -d "$mac_app" ]]; then
+    # xcodebuild's failing step is often thousands of lines above its "BUILD FAILED" tail (run
+    # 46162159864: the tail named only plug-in steps), and the log stays on the runner, so print
+    # every compiler/tool error line first, then the tail.
+    echo "== Mac app build errors (reload.sh exit $status):"
+    grep -n -E '(^|[[:space:]:])(fatal )?error:|^error\[|Command .* failed with a nonzero exit code' "$work/mac-build.log" \
+      | grep -v 'tagged cmux NEXT Mac app build failed' | head -80 || true
+    echo "== last 60 lines:"
+    tail -60 "$work/mac-build.log"
+    echo "error: tagged cmux NEXT Mac app build failed" >&2
+    exit 1
+  fi
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \

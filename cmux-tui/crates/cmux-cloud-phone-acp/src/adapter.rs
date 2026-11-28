@@ -35,9 +35,9 @@ const PROMPT_DEADLINE: Duration = Duration::from_secs(35);
 const PHONE_START_HARNESS: &str = "claude";
 
 #[derive(Default)]
-pub(crate) struct Effects {
-    pub(crate) to_phone: Vec<Value>,
-    pub(crate) to_native: Vec<Value>,
+pub struct Effects {
+    pub to_phone: Vec<Value>,
+    pub to_native: Vec<Value>,
 }
 
 struct Tab {
@@ -89,7 +89,7 @@ struct Pending {
     deadline: IdleDeadline<Instant>,
 }
 
-pub(crate) struct Adapter {
+pub struct Adapter {
     next: u64,
     pending: HashMap<u64, Pending>,
     tabs: BTreeMap<String, Tab>,
@@ -100,7 +100,7 @@ pub(crate) struct Adapter {
 impl Adapter {
     // Machine/team authorization belongs to the service's fresh app snapshot,
     // and the native daemon's authenticated connection. Neither is an ACP arg.
-    pub(crate) fn new(_machine: String, _team: String) -> Self {
+    pub fn new(_machine: String, _team: String) -> Self {
         Self {
             next: 0,
             pending: HashMap::new(),
@@ -133,19 +133,20 @@ impl Adapter {
             _ => DEADLINE,
         };
         self.next += 1;
-        command["id"] = json!(self.next);
+        set_field(&mut command, "id", json!(self.next));
         let deadline = IdleDeadline::new_at(now, deadline, None);
         self.pending.insert(self.next, Pending { phone_id, reply, deadline });
         Effects { to_native: vec![command], ..Effects::default() }
     }
 
-    pub(crate) fn phone(&mut self, request: Value) -> Result<Effects, String> {
+    pub fn phone(&mut self, request: Value) -> Result<Effects, String> {
         let object = request.as_object().ok_or("ACP request must be an object")?;
         let id = object.get("id").cloned();
         if id.as_ref().is_some_and(|v| !v.is_string() && !v.is_number()) {
             return Err("ACP request id must be a string or number".into());
         }
-        let method = object.get("method").and_then(Value::as_str).ok_or("ACP request has no method")?;
+        let method =
+            object.get("method").and_then(Value::as_str).ok_or("ACP request has no method")?;
         let empty = json!({});
         let params = object.get("params").unwrap_or(&empty);
         if !params.is_object() {
@@ -172,9 +173,15 @@ impl Adapter {
                 }
                 return Ok(self.call(json!({"cmd":"list-workspaces"}), id, Reply::NewTree));
             }
-            "_acpmux/attach" | "_acpmux/events" | "_acpmux/info" | "_acpmux/detach" | "session/prompt"
-            | "session/cancel" => {}
-            _ => return Ok(error(id, -32601, "This action is not supported by the Cloud chat relay")),
+            "_acpmux/attach" | "_acpmux/events" | "_acpmux/info" | "_acpmux/detach"
+            | "session/prompt" | "session/cancel" => {}
+            _ => {
+                return Ok(error(
+                    id,
+                    -32601,
+                    "This action is not supported by the Cloud chat relay",
+                ));
+            }
         }
         let Some(session) = params.get("sessionId").and_then(Value::as_str) else {
             return Ok(error(id, -32602, "sessionId is required"));
@@ -191,14 +198,24 @@ impl Adapter {
             let mut command = page_command("agent-session-attach", surface, params);
             let info = method == "_acpmux/info";
             if info {
-                command["limit"] = json!(1);
+                set_field(&mut command, "limit", json!(1));
             }
-            return Ok(self.call(command, id, Reply::Page { session: session.into(), surface, info }));
+            return Ok(self.call(
+                command,
+                id,
+                Reply::Page { session: session.into(), surface, info },
+            ));
         }
         let (command, kind) = match method {
-            "_acpmux/events" => (page_command("agent-session-events", surface, params), Simple::Events),
-            "_acpmux/detach" => (json!({"cmd":"agent-session-detach","surface":surface}), Simple::Detach),
-            "session/cancel" => (json!({"cmd":"agent-session-cancel","surface":surface}), Simple::Cancel),
+            "_acpmux/events" => {
+                (page_command("agent-session-events", surface, params), Simple::Events)
+            }
+            "_acpmux/detach" => {
+                (json!({"cmd":"agent-session-detach","surface":surface}), Simple::Detach)
+            }
+            "session/cancel" => {
+                (json!({"cmd":"agent-session-cancel","surface":surface}), Simple::Cancel)
+            }
             "session/prompt" => {
                 let Some(blocks) = params.get("prompt").and_then(Value::as_array) else {
                     return Ok(error(id, -32602, "A text prompt is required"));
@@ -206,7 +223,11 @@ impl Adapter {
                 let mut text = String::new();
                 for block in blocks {
                     if block.get("type").and_then(Value::as_str) != Some("text") {
-                        return Ok(error(id, -32602, "Cloud relay currently supports text prompts"));
+                        return Ok(error(
+                            id,
+                            -32602,
+                            "Cloud relay currently supports text prompts",
+                        ));
                     }
                     let Some(part) = block.get("text").and_then(Value::as_str) else {
                         return Ok(error(id, -32602, "Invalid text prompt"));
@@ -227,14 +248,24 @@ impl Adapter {
                 // can't steer, so the phone's Send never loses a message to a running Cloud turn.
                 // Only a prompt that must steer or not run is refused.
                 if params.pointer("/_meta/acpmux/steerOnly") == Some(&json!(true)) {
-                    return Ok(error(id, -32602, "Steering is not supported by the Cloud chat relay"));
+                    return Ok(error(
+                        id,
+                        -32602,
+                        "Steering is not supported by the Cloud chat relay",
+                    ));
                 }
                 (
                     json!({"cmd":"agent-session-prompt","surface":surface,"prompt_id":prompt,"text":text}),
                     Simple::Prompt,
                 )
             }
-            _ => unreachable!("methods checked above"),
+            _ => {
+                return Ok(error(
+                    id,
+                    -32601,
+                    "This action is not supported by the Cloud chat relay",
+                ));
+            }
         };
         // Always read current mode/policy immediately before prompting. A cached
         // attachment can outlive a mode change made on the Mac.
@@ -250,7 +281,7 @@ impl Adapter {
         Ok(self.call(command, id, Reply::Simple { session: session.into(), surface, kind }))
     }
 
-    pub(crate) fn native(&mut self, response: Value) -> Result<Effects, String> {
+    pub fn native(&mut self, response: Value) -> Result<Effects, String> {
         self.native_at(Instant::now(), response)
     }
 
@@ -265,8 +296,10 @@ impl Adapter {
             return Ok(Effects::default());
         };
         if response.get("ok") != Some(&json!(true)) {
-            let message =
-                response.get("error").and_then(Value::as_str).unwrap_or("Cloud daemon refused the request");
+            let message = response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("Cloud daemon refused the request");
             let mut out = error(pending.phone_id, -32000, message);
             // A start the machine refused leaves no empty chat tab behind.
             if let Reply::Start { surface } = pending.reply {
@@ -299,24 +332,26 @@ impl Adapter {
             }
             Reply::Page { session, surface, info } => {
                 if self.surface_sessions.get(&surface) != Some(&session)
-                    || data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str())
+                    || data.pointer("/session/sessionId").and_then(Value::as_str)
+                        != Some(session.as_str())
                 {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
                 if let Some(tab) = self.tabs.get_mut(&session) {
-                    tab.summary = data["session"].clone();
+                    tab.summary = field(&data, "session");
                 }
-                Ok(answer(phone, if info { data["session"].clone() } else { data }))
+                Ok(answer(phone, if info { field(&data, "session") } else { data }))
             }
             Reply::Prepare { session, surface, command, kind } => {
                 if self.surface_sessions.get(&surface) != Some(&session)
-                    || data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str())
+                    || data.pointer("/session/sessionId").and_then(Value::as_str)
+                        != Some(session.as_str())
                 {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
-                if matches!(kind, Simple::Prompt) && !phone_prompt_mode(&data["session"]) {
+                if matches!(kind, Simple::Prompt) && !phone_prompt_mode(&field(&data, "session")) {
                     return Ok(error(
                         phone,
                         -32000,
@@ -329,7 +364,11 @@ impl Adapter {
                 let Some(registry) =
                     data.get("registry_id").and_then(Value::as_str).filter(|r| !r.is_empty())
                 else {
-                    return Ok(error(phone, -32000, "Cloud machine did not name its workspace store"));
+                    return Ok(error(
+                        phone,
+                        -32000,
+                        "Cloud machine did not name its workspace store",
+                    ));
                 };
                 let registry = registry.to_owned();
                 match chat_workspace(&data) {
@@ -341,7 +380,8 @@ impl Adapter {
                     )),
                 }
             }
-            Reply::NewWorkspace { registry } => match data.get("workspace").and_then(Value::as_u64) {
+            Reply::NewWorkspace { registry } => match data.get("workspace").and_then(Value::as_u64)
+            {
                 Some(workspace) => Ok(self.new_tab(phone, &registry, workspace)),
                 None => Ok(error(phone, -32000, "Cloud machine did not make a workspace")),
             },
@@ -356,8 +396,10 @@ impl Adapter {
                 Ok(self.call(start, phone, Reply::Start { surface }))
             }
             Reply::Start { surface } => {
-                let Some(session) =
-                    data.get("session").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 160)
+                let Some(session) = data
+                    .get("session")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty() && s.len() <= 160)
                 else {
                     return Ok(error(phone, -32000, "Cloud machine did not start the chat"));
                 };
@@ -386,7 +428,7 @@ impl Adapter {
                 if matches!(kind, Simple::Prompt) {
                     // Native prompt replies only after durable prompt_accepted, not turn end.
                     let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                        "sessionId":session,"promptId":data["prompt_id"],"turnId":data["turn_id"],"queued":data["queued"]}});
+                        "sessionId":session,"promptId":field(&data, "prompt_id"),"turnId":field(&data, "turn_id"),"queued":field(&data, "queued")}});
                     let mut result = answer(phone, json!({}));
                     result.to_phone.insert(0, accepted);
                     Ok(result)
@@ -429,8 +471,10 @@ impl Adapter {
         let Some(params) = event.get(field) else {
             return Err("Invalid Cloud event".into());
         };
-        let event_session =
-            params.get("sessionId").or_else(|| params.pointer("/session/sessionId")).and_then(Value::as_str);
+        let event_session = params
+            .get("sessionId")
+            .or_else(|| params.pointer("/session/sessionId"))
+            .and_then(Value::as_str);
         if event_session != Some(session.as_str()) {
             return Ok(Effects::default());
         }
@@ -441,7 +485,7 @@ impl Adapter {
     }
 
     /// The phone left: every start still waiting closes its empty tab, since no one will open it.
-    pub(crate) fn abandon(&mut self) -> Effects {
+    pub fn abandon(&mut self) -> Effects {
         let mut out = Effects::default();
         for (_, pending) in self.pending.drain() {
             if let Reply::Start { surface } = pending.reply {
@@ -451,7 +495,7 @@ impl Adapter {
         out
     }
 
-    pub(crate) fn expire(&mut self) -> Effects {
+    pub fn expire(&mut self) -> Effects {
         self.expire_at(Instant::now())
     }
 
@@ -465,7 +509,9 @@ impl Adapter {
         let mut out = Effects::default();
         for id in expired {
             if let Some(pending) = self.pending.remove(&id) {
-                out.to_phone.extend(error(pending.phone_id, -32000, "Cloud chat request timed out").to_phone);
+                out.to_phone.extend(
+                    error(pending.phone_id, -32000, "Cloud chat request timed out").to_phone,
+                );
                 // A start that never answered leaves no empty chat tab behind either.
                 if let Reply::Start { surface } = pending.reply {
                     out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
@@ -495,7 +541,10 @@ fn new_session_refusal(params: &Value) -> Option<&'static str> {
     if object.get("mcpServers").is_some_and(|m| m.as_array().is_none_or(|m| !m.is_empty())) {
         return Some("Cloud chats from a phone take no MCP servers");
     }
-    if object.get("_meta").is_some_and(|m| m.as_object().is_none_or(|m| m.keys().any(|k| k != "acpmux"))) {
+    if object
+        .get("_meta")
+        .is_some_and(|m| m.as_object().is_none_or(|m| m.keys().any(|k| k != "acpmux")))
+    {
         return Some("Cloud chats from a phone take no other options");
     }
     let acpmux = params.pointer("/_meta/acpmux");
@@ -537,21 +586,38 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Reads one object field without `Value`'s indexing, `Null` when absent.
+fn field(value: &Value, key: &str) -> Value {
+    value.get(key).cloned().unwrap_or(Value::Null)
+}
+
+/// Writes one object field; a non-object value is left as it is.
+fn set_field(value: &mut Value, key: &str, entry: Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.insert(key.to_owned(), entry);
+    }
+}
+
 fn page_command(cmd: &str, surface: u64, params: &Value) -> Value {
     let mut out = json!({"cmd":cmd,"surface":surface});
-    for (from, to) in
-        [("afterSeq", "after_seq"), ("beforeSeq", "before_seq"), ("limit", "limit"), ("kinds", "kinds")]
-    {
+    for (from, to) in [
+        ("afterSeq", "after_seq"),
+        ("beforeSeq", "before_seq"),
+        ("limit", "limit"),
+        ("kinds", "kinds"),
+    ] {
         if let Some(value) = params.get(from) {
-            out[to] = value.clone();
+            set_field(&mut out, to, value.clone());
         }
     }
     out
 }
 
 fn discover(data: &Value) -> Result<BTreeMap<String, Tab>, String> {
-    let workspaces =
-        data.get("workspaces").and_then(Value::as_array).ok_or("Cloud directory has no workspace list")?;
+    let workspaces = data
+        .get("workspaces")
+        .and_then(Value::as_array)
+        .ok_or("Cloud directory has no workspace list")?;
     let mut out = BTreeMap::<String, Tab>::new();
     for workspace in workspaces {
         for screen in workspace.get("screens").and_then(Value::as_array).into_iter().flatten() {
@@ -597,13 +663,18 @@ fn phone_prompt_mode(session: &Value) -> bool {
         .and_then(Value::as_str)
         .or_else(|| session.get("harness").and_then(Value::as_str));
     let mode = session.get("currentModeId").and_then(Value::as_str);
-    matches!((family, mode), (Some("claude"), Some("default" | "plan")) | (Some("codex"), Some("ask")))
-        && session.pointer("/enforcement/policy").and_then(Value::as_str) == Some("ask")
+    matches!(
+        (family, mode),
+        (Some("claude"), Some("default" | "plan")) | (Some("codex"), Some("ask"))
+    ) && session.pointer("/enforcement/policy").and_then(Value::as_str) == Some("ask")
 }
 
 fn answer(id: Option<Value>, result: Value) -> Effects {
     Effects {
-        to_phone: id.map(|id| json!({"jsonrpc":"2.0","id":id,"result":result})).into_iter().collect(),
+        to_phone: id
+            .map(|id| json!({"jsonrpc":"2.0","id":id,"result":result}))
+            .into_iter()
+            .collect(),
         ..Effects::default()
     }
 }
@@ -662,11 +733,11 @@ mod tests {
         assert!(asked.to_native[0].get("sessionId").is_none());
         let record = json!({"sessionId":"sess_a","seq":57,"at":1234,"dir":"in","kind":"session.update",
             "msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"actual answer"}}}}});
-        let page =
-            json!({"session":{"sessionId":"sess_a","name":"Cloud chat"},"events":[record],"hasMore":true});
+        let page = json!({"session":{"sessionId":"sess_a","name":"Cloud chat"},"events":[record],"hasMore":true});
         let reply = respond(&mut a, &asked.to_native[0], page.clone());
         assert_eq!(reply.to_phone[0]["result"], page);
-        let live = a.native(json!({"event":"agent-session-record","surface":7,"record":record})).unwrap();
+        let live =
+            a.native(json!({"event":"agent-session-record","surface":7,"record":record})).unwrap();
         assert_eq!(live.to_phone[0]["params"], record);
         assert_eq!(live.to_phone[0]["method"], "_acpmux/event");
         let other = a.native(json!({"event":"agent-session-record","surface":7,"record":{"sessionId":"sess_other","seq":58}})).unwrap();
@@ -784,7 +855,10 @@ mod tests {
             ("_acpmux/attach", json!({"sessionId":"other","surface":7})),
             ("agent-session-trust", json!({"surface":7})),
             ("_acpmux/permission_respond", json!({"sessionId":"sess_a","optionId":"allow"})),
-            ("session/prompt", json!({"sessionId":"sess_a","prompt":[{"type":"text","text":"hello"}]})),
+            (
+                "session/prompt",
+                json!({"sessionId":"sess_a","prompt":[{"type":"text","text":"hello"}]}),
+            ),
         ] {
             let reply = phone(&mut a, 2, method, params);
             assert!(reply.to_native.is_empty());
@@ -797,13 +871,21 @@ mod tests {
     fn page_cursors_are_not_renumbered_and_rebound_tabs_cannot_prompt_another_chat() {
         let mut a = adapter();
         directory(&mut a);
-        let request =
-            phone(&mut a, 2, "_acpmux/events", json!({"sessionId":"sess_a","beforeSeq":818,"limit":9}));
-        let ready =
-            respond(&mut a, &request.to_native[0], json!({"session":{"sessionId":"sess_a"},"events":[]}));
+        let request = phone(
+            &mut a,
+            2,
+            "_acpmux/events",
+            json!({"sessionId":"sess_a","beforeSeq":818,"limit":9}),
+        );
+        let ready = respond(
+            &mut a,
+            &request.to_native[0],
+            json!({"session":{"sessionId":"sess_a"},"events":[]}),
+        );
         assert_eq!(ready.to_native[0]["cmd"], "agent-session-events");
         assert_eq!(ready.to_native[0]["before_seq"], 818);
-        let result = respond(&mut a, &ready.to_native[0], json!({"events":[{"seq":801}],"hasMore":true}));
+        let result =
+            respond(&mut a, &ready.to_native[0], json!({"events":[{"seq":801}],"hasMore":true}));
         assert_eq!(result.to_phone[0]["result"]["events"][0]["seq"], 801);
         let mut other = adapter();
         directory(&mut other);
@@ -813,8 +895,11 @@ mod tests {
             "session/prompt",
             json!({"sessionId":"sess_a","prompt":[{"type":"text","text":"hello"}],"_meta":{"acpmux":{"promptId":"stable"}}}),
         );
-        let rejected =
-            respond(&mut other, &request.to_native[0], json!({"session":{"sessionId":"different"}}));
+        let rejected = respond(
+            &mut other,
+            &request.to_native[0],
+            json!({"session":{"sessionId":"different"}}),
+        );
         assert!(rejected.to_native.is_empty());
         assert!(rejected.to_phone[0].get("error").is_some());
     }
@@ -882,7 +967,10 @@ mod tests {
         );
         assert_eq!(tab.to_native[0]["cmd"], "new-conversation-tab");
         assert_eq!(tab.to_native[0]["workspace"], 5);
-        assert_eq!(tab.to_native[0]["agent_session"], json!({"host":"registry:reg-1","harness":"claude"}));
+        assert_eq!(
+            tab.to_native[0]["agent_session"],
+            json!({"host":"registry:reg-1","harness":"claude"})
+        );
         let start = respond(a, &tab.to_native[0], json!({"surface":31}));
         start.to_native[0].clone()
     }
@@ -899,11 +987,17 @@ mod tests {
             "harness":"claude","vm_kind":"owner"})
         );
         assert_eq!(a.pending.values().next().unwrap().deadline.idle(), START_DEADLINE);
-        let started =
-            respond(&mut a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
+        let started = respond(
+            &mut a,
+            &start,
+            json!({"surface":31,"session":"sess_new","conversation":"conv_1"}),
+        );
         assert_eq!(started.to_phone[0]["method"], "_acpmux/session_changed");
         assert_eq!(started.to_phone[0]["params"]["session"]["sessionId"], "sess_new");
-        assert_eq!(started.to_phone[1], json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_new"}}));
+        assert_eq!(
+            started.to_phone[1],
+            json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_new"}})
+        );
         // The new chat is in the directory before the next refresh, so the phone prompts it at once.
         let asked = phone(
             &mut a,
@@ -922,7 +1016,11 @@ mod tests {
         // the machine now waits up to 30 s, and the phone must not give up first.
         let mut a = adapter();
         let start = start_chat(&mut a, 2);
-        let _ = respond(&mut a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
+        let _ = respond(
+            &mut a,
+            &start,
+            json!({"surface":31,"session":"sess_new","conversation":"conv_1"}),
+        );
         let asked = phone(
             &mut a,
             3,
@@ -930,7 +1028,11 @@ mod tests {
             json!({"sessionId":"sess_new",
             "prompt":[{"type":"text","text":"hi"}],"_meta":{"acpmux":{"promptId":"p-1"}}}),
         );
-        assert_eq!(a.pending.values().next().unwrap().deadline.idle(), DEADLINE, "the attach before it");
+        assert_eq!(
+            a.pending.values().next().unwrap().deadline.idle(),
+            DEADLINE,
+            "the attach before it"
+        );
         let prompt = respond(
             &mut a,
             &asked.to_native[0],
@@ -945,7 +1047,8 @@ mod tests {
     /// A prompt sent and a chat on its tab: the prompt's pending call and when it was made.
     fn prompt_pending(a: &mut Adapter) -> (Value, Instant) {
         let start = start_chat(a, 2);
-        let _ = respond(a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
+        let _ =
+            respond(a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
         let asked = phone(
             a,
             3,
@@ -985,7 +1088,10 @@ mod tests {
         }
         let now = at + step * 6 + Duration::from_secs(5);
         let accepted = a
-            .native_at(now, json!({"id":prompt["id"],"ok":true,"data":{"prompt_id":"p-1","turn_id":"t-1"}}))
+            .native_at(
+                now,
+                json!({"id":prompt["id"],"ok":true,"data":{"prompt_id":"p-1","turn_id":"t-1"}}),
+            )
             .unwrap();
         assert_eq!(accepted.to_phone[0]["method"], "_acpmux/prompt_accepted");
         assert_eq!(accepted.to_phone[1], json!({"jsonrpc":"2.0","id":3,"result":{}}));
@@ -1071,7 +1177,8 @@ mod tests {
         let mut a = adapter();
         start_chat(&mut a, 2);
         for p in a.pending.values_mut() {
-            p.deadline = IdleDeadline::new_at(Instant::now() - START_DEADLINE, START_DEADLINE, None);
+            p.deadline =
+                IdleDeadline::new_at(Instant::now() - START_DEADLINE, START_DEADLINE, None);
         }
         let out = a.expire();
         assert_eq!(out.to_phone[0]["id"], 2);
