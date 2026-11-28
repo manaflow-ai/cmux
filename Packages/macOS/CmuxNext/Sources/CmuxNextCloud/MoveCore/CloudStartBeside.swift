@@ -69,9 +69,14 @@ extension PersonalGateway {
     /// cost every such start its restart: cloud-chat-replies-production's gateway rows, whose own team gateway served
     /// the turn (2 to 9 calls), waited 2.5 to 4.4 s in their `gateway` step on this one's restart (2026-11-25 19:40Z to
     /// 2026-11-26 00:54Z), and the restart took the machines from the gateway serving them.
+    /// The same holds while this one is still starting or dialing: `choice` read the team's gateway online and serving now
+    /// (`serves` is empty when it is off or offline), and this Mac's is not online, so another gateway serves the turn.
+    /// Waiting for this one cost the production probe's first start after sign-in its whole 10 s deadline (run
+    /// 45965760313, 2026-11-27 12:19Z: `gateway` 3479 ms after the other steps, select to first text 17.9 s, the team's
+    /// gateway serving both model calls).
     public func servedElsewhere(_ choice: CloudSetup.Choice) -> Bool {
         if choice.servedWithoutMacGateway { return true }
-        if case .gateway = choice, state == .replaced { return true }
+        if case .gateway = choice, state != .online { return true } // online: ensureOnline answers at once anyway
         return false
     }
 
