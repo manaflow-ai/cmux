@@ -1116,6 +1116,10 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// Parked waits (`parked_wait.rs`): a chat's own tool call hands its wait to the platform,
+    /// `{sessionId, toolCallId, wakeAt}`, and takes it back, `{sessionId, toolCallId}`.
+    pub const MUX_WAIT_PARK: &str = "_acpmux/wait/park";
+    pub const MUX_WAIT_UNPARK: &str = "_acpmux/wait/unpark";
     /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
     /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
     /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are
@@ -1342,6 +1346,11 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// Sent to the prompting connection when a `session/prompt` that asked to wait for its
+    /// chat's link (`_meta.acpmux.waitForLink`) is held or kept for the link because the peer it
+    /// lives on is down: `{sessionId, promptId, peer}`. It goes once the link is back
+    /// (`server/peer_forward.rs` `wait_for_prompt_link`, `LinkWait`).
+    pub const MUX_PROMPT_HELD: &str = "_acpmux/prompt_held";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
     /// agent request or answer, `server/delivery.rs` `deliver`): `{sessionId, seq}`, so the owner's
     /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.

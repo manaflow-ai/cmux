@@ -448,3 +448,12 @@ fn upgrade_on_a_named_machine_is_refused_before_anything_changes() {
     }
     assert!(parse(&words("upgrade --machine studio")[..]).is_err());
 }
+
+#[test]
+fn the_cli_session_key_is_cli_or_its_named_one() {
+    assert_eq!(super::session_key(None), "cli");
+    assert_eq!(super::session_key(Some("  ")), "cli");
+    assert_eq!(super::session_key(Some(" fleet-a ")), "cli:fleet-a");
+    assert_eq!(super::session_key(Some("a\u{7}b")), "cli:ab");
+    assert_eq!(super::session_key(Some(&"x".repeat(200))), format!("cli:{}", "x".repeat(64)));
+}

@@ -3,9 +3,11 @@
 `cmux/ios-fast` gate that requires one at the PR's current head, and the loop's plan. Run: python3 -I THIS.
 """
 import copy
+import io
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -113,6 +115,45 @@ class Gate(unittest.TestCase):
                       pr.DEFAULT_BOTS.split(","))
         self.assertIsNotNone(got)
 
+    def test_a_private_member_who_can_push_counts(self):
+        # cmux#62808: a member whose org membership is private reads as CONTRIBUTOR to a workflow's github.token,
+        # so their passing record never counted. Whether they can push is what the gate asks GitHub instead.
+        body = pr.render(RECORD)
+        asked = []
+
+        def can_write(login):
+            asked.append(login)
+            return login == "member"
+
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD))
+        self.assertIsNotNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD,
+                                     (), can_write))
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="outsider")], "ios-flows", HEAD,
+                                  (), can_write))
+        # A bot never passes on a permission read, and a comment with no record costs no read.
+        self.assertIsNone(pr.find([comment(body, assoc="NONE", login="member", kind="Bot")], "ios-flows", HEAD,
+                                  (), can_write))
+        pr.find([comment("no record here", assoc="CONTRIBUTOR", login="chatty")], "ios-flows", HEAD, (), can_write)
+        self.assertEqual(asked, ["member", "outsider"])
+
+    def test_writer_check_reads_the_permission_once_and_fails_closed(self):
+        from unittest import mock
+        answers = {"admin-user": "admin", "writer": "write", "reader": "read"}
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            login = req.full_url.split("/collaborators/")[1].split("/")[0]
+            seen.append(login)
+            if login == "broken":
+                raise pr.urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+            return 200, json.dumps({"permission": answers[login]}).encode(), {}
+
+        with mock.patch.object(pr.gh_http, "request", side_effect=fake):
+            can_write = pr.writer_check("o/r", ["t"])
+            got = {login: can_write(login) for login in ("admin-user", "writer", "reader", "broken", "writer")}
+        self.assertEqual(got, {"admin-user": True, "writer": True, "reader": False, "broken": False})
+        self.assertEqual(seen, ["admin-user", "writer", "reader", "broken"])
+
     def test_newest_record_wins(self):
         failed = copy.deepcopy(RECORD)
         failed["runs"][0]["result"] = "fail"
@@ -190,6 +231,61 @@ class NoFlows(unittest.TestCase):
         self.assertIsNone(record)
         sh.assert_not_called()
         rerun.assert_not_called()
+
+
+class UnsignedPair(unittest.TestCase):
+    """A pair-e2e step with no agent account to sign in can only fail at pairing after a 45-60 min Mac build
+    (cmux#59658, cmux#56372): ios_verify stops before dispatching anything, and the automatic run holds the account."""
+    PAIR = {"name": "pair 1/1: pair-e2e", "mode": "pair-e2e", "worker": "", "args": ["pair-e2e"]}
+    SIM = {"name": "sim 1/1: test ui=AppReviewGateUITests", "mode": "test", "worker": "", "args": ["test"]}
+
+    def run_main(self, steps, account):
+        view = {"number": 7, "headRefName": "h", "headRefOid": HEAD, "baseRefName": "feat-cmux-next",
+                "url": "https://github.com/manaflow-ai/cmux/pull/7", "isCrossRepository": False, "body": ""}
+        sh = mock.MagicMock(return_value="")
+        err = io.StringIO()
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "git", return_value=OTHER), \
+                mock.patch.object(ios_verify.select_flows, "changed_from_git", return_value=["ios/Pair.swift"]), \
+                mock.patch.object(ios_verify.select_flows, "select", return_value={
+                    "ios": True, "compile": False, "flows": ["pair"], "kit": [], "ui": [], "swift": [], "scripts": [],
+                    "pair_e2e": ["pair"], "pair": True, "reason": {}}), \
+                mock.patch.object(ios_verify, "plan", return_value=steps), \
+                mock.patch.object(ios_verify, "has_agent_account", return_value=account), \
+                mock.patch.object(ios_verify, "run_step", side_effect=AssertionError("no simulator run")), \
+                mock.patch.object(ios_verify, "leased_hosts", return_value=set()), \
+                mock.patch.object(ios_verify, "sh", sh), \
+                mock.patch.object(ios_verify.sys, "stderr", err):
+            rc = ios_verify.main(["--pr", "7", "--no-merge-base"])
+        return rc, sh, err.getvalue()
+
+    def test_an_unsigned_pair_step_stops_before_any_mac_build(self):
+        rc, sh, err = self.run_main([self.SIM, self.PAIR], account=False)
+        self.assertEqual(rc, ios_verify.UNSIGNED_EXIT)
+        sh.assert_not_called()
+        self.assertIn(self.PAIR["name"], err)
+        self.assertIn("coordinator Mac", err)
+        self.assertIn("cmux-next-ios-verify-auto.yml", err)
+
+    def test_a_signed_or_pairless_run_is_not_stopped(self):
+        self.assertEqual(ios_verify.unsigned_pair([self.SIM], {}), [])
+        with mock.patch.object(ios_verify, "has_agent_account", return_value=True):
+            self.assertEqual(ios_verify.unsigned_pair([self.SIM, self.PAIR], {}), [])
+        with mock.patch.object(ios_verify, "has_agent_account", return_value=False):
+            self.assertEqual(ios_verify.unsigned_pair([self.PAIR], {}), [self.PAIR["name"]])
+            # a pair step read back with --from-step runs nothing, so it needs no account
+            self.assertEqual(ios_verify.unsigned_pair([self.PAIR], {self.PAIR["name"]: {}}), [])
+
+    def test_the_head_scripts_never_see_the_account(self):
+        for k in ios_verify.AGENT_KEYS:
+            self.assertIn(k, ios_verify.SCRUBBED)
+
+    def test_the_automatic_run_holds_the_account_only_in_the_verify_step(self):
+        wf = (pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-ios-verify-auto.yml").read_text()
+        step = wf.split("- name: Run cmux ios verify and post the record", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", step)
+        self.assertIn("CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}", step)
+        self.assertEqual(wf.count("secrets.CMUX_DOGFOOD_STACK_"), 2)
 
 
 class FromStep(unittest.TestCase):
@@ -791,6 +887,41 @@ class SeededRegression(unittest.TestCase):
 
     def test_a_failed_run_still_fails(self):
         self.assertEqual(ios_verify.verdict([{"name": "sim", "result": "error"}], []), "fail")
+
+
+class GateRerun(unittest.TestCase):
+    """cmux#61741, 2026-11-28: the lane-gh broker refused the plain rerun of the passed ui proof status job, so the
+    gate never read the new record and cmux/ui-proof stayed failed."""
+
+    REFUSED = ("gh: lane-gh call rerun manaflow-ai/cmux: refused: job 140960974380 of run 46139109983 passed; a rerun "
+               "only repeats its answer, so nothing was rerun (`gh run rerun 46139109983 --force` sends it anyway)")
+
+    def fake(self, answers):
+        calls = []
+
+        def run(cmd, **_):
+            calls.append(cmd)
+            code, err = answers.pop(0)
+            return subprocess.CompletedProcess(cmd, code, "", err)
+        return run, calls
+
+    def test_broker_refusal_of_a_passed_job_reruns_with_force(self):
+        run, calls = self.fake([(1, self.REFUSED), (0, "")])
+        self.assertIn("--force", pr.rerun_gate_job("manaflow-ai/cmux", 46139109983, 140960974380, run=run))
+        self.assertEqual(calls[1][-1], "--force")
+        self.assertNotIn("--force", calls[0])
+
+    def test_plain_gh_success_never_sends_force(self):
+        run, calls = self.fake([(0, "")])
+        self.assertEqual(pr.rerun_gate_job("o/r", 1, 2, run=run), "reran")
+        self.assertEqual(len(calls), 1)
+
+    def test_other_failure_raises_with_its_stderr(self):
+        run, calls = self.fake([(1, "HTTP 403: Resource not accessible")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            pr.rerun_gate_job("o/r", 1, 2, run=run)
+        self.assertIn("403", caught.exception.stderr)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

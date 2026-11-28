@@ -80,6 +80,174 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class EgressScanGuardsTest(unittest.TestCase):
+    """A product change that adds an outbound host or egress site runs the privacy and egress registry tests on its
+    landing head (egress-scan-guards, land_gate). 11-21..11-28: 5 fix-forwards (#57217, #58104, #58409, #59244,
+    #57325) after Swift and Rust changes merged green with the ci-guards.yml `ci` group never run on their PR."""
+
+    CULPRITS = {
+        "#58409": ["cmux-tui/crates/cmux-no-checkout/src/github.rs"],
+        "#57325": ["cmux-tui/crates/cmux-autocloud/src/login.rs",
+                   "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct.rs"],
+        "#58104": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/EmailSignIn.swift"],
+        "#59244": ["Packages/Shared/CmuxEgress/Sources/CmuxEgress/EgressHosts.swift"],
+        "webviews": ["webviews/src/app.ts"],
+        "registry": ["docs/privacy.md"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("egress-scan-guards", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_the_runner_runs_every_registry_test_through_new_red_only(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "egress_scan_guards.sh").read_text()
+        self.assertIn("new_red_only.sh", text)
+        for name in ("test_outbound_hosts", "test_network_allowlist", "test_egress_gate", "test_egress_seeded"):
+            with self.subTest(test=name):
+                self.assertIn(name, text)
+                self.assertTrue((ROOT / "tests" / f"{name}.py").is_file())
+
+    def test_an_unrelated_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, ["docs/handbook/x.md", "ci/README.md"]))
+
+
+class RegistryRowGuardsTest(unittest.TestCase):
+    """A change that adds a registry row's source without its row runs the row's guard on its landing head
+    (registry-row-missing class, land_gate). 11-21 to 11-28: four selector-table reds (culprit e06d1661da88, a
+    Sources-only change; cmux-next-crash-class's `**` Sources input drops under --pr-scope) and four settings-export
+    reds (#51725, #54442; settings-published-keys was push tier and named no Swift settings source)."""
+
+    CULPRITS = {
+        "objc-selector-table": {
+            "e06d1661da88": [
+                "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonLook.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonView.swift",
+            ],
+        },
+        "settings-published-keys": {
+            "#51725": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+                       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentTools.swift",
+                       "schemas/settings/source/agent-defaults.json"],
+            "#54442": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"],
+            "#52837": ["schemas/settings/published-keys.txt"],
+        },
+    }
+
+    def test_each_culprit_routes_its_row_guard_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for step, culprits in self.CULPRITS.items():
+            self.assertTrue(t.steps[step].land_gate, step)
+            self.assertTrue(t.steps[step].blocks, step)
+            for culprit, paths in culprits.items():
+                with self.subTest(step=step, culprit=culprit):
+                    self.assertIn(step, ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_a_product_change_does_not_route_them(self) -> None:
+        t = ci_steps.load()
+        routed = ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"], ["linux"])
+        for step in self.CULPRITS:
+            self.assertNotIn(step, routed)
+
+    def test_each_wraps_its_check_in_new_red_only(self) -> None:
+        t = ci_steps.load()
+        for step in self.CULPRITS:
+            with self.subTest(step=step):
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].run)
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].inputs)
+
+
+class SwiftTestCompileGateTest(unittest.TestCase):
+    """A Swift change's test targets compile on its landing head (swift-test-compile, land_gate). Since 2026-11-21 no
+    pull request into feat-cmux-next compiled a test target (fleet-test-compile.yml cut, then retired by #61890; swift
+    test after merge), and 11-21..11-28 ten CmuxNext test targets stopped compiling on the base after their change
+    merged green (cause compile-or-lint-slip). Each culprit below is the change's own Swift files."""
+
+    CULPRITS = {
+        "#54622": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift"],
+        "#55279": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeChatPage.swift",
+                   "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests/CustomizeChatPageTests.swift"],
+        "#53109": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitHubRequest.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudGitHubRepos.swift"],
+        "#57696": ["Packages/macOS/CmuxNext/Package.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService.swift"],
+    }
+
+    def test_each_culprit_routes_a_test_target_compile_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("swift-test-compile", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_every_macos_swift_source_reaches_a_landing_step_that_compiles_test_targets(self) -> None:
+        # The class: a landing head that changes a macOS package's Swift (source or test) runs a step that builds the
+        # test targets, not only the app. A step that compiles them reads the fleet's test-compile phase.
+        t = ci_steps.load()
+        compilers = {name for name, step in t.steps.items() if "--phase test-compile" in step.run}
+        self.assertTrue(compilers, "no step reads the build fleet's test-target compile")
+        for name in compilers:
+            step = t.steps[name]
+            self.assertTrue(step.land_gate and step.job in ("linux",) and step.blocks, name)
+        dirs = sorted({p.parent.relative_to(ROOT).as_posix()
+                       for p in (ROOT / "Packages" / "macOS").glob("*/Package.swift")})
+        self.assertTrue(dirs)
+        for package in dirs:
+            for kind in ("Sources/X/A.swift", "Tests/XTests/A.swift"):
+                path = f"{package}/{kind}"
+                with self.subTest(path=path):
+                    self.assertTrue(compilers & set(ci_steps.nightly_gate_steps(t, [path], ["linux"])))
+
+    def test_a_non_swift_change_does_not_start_it(self) -> None:
+        t = ci_steps.load()
+        for path in ("webviews/src/app.ts", "cmux-tui/crates/acpmux/src/lib.rs", "Packages/macOS/CmuxNext/README.md"):
+            with self.subTest(path=path):
+                self.assertNotIn("swift-test-compile", ci_steps.nightly_gate_steps(t, [path], ["linux"]))
+
+    def run_step(self, verdicts: dict[str, str], plan: str = "Packages/macOS/CmuxNext CmuxNextAppTests\n"):
+        """Run the step's script in a two-commit repository whose plan and fleet reader are fakes; VERDICTS maps
+        'head' and 'base' to the reader's word."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "CI_TOOLS": str(root / "tools"), "GITHUB_EVENT_PATH": ""}
+            (root / "tools").mkdir()
+            git = lambda *a: subprocess.run(["git", *a], cwd=root, env=env, check=True, capture_output=True)  # noqa: E731
+            git("init", "-q")
+            (root / "scripts" / "ci").mkdir(parents=True)
+            (root / "scripts/ci/compile_test_plan.py").write_text(f"import sys\nsys.stdout.write({plan!r})\n")
+            git("add", "-A")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD").stdout.decode().strip()
+            words = {base: verdicts.get("base", "none")}
+            (root / "a.swift").write_text("x\n")
+            git("add", "-A")
+            git("commit", "-qm", "head")
+            words[git("rev-parse", "HEAD").stdout.decode().strip()] = verdicts.get("head", "none")
+            (root / "scripts/ci/fleet_compile_result.py").write_text(textwrap.dedent(f"""
+                import sys
+                a = sys.argv
+                assert a[a.index("--phase") + 1] == "test-compile" and a[a.index("--packages") + 1] == "CmuxNext"
+                print({words!r}[a[a.index("--sha") + 1]])
+            """))
+            run = ci_steps.load().steps["swift-test-compile"].run
+            return subprocess.run(["bash", "-c", run], cwd=root, env=env, capture_output=True, text=True)
+
+    def test_red_only_for_a_test_compile_red_the_base_does_not_have(self) -> None:
+        cases = [({"head": "pass"}, 0), ({"head": "fail", "base": "pass"}, 1), ({"head": "fail", "base": "fail"}, 0),
+                 ({"head": "fail", "base": "none"}, 0), ({"head": "none"}, 0), ({"head": "superseded"}, 0)]
+        for verdicts, rc in cases:
+            with self.subTest(verdicts=verdicts):
+                got = self.run_step(verdicts)
+                self.assertEqual(got.returncode, rc, got.stdout + got.stderr)
+        self.assertEqual(self.run_step({"head": "fail", "base": "pass"}, plan="").returncode, 0)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
@@ -156,6 +324,16 @@ class NightlyGateTest(unittest.TestCase):
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
 
+    def test_a_landing_head_that_changes_the_vm_openapi_runs_the_sdk_codegen_check(self) -> None:
+        # cmux#63748 and cmux#64283 changed workers/cmux-vm/openapi.json without regenerating the committed clients;
+        # cmux-vm-sdk and cmux-vm-clients-rust are push tier, so `cmux VM clients / rust` and `/ sdk` went red on
+        # feat-cmux-next (from 25d38e9da) until cmux#64493 regenerated them.
+        start, why, (jobs, only) = self.landing(["workers/cmux-vm/openapi.json"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("cmux-vm-sdk", only)
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("cmux-vm-sdk", only)
+
     def test_a_source_change_runs_the_next_checks_guards_on_the_pull_request(self) -> None:
         # 11-27 base tier run 46080642938: state roots, the FFI caller ratchet and the base-red classifier went red on
         # the feat-cmux-next tip after green merges. Their sources were whole-directory globs, which --pr-scope never
@@ -182,9 +360,11 @@ class NightlyGateTest(unittest.TestCase):
                             ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids.
+                # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
+                # scripts/cmux-next/*.sh for Classic ids): only
+                # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
-                                  if n != "next-state-roots"], [name])
+                                  if steps[n].nightly], [name])
 
     def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
         # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
@@ -209,6 +389,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
+        # The idle daemon tests (cmux-next-idle-wakeups) read Cargo.lock but are tier B since 2026-11-28: post-merge.
         self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
@@ -236,6 +417,30 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("--base", step.run)
         self.assertIn("--skip typecheck", step.run)
         self.assertEqual(step.tier, "push", "a full-tier head's ci-web react-apps-check runs them; no second run")
+
+    def test_hook_tests_keep_their_gate_without_spending_the_typecheck_timeout(self) -> None:
+        table = ci_steps.load()
+        hooks = table.steps["web-lint-hook-tests"]
+        types = table.steps["webviews-typecheck"]
+        self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
+        self.assertNotIn("test_web_lint_prepush.py", types.run)
+        self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
+        for step in (hooks, types):
+            self.assertTrue(step.blocks)
+            self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
+            self.assertEqual(step.needs, ("bun", "node"))
+        self.assertEqual(hooks.inputs, types.inputs)
+        self.assertEqual(hooks.nightly, types.nightly)
+        for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
+                     "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
+            with self.subTest(path=path):
+                for name in (hooks.name, types.name):
+                    self.assertIn(name, ci_steps.route(table, [path])["linux"])
+                    self.assertIn(name, self.landing([path])[2][1])
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
@@ -267,7 +472,15 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
+                # steps on every cmux-tui/crates/*/src .rs). The idle daemon tests read Cargo.lock but are tier B: post-merge.
+                # The .rs also reaches the privacy and egress registries (egress-scan-guards) and the spawn-owner
+                # ratchet (next-spawn-owner-ratchet), both land_gate.
+                expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
+                                ["egress-scan-guards", "persisted-formats", "next-state-roots",
+                                 "next-spawn-owner-ratchet", "phone-speed-icount"],
+                            "cmux-tui/Cargo.lock": ["rust-notices", "phone-speed-icount"]
+                            }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
@@ -1169,7 +1382,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected"}
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
@@ -1419,7 +1632,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
-            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True})
+            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
+            "ios_fast_skip": "${{ needs.route.outputs.ios_fast_skip == 'true' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
@@ -1890,10 +2104,10 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
-                      "webviews-typecheck", "cmux-vm-cloud", "webviews-checks"}
+                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -1919,7 +2133,7 @@ class PipelineTest(unittest.TestCase):
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
-            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+            "'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
         run = ci_steps.load().steps["shim-cpp"].run
@@ -2454,16 +2668,17 @@ class WebBrowserStepsTest(unittest.TestCase):
 class RustToolCompileCacheTest(unittest.TestCase):
     """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
     SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
-    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), keeps a wrapper its caller sets on
+    cargo (cargo-giant-lock.sh, with sccache inside it), and changes nothing elsewhere."""
 
-    def run_tool(self, **env: str) -> tuple[str, str]:
+    def run_tool(self, call_env: dict[str, str] | None = None, **env: str) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
             for d in (cargo_home / "bin", tools, stub_bin, cache):
                 d.mkdir(parents=True)
             (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
-            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} inner=${CARGO_GROUPS_INNER_WRAPPER:-none} args=$*"\n')
             (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
             for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
                 f.chmod(0o755)
@@ -2473,23 +2688,31 @@ class RustToolCompileCacheTest(unittest.TestCase):
             full = {k: v for k, v in full.items() if v != ""}
             subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
                            capture_output=True, text=True, cwd=ROOT)
-            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env={**full, **(call_env or {})},
+                                  check=True,
                                   capture_output=True, text=True).stdout.strip()
             return said, str(stub_bin / "sccache")
 
     def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
         said, sccache = self.run_tool()
-        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+        self.assertEqual(said, f"wrapper={sccache} inner=none args=test -p x")
 
     def test_a_wrapper_already_set_is_kept(self) -> None:
         said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
-        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+        self.assertEqual(said, "wrapper=/opt/kache/kache inner=none args=test -p x")
 
     def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
         for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
             with self.subTest(env=env):
                 said, _ = self.run_tool(**env)
-                self.assertEqual(said, "wrapper=none args=test -p x")
+                self.assertEqual(said, "wrapper=none inner=none args=test -p x")
+
+    def test_a_callers_giant_lock_is_kept_with_sccache_inside(self) -> None:
+        # cmux-next-member-tests.sh and cargo-groups.sh set RUSTC_WRAPPER to the giant lock before running cargo; the
+        # shim used to overwrite it with sccache, dropping the lock.
+        lock = "/repo/scripts/ci/cargo-giant-lock.sh"
+        said, sccache = self.run_tool(call_env={"RUSTC_WRAPPER": lock})
+        self.assertEqual(said, f"wrapper={lock} inner={sccache} args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):
@@ -2868,6 +3091,58 @@ class CrateResults(unittest.TestCase):
         self.assertLess(run.index("crate_results.py plan"), run.index("rustup toolchain install"),
                         "a step whose crates all hit installs and compiles nothing")
         self.assertIn("scripts/ci/crate_results.py", ci_steps.load().steps[crate_results.STEP].inputs)
+
+
+class FailFastTest(unittest.TestCase):
+    """--fail-fast (CI_RUN_FAIL_FAST=1, pr-pipeline.yml's linux job): a blocking red stops further steps from
+    starting (Leo: "de facto, im asking for 99% fewer minutes of ci time, period."; 253 of 493 linux runs red,
+    3835 of 6006 runner-min, 11-28 17-20Z)."""
+
+    def run_it(self, fail_fast: bool, red_blocks: bool = True, alone_on_red: bool = False):
+        steps = {
+            "cheap-red": ci_steps.Step(name="cheap-red", job="linux", run="exit 3", timeout=10, reuse=False,
+                                       blocks=red_blocks),
+            "heavy": ci_steps.Step(name="heavy", job="linux", run="touch ran-heavy", timeout=900, reuse=False),
+        }
+        tbl = ci_steps.Table(jobs={"linux": "x"}, steps=steps, setup={})
+        with tempfile.TemporaryDirectory() as d:
+            out = io.StringIO()
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with mock.patch.object(ci_steps, "route", return_value={"linux": ["heavy", "cheap-red"]}):
+                    code = ci_steps.run_job(tbl, "linux", None, out=out, workers=1, fail_fast=fail_fast,
+                                            alone_on_red=alone_on_red)
+                ran = os.path.exists("ran-heavy")
+            finally:
+                os.chdir(old)
+        return code, out.getvalue(), ran
+
+    def test_a_red_stops_the_steps_not_yet_started_and_cheap_ones_go_first(self) -> None:
+        code, out, ran = self.run_it(True)
+        self.assertEqual(code, 1, out)
+        self.assertFalse(ran, out)
+        self.assertIn("step heavy skipped: blocking step cheap-red failed (fail-fast)", out)
+
+    def test_off_runs_every_step(self) -> None:
+        code, out, ran = self.run_it(False)
+        self.assertEqual(code, 1, out)
+        self.assertTrue(ran, out)
+
+    def test_an_advisory_red_does_not_stop_the_rest(self) -> None:
+        code, out, ran = self.run_it(True, red_blocks=False)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(ran, out)
+
+    def test_the_post_merge_batch_runs_everything(self) -> None:
+        code, out, ran = self.run_it(True, alone_on_red=True)
+        self.assertTrue(ran, out)
+
+    def test_the_linux_job_turns_it_on_with_an_off_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-pipeline.yml").read_text(encoding="utf-8")
+        self.assertIn("CI_RUN_FAIL_FAST:", text)
+        self.assertIn("vars.CI_PR_PIPELINE_LINUX_FAIL_FAST", text)
+        self.assertIn("steps.tooling-tests-base-red.outputs.base_red != 'true'", text)
 
 
 if __name__ == "__main__":

@@ -76,6 +76,39 @@ fn three_way_merges_separate_edits_and_refuses_overlapping_ones() {
 }
 
 #[test]
+fn a_side_that_only_added_lines_the_other_has_takes_the_fuller_side() {
+    let base = "---\nname: s\n---\n- 11-27 start\n";
+    let ours = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n";
+    let theirs = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n- 11-28 02:00Z next\n";
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), ours.as_bytes(), theirs.as_bytes()),
+        Merged::Clean(theirs.as_bytes().to_vec())
+    );
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), theirs.as_bytes(), ours.as_bytes()),
+        Merged::Clean(theirs.as_bytes().to_vec())
+    );
+    // Ours removed a base line theirs kept: not a pure addition, so still a conflict.
+    let ours_cut = "---\nname: s\n---\n- 11-28 01:00Z step\n";
+    let theirs_more =
+        "---\nname: s\n---\n- 11-27 start\n- 11-28 02:00Z next\n- 11-28 01:00Z step\n";
+    assert_eq!(
+        three_way("s-state.md", base.as_bytes(), ours_cut.as_bytes(), theirs_more.as_bytes()),
+        Merged::Conflict
+    );
+    // Both added different lines at the same place: a conflict, as before.
+    assert_eq!(
+        three_way(
+            "s-state.md",
+            base.as_bytes(),
+            format!("{base}- ours\n").as_bytes(),
+            format!("{base}- theirs\n").as_bytes()
+        ),
+        Merged::Conflict
+    );
+}
+
+#[test]
 fn jsonl_merges_by_lines_keeping_both_sides_appends() {
     let base = "{\"a\":1}\n";
     let ours = "{\"a\":1}\n{\"b\":2}\n";
@@ -498,6 +531,73 @@ async fn an_idle_pass_reads_no_file_and_writes_no_state() {
 }
 
 /// An mtime an hour back, so the file is past the racy window a stamp waits out.
+/// A pull per remote change on a folder of hundreds of notes appends what moved to
+/// `state.log`, not the whole `files` map to `state.json` (two megabytes rewritten about once a
+/// second on a fleet host's private scope); a restart reads back the same state.
+#[tokio::test]
+async fn pulls_append_their_change_not_the_whole_state() {
+    let (client, _store) = fake().await;
+    let (a_root, b_root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (mut a, mut b) =
+        (machine(&client, a_root.path(), "a"), machine(&client, b_root.path(), "b"));
+    for n in 0..500 {
+        let rel = format!("notes/a-long-enough-note-name-{n}.md");
+        put_file(a_root.path(), &rel, &format!("note {n}\n"));
+        age(a_root.path(), &rel);
+    }
+    a.pass().await.unwrap();
+    a.pass().await.unwrap();
+    b.pass().await.unwrap();
+    let snapshot = serde_json::to_vec(&a.state).unwrap().len() as u64;
+    assert!(snapshot > 50_000, "{snapshot}");
+
+    let before = a.state_bytes_written;
+    let pulls = 20u64;
+    for n in 0..pulls {
+        put_file(b_root.path(), &format!("notes/from-b-{n}.md"), &format!("b {n}\n"));
+        b.pass().await.unwrap();
+        let pulled = a.pass_changed(paths(&[])).await.unwrap().pulled;
+        assert_eq!(pulled, vec![format!("notes/from-b-{n}.md")]);
+    }
+    let written = a.state_bytes_written - before;
+    // Each pull used to write the whole snapshot: `pulls * snapshot` bytes (over 1 MB here).
+    assert!(written < snapshot / 4, "{written} bytes for {pulls} pulls; snapshot {snapshot}");
+
+    let state = a.state.clone();
+    drop(a);
+    let again = machine(&client, a_root.path(), "a");
+    assert_eq!(again.state, state);
+    assert_eq!(again.state.files.len(), 520);
+}
+
+/// A torn last log line (a crash mid-append) is ignored, and the next save starts a snapshot
+/// instead of gluing a line onto it.
+#[tokio::test]
+async fn a_torn_log_tail_is_ignored_and_compacted() {
+    let (client, _store) = fake().await;
+    let root = tempfile::tempdir().unwrap();
+    let mut a = machine(&client, root.path(), "a");
+    put_file(root.path(), "notes/one.md", "one\n");
+    a.pass().await.unwrap();
+    put_file(root.path(), "notes/two.md", "two\n");
+    a.pass().await.unwrap();
+    let state = a.state.clone();
+    drop(a);
+    let log = state_dir(root.path(), Scope::Team).join("state.log");
+    let mut bytes = std::fs::read(&log).unwrap();
+    bytes.extend_from_slice(b"{\"epoch\":");
+    std::fs::write(&log, &bytes).unwrap();
+
+    let mut a = machine(&client, root.path(), "a");
+    assert_eq!(a.state, state);
+    put_file(root.path(), "notes/three.md", "three\n");
+    a.pass().await.unwrap();
+    assert_eq!(std::fs::read(&log).unwrap(), b"", "compacted into a new snapshot");
+    let state = a.state.clone();
+    drop(a);
+    assert_eq!(machine(&client, root.path(), "a").state, state);
+}
+
 fn age(root: &Path, rel: &str) {
     let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     let path = scope_dir(root, Scope::Team).join(rel);

@@ -5,10 +5,10 @@
 //! `list_displays` (geometry, no grant), so it needs no app window and asks
 //! nobody anything. Exit 0 only when every check passes.
 
-use acpmux::computer_use::client::{DaemonError, ENDPOINT_CMD, Outcome, new_call_id};
+use acpmux::computer_use::client::{DaemonError, ENDPOINT_CMD, Outcome};
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, caller, legacy, with_machine};
+use super::{GlobalArgs, call_once, legacy, with_machine};
 use crate::cli::OutputMode;
 
 /// The one fixed folder every build stages the helper in (`cmux_signed_bundle::helper_folder`,
@@ -387,7 +387,7 @@ pub(super) fn run(global: &GlobalArgs, machine: Option<&str>, json_flag: bool) -
                 message: "not asked".into(),
             };
         }
-        caller(global).call(tool, &with_machine(json!({}), machine), &new_call_id()).into()
+        call_once(global, tool, &with_machine(json!({}), machine)).into()
     };
     let status = call("status");
     let displays = call("list_displays");

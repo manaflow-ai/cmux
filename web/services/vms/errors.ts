@@ -155,7 +155,7 @@ export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgres
  */
 export class VmCreateWaitingError extends Data.TaggedError("VmCreateWaitingError")<{
   readonly idempotencyKey: string;
-  readonly state: "waiting_for_address" | "waiting_for_capacity";
+  readonly state: "waiting_for_address" | "waiting_for_fleet" | "waiting_for_capacity";
   readonly since: number;
   readonly deadline: number;
   readonly retryAfterSeconds: number;
