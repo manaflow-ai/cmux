@@ -279,6 +279,7 @@ def bench_input(kind, samples, at):
     """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
     own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
     flags = f"--input {kind} --samples {samples}"
+    # clipboard: copy-paste round trips (the bench offers cap clipboard.text itself); no aim.
     if kind in ("click", "scroll") and at:
         flags += f" --at {at[0]},{at[1]}"
     return flags
@@ -1079,6 +1080,39 @@ def read_marker_rgb(rgb, width, origin, cell):
 CLOCK_PROBE_SECONDS = 20.0
 
 
+CLIP_PREFIX = "cmux-vs-clip-"
+
+
+def clip_echo_step(read, write, last):
+    """One poll of `clip-echo`: when the clipboard holds a new text starting with CLIP_PREFIX (the
+    viewer's `cmux-rd bench --input clipboard` probe, put there by the host), copy "ack:" + text.
+    The echo does not start with the prefix, so it is never answered again. Returns the text seen."""
+    text = read()
+    if text is not None and text != last and text.startswith(CLIP_PREFIX):
+        write("ack:" + text)
+    return text
+
+
+def cmd_clip_echo(args):
+    """The shared Mac's other app for the clipboard leg: polls the pasteboard (pbpaste) and answers
+    each probe, so one sample proves both directions: the viewer's text reached this clipboard,
+    and a text set here reached the viewer. Runs inside the rig, in the GUI session's pasteboard."""
+    def read():
+        try:
+            return subprocess.run(["pbpaste"], capture_output=True, timeout=2).stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    def write(text):
+        subprocess.run(["pbcopy"], input=text.encode(), timeout=2, check=False)
+
+    end, last = time.time() + args.seconds, None
+    print("clip-echo ready", flush=True)
+    while time.time() < end:
+        last = clip_echo_step(read, write, last)
+        time.sleep(args.every_ms / 1000)
+
+
 def cmd_clock_serve(args):
     if getattr(args, "tcp", False):
         return clock_serve_tcp(args)
@@ -1276,6 +1310,28 @@ NUMBER = r"[0-9]{1,9}"
 HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
              "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+# `run --host-env NAME=VALUE`: the only environment a run sets on `cmux-rd serve` beyond its own
+# timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
+# measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
+# the captured display to its fastest refresh for the serve process.
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+
+
+def checked_env(items):
+    """{NAME: VALUE} for ITEMS (`NAME=VALUE`), each NAME in HOST_ENV with a VALUE matching its
+    pattern, none twice; anything else raises ValueError."""
+    env = {}
+    for item in items or []:
+        name, sep, value = str(item).partition("=")
+        if name not in HOST_ENV:
+            raise ValueError(f"--host-env {item!r}: {name} is not allowed "
+                             f"(allowed: {', '.join(sorted(HOST_ENV))})")
+        if not sep or not re.fullmatch(HOST_ENV[name], value):
+            raise ValueError(f"--host-env {item!r}: {name} needs a value matching {HOST_ENV[name]}")
+        if name in env:
+            raise ValueError(f"--host-env {item!r}: {name} given twice")
+        env[name] = value
+    return env
 
 
 def test_loss_pct(value):
@@ -1395,6 +1451,7 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                env.update(checked_env(req.get("env")))  # refused, not dropped
                 if req.get("test_loss_pct") is not None:
                     env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
@@ -1409,6 +1466,15 @@ def cmd_rig(args):
                 f.close()
                 conn.close()
                 continue
+            elif cmd == "clip_echo":
+                stop("clip_echo")
+                log = open(os.path.join(state, "clip-echo.log"), "w")
+                procs["clip_echo"] = subprocess.Popen(
+                    [sys.executable, os.path.abspath(__file__), "clip-echo",
+                     "--seconds", str(min(max(int(req.get("seconds") or 600), 1), 3600))],
+                    stdout=log, stderr=log)
+                log.close()
+                reply["pid"] = procs["clip_echo"].pid
             elif cmd == "timing":
                 lines = []
                 if os.path.exists(timing):
@@ -2490,6 +2556,7 @@ class Orchestrator:
             loss = getattr(args, "host_test_loss", None)
             self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
+            self.host_env = checked_env(getattr(args, "host_env", None))
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
             raise SystemExit(str(e))
@@ -2526,7 +2593,8 @@ class Orchestrator:
     def log(self, rec):
         pct = getattr(self, "host_test_loss", None)
         loss = {"host_test_loss_pct": float(pct)} if pct else {}
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
+        env = {"host_env": self.host_env} if getattr(self, "host_env", None) else {}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss, **env})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -2712,6 +2780,12 @@ class Orchestrator:
         try:
             line = readline(viewer, time.time() + 20)
             viewer_key = json.loads(line)["key"]
+            clipboard = mode == "key" and getattr(self.a, "cmux_input", "key") == "clipboard"
+            if clipboard and self.synthetic:
+                raise RuntimeError("--cmux-input clipboard needs the rig (a real pasteboard), not --source synthetic-*")
+            if clipboard:
+                # The shared Mac's other app: it answers each probe on the pasteboard (clip-echo).
+                rec["clip_echo_pid"] = self.rig({"cmd": "clip_echo", "seconds": int(self.a.timeout) + 60}).get("pid")
             if self.synthetic:
                 host = self.host.popen(self.synthetic_serve(mode))
             else:
@@ -2720,12 +2794,15 @@ class Orchestrator:
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
                                                                  "test_loss_pct": getattr(self, "host_test_loss", None),
+                                                                 "env": [f"{k}={v}" for k, v in self.host_env.items()],
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
             if self.a.encode_profile:
                 setup["encode_profile"] = self.a.encode_profile
+            if clipboard:
+                setup["clipboard"] = True  # the person's opt-in (serve.rs Setup.clipboard)
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -2949,6 +3026,8 @@ class Orchestrator:
         pct = getattr(self, "host_test_loss", None)
         if pct:
             env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
+        for name, value in self.host_env.items():
+            env += f"{name}={shlex.quote(value)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -3720,6 +3799,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
+                   help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
+                        + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
@@ -3745,9 +3827,10 @@ def build_parser():
                    "tools-only=1: cmux-rd, cmux-rd-marker, screen-eval-ocr")
     r.add_argument("--apple-input", choices=["key", "click"], default="key",
                    help="the Apple leg's timed input (key: after one focus click on the pad)")
-    r.add_argument("--cmux-input", choices=["key", "click", "scroll"], default="key",
+    r.add_argument("--cmux-input", choices=["key", "click", "scroll", "clipboard"], default="key",
                    help="the cmux leg's timed input: each kind goes through the host's injector and "
-                   "bumps the marker (keyDown, mouseDown, scrollWheel)")
+                   "bumps the marker (keyDown, mouseDown, scrollWheel); clipboard: copy-paste round "
+                   "trips through the shared Mac's pasteboard (cap clipboard.text, clip-echo there)")
     r.add_argument("--presented-pid", type=int, help="a visible viewer pane's process on the "
                    "viewing Mac: Total then ends at the presented frame (cmux-rd observe)")
     r.add_argument("--presented-window", type=int, help="that pane's CGWindow id")
@@ -3854,6 +3937,10 @@ def build_parser():
     c.add_argument("--root", default="~/cmux-rd-test")
     c.add_argument("request")
     c.set_defaults(fn=cmd_rig_call)
+    ce = sub.add_parser("clip-echo", help="on the shared Mac (the rig starts it): answer clipboard probes")
+    ce.add_argument("--seconds", type=float, default=600)
+    ce.add_argument("--every-ms", type=float, default=10)
+    ce.set_defaults(fn=cmd_clip_echo)
     s = sub.add_parser("clock-serve")
     s.add_argument("--bind", default="0.0.0.0")
     s.add_argument("--port", type=int, default=47123)
