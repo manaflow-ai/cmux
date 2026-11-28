@@ -117,6 +117,10 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// The host opened the chat on its machine (`cloud.startChat` answered ok) while this page carries it (a start in
+  /// place re-homes the page, cmux-cloud-start-core `one_pane`): the card, with the sent prompt, stays until the
+  /// Cloud chat's first page is drawn, so the pane never blanks between the two (cloudStartOpened.ts).
+  opened?: true;
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).

@@ -596,9 +596,19 @@
             "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
             "`init(pane:mode:frame:transaction:)`."
           ],
-          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "order": [
+            "pane",
+            "mode",
+            "x",
+            "y",
+            "w",
+            "h",
+            "transaction"
+          ],
           "fields": {
-            "mode": { "type": "Mode" }
+            "mode": {
+              "type": "Mode"
+            }
           },
           "response": "hand-written"
         },
@@ -2298,7 +2308,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2387,6 +2397,72 @@
             }
           },
           "response": "WorkspaceMetadataResult"
+        },
+        "close-workspace": {
+          "name": "CloseWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "end_terminals",
+            "reason",
+            "if_empty",
+            "report_closed_ids",
+            "mutation"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true",
+              "doc": [
+                "Also end, in the same commit, each terminal whose tabs all close and",
+                "that is not kept (`batch-close-v1`). Sent only when true."
+              ]
+            },
+            "reason": {
+              "with": "end_terminals",
+              "doc": [
+                "Why it closes (`close-reason-v1`, with `endTerminals`); `.sessionEnd` keeps it out of",
+                "closed history."
+              ]
+            },
+            "if_empty": {
+              "encode": "if_true",
+              "doc": [
+                "Close only when the workspace has no tab when the close commits",
+                "(`close-workspace-if-empty-v1`); else the daemon refuses with",
+                "`workspace_not_empty`. Sent only when true."
+              ]
+            },
+            "report_closed_ids": {
+              "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "rename-workspace": {
+          "name": "RenameWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "name",
+            "source",
+            "expected_name_revision",
+            "release",
+            "mutation"
+          ],
+          "fields": {
+            "source": {
+              "type": "WorkspaceNameSource"
+            },
+            "expected_name_revision": {
+              "encode": "decimal"
+            },
+            "release": {
+              "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
         }
       }
     },
@@ -3777,6 +3853,61 @@
               ]
             }
           }
+        }
+      }
+    },
+    "Shell": {
+      "$comment": "Hand-written still: each Response (the schema's result is JsonValue), ShellRunRequest.newRunID and ShellReadRequest.timeout (Shell/ShellRunResponses.swift).",
+      "requests": {
+        "shell-run": {
+          "name": "ShellRunRequest",
+          "doc": [
+            "`shell-run {command, cwd?, scope?, run?}`: starts `command` in `cwd` there under the id `run`",
+            "(chosen here, so a start whose answer is lost can still be stopped); `{run}` or `{refused}`."
+          ],
+          "order": [
+            "command",
+            "cwd",
+            "scope",
+            "run"
+          ],
+          "fields": {
+            "scope": {
+              "type": "String",
+              "optional": false,
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "shell-read": {
+          "name": "ShellReadRequest",
+          "doc": [
+            "`shell-read {run, after}`: output after `after`, answered when there is some or the command",
+            "ended, else after 10 s."
+          ],
+          "order": [
+            "run",
+            "after"
+          ],
+          "fields": {
+            "after": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "shell-stop": {
+          "name": "ShellStopRequest",
+          "doc": [
+            "`shell-stop {run}`: Ctrl-C to the command's process group, then SIGTERM and SIGKILL."
+          ],
+          "order": [
+            "run"
+          ],
+          "response": "hand-written"
         }
       }
     }
