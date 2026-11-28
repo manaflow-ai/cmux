@@ -3,6 +3,20 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
 use super::*;
 
+#[test]
+fn the_platform_roots_are_read_once_per_process() {
+    let config = |c: Option<tokio_tungstenite::Connector>| match c {
+        Some(tokio_tungstenite::Connector::Rustls(config)) => Some(config),
+        _ => None,
+    };
+    // A host with no root bundle has nothing to share.
+    let Some(first) = config(native_tls()) else { return };
+    let second = config(native_tls()).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    let relay = config(crate::provider::RelayTls::default().connector()).unwrap();
+    assert!(Arc::ptr_eq(&first, &relay));
+}
+
 #[tokio::test]
 async fn connected_link_description_redacts_websocket_capabilities() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

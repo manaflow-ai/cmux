@@ -82,6 +82,8 @@ impl Hub {
                     } else {
                         thread
                     };
+                    // A notice journaled under a thread of its pull request folds as a new one does.
+                    let thread = fold::refolded(thread, field("text"));
                     let item = Item {
                         surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
                         verdict: None,
@@ -227,7 +229,13 @@ impl Hub {
             held.insert(item.prompt_id.clone());
             inbox.items.push(item);
         }
+        fold::fold_all(&mut inbox);
         trim(&mut inbox);
+        // What an earlier run archived stays readable from the archive file.
+        if let Some(dir) = self.store.session_path(&session.id).filter(|p| p.is_dir()) {
+            let (held, _) = fold::archive_threads(&dir);
+            inbox.archived_threads.extend(held);
+        }
         // A needYou journaled before a restart is counted again by the pass (a rule may have
         // changed what counts: program notices are fyi now).
         surge_held |= inbox.surge_counts_need_you() > 0;
@@ -235,7 +243,14 @@ impl Hub {
         // (`inbox_deadline.rs`), else they wait for a turn nothing starts.
         let any_new = inbox.items.iter().any(|i| !i.noticed && !folded(i));
         let point = carry.then(|| inbox_point::InboxPoint::of(&inbox, through, counts, seen));
+        // Not `archive_aged_inbox`: it reads `session.inbox()`, which waits on `inbox_load`, held
+        // by the caller of this restore (`Session::inbox`): that call never returns, and every
+        // later reader of the chat's inbox waits behind it on a runtime worker.
+        let archive = self.age_out_restored(session, &mut inbox);
         drop(inbox);
+        if let Some((dir, lines)) = archive {
+            self.write_archive(session, &dir, lines);
+        }
         if let Some(point) = point {
             self.save_inbox_point(session, point);
         }
@@ -374,24 +389,57 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        self.inbox_threads_page(session, None, None)
+    }
+
+    /// [`Self::inbox_threads`], a page of it: at most `limit` threads, those whose newest
+    /// message is older than `before` (unix ms) when given. `more` names the `before` of the next
+    /// page, null on the last. With no `limit`, every thread.
+    pub fn inbox_threads_page(
+        &self,
+        session: &Session,
+        limit: Option<usize>,
+        before: Option<u64>,
+    ) -> Value {
+        // Old read messages leave memory first, so the list is of what is live.
+        self.archive_aged_inbox(session);
         // Read before the inbox lock: the journal's read pruning takes it.
         let held_now = self.surge_held_now(session);
         let meta = session.meta();
         let inbox = session.inbox();
+        // One pass, one map: a thread is found by its key, not by a walk of the threads so far.
+        let mut at: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::with_capacity(inbox.items.len() / 2 + 1);
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
-            match threads.iter_mut().find(|(k, _)| *k == item.thread) {
-                Some((_, list)) => list.push(item),
-                None => threads.push((&item.thread, vec![item])),
+            match at.get(item.thread.as_str()) {
+                Some(&i) => {
+                    if let Some((_, list)) = threads.get_mut(i) {
+                        list.push(item);
+                    }
+                }
+                None => {
+                    at.insert(&item.thread, threads.len());
+                    threads.push((&item.thread, vec![item]));
+                }
             }
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
         let now = now_ms();
         let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
-        threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
+        let mut threads: Vec<(u64, &str, Vec<&Item>)> =
+            threads.into_iter().map(|(k, list)| (newest(&list), k, list)).collect();
+        threads.sort_by_key(|(at, _, _)| std::cmp::Reverse(*at));
+        if let Some(before) = before {
+            threads.retain(|(at, _, _)| *at < before);
+        }
+        let total = threads.len();
+        let limit = limit.unwrap_or(usize::MAX).max(1);
+        let more = if total > limit { threads.get(limit - 1).map(|t| t.0) } else { None };
+        threads.truncate(limit);
         let rows: Vec<Value> = threads
             .iter()
-            .map(|(key, list)| {
+            .map(|(_, key, list)| {
                 let mut from: Vec<String> = Vec::new();
                 for i in list {
                     let shown = display_sender(&i.sender, &i.from);
@@ -408,13 +456,14 @@ impl Hub {
                 } else {
                     "fyi"
                 };
+                let folded_count = inbox.folded.get(*key).copied().unwrap_or(0);
                 let (overdue, due_at) = deadline_counts(list.iter().copied(), now, |i| {
                     quiet(&session.id, &meta, lapsed, i)
                 });
                 json!({
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
-                    "count": list.len(), "newestAt": newest(list),
+                    "count": list.len() as u64 + folded_count, "folded": folded_count, "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
                     // The held bar's "need you" filter: an unread message for the person.
                     // A program's notice that is no FIRE never is, held before that rule or not.
@@ -440,7 +489,8 @@ impl Hub {
             }
             counts.json()
         };
-        json!({"sessionId": session.id, "threads": rows, "surge": counts})
+        json!({"sessionId": session.id, "threads": rows, "surge": counts,
+               "total": total, "more": more})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.

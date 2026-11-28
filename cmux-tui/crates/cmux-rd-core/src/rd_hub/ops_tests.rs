@@ -75,6 +75,32 @@ fn the_host_serves_and_names_its_viewer() {
 }
 
 #[test]
+fn hosts_live_by_id_and_a_viewer_takes_a_phase() {
+    let mut m = RdHub::new();
+    let ticket = json!({"session_id": "s1", "scope": "full", "viewer_id": "v1", "viewer_name": "Air", "own_account": true});
+    m.call(
+        "rd_hub_host_event",
+        json!({"host": "h1", "event": "serve", "ticket": ticket, "hub": true, "consent_gate": false}),
+    )
+    .unwrap();
+    let state = |m: &mut RdHub, id: &str| {
+        m.call("rd_hub_host_state", json!({"host": id})).unwrap()["state"]["session"].clone()
+    };
+    assert_eq!(state(&mut m, "h1")["id"], "s1");
+    assert_eq!(state(&mut m, "h2"), Value::Null);
+    assert_eq!(m.call("rd_hub_host_close", json!({"host": "h1"})).unwrap()["closed"], true);
+    assert_eq!(state(&mut m, "h1"), Value::Null);
+
+    m.call("rd_hub_viewer_open", json!({"id": "t1", "device_id": "host"})).unwrap();
+    let phase = json!({"phase": "streaming", "session_id": "s1", "scope": "view"});
+    let state = m.call("rd_hub_viewer_set_phase", json!({"id": "t1", "phase": phase})).unwrap();
+    assert_eq!(state["phase"], phase);
+    let refused = json!({"phase": "refused", "refusal": {"refusal": "other", "reason": "x"}, "requested": "full"});
+    let state = m.call("rd_hub_viewer_set_phase", json!({"id": "t1", "phase": refused})).unwrap();
+    assert_eq!(state["phase"], refused);
+}
+
+#[test]
 fn the_stateless_rules_answer() {
     let mut m = RdHub::new();
     let end = m.call("rd_hub_end_reason", json!({"reason": "failed: no helper"})).unwrap();
