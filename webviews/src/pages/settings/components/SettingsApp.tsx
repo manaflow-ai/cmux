@@ -19,7 +19,7 @@ import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
-import { DoctorNoticeSlot } from "./CustomizeDoctorCard";
+import { DoctorNoticeSlot } from "./DoctorNotice";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { ScrollArea } from "../../../ui/ScrollArea";

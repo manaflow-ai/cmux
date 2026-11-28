@@ -159,7 +159,8 @@ export function routeCard(
   focus: string | null | undefined,
   category: string,
 ): CategoryCard | null {
-  const named = focus?.startsWith("card.") ? focus.slice("card.".length) : section;
+  // `card.<card>:<N>` is the same card opened again (settingsLinks.ts resolveFocus).
+  const named = focus?.startsWith("card.") ? focus.slice("card.".length).split(":")[0] : section;
   if (!named || named === category || !isCard(named)) return null;
   const { lead, trail } = categoryById(category);
   return lead.includes(named) || trail.includes(named) ? named : null;

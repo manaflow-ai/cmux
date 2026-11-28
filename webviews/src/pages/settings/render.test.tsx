@@ -81,9 +81,28 @@ test("no rule declares a background other than transparent or the two interactio
   const progressValue = (item: { selector: string; value: string }) =>
     item.value === "var(--text)" &&
     selectors(item).every((part) => /::-(?:webkit-progress-value|moz-progress-bar)$/.test(part));
-  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item) && !progressValue(item))).toEqual(
-    [],
-  );
+  // A picture of something else draws that thing's own colors, not a page surface: the row-layout
+  // editor's miniature sidebar row and its marks (f61ac682, 2026-11-24), a connection's monogram
+  // avatar (a6ea41ff) and a developer token's scope chip (b619541a). Named here one by one so a new
+  // surface still fails.
+  const pictures = new Set([
+    ".tokens-chip",
+    ".connections-monogram",
+    ".row-layout-tabs .ui-tabs-trigger[data-customized]::after",
+    ".row-layout-preview",
+    ".row-layout-preview-icon",
+    ".row-layout-preview-working",
+    ".row-layout-preview-progress",
+    ".row-layout-chip",
+    ".row-layout-caret",
+    '.row-layout-slot[aria-pressed="true"] .row-layout-slot-check',
+  ]);
+  const picture = (item: { selector: string }) => selectors(item).every((part) => pictures.has(part));
+  expect(
+    fills.filter(
+      (item) => !allowedFills.has(item.value) && !htmlSurface(item) && !progressValue(item) && !picture(item),
+    ),
+  ).toEqual([]);
   // Containers never take a token fill; only controls and interaction states do.
   const containers =
     /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.domain-panel|\.notice|\.banner)$/;

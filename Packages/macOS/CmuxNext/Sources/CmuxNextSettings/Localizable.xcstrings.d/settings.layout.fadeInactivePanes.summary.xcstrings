@@ -32,7 +32,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bereiche ohne Fokus bleiben abgeblendet, bis du sie fokussierst"
+            "value" : "Bereiche ohne Fokus bleiben abgeblendet, bis du sie wählst"
           }
         },
         "es" : {
@@ -44,13 +44,13 @@
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Les panneaux sans focus restent estompés jusqu’à ce que vous les sélectionniez"
+            "value" : "Les panneaux sans focus s’estompent jusqu’à leur sélection"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "I riquadri senza focus restano attenuati finché non li selezioni"
+            "value" : "I riquadri senza focus restano attenuati finché non li usi"
           }
         },
         "ja" : {
@@ -80,7 +80,7 @@
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Panele bez fokusu przygasają, dopóki nie ustawisz na nich fokusu"
+            "value" : "Panele bez fokusu przygasają, dopóki ich nie wybierzesz"
           }
         },
         "pt-BR" : {
@@ -92,7 +92,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Панели без фокуса затемнены, пока вы на них не сфокусируетесь"
+            "value" : "Панели без фокуса затемнены, пока вы их не выберете"
           }
         },
         "th" : {

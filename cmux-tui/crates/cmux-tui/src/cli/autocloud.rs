@@ -738,7 +738,7 @@ pub(super) fn templates() -> Vec<Value> {
         json!({
             "id": "ci-fix",
             "title": "When CI fails on a PR, start an agent to fix it and push to the PR",
-            "summary": "GitHub CI fails on a pull request's branch: an agent reads the failure, fixes it and pushes to the same branch.",
+            "summary": "CI fails on a pull request: an agent fixes it and pushes.",
             "spec": {
                 "name": "Fix CI on pull requests",
                 "trigger": {"type": "github", "events": ["ci_failure"], "repository": ""},
@@ -761,7 +761,7 @@ pub(super) fn templates() -> Vec<Value> {
         json!({
             "id": "review-requested",
             "title": "When a review is requested, have an agent review the PR",
-            "summary": "A person asks for a review: an agent reads the diff and comments on the pull request.",
+            "summary": "A review is requested: an agent comments on the diff.",
             "spec": {
                 "name": "Review requested pull requests",
                 "trigger": {"type": "github", "events": ["review_requested"], "repository": ""},
@@ -781,7 +781,7 @@ pub(super) fn templates() -> Vec<Value> {
         json!({
             "id": "labeled-issue",
             "title": "When an issue is labeled autofix, start an agent and open a PR",
-            "summary": "Label an issue autofix: an agent works on it and opens a pull request with the fix.",
+            "summary": "Label an issue autofix: an agent opens a pull request.",
             "spec": {
                 "name": "Fix issues labeled autofix",
                 "trigger": {"type": "github", "events": ["issue_labeled"], "repository": ""},

@@ -14,7 +14,7 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "مدى كبر الشريط الجانبي وعلامات التبويب والدردشة ومدى اتساعها."
+            "value" : "حجم الشريط الجانبي وعلامات التبويب والدردشة ومدى اتساعها."
           }
         },
         "bs" : {
@@ -38,19 +38,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Qué tan grandes y espaciosos son la barra lateral, las pestañas y el chat."
+            "value" : "El tamaño y el espacio de la barra lateral, pestañas y chat."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "La taille et l'espacement de la barre latérale, des onglets et du chat."
+            "value" : "Taille et espacement de la barre latérale, onglets et chat."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Quanto sono grandi e spaziosi la barra laterale, le schede e la chat."
+            "value" : "Dimensioni e spazio di barra laterale, schede e chat."
           }
         },
         "ja" : {
@@ -86,13 +86,13 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O tamanho e o espaçamento da barra lateral, das abas e do chat."
+            "value" : "Tamanho e espaçamento da barra lateral, das abas e do chat."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Насколько крупными и просторными выглядят боковая панель, вкладки и чат."
+            "value" : "Размер и простор боковой панели, вкладок и чата."
           }
         },
         "th" : {
@@ -104,13 +104,13 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kenar çubuğunun, sekmelerin ve sohbetin ne kadar büyük ve ferah olacağı."
+            "value" : "Kenar çubuğu, sekmeler ve sohbetin boyutu ve ferahlığı."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Наскільки великими й просторими виглядають бічна панель, вкладки та чат."
+            "value" : "Розмір і простір бічної панелі, вкладок і чату."
           }
         },
         "vi" : {

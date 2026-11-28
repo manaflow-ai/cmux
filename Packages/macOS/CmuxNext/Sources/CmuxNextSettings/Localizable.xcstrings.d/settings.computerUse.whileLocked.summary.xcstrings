@@ -14,7 +14,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agenten können App-Fenster nutzen, während der Mac gesperrt ist"
+            "value" : "Agenten nutzen App-Fenster, während der Mac gesperrt ist"
           }
         },
         "en" : {
@@ -26,13 +26,13 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Permite a los agentes usar ventanas de apps con el Mac bloqueado"
+            "value" : "Los agentes usan ventanas de apps con el Mac bloqueado"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Permet aux agents d’utiliser les fenêtres des apps quand le Mac est verrouillé"
+            "value" : "Les agents utilisent les fenêtres d’apps, Mac verrouillé"
           }
         },
         "ja" : {
@@ -62,7 +62,7 @@
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Consente agli agenti di usare le finestre delle app con il Mac bloccato"
+            "value" : "Gli agenti usano le finestre delle app con il Mac bloccato"
           }
         },
         "km" : {
@@ -92,7 +92,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Агенты могут использовать окна приложений при заблокированном Mac"
+            "value" : "Агенты используют окна приложений при заблокированном Mac"
           }
         },
         "th" : {
@@ -104,13 +104,13 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mac kilitliyken aracıların uygulama pencerelerini kullanmasına izin verir"
+            "value" : "Mac kilitliyken aracılar uygulama pencerelerini kullanır"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Агенти можуть використовувати вікна програм, коли Mac заблоковано"
+            "value" : "Агенти використовують вікна програм, коли Mac заблоковано"
           }
         },
         "vi" : {
