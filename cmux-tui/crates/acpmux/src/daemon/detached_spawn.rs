@@ -14,12 +14,12 @@ fn daemon_started_in_session_scope() -> bool {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+pub(super) fn daemon_command(this: &crate::self_command::SelfCommand) -> cmux_process::Command {
     if daemon_started_in_session_scope()
         && let Some(runner) = crate::session_scope::scope_runner()
         && crate::session_scope::can_make_scope(&runner)
     {
-        let mut command = std::process::Command::new(runner);
+        let mut command = cmux_process::Command::new(runner);
         command.args([
             "--user",
             "--scope",
@@ -32,12 +32,12 @@ pub(super) fn daemon_command(this: &crate::self_command::SelfCommand) -> std::pr
         command.arg(&this.exe).args(&this.prefix).args(["daemon", "run", "--ready-fd"]);
         return command;
     }
-    this.command(&["daemon", "run", "--ready-fd"])
+    this.process_command(&["daemon", "run", "--ready-fd"])
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
-    let mut command = this.command(&["daemon", "run", "--ready-fd"]);
+pub(super) fn daemon_command(this: &crate::self_command::SelfCommand) -> cmux_process::Command {
+    let mut command = this.process_command(&["daemon", "run", "--ready-fd"]);
     // The daemon's freed pages go back as it frees them (macOS; malloc_space.rs).
     command.envs(cmux_tui_platform::malloc_space::child_env());
     command
@@ -104,4 +104,111 @@ mod scope_tests {
             "1:name=systemd:/user.slice/acpmuxsessions.slice/run-a.scope\n"
         ));
     }
+}
+
+/// Open the daemon log for append, owner-only like the config file: the log
+/// can carry agent output and request details. A log left by an older build
+/// with wider bits is narrowed to 0600.
+#[cfg(unix)]
+pub(super) fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
+    crate::config::private_state_append(path)
+}
+
+/// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
+/// return the read end of its readiness pipe. With `key`, the daemon also
+/// gets `--person-key-fd M`, one end of a socket pair: the key is written
+/// only after the daemon wrote [`KEY_READY`] on it.
+#[cfg(unix)]
+pub(super) fn spawn_detached(
+    key: Option<zeroize::Zeroizing<String>>,
+) -> Result<(std::fs::File, u32)> {
+    let choice = start_exe::current(&home())?;
+    let this = &choice.this;
+    crate::config::private_state_dir(&home())?;
+    let mut log = open_daemon_log(&home().join("daemon.log"))?;
+    log_start_choice(&mut log, &choice);
+    let log_err = log.try_clone()?;
+    // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
+    // a child another thread forks meanwhile never inherits either end, and
+    // the spawn passes the write end to the daemon only (`inherit_fd`).
+    let (reader, writer) = std::io::pipe().context("pipe for acpmux daemon readiness")?;
+    let reader = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+    let write_fd = std::os::fd::AsRawFd::as_raw_fd(&writer);
+    // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
+    let pair = match &key {
+        Some(_) => {
+            let (ours, theirs) =
+                std::os::unix::net::UnixStream::pair().context("socket pair for the person key")?;
+            Some((ours, theirs))
+        }
+        None => None,
+    };
+    let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
+    let mut cmd = daemon_command(this);
+    crate::config::scrub_nested_claude_env_process(&mut cmd);
+    // The daemon serves every session: its starter's turn values are not its own.
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
+    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
+    // host nonce, and so did everything it started for other sessions, which made them read as
+    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
+    for k in STARTER_SESSION_MARKS {
+        cmd.env_remove(k);
+    }
+    // The daemon must use this client's state directory and socket, including a host
+    // override that its own environment would not reproduce, absolute: it changes into
+    // its home before it binds (`login_placement::daemon_env`).
+    let cwd = std::env::current_dir().context("this command's folder")?;
+    let socket = std::env::var_os("ACPMUX_SOCKET");
+    cmd.env_remove("ACPMUX_SOCKET");
+    // A daemon a command starts has no owner app: only the app's launcher names one
+    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
+    // to the app that started an older one.
+    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
+    for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
+        cmd.env(key, value);
+    }
+    cmd.arg(write_fd.to_string()).args(
+        key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten(),
+    );
+    // The daemon starts through cmux-process (cmuxterm-hq#9096: every process has an owner): its own
+    // session so it outlives the terminal, and the readiness and key descriptors passed at the
+    // numbers its arguments name and no other descriptor (macOS: POSIX_SPAWN_CLOEXEC_DEFAULT).
+    cmd.stdin(cmux_process::Stdio::null())
+        .stdout(log)
+        .stderr(log_err)
+        .new_session()
+        .inherit_fd(std::os::fd::AsFd::as_fd(&writer), write_fd)
+        .context("pass the readiness descriptor to the acpmux daemon")?;
+    if let (Some((_, theirs)), Some(fd)) = (&pair, key_fd) {
+        cmd.inherit_fd(std::os::fd::AsFd::as_fd(theirs), fd)
+            .context("pass the person key descriptor to the acpmux daemon")?;
+    }
+    let mut child = cmd.spawn().context("spawn acpmux daemon")?;
+    // The builder's copies of the passed descriptors close with it, so end of file on the
+    // readiness pipe still means the daemon closed it.
+    drop(cmd);
+    child.detach(
+        "the daemon serves every client of this home after the command that started it exits",
+    );
+    let child_pid = child.id();
+    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
+    // running (stdio/TUI); an unwaited child left a zombie per retry. The waiting
+    // thread never holds process exit open, and a detached child is never ended.
+    let _ = std::thread::Builder::new().name("acpmux-daemon-reap".into()).spawn(move || {
+        let _ = child.wait();
+    });
+    // Close this process's copy so end of file means the daemon closed it.
+    drop(writer);
+    if let (Some(key), Some((ours, theirs))) = (key, pair) {
+        drop(theirs);
+        // The daemon may be alive but busy before it can read its person key.
+        // Keep that handoff off the caller's path and let EOF signal a dead
+        // child instead of imposing a wall-clock cutoff.
+        let _ = std::thread::Builder::new()
+            .name("acpmux-person-key".into())
+            .spawn(move || hand_key(ours, &key));
+    }
+    Ok((reader, child_pid))
 }

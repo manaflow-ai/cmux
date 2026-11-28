@@ -309,13 +309,21 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+mod dedupe_search;
 /// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
 pub(crate) use dedupe::enabled as dedupe_enabled;
 #[cfg(test)]
 pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
+pub(crate) use dedupe::{CodexShell as DedupeCodexShell, enabled_now as dedupe_enabled_now};
 mod dedupe_shell;
+mod dir_rules;
+/// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dir_rules::enabled as dir_rules_enabled;
 #[cfg(test)]
 mod dedupe_tests;
+// Harness magic `pathRules`: a repo's rule loads when a session touches its paths.
+#[cfg(test)]
+mod dir_rules_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -325,12 +333,18 @@ mod hook_callback_tests;
 mod inbound;
 #[cfg(test)]
 mod initialize_tests;
+mod path_rules;
+/// The feature name and its gate, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use path_rules::{FEATURE as PATH_RULES_FEATURE, enabled as path_rules_enabled};
+#[cfg(test)]
+mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
+pub mod cache_faults;
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
@@ -439,6 +453,17 @@ pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 /// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
 /// under `-p` it never does.
 pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// The internal ACP request that warms a pooled Claude Code before a chat takes it
+/// (`hub/pool/start.rs`): one tiny `side_question` on the idle process, so its first API
+/// connection and first-call setup happen while it waits, not on the person's first prompt. A
+/// side question adds nothing to the transcript, so the chat that takes it starts empty. On a
+/// lane VM (Claude Code 2.1.332, haiku, n=10) the taken chat's first reply was 2081 ms at p50
+/// against 2495 ms unwarmed (hq#35604).
+pub const WARM: &str = "_acpmux/claude/warm";
+
+/// What [`WARM`] asks: the shortest question with a one-word answer.
+pub(crate) const WARM_QUESTION: &str = "Reply with the single word ok.";
 
 /// The internal ACP request that gives the running Claude Code the session's new name
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
@@ -633,6 +658,12 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `continue` (`hub/stop_condition.rs`): this turn's stops.
+    stop_continue: Mutex<crate::hub::stop_condition::Continuation>,
+    /// Harness magic `pathRules` (path_rules.rs).
+    path_rules: Arc<path_rules::PathRules>,
+    /// Harness magic `dirRules` (dir_rules.rs).
+    dir_rules: Arc<dir_rules::DirRules>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -856,6 +887,9 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            stop_continue: Default::default(),
+            path_rules: Default::default(),
+            dir_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,

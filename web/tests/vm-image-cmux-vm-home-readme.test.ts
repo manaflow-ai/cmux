@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { HOME_README, HOME_README_PATH, homeReadmeFile } from "../scripts/cmux-vm-image/home-readme";
 
 describe("the Cloud machine's ~/README.md", () => {
@@ -17,7 +18,7 @@ describe("the Cloud machine's ~/README.md", () => {
   });
 
   test("the bake writes it", () => {
-    const bake = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
+    const bake = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../scripts/cmux-vm-image/bake.ts"), "utf8");
     expect(bake).toContain("homeReadmeFile()");
   });
 });

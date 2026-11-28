@@ -109,6 +109,30 @@ struct UpdatedCardHoverPreviewTests {
         host.configure(nil)
     }
 
+    /// Leo 2026-11-27: "this thing is just too weird there's a glass back that shouldnt be there". With the
+    /// changes beside the sidebar (shipped) the resting card draws no frost of its own: it sits on the sidebar.
+    @Test func theCardBesideTheSidebarHasNoFrostBehindIt() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([UpdatedCardPreviewMode.tunable.descriptor])
+        let key = UpdatedCardPreviewMode.tunable.key, before = TunableStore.shared.override(key)
+        _ = TunableStore.shared.set(key, UpdatedCardPreviewMode.beside.tunableValue)
+        defer { _ = TunableStore.shared.set(key, before) }
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.updateSurfaces = surfaces
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        try #require(surfaces.islands.first).report(height: 48, overlay: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        #expect(host.drawn && !host.isHidden, "the card shows")
+        #expect(host.glass.isHidden, "no glass backing under the resting card")
+        host.configure(nil)
+    }
+
     /// Leo 2026-11-08: "it turns from glass when it's unhovered into opaque when it does get hovered"
     /// and "the cursor propagates to, like, the actual workspace stuff on the sidebar". The host draws
     /// the card's glass behind the page, the card's size and its open preview's on the card's bottom

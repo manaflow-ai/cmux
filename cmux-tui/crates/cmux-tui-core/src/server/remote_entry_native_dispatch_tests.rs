@@ -323,6 +323,7 @@ fn native_data_frames_reach_only_the_owner() {
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
         crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
         crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
+        crate::git_seed::GIT_SEED_BORROW_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");

@@ -6,6 +6,7 @@ import { postNative } from "../native";
 import { type ComposerAttachment } from "../attachments";
 import { type SendGesture } from "../heldPrompt";
 import { callNative } from "../callNative";
+import { untilLinked } from "../offlineSends";
 import { keptUnsent } from "../lostPrompt";
 
 /// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
@@ -48,21 +49,25 @@ export const removeQueued = (promptId: string) =>
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
 /// `gesture`: the Enter or click the composer bound to a send it held for its files.
 /// `chat`: the chat it must go to; a pane showing another one by then refuses it (`startCancelled`).
+/// While the pane reconnects it waits for the link, never refused for it (offlineSends.ts).
 const sendWhenTaken =
   (steer: boolean, chat?: string) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
-    new Promise<void>((resolve, reject) => {
-      callNative("chat.send", {
-        text,
-        attachments,
-        accepted: () => resolve(),
-        steer,
-        ...(chat ? { expectedSessionId: chat } : {}),
-        ...(gesture ? { gesture } : {}),
-      }).then(
-        () => resolve(),
-        (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
-      );
-    });
+    untilLinked().then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          callNative("chat.send", {
+            text,
+            attachments,
+            accepted: () => resolve(),
+            steer,
+            ...(chat ? { expectedSessionId: chat } : {}),
+            ...(gesture ? { gesture } : {}),
+          }).then(
+            () => resolve(),
+            (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+          );
+        }),
+    );
 
 /// Keeps the current gesture for prompt `promptId`, which the folder's trust holds (trustHeld.ts).
 export const reserveHeldPrompt = (promptId: string) =>

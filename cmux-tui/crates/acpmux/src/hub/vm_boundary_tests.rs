@@ -66,3 +66,38 @@ fn only_the_owner_peer_with_the_vm_boundary_gets_approve_all() {
         "never while MDM forces full access off"
     );
 }
+
+#[test]
+fn an_owner_peer_full_access_policy_takes_the_boundary() {
+    for params in [
+        json!({"policy": "approve-all"}),
+        json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+        json!({"policy": "yolo"}),
+    ] {
+        assert!(asked(ConnAuth::PeerToken, Control::Peer, &params), "{params}");
+    }
+    for params in [
+        json!({"policy": "ask"}),
+        json!({"_meta": {"acpmux": {"policy": "workspace-write"}}}),
+        json!({"policy": 42}),
+        json!({"policy": "approve-all", "_meta": {"acpmux": {"policy": "ask"}}}),
+        json!({"policy": "approve-all", "_meta": {"acpmux": {"vmBoundary": false}}}),
+    ] {
+        assert!(!asked(ConnAuth::PeerToken, Control::Peer, &params), "{params}");
+    }
+}
+
+#[test]
+fn full_access_policy_cannot_be_forged_by_web_or_device_requests() {
+    let policy = json!({"_meta": {"acpmux": {"policy": "approve-all"}}});
+    for auth in
+        [ConnAuth::ListenerToken, ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::None]
+    {
+        for control in [Control::Web, Control::Local, Control::Peer] {
+            assert!(!asked(auth, control, &policy), "{auth:?} {control:?}");
+        }
+    }
+    let via_device = json!({"_meta": {"acpmux": {"policy": "approve-all", "via": "device"}}});
+    assert!(!asked(ConnAuth::PeerToken, Control::Peer, &via_device));
+    assert!(!asked(ConnAuth::PeerToken, Control::Web, &policy));
+}
