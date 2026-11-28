@@ -20,6 +20,7 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+cmux-tcp-listeners.workspace = true
 # Browser grants (RFD 0125 D7.2): leases and the registrable-domain function.
 cmux-browser-grants.workspace = true
 # The REPL and page agent scripts compiled in compressed (build.rs, src/host.rs).

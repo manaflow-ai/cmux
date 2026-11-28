@@ -48,7 +48,7 @@ pub(crate) struct State {
     pub repo_root: Option<PathBuf>,
     pub branch: Option<String>,
     pub background_jobs: Vec<Value>,
-    /// `None` means acpmux has no listening-port inventory. `Some([])` means
+    /// `None` means the listening-port table could not be read. `Some([])` means
     /// the inventory is known and no ports are listening.
     pub ports: Option<Vec<Port>>,
     pub browser_available: Option<bool>,
@@ -59,8 +59,7 @@ pub(crate) struct State {
     pub unavailable: Vec<String>,
 }
 
-const PORTS_INSTEAD: &str =
-    "acpmux has no listening-port inventory; use the machine's port inspection or forwarding tool.";
+const PORTS_INSTEAD: &str = "This machine's listening-port table could not be read; use its port inspection or forwarding tool.";
 const PREVIEW_INSTEAD: &str =
     "No preview URL is recorded; expose a Cloud port through the machine's forwarding tool.";
 const BROWSER_INSTEAD: &str =

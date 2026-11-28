@@ -240,6 +240,8 @@ pub mod link_v2;
 pub(crate) mod linux_sandbox;
 pub mod list_bytes;
 pub mod listener_record;
+/// The TCP ports listening here, numbers only, for the person's other machines (`listening_ports.rs`).
+pub mod listening_ports;
 pub mod live_models;
 pub mod local_stream;
 pub mod log_keep;

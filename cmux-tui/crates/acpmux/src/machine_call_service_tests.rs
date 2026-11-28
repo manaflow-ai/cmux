@@ -111,3 +111,26 @@ async fn machine_call_with_no_answer_in_time_is_none() {
     let silent = ask(near, COMPUTER_USE_STATE, json!({}), Duration::from_millis(50)).await;
     assert!(matches!(silent, Err(None)));
 }
+
+#[tokio::test]
+async fn machine_call_lists_ports_and_still_refuses_unlisted_port_verbs() {
+    async fn ports(method: String, _params: Value) -> Result<Value, RpcError> {
+        assert_eq!(method, PORTS_LIST);
+        crate::listening_ports::answer(Some(vec![5173]))
+    }
+    let (near, far) = tokio::io::duplex(1024);
+    tokio::spawn(serve(far, ports));
+    let listed = ask(near, PORTS_LIST, json!({}), Duration::from_secs(5)).await.unwrap();
+    assert_eq!(listed, json!({"ports": [{"port": 5173}]}));
+    // Read-only: no forward, open or kill verb rides along.
+    for method in ["ports_forward", "ports_open", "ports_kill"] {
+        assert!(!METHODS.contains(&method));
+        let (near, far) = tokio::io::duplex(1024);
+        tokio::spawn(serve(far, ports));
+        let error = ask(near, method, json!({}), Duration::from_secs(5))
+            .await
+            .unwrap_err()
+            .expect("a refusal");
+        assert_eq!(error.code, -32601);
+    }
+}
