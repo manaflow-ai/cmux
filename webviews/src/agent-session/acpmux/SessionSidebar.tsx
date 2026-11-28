@@ -274,16 +274,9 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
-  const active = useMemo(
-    () =>
-      sortByRecency(
-        filterSessions(
-          sessions.filter((session) => !session.pinned),
-          query,
-        ),
-      ),
-    [sessions, query],
+  const { pinned, groups, active } = useMemo(
+    () => sidebarSections(sessions, query, groupProjects),
+    [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
   const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
