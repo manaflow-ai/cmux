@@ -168,7 +168,11 @@ impl Hub {
     pub(super) fn floor_refusal_text(&self, session: &Session, reason: &str) -> String {
         let device = Self::floor_device(session);
         let own_phone = device.as_deref().is_some_and(|d| self.pairing.own_phone(d));
+        let cloud_mobile_owner = device.as_deref() == Some(crate::pairing::CLOUD_MOBILE_OWNER);
         match reason {
+            "remote.mode_not_asking" if cloud_mobile_owner => format!(
+                "{reason}: this chat runs in a mode that does not ask, and a chat from your phone runs only in a mode that asks. Set default or plan, or prompt it from the Mac."
+            ),
             "remote.mode_not_asking" if own_phone => format!(
                 "{reason}: this chat runs in a mode that does not ask, and Full access is off for this phone. Turn on Full access for it on the Mac (Settings > Mobile > Phones), or set an asking mode."
             ),
