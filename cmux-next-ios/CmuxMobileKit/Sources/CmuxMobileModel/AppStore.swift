@@ -54,8 +54,9 @@ public final class AppStore {
     /// Live mode: where each Mac's workspaces came from (cached, live, ...).
     /// Empty states read this, never `workspaces` alone (`macDataPhase`).
     public var macData: [String: MacDataMachine] = [:]
-    /// Live mode: this phone's connection to each Mac it dials.
-    public var macConnection: [String: MacConnection] = [:]
+    /// Live mode: this phone's connection to each Mac it dials. A connected one marks its Mac
+    /// ``MacDevice/linked``, so every screen reads it as up.
+    public var macConnection: [String: MacConnection] = [:] { didSet { markLinkedMacs() } }
     /// Live mode: why this phone's last try at each Mac failed (``MacReachability``); nil once it works.
     public var macFailure: [String: MacLinkFailure] = [:]
     /// Live mode: a Retry from a Mac's view, step by step (``MacRecoveryAttempt``).
@@ -174,8 +175,34 @@ public final class AppStore {
 
     /// Replaces a team's Macs (presence snapshot or update).
     public func setMacs(_ macs: [MacDevice], teamID: String) {
+        let macs = linkMarked(macs)
         guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].macs != macs else { return }
         teams[index].macs = macs
+    }
+
+    /// The Macs with ``MacDevice/linked`` set from this phone's links: the service's presence
+    /// (``MacDevice/listedOnline``) arrives without it.
+    func linkMarked(_ macs: [MacDevice]) -> [MacDevice] {
+        macs.map { mac in
+            var mac = mac
+            mac.linked = macConnection[mac.id] == .connected
+            return mac
+        }
+    }
+
+    /// A link came up or went down: its Mac's ``MacDevice/linked`` follows, in one write.
+    private func markLinkedMacs() {
+        var next = teams
+        var changed = false
+        for team in next.indices {
+            for index in next[team].macs.indices {
+                let linked = macConnection[next[team].macs[index].id] == .connected
+                guard next[team].macs[index].linked != linked else { continue }
+                next[team].macs[index].linked = linked
+                changed = true
+            }
+        }
+        if changed { teams = next }
     }
 
     /// The team's picked Mac (``Team/pickedMacID``): the one this phone focuses.
