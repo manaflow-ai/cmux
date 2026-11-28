@@ -99,6 +99,9 @@ fn two_harness_setup(no_fork: bool) -> (Arc<Hub>, Config) {
     };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
+    // The fixture's `normal` asks, like the source chat's: a fork is held to its chat's asking
+    // level (#50272), and a mode the lists do not name counts as full access.
+    cfg.web_asking_modes.insert("other".into(), vec!["normal".into()]);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     (Hub::new(cfg.clone(), store), cfg)
 }
