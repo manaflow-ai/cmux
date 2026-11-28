@@ -722,6 +722,17 @@ class WorkflowTest(unittest.TestCase):
         self.assertLess(run.index("xcodebuild build-for-testing"), run.index("hung_test_watchdog.py"))
         self.assertNotIn("xcodebuild test \"", run)
 
+    def test_the_kit_test_run_streams_so_a_hang_is_named(self) -> None:
+        # cmux#59376 run 46185679058: -quiet left the watchdog "Testing started" only, 15 min, no test named.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        test_run = run[run.index("hung_test_watchdog.py"):]
+        self.assertIn('"${test_common[@]}"', test_run)
+        self.assertNotIn('"${common[@]}"', test_run)
+        self.assertIn('[[ "$arg" == -quiet ]] ||', run)
+        self.assertIn("--stall-seconds", test_run)
+        self.assertIn("--sample-also", test_run)
+
 
 class LinuxAppBuildTest(unittest.TestCase):
     """RFD 0051 route 9: CMUX_IOS_APP_BUILD_LINUX routes the ios-fast app build to the build fleet's Linux pool."""
@@ -813,7 +824,6 @@ class LinuxAppBuildTest(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
         run = next(s for s in jobs["ios-fast"]["steps"] if "ios_fast_verdict.sh" in s.get("run", ""))
         self.assertEqual(run["env"]["CMUX_IOS_APP_BUILD_LINUX"], "${{ vars.CMUX_IOS_APP_BUILD_LINUX || 'shadow' }}")
-
 
 if __name__ == "__main__":
     unittest.main()

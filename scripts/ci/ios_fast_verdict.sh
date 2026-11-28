@@ -165,10 +165,18 @@ kit() {
     # A bound on the test run only: a hung test (no Swift Testing time limit) used to hold the verdict to the
     # job's 40 min ceiling (run 46154061623: 1962 s of tests, healthy runs execute 200 to 260 s). Past the bound the
     # watchdog samples the test processes, kills the run and names it timed out, so a red head reads red in 15 min.
+    # The test run is not -quiet: the watchdog names the hung test from the started/finished lines, and -quiet left
+    # it only "Testing started" (cmux#59376, run 46185679058: 15 min, "no test was in flight"). With the lines, a
+    # test that starts nothing new for --stall-seconds fails at once, named. The runner is launchd_sim's child, not
+    # xcodebuild's, so --sample-also finds it for the stack sample.
+    test_common=()
+    for arg in "${common[@]}"; do [[ "$arg" == -quiet ]] || test_common+=("$arg"); done
     (( status )) || (cd cmux-next-ios/CmuxMobileKit && python3 -I "$GITHUB_WORKSPACE_ROOT/scripts/ci/hung_test_watchdog.py" \
-      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}" --label "iOS fast verdict kit tests ($tests)" -- \
-      xcodebuild test-without-building "${common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
-    # -quiet drops Swift Testing's output: the counts and every failure from the result bundle.
+      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}" --stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}" \
+      --sample-also 'iPhoneSimulator\.platform/.*xctest|CoreSimulator/Devices/'"$udid"'/.*\.xctest' \
+      --label "iOS fast verdict kit tests ($tests)" -- \
+      xcodebuild test-without-building "${test_common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
+    # The counts and every failure, from the result bundle.
     xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -I -c '
 import json, sys
 counts = {}
