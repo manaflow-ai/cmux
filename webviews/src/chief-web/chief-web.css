@@ -6,6 +6,9 @@
 .chief-web button,.chief-web a{touch-action:manipulation}
 .chief-web__connection button,.chief-web__pending button{border:0;background:none;color:inherit;font:inherit;min-height:var(--chief-touch-target);padding:0 8px;text-decoration:underline}
 .chief-web__connection a,.chief-web__action{color:var(--agent-text)}
+/* The Sign in button keep their 44px hit area but take only the header's content height, so the header is
+   56px in every connection state (it grew 4px when one showed). */
+.chief-web__connection button{margin-block:calc((var(--chief-header-height) - 16px - var(--chief-touch-target)) / 2)}
 .chief-web__transcript{position:relative;display:flex;flex-direction:column;flex:1;min-height:0;--cv-inset:max(16px,calc((100% - 760px)/2))}
 .chief-web__transcript .cv{--cv-font-size:var(--chief-type);--cv-line-height:calc(var(--chief-type)*1.6);font-size:var(--chief-type)}
 .chief-web__transcript a{overflow-wrap:anywhere}
