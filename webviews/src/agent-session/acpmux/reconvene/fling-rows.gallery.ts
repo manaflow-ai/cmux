@@ -18,6 +18,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxRow } from "../model";
+import { chatRenderPipeline } from "../chatRenderPipeline.experiment";
 import { arms, showArm, type Arm } from "./arm";
 
 const TURNS = 300;
@@ -128,6 +129,12 @@ export default agentPaneEntry({
       note: "Behaviour (looks like now at rest): about twice the rows kept mounted ahead and warm. Trade-off: no blank band in a fling, but more DOM and memory, and every render walks more rows, so react_ms per frame goes up, not down.",
       snapshot: longChat(),
       play: (ctx) => midChat(ctx, ARMS["wide-overscan"]),
+    },
+    "settled-rows": {
+      experiments: { [chatRenderPipeline.id]: "on" },
+      note: "Parked in completed turns with the chat render pipeline enabled.",
+      snapshot: longChat(),
+      play: (ctx) => midChat(ctx),
     },
     "content-visibility": {
       note: "CSS only: off-screen rows skip style, layout and paint, sized by their last drawn height. Trade-off: cuts layout and paint per frame, not React time; a row never drawn takes the placeholder height until it is, so the thumb can move.",
