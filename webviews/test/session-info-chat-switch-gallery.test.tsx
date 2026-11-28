@@ -7,14 +7,18 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { assistant, chat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { resetSessionInfoState, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { assistant, chat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -174,7 +174,7 @@ own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"st
 failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, at its first check, not at the limit (took $took s)"
 
 # Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
 # published on such a retry): the wait goes on.
@@ -231,7 +231,7 @@ check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled 
 preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
 
 # A completed workflow must retain the preflight error, not only an active workflow.
 completed_run() {
@@ -247,7 +247,7 @@ JSON
 }
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 11; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
 
 # Let the automatic retry become active between the two idle observations.
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
@@ -302,6 +302,23 @@ set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":10,\"status\":\"in_progr
 client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${takeover:0:12} is building tree" "$TMP/err"' "a stuck publisher is passed over for a later same-key run (took $took s)"
 rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
+# 5h. The runs cannot be read (2026-11-28, NIGHTLY 46105117438: github.token's budget was spent,
+# five "could not all be read" checks held the signing Mac 1568 s for the full limit). With no
+# limit set an unreadable answer keeps waiting; with CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2
+# (what the nightly bundle step sets when it has a fallback tree) it fails at the second check.
+reset_cdn; set_runs "not json"; printf 'not json\n' > "$runs_dir/runs-$own"; printf 'not json\n' > "$runs_dir/runs-$app"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "could not all be read" "$TMP/err"' "unreadable runs keep waiting when no limit is set (took $took s)"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "could not be read 2 checks in a row" "$TMP/err"' "unreadable runs end the wait at the set limit (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=two bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed unreadable-checks limit is a usage error"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; set_runs "$no_runs"
 
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?

@@ -76,6 +76,7 @@ pub mod new_tab_projects;
 pub mod params;
 pub mod reply;
 pub mod service_wait;
+pub mod session_routing;
 pub mod sessions;
 pub mod share_roles;
 

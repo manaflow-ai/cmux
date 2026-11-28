@@ -6,7 +6,7 @@ import CmuxNextIcons
 import CmuxNextSidebar
 import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// History as a top page (TOP-SECTION-ITEMS-ARE-PAGES Q3).
     static let history = InternalPageID(rawValue: "history")
     /// Bookmarks as a top page (Q3).
@@ -76,7 +76,7 @@ final class BookmarksTopPage: InternalPageProvider {
     func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 }
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// The Forum as a top page (`experiments.forum`, off by default): its sidebar item and
     /// `forum.show` open it.
     static let forum = InternalPageID(rawValue: "forum")
