@@ -1721,11 +1721,11 @@ jobs:
     steps:
       - *github-token-for-git
       # This run's pack of the build source (resolve-nightly-cmux-tui-client): 0 github.com fetches.
-      # actions/checkout below runs only when it is missing. PREPARE_FALLBACK is prepare's reuse gate.
+      # actions/checkout below runs only when it is missing. PREPARE_REUSED: prepare's reuse step found the app.
       - &nightly-source-download
         name: Download the build source
         id: nightly-source-get
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        if: env.PREPARE_REUSED != 'true'
         continue-on-error: true
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -3508,7 +3508,7 @@ jobs:
             echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
             count=0
           fi
-          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$count" -gt 0 ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - &clear-stale-git-locks-self-hos-3
         name: Clear stale git locks (self-hosted reused workspace)
@@ -3743,13 +3743,13 @@ jobs:
           set -euo pipefail
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
-          if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$PRIMARY_RESULT" = success ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; exit 0; fi
           # This read runs before the checkout (no budget wait yet); a refused one prepares here.
           if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
             echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
             count=0
           fi
-          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$count" -gt 0 ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - *clear-stale-git-locks-self-hos-3
 
