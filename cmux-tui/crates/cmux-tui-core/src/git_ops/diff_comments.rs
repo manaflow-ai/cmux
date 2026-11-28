@@ -34,6 +34,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
 
+mod chase;
 pub(super) mod github;
 mod send;
 #[cfg(test)]
@@ -86,6 +87,8 @@ pub(super) fn dispatch(
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
     let root = root(&request.fields)?;
     let store = Store::open(mux, operation)?;
+    // A restart's threads still awaiting an answer get their chase timers back.
+    chase::arm_stored_once(mux, &store);
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
             let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
@@ -355,6 +358,10 @@ pub(super) struct File {
 }
 
 impl File {
+    pub(super) fn root(&self) -> &str {
+        &self.root
+    }
+
     fn position(&self, id: &str) -> Option<usize> {
         self.comments
             .iter()
@@ -377,7 +384,7 @@ impl File {
 
 /// The session's diff comment directory.
 pub(super) struct Store {
-    directory: PathBuf,
+    pub(super) directory: PathBuf,
 }
 
 impl Store {
@@ -451,7 +458,7 @@ impl Store {
     }
 
     /// Runs `body` holding `root`'s lock, shared by every connection.
-    fn exclusive<T>(&self, root: &str, body: impl FnOnce() -> T) -> T {
+    pub(super) fn exclusive<T>(&self, root: &str, body: impl FnOnce() -> T) -> T {
         static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
         let lock = LOCKS
             .get_or_init(Mutex::default)

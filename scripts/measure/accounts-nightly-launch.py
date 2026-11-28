@@ -33,6 +33,24 @@ def run(argv, **kwargs):
     return subprocess.run(argv, check=True, timeout=kwargs.pop("timeout", 120), **kwargs)
 
 
+DOWNLOAD_TRIES = 4  # one 600 s try lost a 253 MB DMG at 166 MB on a slow runner (crash-notice run 46177326705)
+
+
+def download(url, dest, tries=DOWNLOAD_TRIES, attempt=None):
+    """Fetch URL into DEST, resuming the partial file on each later try (curl -C -), so a slow link finishes
+    instead of starting over; only the last try's failure is raised."""
+    attempt = attempt or (lambda argv: run(argv, timeout=620))
+    for left in range(tries - 1, -1, -1):
+        try:
+            attempt(["curl", "-fsSL", "-C", "-", "--max-time", "600", "-o", str(dest), url])
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if not left:
+                raise
+            print(f"download: {Path(dest).name} has {Path(dest).stat().st_size if Path(dest).exists() else 0}"
+                  f" bytes, resuming ({left} tries left)", file=sys.stderr)
+
+
 def pick_feed(xml, requested_build="", requested_url=""):
     """Select only feed-listed bytes with signature metadata and supported isolation."""
     choices = []
@@ -84,7 +102,7 @@ def main():
             requested[key] = value
         run(["curl", "-fsSL", "--max-time", "60", "-o", str(work / "feed.xml"), FEED])
         selected = pick_feed((work / "feed.xml").read_bytes(), requested.get("build", ""), requested.get("dmg", ""))
-        run(["curl", "-fsSL", "--max-time", "600", "-o", str(work / "nightly.dmg"), selected["url"]], timeout=620)
+        download(selected["url"], work / "nightly.dmg")
         artifact = module("nightly_artifact", ROOT / "scripts/ci/nightly_next_artifact_check.py")
         selected["sha256"] = artifact.check_dmg(work / "nightly.dmg", selected["length"], selected["signature"])
         mount = work / "mount"
