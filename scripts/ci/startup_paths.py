@@ -195,14 +195,22 @@ def open_button(state: dict) -> tuple[dict | None, list[str]]:
     if hit is None:
         # Some cua-driver builds give the tree as text lines (`[12] AXButton "Open"`), not as element objects.
         for text in walk(state, lambda o: isinstance(o, str) and "button" in o.lower()):
-            for index, role, name in TEXT_TREE_BUTTON.findall(text):
-                labels.append(f"{role}:{name}"[:60])
-                if hit is None and name.strip() == "Open":
-                    hit = {"role": role, "element_index": int(index)}
+            for line in text.splitlines():
+                for index, role, name in TEXT_TREE_BUTTON.findall(line):
+                    labels.append(f"{role}:{name}"[:60])
+                    if hit is None and name.strip() == "Open":
+                        hit = {"role": role, "element_index": int(index), "name": name.strip(), "line": line.strip()[:200]}
+                        token = TEXT_TREE_TOKEN.search(line)
+                        if token:
+                            hit["element_token"] = token.group(1)
     return hit, labels
 
 
 TEXT_TREE_BUTTON = re.compile(r'\[(\d+)\]\s*(AX\w*Button)\b[^"\n]*"([^"\n]*)"')
+# A token on a text-tree line (`token=ab12`, `token: ab12`, `element_token ab12`), the key newer drivers press by.
+TEXT_TREE_TOKEN = re.compile(r'(?:element_token|token)\s*[:=]?\s*"?([\w.:-]+)')
+# A driver's refusal of an unknown argument lists the ones it takes: `...; accepted: action, button, ..., y"`.
+ACCEPTED_ARGS = re.compile(r'accepted:\s*([\w, ]+)')
 
 
 def tree_shape(state) -> str:
@@ -218,14 +226,44 @@ def tree_shape(state) -> str:
             f"text {sum(len(t) for t in texts)} chars{': ' + texts[0][:160] if texts else ''}")
 
 
+def press_candidates(element: dict) -> list[dict]:
+    """The ways to name ELEMENT to the driver's click, best first: its token (an AX press, no pointer move), its
+    text-tree index (older drivers), the index as a token, its name as the click target, then its frame's middle."""
+    out = []
+    if "element_token" in element:
+        out.append({"element_token": element["element_token"]})
+    if "element_index" in element:
+        out += [{"element_index": element["element_index"]}, {"element_token": str(element["element_index"])}]
+    if element.get("name"):
+        out.append({"target": element["name"]})
+    f = element.get("frame")
+    if f:
+        w, h = f.get("w", f.get("width", 0)), f.get("h", f.get("height", 0))
+        out.append({"x": f["x"] + w / 2, "y": f["y"] + h / 2, "scope": "desktop"})
+    return out
+
+
 def press_element(pid: int, window_id: int, element: dict) -> dict:
-    """Press ELEMENT by its token (an AX press, no pointer move), else click the middle of its frame."""
-    for key in ("element_token", "element_index"):
-        if key in element:
-            return cua("click", {"pid": pid, "window_id": window_id, key: element[key], "action": "press"})
-    f = element["frame"]
-    w, h = f.get("w", f.get("width", 0)), f.get("h", f.get("height", 0))
-    return cua("click", {"x": f["x"] + w / 2, "y": f["y"] + h / 2, "scope": "desktop"})
+    """Press ELEMENT by the first of its press_candidates the driver takes. A driver that refuses an argument names
+    the ones it accepts, so a refused key skips every later candidate that uses one it does not take (CuaDriver
+    builds that print the tree as text lines take element_token, not element_index: startup-matrix fresh-install,
+    2026-11-28, both rounds refused and Open was never pressed). The reply keeps each refusal, so a round says why."""
+    accepted: set[str] | None = None
+    tried = []
+    for args in press_candidates(element):
+        if accepted is not None and not set(args) <= accepted:
+            continue
+        extra = {} if "scope" in args else {"pid": pid, "window_id": window_id}
+        if "element_token" in args or "element_index" in args:
+            extra["action"] = "press"
+        reply = cua("click", {**extra, **args})
+        if not reply.get("error"):
+            return {**reply, "pressed_by": sorted(args)[0], **({"refused": tried} if tried else {})}
+        tried.append(f"{sorted(args)[0]}: {str(reply['error'])[-120:]}")
+        listed = ACCEPTED_ARGS.search(str(reply["error"]))
+        if listed:
+            accepted = {k.strip() for k in listed.group(1).split(",") if k.strip()}
+    return {"error": " | ".join(tried)[-400:] or "no way to press it", "element": element.get("line") or element.get("role")}
 
 
 def answer_prompt() -> dict | None:
@@ -600,7 +638,24 @@ def self_test() -> int:
     assert "Automation" in prompt_driver_failure({"look_error": "osascript timed out after 20 seconds"})
     assert isinstance(cua_argv(), list)
     hit, labels = open_button({"tree": '[3] AXStaticText "Open cmux?"\n[7] AXButton "Cancel"\n[8] AXButton "Open"'})
-    assert hit == {"role": "AXButton", "element_index": 8} and labels == ["AXButton:Cancel", "AXButton:Open"], (hit, labels)
+    assert hit == {"role": "AXButton", "element_index": 8, "name": "Open", "line": '[8] AXButton "Open"'} \
+        and labels == ["AXButton:Cancel", "AXButton:Open"], (hit, labels)
+    hit, _ = open_button({"tree_markdown": '[8] AXButton "Open" token=k9x'})
+    assert hit["element_token"] == "k9x", hit
+    assert [sorted(c)[0] for c in press_candidates({"element_index": 8, "name": "Open"})] == \
+        ["element_index", "element_token", "target"]
+    global cua
+    calls, real = [], cua
+    refusal = 'unknown argument element_index; accepted: action, element_token, pid, target, window_id, x, y"'
+    def fake(tool, args):
+        calls.append(args)
+        return {"error": refusal} if "element_index" in args or args.get("element_token") == "8" else {"ok": True}
+    cua = fake
+    try:
+        reply = press_element(1, 2, {"role": "AXButton", "element_index": 8, "name": "Open"})
+    finally:
+        cua = real
+    assert reply.get("ok") and reply["pressed_by"] == "target" and len(reply["refused"]) == 2, (reply, calls)
     hit, labels = open_button({"elements": [{"role": "AXButton", "title": "Open", "element_token": "t1"}]})
     assert hit and hit["element_token"] == "t1" and labels == ["AXButton:Open"], (hit, labels)
     shape = tree_shape({"window": {"role": "AXWindow"}, "markdown": "x" * 50})

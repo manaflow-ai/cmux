@@ -48,7 +48,7 @@ concurrency:
   # A batch run and its bisect probes (one commit, one job each) never cancel one another.
   # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
   # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
-  group: acpmux-sim-sweep-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
+  group: acpmux-sim-sweep-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A pull request's newer push replaces its older sweep.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -151,6 +151,20 @@ jobs:
             done_seeds=$(( done_seeds + n ))
           done
           {
+            # The leg's bug yield, summed over its chunks (sim.rs yield_line): seeds run, reds, reds only by a
+            # known gap, and reds by invariant broken (reading note hq docs/reading/2026-11-21-dst-for-everyone.md).
+            echo "sim-yield total: faults=$SIM_FAULTS resend=$SIM_RESEND base=$SIM_SEED_BASE $(awk '
+              /^sim-yield: / {
+                for (i = 2; i <= 4; i++) { split($i, kv, "="); sum[kv[1]] += kv[2] }
+                c = $0; sub(/.*classes=/, "", c)
+                if (c != "none") { n = split(c, parts, "; "); for (j = 1; j <= n; j++) {
+                  k = parts[j]; v = k; sub(/=[0-9]+$/, "", k); sub(/.*=/, "", v); cls[k] += v } }
+                chunks++
+              }
+              END {
+                out = ""; for (k in cls) out = out (out == "" ? "" : "; ") k "=" cls[k]
+                printf "chunks=%d seeds=%d reds=%d known_gap=%d classes=%s", chunks, sum["seeds"], sum["reds"], sum["known_gap"], (out == "" ? "none" : out)
+              }' "$RUNNER_TEMP/sim.log")" | tee -a "$RUNNER_TEMP/sim.log"
             grep -E '^sim: ' "$RUNNER_TEMP/sim.log" || true
             grep -E '^seed [0-9]+:|replay:' "$RUNNER_TEMP/sim.log" | head -60 || true
           } >> "$GITHUB_STEP_SUMMARY"

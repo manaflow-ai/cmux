@@ -107,7 +107,7 @@ class Run:
             time.sleep(5)  # test script: the app is still starting (bench_memory.FakeChats)
         if added.get("error") or added.get("code"):
             raise SystemExit(f"conn-chaos: agent.harness.add: {added.get('message') or added.get('error')}")
-        self.cli_env = dict(os.environ, ACPMUX_SOCKET=bm.FakeChats.acpmux_socket(self.bundle))
+        self.cli_env = bm.acpmux_cli_env(bm.FakeChats.acpmux_socket(self.bundle))
 
     def pane(self, action: str, timeout: float = 30, **params) -> dict:
         result = bp.rpc(self.sock, "debug.agent_pane", dict(params, action=action), timeout=timeout)

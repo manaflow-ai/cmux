@@ -194,7 +194,7 @@ struct CloudStartSession {
         let request: Request, cloud = services.cloud
         do {
             request = try await original.preflight(setup: cloud.setup, scheme: services.linkScheme, refreshNamed: {
-                try await original.requireFreshNamedList(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: { try still(original.destinationName) })
+                try await original.requireFreshNamedList(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: { try still(original.destinationName) }, failure: { cloud.unavailableReason ?? cloud.lastError })
             }, heldRefusal: { cloud.computerControl.heldRefusal(invocation, machine: $0) })
         } catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
         try still(request.name ?? request.machineID ?? "")
@@ -418,7 +418,7 @@ struct CloudStartSession {
                 let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
                 throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
             }
-            throw ended
+            throw (ended as? ActionFailure).flatMap { f in CloudStartSessionStrings.newMachineDeleted(name, id: id, after: f.message).map { ActionFailure(message: $0, isNotFound: f.isNotFound, isQuiet: f.isQuiet) as Error } } ?? ended
         }
     }
 
