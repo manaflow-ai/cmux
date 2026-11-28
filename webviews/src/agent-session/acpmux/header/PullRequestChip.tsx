@@ -13,6 +13,7 @@ import { PullRequestMerge, type MergeResult } from "./PullRequestMerge";
 import { pullRequestStatus, usePullRequestOps, type PullRequestOps } from "./pullRequestOps";
 import { FinishBurst } from "../finish/FinishBurst";
 import { usePullRequestFinish } from "../finish/finishMoments";
+import { PullRequestActions } from "./PullRequestActions";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -27,7 +28,7 @@ const REVIEWS: Record<string, StringKey> = {
 };
 
 export function PullRequestChip({
-  pullRequest,
+  pullRequest: initialPullRequest,
   onMerge,
   ops,
 }: {
@@ -38,8 +39,9 @@ export function PullRequestChip({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const fallbackOps = usePullRequestOps(ops ? undefined : pullRequest, onMerge);
+  const fallbackOps = usePullRequestOps(ops ? undefined : initialPullRequest, onMerge);
   const mergedOps = ops ?? fallbackOps;
+  const pullRequest = mergedOps.displayed ?? initialPullRequest;
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
@@ -116,6 +118,7 @@ export function PullRequestChip({
           </ul>
         )}
         <PullRequestMerge ops={mergedOps} />
+        <PullRequestActions ops={mergedOps} />
       </Popover>
     </>
   );

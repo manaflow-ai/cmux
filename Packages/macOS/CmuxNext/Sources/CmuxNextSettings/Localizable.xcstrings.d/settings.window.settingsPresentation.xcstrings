@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "backgroundTasks.noOutputYet" : {
-      "comment" : "Agent pane: a background command's card while it has printed nothing yet",
+    "settings.window.settingsPresentation" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No output yet"
+            "value" : "Open Settings In"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد مخرجات بعد"
+            "value" : "فتح الإعدادات في"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Još nema izlaza"
+            "value" : "Otvori postavke u"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Intet output endnu"
+            "value" : "Åbn indstillinger i"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Noch keine Ausgabe"
+            "value" : "Einstellungen öffnen in"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aún no hay salida"
+            "value" : "Abrir ajustes en"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pas encore de sortie"
+            "value" : "Ouvrir les réglages dans"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ancora nessun output"
+            "value" : "Apri le impostazioni in"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "まだ出力はありません"
+            "value" : "設定を開く場所"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនទាន់មានលទ្ធផលនៅឡើយ"
+            "value" : "បើកការកំណត់ក្នុង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "아직 출력 없음"
+            "value" : "설정 열기 위치"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen utdata ennå"
+            "value" : "Åpne innstillinger i"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brak danych wyjściowych"
+            "value" : "Otwieraj ustawienia w"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ainda sem saída"
+            "value" : "Abrir ajustes em"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вывода пока нет"
+            "value" : "Открывать настройки в"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่มีเอาต์พุต"
+            "value" : "เปิดการตั้งค่าใน"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Henüz çıktı yok"
+            "value" : "Ayarları şurada aç"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Виводу ще немає"
+            "value" : "Відкривати налаштування в"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa có đầu ra"
+            "value" : "Mở Cài đặt trong"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "暂无输出"
+            "value" : "设置打开位置"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "尚無輸出"
+            "value" : "設定開啟位置"
           }
         }
       }
