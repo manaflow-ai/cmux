@@ -260,19 +260,25 @@ jobs:
       # once with no token (the repository is public; that budget is the runner address's), and a
       # secondary-limit refusal waits 60 s once and reads again: ticks 45700034320 to 45706304238
       # (2026-11-25 18:12 to 21:43Z) all waited on a secondary-limit 403 on both tokens.
+      # Its reads go on the CI pool (quota-goblin-9008/9009, CI_POOL_TOKEN_1/2, pushed by the key home) when one has
+      # 500 calls left, and on the route App only after: the route App (5067688) is the controller's and 30+ workflows'
+      # shared hour, spent to 0 every hour on 2026-11-25..28 (.github/actions/app-token-spread). Leo, 2026-11-28: "use
+      # the pools we have".
       - name: Mint the rolling rule's spare read token
         id: spare-read-token
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == '' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.tick-tooling/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
+          probe: spare-read
 
       - name: Apply the rolling rule
         id: rolling

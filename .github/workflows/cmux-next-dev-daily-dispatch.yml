@@ -52,6 +52,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
@@ -73,6 +74,23 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: write
           permission-contents: read
+
+      # The tick's reads (the tip ref, the source runs, their jobs, the publish runs) go on the CI pool
+      # (quota-goblin-9008/9009, CI_POOL_TOKEN_1/2, pushed by the key home) when one has 500 calls left: the
+      # route App above (5067688) is the controller's and 30+ workflows' shared hour, spent to 0 every hour on
+      # 2026-11-25..28. The publisher dispatch stays on the route App token (a write; the actor stays the same).
+      # No pool token, or a pool refusal, leaves the reads on the route App as before. Leo, 2026-11-28: "use the
+      # pools we have".
+      - name: Pick a CI pool read token
+        id: pool-read
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.gh-budget-tooling/.github/actions/app-token-spread
+        with:
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          permission-actions: read
+          permission-contents: read
+          probe: dispatch-read
 
       # The glaeda-route App's hour (not cmux-bot's, whose cmux callers stop at 2,500) before the tick spends any of it (GET /rate_limit is free), as the
       # `app-spend-pool:` line HQ's spend publisher sums (scripts/ci/app_spend_mark.py's format;
@@ -109,6 +127,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.app-token.outputs.token || '' }}
+          POOL_READ_TOKEN: ${{ steps.pool-read.outputs.token }}
         with:
           script: |
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
@@ -118,7 +137,22 @@ jobs:
             // (`github`): cmux-next.yml routes re-runs on
             // triggering_actor == 'github-actions[bot]', and a run another token
             // dispatches would start workflow_run listeners of cmux-next.
-            let api = process.env.APP_TOKEN ? getOctokit(process.env.APP_TOKEN) : github;
+            const appApi = process.env.APP_TOKEN ? getOctokit(process.env.APP_TOKEN) : github;
+            let api = appApi;
+            // Reads go on the CI pool token when one was picked; a refused or rate-limited
+            // pool read is sent again on the App token (then GITHUB_TOKEN, as below).
+            const pool = process.env.POOL_READ_TOKEN ? getOctokit(process.env.POOL_READ_TOKEN) : null;
+            const read = async (request) => {
+              if (pool) {
+                try {
+                  return await request(pool);
+                } catch (error) {
+                  if (![401, 403, 404, 429].includes(error.status)) throw error;
+                  core.warning(`The CI pool token was refused (${error.status}); the App token reads instead`);
+                }
+              }
+              return await call(request);
+            };
             // The App's budget runs out too: every routing job mints the same
             // App, and on 2026-11-01 its 5000/h was spent, so this dispatcher
             // failed on its first read for hours with GITHUB_TOKEN unused and
@@ -139,7 +173,7 @@ jobs:
             };
             const source = 'feat-cmux-next';
             const workflow = 'cmux-next.yml';
-            const { data: ref } = await call((client) => client.rest.git.getRef({
+            const { data: ref } = await read((client) => client.rest.git.getRef({
               owner,
               repo,
               ref: `heads/${source}`,
@@ -150,7 +184,7 @@ jobs:
             // 403). The run goes on feat-cmux-next with the SHA it must build;
             // cmux-next.yml fails it without building when a merge moved the
             // tip before it started, and the next tick asks for the new tip.
-            const { data } = await call((client) => client.rest.actions.listWorkflowRuns({
+            const { data } = await read((client) => client.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: workflow,
@@ -180,7 +214,7 @@ jobs:
             // Inspect the complete page. A burst of source runs without an
             // app must not hide an older successful app from the handoff.
             for (const run of finishedRuns) {
-              const { data: jobs } = await call((client) => client.rest.actions.listJobsForWorkflowRun({
+              const { data: jobs } = await read((client) => client.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,
                 run_id: run.id,
@@ -194,7 +228,7 @@ jobs:
             }
             if (finishedDev) {
               const publishTitle = `cmux NEXT DEV daily · publish ${finishedDev.id}`;
-              const { data: published } = await call((client) => client.rest.actions.listWorkflowRuns({
+              const { data: published } = await read((client) => client.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'cmux-next-dev-daily.yml',
@@ -275,7 +309,7 @@ jobs:
             // before dispatching and ask for that one: a newer tip than the one
             // checked above has no DEV run yet, and the spacing above holds for
             // any SHA.
-            const { data: fresh } = await call((client) => client.rest.git.getRef({
+            const { data: fresh } = await read((client) => client.rest.git.getRef({
               owner,
               repo,
               ref: `heads/${source}`,
