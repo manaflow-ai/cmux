@@ -26,7 +26,12 @@ baseline fails; a count below it asks for a baseline update
 type, a `@concurrent` function, an actor, or the Rust daemon) instead of
 raising the baseline.
 
+--changed-range BASE..TIP (a pull request's gate, ci/steps.toml next-main-actor-work) reads only the Sources
+files `git diff BASE TIP` names: the baseline is per file and rule, so a changed file's verdict is the whole-tree
+run's. A change to Package.swift (which targets are main-actor), this script or its baseline reads every file.
+
 Usage: scripts/cmux-next/check-main-actor-work.py [--root <repo>] [--update-baseline] [--list]
+                                                  [--changed-range BASE..TIP]
 """
 
 from __future__ import annotations
@@ -416,7 +421,19 @@ def scan_file(path: str, default_main: bool) -> list[tuple[int, str, str]]:
     return hits
 
 
-def collect(root: str) -> dict[str, dict[str, list[tuple[int, str]]]]:
+def changed_files(root: str, spec: str) -> set[str] | None:
+    """The repo-relative files of `git diff BASE TIP` for --changed-range, or None: read every file."""
+    base, sep, tip = spec.partition("..")
+    if not sep or not base or not tip:
+        raise SystemExit(f"check-main-actor-work: --changed-range wants BASE..TIP, not {spec!r}")
+    out = subprocess.run(["git", "-C", root, "diff", "--name-only", "--no-renames", "-z", base, tip],
+                         capture_output=True, check=True).stdout.decode("utf-8", "replace")
+    paths = {p for p in out.split("\0") if p}
+    whole = {f"{PACKAGE}/Package.swift", BASELINE, "scripts/cmux-next/check-main-actor-work.py"}
+    return None if paths & whole else paths
+
+
+def collect(root: str, only: set[str] | None = None) -> dict[str, dict[str, list[tuple[int, str]]]]:
     package_root = os.path.join(root, PACKAGE)
     sources = os.path.join(package_root, "Sources")
     with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
@@ -428,6 +445,8 @@ def collect(root: str) -> dict[str, dict[str, list[tuple[int, str]]]]:
                 continue
             path = os.path.join(dirpath, filename)
             relative = os.path.relpath(path, root).replace(os.sep, "/")
+            if only is not None and relative not in only:
+                continue
             in_package = os.path.relpath(path, package_root).replace(os.sep, "/")
             for line, rule, text in scan_file(path, default_isolation(in_package, targets) is True):
                 result.setdefault(relative, {}).setdefault(rule, []).append((line, text))
@@ -439,10 +458,18 @@ def main() -> int:
     parser.add_argument("--root", default=None)
     parser.add_argument("--update-baseline", action="store_true")
     parser.add_argument("--list", action="store_true", help="print every hit, not only the ratchet result")
+    parser.add_argument("--changed-range", metavar="BASE..TIP", help="read only the files `git diff BASE TIP` names")
     args = parser.parse_args()
+    if args.changed_range and args.update_baseline:
+        parser.error("--changed-range judges a change's files; the baseline is written from every file")
     root = args.root or subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
                                        check=True).stdout.strip()
-    hits = collect(root)
+    only = changed_files(root, args.changed_range) if args.changed_range else None
+    if args.changed_range:
+        print(f"check-main-actor-work: {args.changed_range}: "
+              + ("Package.swift, the script or its baseline changed: every file" if only is None else
+                 f"{sum(p.startswith(PACKAGE + '/Sources/') and p.endswith('.swift') for p in only)} changed Sources file(s)"))
+    hits = collect(root, only)
     counts = {f: {r: len(v) for r, v in rules.items()} for f, rules in sorted(hits.items())}
     baseline_path = os.path.join(root, BASELINE)
     if args.update_baseline:
@@ -472,6 +499,8 @@ def main() -> int:
                 for line, text in hits[f][rule]:
                     print(f"    {f}:{line}: {text}")
     for f, rules in baseline.items():
+        if only is not None and f not in only:
+            continue
         for rule, allowed_count in rules.items():
             if counts.get(f, {}).get(rule, 0) < allowed_count:
                 lowered += 1

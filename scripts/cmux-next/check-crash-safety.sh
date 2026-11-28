@@ -30,14 +30,24 @@
 #                      (Swift), or an unwrap/expect/panic!/exit (cmux-tui
 #                      Rust), beyond crash-safety-baseline.json.
 #
-# Usage: scripts/cmux-next/check-crash-safety.sh [package-root]
+# --changed-range BASE..TIP (a pull request's gate, ci/steps.toml next-crash-safety): the per-file rules read only
+# the files `git diff BASE TIP` names, and crash_ratchet.py only their modules and crates. Every rule is per file or
+# a per-module sum, so a changed file's verdict is the whole-tree run's; the entry point check always runs.
+#
+# Usage: scripts/cmux-next/check-crash-safety.sh [--changed-range BASE..TIP] [package-root]
 set -euo pipefail
+range=""
+if [[ "${1:-}" == "--changed-range" ]]; then
+  range="${2:?--changed-range wants BASE..TIP}"
+  shift 2
+fi
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-python3 - "$root" <<'PY'
+python3 - "$root" "$range" <<'PY'
 import os, re, subprocess, sys
 
 root = sys.argv[1]
+changed_range = sys.argv[2]
 sources = os.path.join(root, "Sources")
 EXTERNAL = {"CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile"}
 ALLOW = re.compile(r"//\s*crash-allow:\s*\S")
@@ -66,8 +76,23 @@ def swift_sources():
         print(f"check-crash-safety: refused: {sources} is not in a git checkout ({error})", file=sys.stderr)
         sys.exit(2)
 
+repo = os.path.abspath(os.path.join(root, "..", "..", ".."))
+changed = None  # repo-relative paths under --changed-range, or None: every file
+if changed_range:
+    base, _, tip = changed_range.partition("..")
+    try:
+        out = subprocess.run(["git", "-C", repo, "diff", "--name-only", "--no-renames", "-z", base, tip],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"check-crash-safety: refused: git diff {changed_range} failed ({error})", file=sys.stderr)
+        sys.exit(2)
+    changed = {p for p in out.split("\0") if p}
+    print(f"check-crash-safety: {changed_range}: {sum(p.endswith('.swift') for p in changed)} changed Swift file(s)")
+
 failures = []
 for path in swift_sources():
+    if changed is not None and os.path.relpath(path, repo) not in changed:
+        continue
     name = os.path.basename(path)
     if not name.endswith(".swift") or not os.path.isfile(path):
         continue
@@ -126,7 +151,6 @@ def tuple_do_catch_hits(text):
                 break
             cursor = clause_end + 1
 
-repo = os.path.abspath(os.path.join(root, "..", "..", ".."))
 try:
     tracked = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*.swift"],
                              check=True, capture_output=True).stdout.decode("utf-8", "replace")
@@ -134,6 +158,8 @@ except (OSError, subprocess.CalledProcessError) as error:
     print(f"check-crash-safety: refused: {repo} is not in a git checkout ({error})", file=sys.stderr)
     sys.exit(2)
 for rel in sorted(p for p in tracked.split("\0") if p.endswith(".swift")):
+    if changed is not None and rel not in changed:
+        continue
     path = os.path.join(repo, rel)
     if not os.path.isfile(path):
         continue
@@ -154,4 +180,4 @@ if failures:
     sys.exit(1)
 print("check-crash-safety: ok")
 PY
-python3 "$here/crash_ratchet.py" --repo "$(cd "$root/../../.." && pwd)"
+python3 "$here/crash_ratchet.py" --repo "$(cd "$root/../../.." && pwd)" ${range:+--changed-range "$range"}
