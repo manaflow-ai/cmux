@@ -198,11 +198,19 @@ impl Hub {
     pub(crate) async fn persist_for_handoff(self: Arc<Self>, deadline: tokio::time::Instant) {
         // Cancelling session cleanup may have dropped its metadata task handle. The blocking
         // index read still owns the sessions it will publish; include them before the fence.
+        let began = std::time::Instant::now();
         self.wait_store().await;
+        let store_wait = began.elapsed();
         let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
         let store = {
             let hub = self.clone();
             tokio::task::spawn_blocking(move || {
+                let mut steps = Vec::with_capacity(6);
+                let mut at = std::time::Instant::now();
+                let mut lap = |name: &'static str| {
+                    steps.push((name, at.elapsed()));
+                    at = std::time::Instant::now();
+                };
                 for session in hub.sessions() {
                     // A cancelled async log loader can leave its blocking restore running.
                     // It may append recovered events and save metadata: join that chat's
@@ -218,21 +226,28 @@ impl Hub {
                 }
                 // Saving a changed title/repository also updates its ledger entry. Close
                 // that writer after these updates, while the store seals independently.
+                lap("chat metadata");
                 let _ = metadata_done.send(());
                 hub.store.seal();
                 if let Err(error) = hub.store.flush() {
                     tracing::warn!("store flush failed: {error}");
                 }
+                lap("store flush");
                 hub.outbox.compact();
+                lap("outbox compact");
                 flush_disk_writer();
+                lap("disk writer");
                 hub.peer_snapshots.flush_now();
+                lap("peer snapshots");
+                steps
             })
         };
         let ledger = {
             let hub = self.clone();
             async move {
                 let _ = metadata_saved.await;
-                tokio::task::spawn_blocking(move || {
+                let at = std::time::Instant::now();
+                let _ = tokio::task::spawn_blocking(move || {
                     let left = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if !hub.ledger.close(left) {
                         tracing::warn!(
@@ -241,12 +256,14 @@ impl Hub {
                         hub.ledger.wait_closed();
                     }
                 })
-                .await
+                .await;
+                at.elapsed()
             }
         };
         // Every audit line was written at its event (`audit_log.rs`): this only joins the
         // thread's last sync, or a purge it is running, which holds the home lock until it ends.
         let audit = tokio::task::spawn_blocking(move || {
+            let at = std::time::Instant::now();
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             if !self.audit.close(left) {
                 tracing::warn!(
@@ -254,8 +271,24 @@ impl Hub {
                 );
                 self.audit.wait_closed();
             }
+            at.elapsed()
         });
-        let _ = tokio::join!(store, ledger, audit);
+        let (store, ledger, audit) = tokio::join!(store, ledger, audit);
+        // Which writer held the home past the deadline: the next daemon waits on this lock.
+        if tokio::time::Instant::now() > deadline {
+            let mut phases = format!("store wait {} ms", store_wait.as_millis());
+            for (name, took) in store.unwrap_or_default() {
+                phases.push_str(&format!(", {name} {} ms", took.as_millis()));
+            }
+            if let Ok(took) = audit {
+                phases.push_str(&format!(", audit {} ms", took.as_millis()));
+            }
+            phases.push_str(&format!(", ledger {} ms", ledger.as_millis()));
+            tracing::warn!(
+                "persistence ran {} ms past the shutdown deadline: {phases}",
+                tokio::time::Instant::now().saturating_duration_since(deadline).as_millis()
+            );
+        }
     }
 
     /// Nothing this daemon does from here on reaches the log: the next daemon may read it before
