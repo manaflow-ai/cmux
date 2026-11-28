@@ -860,6 +860,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         (await connectStoredMacOutcome(
@@ -870,6 +871,7 @@ extension MobileShellComposite {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )).didConnect
     }
@@ -884,6 +886,7 @@ extension MobileShellComposite {
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
         preconnectedClient: MobileCoreRPCClient? = nil,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -898,6 +901,7 @@ extension MobileShellComposite {
             recordsPairingAttempt: recordsPairingAttempt,
             knownPairing: knownPairing,
             preconnectedClient: preconnectedClient,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -907,8 +911,8 @@ extension MobileShellComposite {
     /// same plan so the foreground connect can adopt it without redialing.
     struct StoredMacDialPlan {
         let method: MobileConnectionMethod
-        /// Direct's Iroh address allowlist; `nil` for every other method. An
-        /// empty allowlist means Direct has nothing it may dial.
+        /// The Direct allowlist, or a user-supplied private path for first
+        /// pairing. An empty allowlist has nothing it may dial.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
         let routes: [CmxAttachRoute]
     }
@@ -918,7 +922,8 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         expectedInstanceTag: String?,
         legacyTailscaleRoutes: [CmxAttachRoute],
-        knownPairing: MobilePairedMac?
+        knownPairing: MobilePairedMac?,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
     ) -> StoredMacDialPlan {
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
@@ -929,12 +934,14 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: expectedInstanceTag
             )
-        // Direct is the only method that supplies an Iroh address allowlist.
+        // Direct and explicit first-pair private paths constrain the Iroh dial.
         // Tailscale selects an authorized raw Tailscale route below and must
         // never be converted into an Iroh dial, even when both route kinds are
         // advertised by the pairing.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
-        if resolvedMethod == .direct {
+        if let directOnlyDialCandidates, resolvedMethod != .tailscale {
+            methodPinnedCandidates = directOnlyDialCandidates
+        } else if resolvedMethod == .direct {
             methodPinnedCandidates = irohMethodPinnedDialCandidates(
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: expectedInstanceTag,
@@ -986,6 +993,7 @@ extension MobileShellComposite {
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
         preconnectedClient: MobileCoreRPCClient? = nil,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         // A preconnected client is owned by this call from here on: `connect`
@@ -1004,7 +1012,8 @@ extension MobileShellComposite {
             pairedMacDeviceID: pairedMacDeviceID,
             expectedInstanceTag: instanceTagExpectation.expectedTag,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
-            knownPairing: knownPairing
+            knownPairing: knownPairing,
+            directOnlyDialCandidates: directOnlyDialCandidates
         )
         let resolvedMethod = plan.method
         let methodPinnedCandidates = plan.methodPinnedCandidates
@@ -1062,9 +1071,9 @@ extension MobileShellComposite {
                 }
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
                     applyOperationalError(error)
-                    connectionState = .disconnected
-                    macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
+                    // connect() keeps a different live Mac until the target
+                    // authenticates. A failed first pairing must preserve it.
+                    releaseForegroundAfterPairingFailure()
                 }
             }
         } else {
@@ -1294,6 +1303,7 @@ extension MobileShellComposite {
     func connectAccountDiscoveredIrohMac(
         _ mac: MobileDiscoveredIrohMac,
         accountID: String,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -1309,6 +1319,7 @@ extension MobileShellComposite {
             pairedMacDeviceID: mac.deviceID,
             instanceTagExpectation: .require(mac.instanceTag),
             automaticReconnectAccountID: accountID,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )).didConnect
     }

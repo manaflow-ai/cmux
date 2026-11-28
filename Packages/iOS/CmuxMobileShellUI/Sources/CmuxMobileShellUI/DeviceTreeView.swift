@@ -197,6 +197,7 @@ struct DeviceTreeView: View {
                         store: store,
                         macDeviceID: computer.deviceId,
                         instanceTag: computer.instanceTag,
+                        directoryDisplayName: computer.isDirectoryOnly ? computer.title : nil,
                         focusedRouteKind: ref.routeKind
                     )
                 }
@@ -376,8 +377,10 @@ struct DeviceTreeView: View {
         // each loader's generation gate keeps stale results from publishing.
         async let pairedMacs: Bool = store.loadPairedMacs()
         async let registryDevices: Void = store.loadRegistryDevices()
+        async let directoryCandidates: Void = store.refreshDirectoryCandidates()
         _ = await pairedMacs
         await registryDevices
+        await directoryCandidates
     }
 }
 #endif

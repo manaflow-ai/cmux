@@ -14,6 +14,9 @@ struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
+    /// Directory-only rows have no persisted pairing yet, so retain the broker
+    /// display name while the user configures a private path.
+    var directoryDisplayName: String? = nil
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
@@ -57,6 +60,8 @@ struct MacComputerDetailView: View {
     @State private var irohSettingsModel: MobileIrohSettingsModel?
     @State private var showsPrivatePathEditor = false
     @State private var showsPrivatePathRemoveConfirmation = false
+    @State private var directoryTogglePairingTask: Task<Void, Never>?
+    @State private var directoryToggleFailureMessage: String?
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -71,6 +76,19 @@ struct MacComputerDetailView: View {
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
             )
+        }
+    }
+    private var isDirectoryOnly: Bool {
+        guard pairedMac == nil else { return false }
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        return store.discoveredIrohMacs.contains { discovered in
+            MobilePairedMac.pairingID(
+                macDeviceID: discovered.deviceID,
+                instanceTag: discovered.instanceTag.isEmpty ? nil : discovered.instanceTag
+            ) == pairingID
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
@@ -95,7 +113,7 @@ struct MacComputerDetailView: View {
     }
 
     private var displayTitle: String {
-        let baseName = pairedMac?.resolvedName ?? macDeviceID
+        let baseName = pairedMac?.resolvedName ?? directoryDisplayName ?? macDeviceID
         return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
     }
     private var workspaceCount: Int {
@@ -108,18 +126,22 @@ struct MacComputerDetailView: View {
                listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
-            connectionMethodSection
-            appearanceSection
+            if !isDirectoryOnly {
+                connectionMethodSection
+                appearanceSection
+            }
             connectionSection
             macPowerSection
             routesSection
-            // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
-            // Computers, whose methods never dial Iroh paths.
-            if selectedMethod == .automatic, let irohSettingsModel {
+            // A directory-only Iroh row must expose private paths even when
+            // the app's method is Direct: those addresses are what makes the
+            // first authenticated dial possible. Existing Tailscale/Direct
+            // pairings keep the original method-specific surface.
+            if (selectedMethod == .automatic || isDirectoryOnly), let irohSettingsModel {
                 privateAddressesSection(irohSettingsModel)
             }
             identitySection
-            actionsSection
+            if !isDirectoryOnly { actionsSection }
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -269,14 +291,33 @@ struct MacComputerDetailView: View {
             irohSettingsModel = model
             await model.observe(recordingScreenEvents: false)
         }
-        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onDisappear {
+            irohSettingsModel?.cancelOperations()
+            directoryTogglePairingTask?.cancel()
+            if isDirectoryOnly { store.cancelPairing() }
+            directoryTogglePairingTask = nil
+        }
         .sheet(isPresented: $showsPrivatePathEditor) {
             if let irohSettingsModel {
                 MobileIrohCustomPrivatePathEditor(
                     path: thisMacPrivateNetwork,
                     availableMacs: privatePathEditorMacs
                 ) { draft in
-                    await irohSettingsModel.upsertCustomPrivatePath(draft)
+                    let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
+                    guard saved else {
+                        return (false, L10n.string(
+                            "mobile.iroh.private.custom.saveFailed",
+                            defaultValue: "The private addresses could not be saved. Try again."
+                        ))
+                    }
+                    if saved, pairedMac == nil, draft.isEnabled {
+                        let connected = await store.connectDiscoveredIrohMac(using: draft)
+                        return (
+                            connected,
+                            connected ? nil : (store.connectionErrorGuidance ?? store.connectionError)
+                        )
+                    }
+                    return (saved, nil)
                 }
             }
         }
@@ -291,6 +332,7 @@ struct MacComputerDetailView: View {
                 L10n.string("mobile.common.remove", defaultValue: "Remove"),
                 role: .destructive
             ) {
+                if isDirectoryOnly { store.cancelPairing() }
                 irohSettingsModel?.removeCustomPrivatePath(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag
@@ -367,6 +409,9 @@ struct MacComputerDetailView: View {
                 Toggle(isOn: Binding(
                     get: { configuration.isEnabled },
                     set: { isEnabled in
+                        directoryTogglePairingTask?.cancel()
+                        if isDirectoryOnly { store.cancelPairing() }
+                        directoryTogglePairingTask = nil
                         let draft = CmxIrohCustomPrivatePathDraft(
                             macDeviceID: configuration.macDeviceID,
                             instanceTag: configuration.instanceTag,
@@ -374,7 +419,18 @@ struct MacComputerDetailView: View {
                             addresses: configuration.addresses,
                             isEnabled: isEnabled
                         )
-                        Task { _ = await model.upsertCustomPrivatePath(draft) }
+                        directoryToggleFailureMessage = nil
+                        directoryTogglePairingTask = Task { @MainActor in
+                            let saved = await model.upsertCustomPrivatePath(draft)
+                            if saved, isDirectoryOnly {
+                                let connected = await store.connectDiscoveredIrohMac(using: draft)
+                                if draft.isEnabled, !connected {
+                                    directoryToggleFailureMessage = store.connectionErrorGuidance ?? store.connectionError
+                                }
+                            }
+                            guard !Task.isCancelled else { return }
+                            directoryTogglePairingTask = nil
+                        }
                     }
                 )) {
                     VStack(alignment: .leading) {
@@ -392,7 +448,11 @@ struct MacComputerDetailView: View {
                 // the guarded mutation would be dropped silently, leaving the
                 // switch out of sync with the persisted value.
                 .disabled(model.isMutating)
-                .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
+                    .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
+                if let directoryToggleFailureMessage {
+                    Label(directoryToggleFailureMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
                 Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
                     showsPrivatePathEditor = true
                 }
@@ -401,6 +461,9 @@ struct MacComputerDetailView: View {
                     L10n.string("mobile.common.remove", defaultValue: "Remove"),
                     role: .destructive
                 ) {
+                    directoryTogglePairingTask?.cancel()
+                    if isDirectoryOnly { store.cancelPairing() }
+                    directoryTogglePairingTask = nil
                     showsPrivatePathRemoveConfirmation = true
                 }
                 .disabled(model.isMutating)
@@ -458,7 +521,11 @@ struct MacComputerDetailView: View {
     /// dials (Iroh or Tailscale) and its private network addresses. Both are
     /// per (device, build) and local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
-        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+        pairedMac.map { store.connectionMethod(for: $0) }
+            ?? store.connectionMethod(
+                forMacDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
@@ -533,7 +600,7 @@ struct MacComputerDetailView: View {
             Text(connectionMethodFooterText)
         }
 
-        if (pendingConnectionMethod ?? selectedMethod) == .direct {
+        if (pendingConnectionMethod ?? selectedMethod) == .direct, !isDirectoryOnly {
             directAddressesSection
         }
     }
