@@ -475,3 +475,15 @@ fn translate_keeps_character_boundaries_and_repetitions() {
     assert!(!repetition("{,2}"));
     assert!(repetition("{1,}"));
 }
+
+/// `in_mask` reads the bytes around a range without indexing: a range at either
+/// end of the text, past its end, or inside brackets on another line.
+#[test]
+fn in_mask_handles_ranges_at_the_edges() {
+    assert!(in_mask(b"[abc]", &(1..4)));
+    assert!(!in_mask(b"abc", &(0..3)));
+    assert!(!in_mask(b"[abc", &(1..4)));
+    assert!(!in_mask(b"abc]", &(0..3)));
+    assert!(!in_mask(b"[\nabc\n]", &(2..5)));
+    assert!(!in_mask(b"[ab]", &(9..12)));
+}

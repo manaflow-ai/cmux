@@ -261,6 +261,17 @@ public nonisolated struct SidebarDocTarget: Hashable, Sendable, Encodable {
     }
 
     enum CodingKeys: String, CodingKey { case section, parent, before, after, index }
+
+    /// The same object `encode(to:)` writes, built field by field for a `sidebar.apply` op: five scalars, no
+    /// encoder or JSON round trip on the main actor.
+    public var jsonObject: [String: Any] {
+        var out: [String: Any] = ["section": section]
+        if let parent { out["parent"] = parent }
+        if let before { out["before"] = before }
+        if let after { out["after"] = after }
+        if let index { out["index"] = index }
+        return out
+    }
 }
 
 /// The records of the confirmed document, by id: what the rows draw.

@@ -106,6 +106,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-tab-discard",
                     # The browser pane's link placement and window rules (cmux-browser-rules).
                     "cmux-browser-rules",
+                    # The new workspace rules (cmux-app-workspace-creation).
+                    "cmux-app-workspace-creation",
                     # NEXT Cloud's configuration rules (cmux-cloud-config).
                     "cmux-cloud-config",
                     # The launch's Cloud environment read, through cmux-daemon-launch-core (CMUX-571).
