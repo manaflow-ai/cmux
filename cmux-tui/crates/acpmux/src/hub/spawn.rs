@@ -717,7 +717,19 @@ impl Hub {
         };
         let claude_unchosen = claude_joined.is_some() && !claude_opted;
         let claude_join = claude_joined.filter(|_| claude_opted);
-        let resolved = match (claude_on_cloud || claude_join.is_some() || claude_unchosen)
+        // A remote-origin Claude on a joined machine: the hub's route is never its route (above),
+        // so one with no sign-in of its own fails here with the way out, rather than start Direct
+        // and answer "Not logged in" every turn (2026-11-28: `acpmux new --machine HOST -m
+        // claude/opus` from a peer). Keychain sign-ins are never read, so not on macOS.
+        let claude_remote_joined = claude_launch
+            && !claude_on_cloud
+            && meta.remote_origin
+            && !cfg!(target_os = "macos")
+            && crate::joined_model_plane::now().is_some();
+        let resolved = match (claude_on_cloud
+            || claude_join.is_some()
+            || claude_unchosen
+            || claude_remote_joined)
             .then(|| crate::agent::resolved_profile_env(&p))
         {
             Some(Ok(env)) => Some(env),
@@ -785,6 +797,20 @@ impl Hub {
             {
                 tracing::warn!(session = %meta.id, code = "joined_model_plane.no_sign_in", "claude on this joined machine has no sign-in and no choice");
                 return Err(RpcError::invalid_params(crate::joined_model_plane::no_sign_in()));
+            }
+            if claude_remote_joined
+                && let Ok(flag) = &flag
+                && crate::claude_cloud_auth::remote_joined_without_sign_in(
+                    &inputs,
+                    &env,
+                    flag.as_ref(),
+                    cwd,
+                )
+            {
+                tracing::warn!(session = %meta.id, code = "joined_model_plane.remote_no_sign_in", "a remote-origin claude on this joined machine has no sign-in of its own");
+                return Err(RpcError::invalid_params(
+                    crate::joined_model_plane::remote_no_sign_in(),
+                ));
             }
             let pair = match &flag {
                 Ok(_) if requires_claude_team => {

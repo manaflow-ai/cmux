@@ -297,3 +297,46 @@ fn an_opted_in_launch_keeps_own_only_on_purpose() {
 add again."
     );
 }
+
+/// `remote_joined_without_sign_in`'s table over `m` with launch env `var`.
+fn remote_without_sign_in(m: &Machine, var: &[(&str, &str)]) -> bool {
+    let mut env: BTreeMap<String, String> =
+        var.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+    env.insert("HOME".to_owned(), m.home.to_string_lossy().into_owned());
+    let map = env.clone();
+    let var = move |k: &str| map.get(k).cloned();
+    let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+    crate::claude_cloud_auth::remote_joined_without_sign_in(&inputs, &env, None, &m.home)
+}
+
+/// A remote-origin launch on a joined machine never takes the hub's route, so a team pin or
+/// choice is no sign-in for it (2026-11-28: Freestyle slots record `team`, and every
+/// `acpmux new --machine` Claude there answered "Not logged in"); only a sign-in of its own is.
+#[test]
+fn a_remote_joined_launch_counts_only_a_sign_in_of_its_own() {
+    let m = machine(false);
+    assert!(remote_without_sign_in(&m, &[]));
+    assert!(remote_without_sign_in(&m, &[("CMUX_CLAUDE_AUTH", "team")]));
+    assert!(remote_without_sign_in(&m, &[("CMUX_CLAUDE_AUTH", "own")]));
+    let dir = m.home.join(".config/cmux/agent-auth");
+    std::fs::create_dir_all(&dir).unwrap();
+    for choice in ["own\n", "team\n"] {
+        std::fs::write(dir.join("claude"), choice).unwrap();
+        assert!(remote_without_sign_in(&m, &[]), "{choice:?}");
+    }
+    for own in [
+        ("ANTHROPIC_API_KEY", "sk-own"),
+        ("ANTHROPIC_AUTH_TOKEN", "t"),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "t"),
+        ("ANTHROPIC_BASE_URL", "https://x.test"),
+    ] {
+        assert!(!remote_without_sign_in(&m, &[own]), "{own:?}");
+    }
+    std::fs::write(m.home.join(".claude/.credentials.json"), r#"{"claudeAiOauth":{"a":1}}"#)
+        .unwrap();
+    assert!(!remote_without_sign_in(&m, &[]));
+    let text = remote_no_sign_in();
+    assert!(text.starts_with("This machine is joined to your team"));
+    assert!(text.contains("Start the session on this machine"));
+    assert!(text.contains("sign in to Claude here"));
+}
