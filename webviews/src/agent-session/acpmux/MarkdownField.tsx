@@ -34,6 +34,7 @@ import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
 import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
+import { frameCaretScroll } from "./composer/frameCaretScroll";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import {
@@ -1804,6 +1805,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(keepCaret)
         // A rewrap with no edit (the actions' width, a resize) keeps the caret in view too.
         .use($prose(() => caretInView(FADE_BAND_PX)))
+        // A typed key's caret scroll lays the field out in the key's frame, not in its task.
+        .use($prose(() => frameCaretScroll()))
         // The field's height moves to its text's on one motion; a value from outside lands at once.
         .use($prose(() => fieldGrowth(() => applyingValue.current)))
         .use(blockKeys)
