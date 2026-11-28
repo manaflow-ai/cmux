@@ -119,6 +119,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `launch-premain` | launch | n/a | no |
 | `launch-reboot` | launch | n/a | no |
 | `local-chat` | agent chat | one chat | no |
+| `localization-discovery` | localization tooling | excluded dependency trees (#63387) | no |
 | `mcp-fanout` | agents | N chats | no |
 | `mobile-flows` | iOS | per flow | no |
 | `newtab` | tabs | idle and loaded | no |
@@ -144,6 +145,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `typing-native` | main thread | L0-L5 loads | no |
 | `wallpaper_cost` | wallpaper | n/a | no |
 | `web-vitals` | web | n/a | no |
+| `windowserver` | WindowServer and GPU | CMUX-887 scenario matrix, retained workspaces (#62635) | no |
 | `workspace-factory` | CI | n/a | no |
 | `xbench` | browser | n/a | no |
 
@@ -301,6 +303,18 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/scene-lazy-stack-*.bench.ts` | scenes | no |
 | `webviews/bench/forum-search.bench.ts` | forum search typing | no |
 | `webviews/bench/github-*.bench.ts*` | GitHub page | no |
+
+## Scheduled probes used as benches
+
+Some areas are measured only end to end, by an hourly or nightly probe in manaflow-ai/cmuxterm-hq
+(`tools/fleet-reconcilers/`) that NOW reads, not by a bench in this tree. An [[area]] in relevance-map.toml names
+the probe as its bench so `tools/area-view` (leo-workspace) shows the area as covered, and the gap column says
+what a PR here still cannot run.
+
+| bench | area | measures | budget | gap |
+|---|---|---|---|---|
+| `cloud-desktop-agent-production` | Computer Use | the cmux-cua driver's click on a production Cloud desktop (Linux, Xvfb, Chrome): `computer_use.click_ok_share` | at least 0.95 at p50 of the newest 20 rows | no scheduled macOS click run (AX, ScreenCaptureKit), and no offline click-landing bench a PR runs |
+| `ios-push-e2e-production` | iOS push | turn end on a NEXT Nightly Mac to the banner on the paired phone, and the tap opening that chat | p95 at most 5,000 ms; ceiling 800 ms | the probe needs a Sandbox-enabled APNs key or a TestFlight phone (goal ios-push-e2e preconditions) |
 
 ## Agent tooling benches (leo-workspace)
 
