@@ -773,6 +773,8 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      # statuses: write: a look that ends with no record and no more look coming says so on cmux/ui-proof.
+      statuses: write
     steps:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
@@ -923,6 +925,7 @@ jobs:
           url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
           echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
           { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
+          echo "reason=$(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out" | head -n 1 | cut -c1-200)" >> "$GITHUB_OUTPUT"
       # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
       # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
@@ -1118,3 +1121,19 @@ jobs:
           GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
           python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
             "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A look that ended with no proof record and no more look coming (capped in the queue or the run, no out.tar
+      # on its last attempt, a build the in-step build did not cover, nothing to look at, or a red step above) left
+      # cmux/ui-proof pending for ever: 2026-11-27 cmux#62216 sat 4.4 h at 5fd72e57 with next-autoland behind it.
+      # It stays pending (only a record passes it), but now says no look ran, why, and the one command that gets one.
+      - name: Say on the gate that no look ran
+        if: ${{ always() && steps.check.outputs.ok == 'true' && inputs.kind != 'merge' && ((steps.result.outputs.tar == 'false' && inputs.attempt == '1') || steps.stage.outputs.needs_build == 'true' || steps.stage.outputs.nothing == 'true' || failure()) }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          TOKENS: ${{ github.token }} ${{ env.CI_POOL_GH_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.head }}
+          PR: ${{ inputs.pr }}
+          WHY: ${{ steps.result.outputs.reason || 'the look job failed before a record' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/ui_proof_verdict.py no-look --pr "$PR" --why "$WHY" | tee -a "$GITHUB_STEP_SUMMARY"

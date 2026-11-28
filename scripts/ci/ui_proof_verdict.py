@@ -381,6 +381,32 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
     return False
 
 
+def no_look_description(pr: str | int, why: str) -> str:
+    """cmux/ui-proof's text when a look of the head ended without a record and none more is coming: still pending
+    (only a record passes it), but it says no look ran and why, not "no look at this head" for ever (2026-11-27:
+    cmux#62216 sat 4.4 h pending at 5fd72e57 after its look was not scheduled, and next-autoland waited behind it)."""
+    why = " ".join(str(why or "").split()) or "no reason given"
+    return f"Visual change, no look ran ({why}): cmux-ci hot-verify {pr} --look --record"[:140]
+
+
+def no_look(pr: str | int, why: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> str:
+    """Post no_look_description on SHA when its cmux/ui-proof is pending or missing; a pass or failure stays."""
+    statuses = []
+    for token in tokens:
+        try:
+            statuses = api(f"repos/{repo}/commits/{sha}/statuses?per_page=100", token) or []
+            break
+        except Exception as e:  # noqa: BLE001 - the next token
+            print(f"{STATUS_CONTEXT}: status read refused ({type(e).__name__}: {e})", file=sys.stderr)
+    else:
+        return "not posted: no token could read the head's statuses"
+    mine = next((x for x in statuses if x.get("context") == STATUS_CONTEXT), None)
+    if mine and mine.get("state") != "pending":
+        return f"left as {mine.get('state')}: {mine.get('description') or ''}"
+    desc = no_look_description(pr, why)
+    return desc if post_status("pending", desc, repo, sha, tokens, target_url) else f"NOT posted: {desc}"
+
+
 def added_files() -> list[str]:
     """The paths the merge commit adds against its first parent (the base tip); [] when unread."""
     try:
@@ -512,6 +538,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--suite", choices=proof_record.SUITES)
     r.add_argument("--pushed-at", type=float)
     r.add_argument("--post", action="store_true", help="gh pr comment the record, then rerun the gate job")
+    n = sub.add_parser("no-look", help="say on the head's pending cmux/ui-proof that no look ran, and why")
+    n.add_argument("--pr", required=True)
+    n.add_argument("--why", default="")
     w = sub.add_parser("report")
     w.add_argument("--days", type=int, default=7)
     w.add_argument("--json", action="store_true")
@@ -526,6 +555,11 @@ def main(argv: list[str] | None = None) -> int:
         ok = post_status(args.state, args.description, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {args.state}: {args.description}" + ("" if ok else " (NOT posted)"))
+        return 0
+    if args.cmd == "no-look":
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        print(f"{STATUS_CONTEXT}: " + no_look(args.pr, args.why, os.environ.get("REPO", ""), os.environ.get("SHA", ""),
+                                              tokens, os.environ.get("RUN_URL", "")))
         return 0
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
