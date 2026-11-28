@@ -598,7 +598,7 @@ impl Hub {
         } else {
             None
         };
-        let (rx, prev, grouping, permission_id) = {
+        let (rx, prev, grouping, permission_id, unattended) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
@@ -803,16 +803,37 @@ impl Hub {
                 asked.set("autoReview", review.record());
             }
             self.append(session, "mux", "permission_request", asked);
+            self.watch_permission_stall(session, &permission_id);
             self.background_attention(session);
             self.set_waiting(session, super::WaitReason::of_request(&request));
-            (rx, prev, grouping, permission_id)
+            // A tool prompt in a chat an agent or a script started is refused once nobody
+            // attended it for the bound (`unattended_ask.rs`).
+            let unattended = (!needs_person
+                && super::unattended_ask::applies(session.meta().created_by.as_ref(), policy))
+            .then(super::unattended_ask::bound)
+            .flatten()
+            .map(|bound| (policy, bound));
+            (rx, prev, grouping, permission_id, unattended)
         };
         // Joined its group (or none): the group's timer need not wait for it.
         drop(ask);
         if let Some((id, true)) = grouping {
             self.start_permission_group_timer(session, id);
         }
-        let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
+        let mut outcome = match unattended {
+            Some((policy, bound)) => {
+                self.await_or_refuse_unattended(
+                    session,
+                    &permission_id,
+                    &request,
+                    policy,
+                    rx,
+                    bound,
+                )
+                .await
+            }
+            None => rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"})),
+        };
         // An ancestor's answer: written under its fence (`subsession_answer.rs`).
         if let Some(fence) = self.answer_fences.lock().unwrap().remove(&permission_id) {
             keep_answer_fence(fence);
