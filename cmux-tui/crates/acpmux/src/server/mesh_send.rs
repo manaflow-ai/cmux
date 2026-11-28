@@ -23,7 +23,7 @@ pub(super) const PREFIX: &str = "mesh:";
 
 /// The hub's idempotency key for prompt id `id`: itself when the hub takes it
 /// (`[A-Za-z0-9._:-]{8,128}`), else a digest of it.
-fn idempotency_key(id: &str) -> String {
+pub(super) fn idempotency_key(id: &str) -> String {
     let fits = (8..=128).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
     if fits {

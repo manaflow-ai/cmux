@@ -1926,6 +1926,8 @@ mod fork_through;
 mod fork_context;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
+#[path = "hub_integration/moved_forward_key.rs"]
+mod moved_forward_key;
 #[path = "hub_integration/session_git_state.rs"]
 mod session_git_state;
 #[cfg(unix)]
