@@ -88,8 +88,12 @@ extension UpdaterService {
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
     /// be cancelled: the quit proceeds and says so.
+    ///
+    /// Every decided quit stops the staged build's pre-warm first (cmux#63767): its processes outlive the app, and
+    /// Sparkle installs (or the cancel below removes) the staged copy they run from as the app exits.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
+        stopPrewarm(" for the quit")
         syncFlowPhase()
         if case .downloading(let transfer) = flow.phase,
            transfer.stage != .preparing,
