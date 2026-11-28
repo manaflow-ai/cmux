@@ -75,11 +75,9 @@
 .acpmux-auto-arrival .acpmux-auto-arrival-dismiss .ui-ghost-icon { width: 12px; height: 12px; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Orbit: the dots go round at every spinner's one period while Auto is picked, on hover and
-     while deciding (cmux-spin, pages/shared/desktop.css). */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is([data-auto-look="orbit"], .acpmux-location-button:hover, .acpmux-menu-item:is(:hover, [data-highlighted]), .acpmux-auto-arrival[data-went="deciding"]) .acpmux-auto-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
-  /* Constellation: the small spark breathes; the big one twinkles once on hover. */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="constellation"] .acpmux-auto-spark-small { animation: acpmux-auto-breathe calc(var(--cmux-spinner-period) * 1.4) var(--cmux-ease-out) infinite; }
+  /* Orbit: the dots hold still. A mark that turns is a spinner, and every spinner is the shared
+     Spinner (one-spinner.test.ts); the arrival line says "deciding" in words. */
+  /* Constellation: the small spark holds still (no breathing loop); the big one twinkles once on hover. */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-spark,
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-auto-spark {
     animation: acpmux-auto-twinkle var(--cmux-motion-large) var(--cmux-ease-out) 1;
@@ -91,10 +89,6 @@
   }
   /* The arrival line comes in once, by opacity only (no layout change). */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival { animation: acpmux-auto-arrive var(--cmux-motion-large) var(--agent-ease-out, ease-out) 1; }
-}
-@keyframes acpmux-auto-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.1); }
 }
 @keyframes acpmux-auto-twinkle {
   0% { transform: rotate(0) scale(1); }

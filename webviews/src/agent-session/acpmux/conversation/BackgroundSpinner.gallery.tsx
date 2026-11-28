@@ -75,7 +75,7 @@ export default componentEntry<Props>({
       note: "The pick: three-quarter ring, rounded caps, on a faint full track; the background line opts in.",
       props: { look: "track" },
     },
-    dots: { note: "Three pulsing dots (held at one tone under Reduce Motion).", props: { look: "dots" } },
+    dots: { note: "Three dots at one tone (no blinking dots).", props: { look: "dots" } },
     finished: {
       note: "A finished task whose turn is still answering: the clock, words shimmering, no spinner.",
       props: { look: "finished" },

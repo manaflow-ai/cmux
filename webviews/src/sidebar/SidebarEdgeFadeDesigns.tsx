@@ -9,7 +9,7 @@
 // Pick "eased-tall": a smoothstep ramp sampled at 9 stops, 24 px at the top and 44 px at the bottom.
 // The top fades only once the list is scrolled; the bottom only while more rows are below.
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import "./SidebarEdgeFadeDesigns.css";
+import "./SidebarEdgeFadeDesigns.gallery.css";
 
 export type EdgeFadeVariant = "linear" | "eased" | "eased-tall" | "eased-tall-under-footer";
 

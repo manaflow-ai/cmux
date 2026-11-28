@@ -481,8 +481,12 @@ test("native lookup shows the file and movie glyphs in both views; a byte transf
   });
   expect(host.querySelectorAll(".acpmux-attachment-pending").length).toBe(4);
   expect(host.querySelectorAll(".acpmux-file-chip > svg").length).toBe(2);
-  expect(host.querySelectorAll("[data-video-shape] > svg").length).toBe(2);
-  expect(host.querySelector(".acpmux-paste-loading, .acpmux-paste-late, progress")).toBeNull();
+  // A video's glyph is the ready tile's play mark, in its glass (#63541: one loading look).
+  expect(host.querySelectorAll("[data-video-shape] > [data-video-glyph] > svg").length).toBe(2);
+  // A resolving file draws no loading look; a video wears the loading glass from its drop on (#63541).
+  expect(host.querySelectorAll(".acpmux-attachment-file.acpmux-paste-loading").length).toBe(0);
+  expect(host.querySelectorAll("[data-video-shape].acpmux-paste-loading").length).toBe(2);
+  expect(host.querySelector(".acpmux-paste-late, progress")).toBeNull();
   expect(host.querySelectorAll('[aria-busy="true"]').length).toBe(4);
   await act(async () =>
     controls.setPending(waiting.map((chip) => ({ ...chip, resolvingPath: false, uploading: true, progress: 0.5 }))),
