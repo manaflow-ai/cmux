@@ -1661,10 +1661,23 @@ export function playTurnEnd(
     // Record what each retained row really plays, including each half of a swap. Clearance
     // runs separately after motion selection; a new clip must not change dip/swap into slide.
     const retainedGroups: RetainedFoldPath[][] = nodes.map((node, index) =>
-      was.has(node.dataset.rowId!) ? [{
-        node, from: tops[index]!, to: tops[index]!, height: heights[index]!,
-        delay: 0, ms, easing, mode: "end", clip: [], movable: false,
-      }] : []);
+      was.has(node.dataset.rowId!)
+        ? [
+            {
+              node,
+              from: tops[index]!,
+              to: tops[index]!,
+              height: heights[index]!,
+              delay: 0,
+              ms,
+              easing,
+              mode: "end",
+              clip: [],
+              movable: false,
+            },
+          ]
+        : [],
+    );
     const retainedIndex = new Map<HTMLElement, number>();
     const restarted = new Set<HTMLElement>();
     nodes.forEach((node, index) => {
@@ -1681,9 +1694,8 @@ export function playTurnEnd(
       const timing = animation.effect?.getTiming();
       if (!timing) return;
       const origin = now() + toMove();
-      const started = typeof animation.startTime === "number"
-        ? animation.startTime
-        : now() - Number(animation.currentTime ?? 0);
+      const started =
+        typeof animation.startTime === "number" ? animation.startTime : now() - Number(animation.currentTime ?? 0);
       const shift = tops[index]! - prior.to;
       const snapshot = node !== nodes[index];
       const path = {
@@ -1770,12 +1782,16 @@ export function playTurnEnd(
       if (store === moving && index !== undefined) {
         const snapshot = node !== nodes[index];
         const record: RetainedFoldPath = {
-          node, ...band,
+          node,
+          ...band,
           height: snapshot ? (was.get(nodes[index]!.dataset.rowId!)?.height ?? band.height) : band.height,
-          mode: coverMotion, delay: timing.delay ?? 0, ms: Number(timing.duration ?? ms),
+          mode: coverMotion,
+          delay: timing.delay ?? 0,
+          ms: Number(timing.duration ?? ms),
           easing: timing.easing ?? easing,
           clip: frames.find((sequence) => sequence.some((frame) => frame.clipPath !== undefined)) ?? [],
-          movable: true, snapshot,
+          movable: true,
+          snapshot,
         };
         retainedPath = record;
         if (snapshot) retainedGroups[index]!.push(record);
@@ -2052,7 +2068,10 @@ export function playTurnEnd(
         fold.animations.delete(prior.animation);
       }
       const animation = play(node, cover.frames, {
-        duration: cover.duration, easing: cover.easing ?? "linear", delay: cover.delay ?? 0, fill: "backwards",
+        duration: cover.duration,
+        easing: cover.easing ?? "linear",
+        delay: cover.delay ?? 0,
+        fill: "backwards",
       });
       retainedCovers.set(node, { key, animation });
     }

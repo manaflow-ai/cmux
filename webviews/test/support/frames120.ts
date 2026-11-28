@@ -117,8 +117,13 @@ export async function open120Hz(
     const cdp = await context.newCDPSession(page);
     // Only chrome-headless-shell has BeginFrame control; full Chrome's headless mode has no such
     // command, and its page would draw at 60 Hz on its own.
+    // Keep the capability probe and every later controlled frame on one timeline.
+    // Starting a new origin after the probe leaves a non-slot gap after the page's
+    // first RAF, offsetting its deterministic clock from native WAAPI time.
+    let frameAt = clock === "frames" ? monotonicMs?.() : undefined;
     try {
-      await cdp.send("HeadlessExperimental.beginFrame", { interval: frameMs } as never);
+      await cdp.send("HeadlessExperimental.beginFrame", { interval: frameMs, frameTimeTicks: frameAt } as never);
+      if (frameAt !== undefined) frameAt += frameMs;
     } catch (error) {
       throw new FramesUnsupported(String(error));
     }
@@ -138,8 +143,6 @@ export async function open120Hz(
       ]);
     const pump = (async () => {
       let next = performance.now();
-      /// `clock: "frames"`: the next frame's time on the renderer's clock, one slot after the last.
-      let frameAt = monotonicMs?.();
       while (running) {
         const now = performance.now();
         if (now < next - 1.5) {

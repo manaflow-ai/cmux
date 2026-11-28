@@ -666,13 +666,11 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                       a,
                       b,
                       now: document.timeline.currentTime,
-                      clocks: upper
-                        .getAnimations()
-                        .map((animation) => ({
-                          start: animation.startTime,
-                          current: animation.currentTime,
-                          timing: animation.effect!.getTiming(),
-                        })),
+                      clocks: upper.getAnimations().map((animation) => ({
+                        start: animation.startTime,
+                        current: animation.currentTime,
+                        timing: animation.effect!.getTiming(),
+                      })),
                     });
                 }
               }
@@ -722,4 +720,98 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
           await page.close();
         }
       });
+  for (const variant of ["slide", "viscous", "nonmonotone"] as const)
+    for (const direction of ["up", "down"] as const)
+      for (const order of ["before", "after"] as const)
+        test(`F9 ${variant} ${direction} ${order}: a moving retained row clears a stationary retained neighbor`, async () => {
+          const page = await browser.newPage({ viewport: { width: 800, height: 900 } });
+          page.on("requestfailed", (request) =>
+            console.warn(`F9 request failed ${request.url()}: ${request.failure()?.errorText}`),
+          );
+          try {
+            const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+            const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");
+            await page.route(`${origin}/blank.html`, (route) =>
+              route.fulfill({ contentType: "text/html", body: blank }),
+            );
+            await page.goto(`${origin}/blank.html`);
+            const result = await page.evaluate(
+              async ({ foldUrl, variant, direction, order }) => {
+                const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import(foldUrl);
+                document.body.style.margin = "0";
+                const thread = document.createElement("main");
+                thread.setAttribute("data-turn-end-fold", variant === "viscous" ? variant : "fade");
+                thread.style.cssText = "position:relative;height:1200px";
+                if (variant === "nonmonotone")
+                  thread.style.setProperty("--cmux-ease-settle", "linear(0, 1.4, -0.2, 1)");
+                document.body.append(thread);
+                const draw = (id: string, top: number, height: number) => {
+                  const node = document.createElement("div");
+                  node.className = "acpmux-row";
+                  node.dataset.rowId = id;
+                  node.style.cssText = `position:absolute;top:${top}px;height:${height}px;left:0;right:0`;
+                  node.textContent = id;
+                  thread.append(node);
+                  return node;
+                };
+                const still = draw("still", 300, 80);
+                const mover = draw("mover", direction === "down" ? 250 : 430, 40);
+                if (order === "before") thread.insertBefore(mover, still);
+                const gone = draw("gone", 700, 20);
+                const rows = ["still", "mover"].map((id) => ({ id, kind: "assistant", version: 1, at: 1 }));
+                const capture = captureTurnEnd(thread, thread, rows, "s", true);
+                gone.remove();
+                mover.style.top = direction === "down" ? "430px" : "240px";
+                const fold = playTurnEnd(thread, capture, "s", thread);
+                const moves = mover
+                  .getAnimations()
+                  .some((a) => (a.effect as KeyframeEffect).getKeyframes().some((f) => f.translate !== undefined));
+                const stillAnimations = still.getAnimations().length;
+                const times = [...fold.animations].map((a) => a.effect!.getTiming());
+                const start = Math.min(...times.map((t) => Number(t.delay)));
+                const end = Math.max(...times.map((t) => Number(t.delay) + Number(t.duration)));
+                let overlap = -Infinity;
+                let stillUnclipped = true;
+                for (let step = 0; step <= 100; step++) {
+                  for (const animation of fold.animations) {
+                    animation.pause();
+                    animation.currentTime = start + ((end - start) * step) / 100;
+                  }
+                  const box = mover.getBoundingClientRect();
+                  const style = getComputedStyle(mover);
+                  const inset = /^inset\(([^)]*)\)/.exec(style.clipPath);
+                  const sides = inset?.[1]!.split(/\s+/).map(Number.parseFloat) ?? [0];
+                  const top = box.top + Math.max(0, sides[0]!);
+                  const bottom = box.bottom - Math.max(0, sides[2] ?? sides[0]!);
+                  overlap = Math.max(overlap, Math.min(bottom, 380) - Math.max(top, 300));
+                  stillUnclipped &&= getComputedStyle(still).clipPath === "none";
+                }
+                settleTurnEnd(thread, fold);
+                return {
+                  overlap,
+                  moves,
+                  stillAnimations,
+                  stillUnclipped,
+                  finalTop: mover.getBoundingClientRect().top,
+                  finalClip: getComputedStyle(mover).clipPath,
+                };
+              },
+              {
+                foldUrl: `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`,
+                variant,
+                direction,
+                order,
+              },
+            );
+            console.log(`reply-settle-frames F9 ${variant} ${direction} ${order} ${JSON.stringify(result)}`);
+            expect(result.overlap).toBeLessThanOrEqual(0);
+            expect(result.moves).toBe(true);
+            expect(result.stillAnimations).toBe(0);
+            expect(result.stillUnclipped).toBe(true);
+            expect(result.finalTop).toBe(direction === "down" ? 430 : 240);
+            expect(result.finalClip).toBe("none");
+          } finally {
+            await page.close();
+          }
+        });
 });

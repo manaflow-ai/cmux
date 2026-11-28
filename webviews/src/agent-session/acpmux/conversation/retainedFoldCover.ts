@@ -164,13 +164,16 @@ function clipSides(frame: Keyframe): { top: number; bottom: number } {
 
 function clipRange(path: RetainedFoldPath, low: number, high: number) {
   const frames = path.clip;
-  if (frames.length === 0) return { top: 0, bottom: 0, minBottom: 0 };
+  if (frames.length === 0) return { top: 0, bottom: 0, minTop: 0, minBottom: 0 };
   const progress = curve(path.mode === "jump" ? "linear" : path.easing).range(low, high);
   let top = 0;
+  let minTop = Infinity;
   let bottom = 0;
   let minBottom = Infinity;
   const take = (a: { top: number; bottom: number }, b: { top: number; bottom: number }, range: Range) => {
-    top = Math.max(top, a.top + (b.top - a.top) * range.low, a.top + (b.top - a.top) * range.high);
+    const upper = span(a.top + (b.top - a.top) * range.low, a.top + (b.top - a.top) * range.high);
+    top = Math.max(top, upper.high);
+    minTop = Math.min(minTop, upper.low);
     const ends = span(a.bottom + (b.bottom - a.bottom) * range.low, a.bottom + (b.bottom - a.bottom) * range.high);
     bottom = Math.max(bottom, ends.high);
     minBottom = Math.min(minBottom, ends.low);
@@ -185,7 +188,7 @@ function clipRange(path: RetainedFoldPath, low: number, high: number) {
     (!frames[0]!.easing || frames[0]!.easing === "linear")
   ) {
     take(clipSides(frames[0]!), clipSides(frames[1]!), progress);
-    return { top, bottom, minBottom: Math.max(0, minBottom) };
+    return { top, bottom, minTop: Math.max(0, minTop), minBottom: Math.max(0, minBottom) };
   }
   for (let i = 0; i < frames.length - 1; i += 1) {
     const start = frames[i]!.offset ?? i / (frames.length - 1);
@@ -202,9 +205,9 @@ function clipRange(path: RetainedFoldPath, low: number, high: number) {
   }
   if (!Number.isFinite(minBottom)) {
     const sides = clipSides(frames[progress.low >= 1 ? frames.length - 1 : 0]!);
-    return { ...sides, minBottom: sides.bottom };
+    return { ...sides, minTop: sides.top, minBottom: sides.bottom };
   }
-  return { top, bottom, minBottom: Math.max(0, minBottom) };
+  return { top, bottom, minTop: Math.max(0, minTop), minBottom: Math.max(0, minBottom) };
 }
 
 function topRange(path: RetainedFoldPath, low: number, high: number): Range {
@@ -228,6 +231,44 @@ export function retainedFoldCover(
   const movers = paths.filter((path) => path.movable);
   const first = movers[0];
   if (!first) return output;
+  // A visible row that does not move is still an obstacle, even when DOM order
+  // temporarily puts a moving row on its other side. Keep the static text whole
+  // and clip the mover against its nearest stationary neighbours at the landing.
+  const statics = groups.flatMap((group, owner) =>
+    group.flatMap((path) =>
+      !path.movable && path.height > 0 ? [{ owner, top: path.to, bottom: path.to + path.height }] : [],
+    ),
+  );
+  const above = [...statics].sort((a, b) => a.bottom - b.bottom);
+  const below = [...statics].sort((a, b) => a.top - b.top);
+  const staticBounds = new Map<RetainedFoldPath, { above: number; below: number }>();
+  groups.forEach((group, owner) =>
+    group.forEach((path) => {
+      if (!path.movable) return;
+      let low = 0;
+      let high = above.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (above[middle]!.bottom <= path.to) low = middle + 1;
+        else high = middle;
+      }
+      let at = low - 1;
+      // One live row and its snapshot form a group. A stationary live row must not
+      // cover its own snapshot; there is at most one stationary entry per group.
+      if (above[at]?.owner === owner) at -= 1;
+      const upper = above[at]?.bottom ?? -Infinity;
+      low = 0;
+      high = below.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (below[middle]!.top < path.to + path.height) low = middle + 1;
+        else high = middle;
+      }
+      if (below[low]?.owner === owner) low += 1;
+      staticBounds.set(path, { above: upper, below: below[low]?.top ?? Infinity });
+    }),
+  );
+
   // A common monotone clock has an exact endpoint proof: each box and its clip use
   // the same progress. Keep the existing curve and fractional clip in that case.
   const shared =
@@ -248,17 +289,21 @@ export function retainedFoldCover(
         if (!path.movable) continue;
         const start = clipSides(path.clip[0] ?? {});
         const end = clipSides(path.clip.at(-1) ?? {});
-        const bottomFrom = Math.max(start.bottom, path.from + path.height - lowerFrom, 0);
-        const bottomTo = Math.max(end.bottom, path.to + path.height - lowerTo, 0);
-        if (bottomFrom > start.bottom || bottomTo > end.bottom)
+        const stationary = staticBounds.get(path)!;
+        const topFrom = Math.max(start.top, stationary.above - path.from, 0);
+        const topTo = Math.max(end.top, stationary.above - path.to, 0);
+        const bottomFrom = Math.max(start.bottom, path.from + path.height - Math.min(lowerFrom, stationary.below), 0);
+        const bottomTo = Math.max(end.bottom, path.to + path.height - Math.min(lowerTo, stationary.below), 0);
+        if (topFrom > start.top || topTo > end.top || bottomFrom > start.bottom || bottomTo > end.bottom)
           output.set(path.node, {
-            frames: [{ clipPath: inset(start.top, bottomFrom) }, { clipPath: inset(end.top, bottomTo) }],
+            frames: [{ clipPath: inset(topFrom, bottomFrom) }, { clipPath: inset(topTo, bottomTo) }],
             duration: first.ms,
             easing: first.easing,
             delay: first.delay,
           });
       }
       for (const path of groups[i]!) {
+        if (!path.movable) continue;
         lowerFrom = Math.min(lowerFrom, path.movable ? path.from : path.to);
         lowerTo = Math.min(lowerTo, path.to);
       }
@@ -308,13 +353,23 @@ export function retainedFoldCover(
       for (const path of groups[group]!) {
         const i = index.get(path)!;
         const box = boxes[i]!;
-        const clearance = box.top.high + path.height - nearest(box.top.low);
-        if (path.movable && box.active && clearance > box.clip.minBottom + 0.001) needed[i] = true;
-        bands[i]!.push({ top: box.clip.top, bottom: Math.max(box.clip.bottom, box.active ? clearance : 0, 0) });
+        const stationary = staticBounds.get(path);
+        const topClearance = (stationary?.above ?? -Infinity) - box.top.low;
+        const clearance = box.top.high + path.height - Math.min(nearest(box.top.low), stationary?.below ?? Infinity);
+        if (
+          path.movable &&
+          box.active &&
+          (clearance > box.clip.minBottom + 0.001 || topClearance > box.clip.minTop + 0.001)
+        )
+          needed[i] = true;
+        bands[i]!.push({
+          top: Math.max(box.clip.top, box.active ? topClearance : 0, 0),
+          bottom: Math.max(box.clip.bottom, box.active ? clearance : 0, 0),
+        });
       }
       for (const path of groups[group]!) {
         const box = boxes[index.get(path)!]!;
-        if (box.active) add(box.top.high + path.height, box.top.low);
+        if (path.movable && box.active) add(box.top.high + path.height, box.top.low);
       }
     }
   }
