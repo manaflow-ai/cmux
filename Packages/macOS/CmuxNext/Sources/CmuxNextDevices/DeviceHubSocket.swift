@@ -27,18 +27,19 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
     /// transport's 30 s did not once the ping went to 60 s (#54449): each socket timed out between pings.
     public static let idleTimeout: Duration = DeviceHubSocket.defaultPingInterval * 2
 
-    public static let transport: URLSession = {
+    /// A session for one connector's sockets (built per connector, not a shared static).
+    public static func makeTransport() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = TimeInterval(idleTimeout.components.seconds)
         return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubSocket", configuration: configuration)
-    }()
+    }
 
-    public init(client: DeviceHubClient, session: URLSession = URLSessionDeviceHubConnector.transport) {
+    public init(client: DeviceHubClient, session: URLSession? = nil) {
         self.client = client
-        self.session = session
+        self.session = session ?? Self.makeTransport()
     }
 
     public func connect() async throws -> any DeviceHubSocketConnection {

@@ -52,7 +52,7 @@ final class EventLog: @unchecked Sendable {
     /// hub's pong is the only frame, so the socket's session must outlast the ping (#54449 went to 60 s
     /// while the shared REST transport kept 30 s, and every socket timed out between pings).
     @Test func theSocketSessionOutlastsThePingInterval() {
-        let timeout = URLSessionDeviceHubConnector.transport.configuration.timeoutIntervalForRequest
+        let timeout = URLSessionDeviceHubConnector.makeTransport().configuration.timeoutIntervalForRequest
         let ping = TimeInterval(DeviceHubSocket.defaultPingInterval.components.seconds)
         #expect(timeout > ping)
         #expect(timeout == TimeInterval(URLSessionDeviceHubConnector.idleTimeout.components.seconds))
