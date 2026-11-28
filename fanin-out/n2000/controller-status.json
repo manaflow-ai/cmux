@@ -1,0 +1,2669 @@
+{
+  "abi": {
+    "abi": 2,
+    "omitted": 0,
+    "peers": [
+      {
+        "abi": 2,
+        "build": "897ab141e 2026-11-28",
+        "client": "acpmux-cli",
+        "hellos": 1,
+        "skew": "same"
+      },
+      {
+        "abi": null,
+        "build": null,
+        "client": "coord-sim-fanin",
+        "hellos": 1,
+        "skew": "pre-hello"
+      }
+    ]
+  },
+  "abiRange": {
+    "max": 2,
+    "min": 0
+  },
+  "agentHosts": false,
+  "agentLaunch": "allow",
+  "build": "897ab141e 2026-11-28",
+  "capabilities": [
+    "acpmux-v1",
+    "session-list-filters-v1",
+    "read-through-v1",
+    "mcp-connect-v1",
+    "session-list-pending-v1",
+    "session-list-top-level-v1",
+    "session-usage-v1",
+    "session-idle-facts-v1",
+    "session-bg-facts-v1",
+    "session-bg-waits-v1",
+    "info-rows-v1",
+    "mark-read-v1",
+    "op-once-v1",
+    "session-list-follow-v1",
+    "place-redirect-v1",
+    "peer-row-batches-v1",
+    "chunk-deltas-v1",
+    "session-changed-delta-v1",
+    "session-changed-delta-v2",
+    "machine.join.stdin.v1",
+    "daemon-service-app-v1",
+    "machine.vault.pull.v1",
+    "machine.vault.egress.v1",
+    "machine-consent-v1",
+    "consent-grant-v1",
+    "machine-enroll-v1",
+    "machine-join-ssh-v1",
+    "machine-signed-in-v1",
+    "session-messages-v1",
+    "agent-channels-v1",
+    "settled-attach-v1",
+    "attach-hold-v1",
+    "trigger-chat-v1",
+    "btw-inline-v1",
+    "btw-guest-v1",
+    "codex-external-access-v1",
+    "session-files-v1",
+    "paused-reads-v1",
+    "who-else-v1",
+    "send-fanout-v1",
+    "cost-ledger-v1",
+    "team-audit-v1",
+    "chat-presence-v1",
+    "here-v1",
+    "state-sync-v1",
+    "chat-pin-v1",
+    "queue-edit-v1",
+    "queue-approval-v1",
+    "queue-text-v1",
+    "transcript-rows-v1",
+    "queue-get-v1",
+    "permission-groups-v1",
+    "session-handoff-v1",
+    "processes-v1",
+    "process-census-v1",
+    "harness-health-v1",
+    "start-mode-v1",
+    "connections-events-v1",
+    "autocloud-fill-v1",
+    "peer-state-events-v1",
+    "folder-trust-v1",
+    "agent-pairs-v1",
+    "agent-hold-v1",
+    "turn-retry-v1",
+    "elevation-cards-v1",
+    "subagent-retry-v1",
+    "subagent-retry-v2",
+    "subagent-resume-v1",
+    "subsession-resume-v1",
+    "subagent-stop-v1",
+    "workflow-agents-v1",
+    "subagent-transcript-v1",
+    "subagent-list-v1",
+    "native-history-v1",
+    "durable-watches-v1",
+    "workflows-index-v1",
+    "cancel-request-v1",
+    "session-offers-v1",
+    "mcp-reconnect-v1",
+    "team-messaging-v1",
+    "team-listen-v1",
+    "team-directory-v1",
+    "team-settings-v1",
+    "session-auth-v1",
+    "prompt-library-v1",
+    "draft-stash-v1",
+    "memory-inbox-v1",
+    "agent-home-v1",
+    "prompt-coach-v1",
+    "transfer-precopy-v1",
+    "transfer-live-v1",
+    "transfer-history-later-v1",
+    "transfer-composers-v1",
+    "transfer-images-v1",
+    "agent-login-v1",
+    "turn-shots-v1",
+    "turn-frames-v1",
+    "customize-run-v1",
+    "acp.session.fork.subagent.v1",
+    "chat-soft-delete-v1"
+  ],
+  "chiefMuxHome": null,
+  "closedListed": 0,
+  "closedRemoteListed": 0,
+  "composeWakes": {
+    "boundMs": 180000,
+    "leadMs": {
+      "max": null,
+      "n": 0,
+      "p50": null,
+      "p90": null
+    },
+    "open": 0,
+    "opened": 0,
+    "sent": 0,
+    "unsent": 0,
+    "unsentShare": null,
+    "v": 1
+  },
+  "defaultHarness": "fanin",
+  "device": "linux-server",
+  "deviceSymbol": "server.rack",
+  "disk": {
+    "freeBytes": 181980643328,
+    "low": false,
+    "path": "/tmp/fanin-run.j0Lj7G/n2000/controller",
+    "totalBytes": 263086821376
+  },
+  "evicted": {
+    "evictions": 0,
+    "now": 0,
+    "rehydrateP50Us": 0,
+    "rehydrateP99Us": 0,
+    "rehydrateSamples": 0,
+    "rehydrations": 0,
+    "residentCap": null
+  },
+  "exe": "/tmp/fanin-run.j0Lj7G/bin/acpmux",
+  "exeStable": false,
+  "exeUnstable": "temp",
+  "fleetHold": null,
+  "gauges": {
+    "attach": {
+      "count": 2080,
+      "maxMs": 724.457,
+      "p50Ms": 6.053,
+      "p95Ms": 15.239,
+      "p99Ms": 22.9,
+      "window": 1024
+    },
+    "carrier": {
+      "calls": {
+        "cheap": {
+          "kept": 0,
+          "newCircuit": 0
+        },
+        "pipe": {
+          "kept": 0,
+          "newCircuit": 0
+        }
+      },
+      "keptStream": {
+        "count": 0,
+        "maxMs": null,
+        "p50Ms": null,
+        "p95Ms": null,
+        "p99Ms": null,
+        "window": 0
+      },
+      "newCircuit": {
+        "answer": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        },
+        "noise": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        },
+        "peerJoin": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        },
+        "relay": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        },
+        "ticket": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        },
+        "total": {
+          "count": 0,
+          "maxMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "p99Ms": null,
+          "window": 0
+        }
+      }
+    },
+    "coldRehydrates": {
+      "cap": 0,
+      "evicted": 0,
+      "heldBack": 0,
+      "recent": 0,
+      "rehydrates": 0
+    },
+    "fanout": {
+      "count": 354127,
+      "dropped": 0,
+      "maxMs": 0.062,
+      "p50Ms": 0.022,
+      "p95Ms": 0.037,
+      "p99Ms": 0.043,
+      "resyncs": 0,
+      "window": 1024
+    },
+    "hookAnswers": {
+      "count": 0,
+      "maxMs": null,
+      "misses": 0,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "window": 0
+    },
+    "links": {
+      "dialGateInFlight": 0,
+      "dialGateWaited": 4,
+      "hubKeptDials": 0,
+      "hubKeptOpen": 0,
+      "hubPlainDials": 0,
+      "hubPlainOpen": 0,
+      "keptStreamOpens": 0,
+      "keptStreamsOpen": 0,
+      "linkDials": 10,
+      "linkRedials": 0,
+      "linksOpen": 10,
+      "probeDials": 0,
+      "probesOpen": 0
+    },
+    "memory": {
+      "closedRows": {
+        "bytes": 0,
+        "capBytes": 0,
+        "evicted": 0,
+        "forms": 0
+      },
+      "peakRssBytes": 1391960064,
+      "rssBytes": 1393115136
+    },
+    "peerLists": {
+      "bytes": 0,
+      "lists": 0,
+      "peakBytes": 4425415,
+      "peakLists": 9,
+      "superseded": 0
+    },
+    "peerNotices": {
+      "applied": 388237,
+      "busyMs": 70714,
+      "kinds": {
+        "Connected": 10,
+        "Listed": 10,
+        "PresenceReset": 10,
+        "changed:row": 2000,
+        "changed:status": 20000,
+        "changed:time_breakdown": 2000,
+        "changed:turn_end": 10000,
+        "changed:turn_result": 10000,
+        "changed:turn_started": 10000,
+        "changed:user_message": 10000,
+        "list": 10,
+        "note:_acpmux/event": 82000,
+        "note:_acpmux/presence": 2070,
+        "note:_acpmux/prompt_accepted": 10000,
+        "note:_acpmux/unsent": 20000,
+        "note:session/update": 210127
+      },
+      "kindsMs": {
+        "Connected": 49,
+        "Listed": 0,
+        "PresenceReset": 0,
+        "changed:row": 17112,
+        "changed:status": 11962,
+        "changed:time_breakdown": 429,
+        "changed:turn_end": 4755,
+        "changed:turn_result": 2489,
+        "changed:turn_started": 7227,
+        "changed:user_message": 15087,
+        "list": 129,
+        "note:_acpmux/event": 4986,
+        "note:_acpmux/presence": 31,
+        "note:_acpmux/prompt_accepted": 621,
+        "note:_acpmux/unsent": 678,
+        "note:session/update": 5153
+      },
+      "linkMerged": 0,
+      "linkPeak": 3175,
+      "linkWaits": 0,
+      "maxUs": 143168,
+      "peakQueued": 1024,
+      "snapshotReads": 0,
+      "snapshotUnloads": 0
+    },
+    "queues": {
+      "bytes": 0,
+      "connections": 3,
+      "controlsResyncs": 0,
+      "heldBytes": 0,
+      "largest": [
+        {
+          "bound": 67108864,
+          "bytes": 0,
+          "conn": "01a223d7-3967-745b-b460-95c2d57ccc83",
+          "lines": 0,
+          "name": "",
+          "origin": "local",
+          "overrun": false
+        },
+        {
+          "bound": 67108864,
+          "bytes": 0,
+          "conn": "01a223d7-3967-745b-b460-95c347173c54",
+          "lines": 0,
+          "name": "coord-sim-fanin",
+          "origin": "local",
+          "overrun": false
+        },
+        {
+          "bound": 67108864,
+          "bytes": 0,
+          "conn": "01a223dc-32fe-7624-a64b-e4de33d36d5d",
+          "lines": 0,
+          "name": "acpmux-cli",
+          "origin": "local",
+          "overrun": false
+        }
+      ],
+      "listSheds": 0,
+      "overruns": 0,
+      "totalBound": 1073741824,
+      "totalOverruns": 0
+    },
+    "recordWrites": {
+      "records": 0,
+      "storeNs": 0,
+      "writeNs": 0
+    },
+    "startup": [
+      {
+        "atMs": 1,
+        "ms": 0,
+        "name": "socket ready"
+      },
+      {
+        "atMs": 6,
+        "ms": 0,
+        "name": "store open"
+      },
+      {
+        "atMs": 14,
+        "ms": 0,
+        "name": "requests ready"
+      },
+      {
+        "atMs": 14,
+        "ms": 0,
+        "name": "wait for store"
+      },
+      {
+        "atMs": 14,
+        "ms": 0,
+        "name": "store load"
+      },
+      {
+        "atMs": 14,
+        "ms": 0,
+        "name": "list order"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "model caches"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "live chat logs"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "adopt agent hosts"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "settle unadopted"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "recover workflows"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "hold policies"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "all chat logs"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "login environment"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "verify launchers"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "vault"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "agents may spawn"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "finish startup"
+      },
+      {
+        "atMs": 15,
+        "ms": 0,
+        "name": "resume queues"
+      },
+      {
+        "atMs": 5460,
+        "ms": 0,
+        "name": "first list reply"
+      }
+    ],
+    "uptimeMs": 326059,
+    "v2PeerLink": {
+      "dropped": 0,
+      "heldBytes": 0,
+      "secondHello": 0,
+      "stale": 0,
+      "valueParses": 0
+    },
+    "v2SnapshotDamagedFrames": 0,
+    "workerLag": {
+      "maxMs": 5.162,
+      "p50Ms": 1.057,
+      "p99Ms": 1.923,
+      "periodMs": 10,
+      "samples": 5346,
+      "windowS": 60
+    }
+  },
+  "handoffs": 0,
+  "harnesses": [
+    "fanin",
+    "unii"
+  ],
+  "home": "/tmp/fanin-run.j0Lj7G/n2000/controller",
+  "host_pressure": {
+    "agents": {
+      "age_ms": 1632,
+      "cpu_cores": -0.0,
+      "rss_bytes": 0,
+      "sessions": []
+    },
+    "available_ram_fraction": 0.857,
+    "background_processes": 0,
+    "cores": 8,
+    "cores_kind": "logical",
+    "cpu_busy_pct": 2.5,
+    "cpu_p50_pct": 4.8,
+    "cpu_window_s": 324.0,
+    "cpus": 8,
+    "enforce": false,
+    "formula": {
+      "cores": "performance",
+      "load1_per_core": 1.0,
+      "min_available_ram_fraction": 0.1,
+      "pressure": "normal",
+      "psi_some_avg10": 10.0,
+      "sample_seconds": 3.0,
+      "swap_growth_mb_per_min": 64.0
+    },
+    "host": "ip-172-31-73-130",
+    "load": [
+      0.33984375,
+      0.564453125,
+      0.79150390625
+    ],
+    "load1": 0.37,
+    "load_limit": 8.0,
+    "local_turns": 0,
+    "mem_stall": {
+      "coveredSecs": 326,
+      "full": {
+        "avg10": 0.0,
+        "avg300": 0.0,
+        "avg60": 0.0
+      },
+      "some": {
+        "avg10": 0.0,
+        "avg300": 0.0,
+        "avg60": 0.0
+      },
+      "source": "vmstat"
+    },
+    "ok": true,
+    "over": [],
+    "pressure": "unknown",
+    "pressureAgeMs": 1632,
+    "ram": {
+      "totalBytes": 33229148160
+    },
+    "swap": {
+      "totalBytes": 11811155968,
+      "usedBytes": 0
+    },
+    "swap_mb_per_min": 0.0,
+    "top": [],
+    "warning": null
+  },
+  "hostsOnOtherBuilds": 0,
+  "largeMessages": {
+    "lastAt": null,
+    "lastBytes": null,
+    "lastMethod": null,
+    "lastTooLarge": null,
+    "limit": 32505856,
+    "nearCap": 0,
+    "nearCapBytes": 24379392,
+    "tooLarge": 0
+  },
+  "listReplies": {
+    "coord-sim-fanin (Local)": {
+      "bytes": 131210014,
+      "largest": 1031947,
+      "replies": 417
+    }
+  },
+  "listen": "127.0.0.1:37095",
+  "liveAgents": 0,
+  "loading": {
+    "phase": "ready",
+    "sessionsLoaded": 0,
+    "sessionsTotal": 0,
+    "startupDone": true
+  },
+  "lockBridge": {
+    "holding": false,
+    "lock": "none",
+    "on": false
+  },
+  "loginEnv": "not_requested",
+  "loginSession": null,
+  "openWaits": 0,
+  "outboxPending": 0,
+  "outboxStats": {
+    "delivered": 0,
+    "depth": 0,
+    "failed": {},
+    "failedTotal": 0,
+    "held": 0,
+    "latencyMsLog2": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "latencyP50Ms": null,
+    "latencyP95Ms": null,
+    "latencyP99Ms": null,
+    "oldestUndeliveredMs": null,
+    "queued": 0,
+    "relayLeases": 0,
+    "relayReleases": 0,
+    "retries": 0,
+    "sinceMs": 1795897637219
+  },
+  "ownHome": false,
+  "peers": [
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984321536,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 218,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943313,
+      "lastSeen": 1795897962811,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 2,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 2,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.054,
+            "p95Ms": 0.083,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h00",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962811,
+          "rttMs": 0.067,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 16234112,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1254299,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3009493,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 5403053,
+            "count": 1352
+          },
+          "session/update": {
+            "bytes": 7009167,
+            "count": 21009
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 19878212
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962312,
+      "state": "connected",
+      "url": "ws://127.0.0.1:37297"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984202752,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 739,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943841,
+      "lastSeen": 1795897962841,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 2,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 2,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.046,
+            "p95Ms": 0.068,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h01",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962841,
+          "rttMs": 0.062,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.367,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15749093,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1278817,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3022464,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 2986185,
+            "count": 1287
+          },
+          "session/update": {
+            "bytes": 7009868,
+            "count": 21011
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17499534
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962841,
+      "state": "connected",
+      "url": "ws://127.0.0.1:33907"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984206848,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 706,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943815,
+      "lastSeen": 1795897962815,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 0,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 0,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.045,
+            "p95Ms": 0.072,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642264,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h02",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962815,
+          "rttMs": 0.061,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15999181,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1266317,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3090455,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3588449,
+            "count": 1316
+          },
+          "session/update": {
+            "bytes": 7010623,
+            "count": 21014
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 18158044
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962815,
+      "state": "connected",
+      "url": "ws://127.0.0.1:38015"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984206848,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 697,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943813,
+      "lastSeen": 1795897962811,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 2,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 2,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.051,
+            "p95Ms": 0.069,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h03",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962811,
+          "rttMs": 0.056,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15871033,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1256406,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3029407,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3711467,
+            "count": 1310
+          },
+          "session/update": {
+            "bytes": 7010165,
+            "count": 21012
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 18209645
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962312,
+      "state": "connected",
+      "url": "ws://127.0.0.1:41169"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984317440,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 212,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943335,
+      "lastSeen": 1795897962834,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642263,
+            "carrier": "direct",
+            "firstByteMs": 1,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 1,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.046,
+            "p95Ms": 0.064,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h04",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962834,
+          "rttMs": 0.058,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.367,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15817945,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1256113,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3000661,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3144436,
+            "count": 1297
+          },
+          "session/update": {
+            "bytes": 7009921,
+            "count": 21012
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17613331
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962834,
+      "state": "connected",
+      "url": "ws://127.0.0.1:41827"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984321536,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 178,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943308,
+      "lastSeen": 1795897962806,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642265,
+            "carrier": "direct",
+            "firstByteMs": 1,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 1,
+        "onCarrierMs": {
+          "direct": 321000
+        },
+        "onPathMs": {
+          "url": 321000
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.056,
+            "p95Ms": 0.094,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642264,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h05",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962806,
+          "rttMs": 0.076,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 16082270,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1250293,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3289119,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3222851,
+            "count": 1301
+          },
+          "session/update": {
+            "bytes": 7009886,
+            "count": 21012
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17974349
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962307,
+      "state": "connected",
+      "url": "ws://127.0.0.1:40059"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984321536,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.6,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 169,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943305,
+      "lastSeen": 1795897962803,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642265,
+            "carrier": "direct",
+            "firstByteMs": 1,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 1,
+        "onCarrierMs": {
+          "direct": 321000
+        },
+        "onPathMs": {
+          "url": 321000
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.058,
+            "p95Ms": 0.095,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642264,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h06",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962803,
+          "rttMs": 0.079,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 16182374,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1257247,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3306113,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3136756,
+            "count": 1303
+          },
+          "session/update": {
+            "bytes": 7011939,
+            "count": 21017
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17914255
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962304,
+      "state": "connected",
+      "url": "ws://127.0.0.1:37681"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984317440,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.7,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 204,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943348,
+      "lastSeen": 1795897962846,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 2,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 2,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.047,
+            "p95Ms": 0.07,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h07",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962846,
+          "rttMs": 0.062,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.3,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15705887,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1257420,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 2924858,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3454753,
+            "count": 1296
+          },
+          "session/update": {
+            "bytes": 7010852,
+            "count": 21015
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17850083
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962347,
+      "state": "connected",
+      "url": "ws://127.0.0.1:42355"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984321536,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.6,
+          "cpu_p50_pct": 4.8,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 156,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943307,
+      "lastSeen": 1795897962806,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 0,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 0,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.058,
+            "p95Ms": 0.088,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642264,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h08",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962806,
+          "rttMs": 0.073,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15927011,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1344597,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 2961278,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 3224740,
+            "count": 1308
+          },
+          "session/update": {
+            "bytes": 7010709,
+            "count": 21013
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17743524
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962307,
+      "state": "connected",
+      "url": "ws://127.0.0.1:46577"
+    },
+    {
+      "action": null,
+      "agentLogin": true,
+      "attempts": 0,
+      "bgRearm": true,
+      "canonicalEndpoint": null,
+      "carrier": "direct",
+      "cause": null,
+      "connected": true,
+      "downReason": null,
+      "downSince": null,
+      "error": null,
+      "group": "own",
+      "handshaking": false,
+      "health": {
+        "arch": "x86_64",
+        "autoCloud": {
+          "accepting": false,
+          "caps": [
+            "x86_64",
+            "linux"
+          ],
+          "enrolled": false,
+          "inHours": true,
+          "ownerIdle": null,
+          "ownerIdleSecs": null,
+          "policy": {
+            "agents": [],
+            "hours": null,
+            "teams": []
+          },
+          "v": 1,
+          "why": "not enrolled"
+        },
+        "cpus": 8,
+        "device": "linux-server",
+        "deviceSymbol": "server.rack",
+        "disk": {
+          "freeBytes": 181984210944,
+          "totalBytes": 263086821376
+        },
+        "liveSessions": 200,
+        "load": [
+          0.3876953125,
+          0.5869140625,
+          0.80322265625
+        ],
+        "network": {
+          "up": true
+        },
+        "os": "linux",
+        "pressure": {
+          "available_ram_fraction": 0.858,
+          "cores": 8,
+          "cores_kind": "logical",
+          "cpu_busy_pct": 5.6,
+          "cpu_p50_pct": 4.7,
+          "cpu_window_s": 306.0,
+          "load1": 0.39,
+          "load_limit": 8.0,
+          "local_turns": 0,
+          "ok": true,
+          "over": [],
+          "pressure": "unknown",
+          "swap_mb_per_min": 0.0
+        },
+        "pressureAgeMs": 630,
+        "ram": {
+          "freeBytes": 28510609121,
+          "totalBytes": 33229148160
+        },
+        "swap": {
+          "totalBytes": 11811155968,
+          "usedBytes": 0
+        }
+      },
+      "healthAt": 1795897943789,
+      "lastSeen": 1795897962788,
+      "link": "connected",
+      "linkStats": {
+        "attempts": [
+          {
+            "atMs": 1795897642264,
+            "carrier": "direct",
+            "firstByteMs": 2,
+            "outcome": "opened",
+            "transport": "url"
+          }
+        ],
+        "directUpgrade": {
+          "attempts": 0,
+          "failures": 0,
+          "upgrades": 0
+        },
+        "firstByteMs": 2,
+        "onCarrierMs": {
+          "direct": 321001
+        },
+        "onPathMs": {
+          "url": 321001
+        },
+        "opens": 1,
+        "rtt": {
+          "url": {
+            "p50Ms": 0.057,
+            "p95Ms": 0.126,
+            "samples": 64
+          }
+        },
+        "serving": "url",
+        "since": 1795897642262,
+        "switches": 0,
+        "waitedOnDirect": 0,
+        "winner": "url",
+        "winnerCarrier": "direct"
+      },
+      "liveSessions": 200,
+      "localBuild": "897ab141e 2026-11-28",
+      "name": "h09",
+      "nextRetryAt": null,
+      "outdated": false,
+      "parked": false,
+      "paths": [
+        {
+          "active": true,
+          "carrier": "direct",
+          "lastPong": 1795897962788,
+          "rttMs": 0.114,
+          "state": "alive",
+          "via": "url"
+        }
+      ],
+      "peerTokenWithheld": false,
+      "quality": {
+        "lateShare": 0.333,
+        "rttvarMs": 0.0,
+        "srttMs": 0.1,
+        "tier": "poor"
+      },
+      "reason": null,
+      "received": {
+        "frames": 15939175,
+        "gatedLive": 0,
+        "gatedLiveEvents": 0,
+        "kinds": {
+          "_acpmux/event": {
+            "bytes": 2728400,
+            "count": 8200
+          },
+          "_acpmux/prompt_accepted": {
+            "bytes": 245000,
+            "count": 1000
+          },
+          "_acpmux/session_changed": {
+            "bytes": 1260656,
+            "count": 400
+          },
+          "_acpmux/session_patch": {
+            "bytes": 3219926,
+            "count": 6000
+          },
+          "_acpmux/unsent": {
+            "bytes": 228800,
+            "count": 2000
+          },
+          "reply": {
+            "bytes": 2821312,
+            "count": 1285
+          },
+          "session/update": {
+            "bytes": 7010413,
+            "count": 21012
+          }
+        },
+        "replay": 0,
+        "replayEvents": 0,
+        "text": 17514507
+      },
+      "remoteBuild": "897ab141e 2026-11-28",
+      "remoteVersion": "1.0.0",
+      "servedAs": "peer",
+      "sessions": 200,
+      "since": 1795897962788,
+      "state": "connected",
+      "url": "ws://127.0.0.1:37111"
+    }
+  ],
+  "permissionPolicy": "approve-all",
+  "personInstance": "9790752a90b7b6d7c3012d7209855ed3",
+  "personKey": false,
+  "pid": 22746,
+  "pool": {
+    "entries": [],
+    "rssBytes": 0
+  },
+  "ready": true,
+  "remoteSessions": 2000,
+  "residency": {
+    "busy": 0,
+    "countsForCap": 0,
+    "hibernated": 0,
+    "policy": {
+      "idleSecs": 120,
+      "name": "static"
+    },
+    "resident": 0,
+    "v": 1
+  },
+  "runsAsCmuxTuiAcp": false,
+  "scaleUp": {
+    "lastEndedMs": null,
+    "lastError": null,
+    "lastHost": null,
+    "lastProvider": null,
+    "lastStartedMs": null,
+    "state": "idle",
+    "v": 1
+  },
+  "sessionBudgets": {
+    "hostsSlice": {
+      "cpuQuotaPercent": 720,
+      "memoryMaxBytes": 28244775936,
+      "tasksMax": 63368
+    },
+    "io": {
+      "delegated": null,
+      "policy": null,
+      "weightEffective": null
+    },
+    "perScope": {
+      "cpuIdle": false,
+      "cpuQuotaPercent": 600,
+      "cpuWeight": 50,
+      "diskBytes": 68719476736,
+      "ioWeight": 50,
+      "memoryHighBytes": 14953116672,
+      "memoryMaxBytes": 16614574080,
+      "swapMaxBytes": 2952788992,
+      "tasksMax": 4096
+    },
+    "perSession": {
+      "cpuQuotaPercent": 600,
+      "memoryMaxBytes": 16614574080,
+      "tasksMax": 8192
+    },
+    "perTaskScope": {
+      "cpuIdle": false,
+      "cpuQuotaPercent": 600,
+      "cpuWeight": 50,
+      "diskBytes": 68719476736,
+      "ioWeight": 50,
+      "memoryHighBytes": 14953116672,
+      "memoryMaxBytes": 16614574080,
+      "swapMaxBytes": 2952788992,
+      "tasksMax": 4096
+    },
+    "sizedFrom": {
+      "cores": 8,
+      "diskBytes": 263086821376,
+      "lanes": null,
+      "memoryBytes": 33229148160
+    },
+    "store": {
+      "budgetBytes": 8589934592,
+      "compress": true,
+      "on": true,
+      "over": 0,
+      "passes": 1,
+      "sessions": 0,
+      "tickSeconds": 300,
+      "totalBytes": 0,
+      "truncated": false,
+      "use": []
+    },
+    "version": 4,
+    "watch": {
+      "enabled": true,
+      "floorBytes": 0,
+      "freeBytes": 0,
+      "scopes": 0,
+      "tickSeconds": 15,
+      "ticks": 0,
+      "truncated": false,
+      "use": []
+    }
+  },
+  "sessions": 0,
+  "shadowAdmission": [],
+  "socket": "/tmp/fanin-14253-2000/ctrl.sock",
+  "startedAt": 1795897637215,
+  "store": {
+    "mode": "local",
+    "segmentBytes": 8388608
+  },
+  "stuckSessions": [],
+  "supervisor": {
+    "budget": {
+      "budget": 3,
+      "faults": 0,
+      "state": "within"
+    },
+    "faultsToday": 0,
+    "owner": {
+      "argv": [
+        "/tmp/fanin-run.j0Lj7G/bin/acpmux"
+      ],
+      "bootId": "41b59b67-f1b2-4fb9-8a68-2ef05dba9370",
+      "epoch": 1,
+      "pgid": 22746,
+      "pid": 22746,
+      "startTime": 130579
+    },
+    "recent": [],
+    "state": "running",
+    "stopsToday": 0
+  },
+  "updateInventory": null,
+  "userHome": "/tmp/fanin-run.j0Lj7G/n2000/controller/userhome",
+  "version": "1.0.0",
+  "webUrl": "http://127.0.0.1:37095/#token=a9e98c767bb429bb33a974876e5a33ac5621c22601b39880"
+}

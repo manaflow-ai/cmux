@@ -1,0 +1,112 @@
+{
+  "agent_hosts": false,
+  "attach_failed": 0,
+  "attach_ms": {
+    "max": 13.605,
+    "n": 200,
+    "p50": 5.095,
+    "p95": 9.467,
+    "p99": 11.098
+  },
+  "attach_one_ms": {
+    "max": 37.684,
+    "n": 60,
+    "p50": 3.771,
+    "p95": 5.579,
+    "p99": 31.165
+  },
+  "client_methods": {
+    "_acpmux/event": 8200,
+    "_acpmux/lagged": 1,
+    "_acpmux/prompt_accepted": 820,
+    "catalog.changed": 1,
+    "session/update": 21004
+  },
+  "controller": {
+    "cpu_basis": "whole life",
+    "cpu_pct": 0.381,
+    "cpu_pct_per_session": 0.002,
+    "cpu_s_life": 1.24,
+    "hosts_cpu_s_life": 5.03,
+    "life_s": 325.469,
+    "rss_kb": 343780,
+    "rss_kb_baseline": 65788,
+    "rss_kb_peak": 342724,
+    "rss_kb_per_session": 1389.96,
+    "rss_kb_window_max": 343780
+  },
+  "create_failed": 0,
+  "events": {
+    "client_lagged": 1,
+    "dup": 0,
+    "emitted": 19368,
+    "fanout_dup": 0,
+    "fanout_lost": 0,
+    "fanout_sent": 1000,
+    "lost": 0
+  },
+  "fanin_ms": {
+    "max": 129.713,
+    "n": 19368,
+    "p50": 0.229,
+    "p95": 0.345,
+    "p99": 0.51
+  },
+  "fanout_back_ms": {
+    "max": 180.354,
+    "n": 1000,
+    "p50": 93.483,
+    "p95": 165.122,
+    "p99": 175.919
+  },
+  "fanout_ms": {
+    "max": 134.196,
+    "n": 1000,
+    "p50": 31.213,
+    "p95": 97.857,
+    "p99": 116.22
+  },
+  "gaps": [
+    "client lagged: 1 notices dropped by the controller's fan-out"
+  ],
+  "gauges": {
+    "attach_p95_ms": 9.349,
+    "fanout_p95_ms": 0.042
+  },
+  "hosts": 10,
+  "hosts_rss_kb": {
+    "max": 128356.0,
+    "mean": 124433.2
+  },
+  "latency_ms": 0,
+  "list": {
+    "paged_ms_at_rest": 3.99,
+    "pages": 2,
+    "rows": 200,
+    "whole_ms_at_rest": 4.889,
+    "whole_ms_window": {
+      "max": 4.967,
+      "n": 19,
+      "p50": 4.029,
+      "p95": 4.564,
+      "p99": 4.967
+    }
+  },
+  "n": 200,
+  "prompt_ms": {
+    "max": 159.46,
+    "n": 1000,
+    "p50": 85.402,
+    "p95": 159.449,
+    "p99": 159.456
+  },
+  "rate_per_session": 0.333,
+  "schema": "fanin-table.v1",
+  "setup_ms": {
+    "attach_all": 37,
+    "controller_ready": 5349,
+    "create": 410,
+    "hosts": 74
+  },
+  "window_s": 300.047
+}
