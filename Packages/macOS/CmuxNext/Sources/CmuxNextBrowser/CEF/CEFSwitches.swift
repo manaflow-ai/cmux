@@ -112,7 +112,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
-        result.append(Self.youngGeneration)
+        // A/B experiment (not for merge): young generation flag off.
+        // result.append(Self.youngGeneration)
         // A page draws when it has a frame, not when the display asks (`CEFFramePacing`): off by
         // default, since it also lets an animating page draw frames the display never shows.
         if noFrameRateLimit { result.append(contentsOf: CEFFramePacing.switches) }
