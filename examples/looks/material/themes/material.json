@@ -5,7 +5,7 @@
 // primary #6750A4, for links, focus, Send and the circular progress indicator.
 {
   "name": "Material",
-  "description": "Material 3 baseline, light: surface-container drawer and tabs on a surface page, primary #6750A4, no lines.",
+  "description": "Light: soft two-tone surfaces, a purple accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

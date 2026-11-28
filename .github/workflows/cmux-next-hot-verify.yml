@@ -1127,7 +1127,8 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
-          TOKENS: ${{ github.token }} ${{ env.CI_POOL_GH_TOKEN }}
+          # github.token holds statuses: write here; the pool's minted tokens do not.
+          TOKENS: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ inputs.head }}
           PR: ${{ inputs.pr }}

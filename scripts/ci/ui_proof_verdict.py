@@ -110,6 +110,7 @@ PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {
 # A look that could not run is a failure with its reason, never a pending that waits for ever.
 LOOK_FAILED = "UI look could not run"
 NO_LOOK = "Visual change, no look at this head"
+LOOK_WAIT = "Visual change, "
 # The longest a look can take and still answer: two looks (the first, and one more when it returns no out.tar), each
 # bounded by the controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go: submit 30 min, queue 3 h,
 # run 45 min). A pending older than this has no look coming: the controller never saw the request or never reported.
@@ -446,6 +447,24 @@ def look_failed(reason: str, pr: str | int = "N", again: bool = False) -> tuple[
     return "failure", f"{LOOK_FAILED}: {why}; {then}"[:140]
 
 
+def look_reason(env) -> str:
+    """Why a result run made no record, from the publish job's step outputs (env names as in the workflow)."""
+    reason = " ".join(env.get("REASON", "").split())
+    if env.get("RESULT_OUTCOME") == "failure":
+        return "the look's result was not read"
+    if env.get("TAR") == "false":
+        return reason or "the fleet sent no result"
+    if env.get("NEEDS_BUILD") == "true":
+        return "the look needs a build of this head first"
+    if env.get("NOTHING") == "true":
+        return "the look drew nothing"
+    if env.get("NO_RECEIPT") == "true":
+        return "the look's pictures came without a receipt"
+    if env.get("STAGE_OUTCOME") == "failure":
+        return "the look's pictures were not unpacked"
+    return reason or "the look made no record"
+
+
 def kept_look_failure(status: dict | None) -> tuple[str, str] | None:
     """A look failure already posted at this head (STATUS: the combined status' cmux/ui-proof entry), which a gate
     rerun with no record keeps: a body edit must not turn it back into a pending nothing will answer."""
@@ -466,7 +485,8 @@ def stale_pending(prs: list[dict], now: dt.datetime, hours: float = STALE_HOURS)
     for pr in prs:
         ctx = (((pr.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}).get("status") or {}
         ctx = ctx.get("context") or {}
-        if ctx.get("state") != "PENDING" or not ctx.get("createdAt"):
+        # Only a pending that waits on a look ("Visual change, ..."); "say Visible-UI: complete" waits on the author.
+        if ctx.get("state") != "PENDING" or not ctx.get("createdAt") or not str(ctx.get("description") or "").startswith(LOOK_WAIT):
             continue
         at = dt.datetime.fromisoformat(ctx["createdAt"].replace("Z", "+00:00"))
         if now - at > dt.timedelta(hours=hours):
@@ -510,7 +530,7 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
     stale = stale_pending(prs, now or dt.datetime.now(dt.timezone.utc), hours)
     for s in stale:
         state, desc = look_failed(f"no look result within {hours:g} h of the pending post", s["pr"])
-        s["posted"] = post(state, desc, repo, s["sha"], tokens)
+        s["posted"] = post(state, desc, repo, s["sha"], tokens, os.environ.get("RUN_URL", ""))
     return stale
 
 
@@ -527,7 +547,11 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     ui = new_ui(added_files(), read=show)
     state, desc = verdict(need, body, records, ui, pr)
     if state == "pending" and desc.startswith(NO_LOOK):
-        return kept_look_failure(current_status(repo, sha, token)) or (state, desc)
+        try:
+            kept = kept_look_failure(current_status(repo, sha, token))
+        except Exception:  # noqa: BLE001 - an unread status keeps the pending; the sweep still bounds it
+            kept = None
+        return kept or (state, desc)
     return state, desc
 
 
@@ -597,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
     lf.add_argument("--pr", required=True)
     lf.add_argument("--reason", default="")
     lf.add_argument("--again", action="store_true", help="one more look was started")
+    sub.add_parser("look-reason")
     sw = sub.add_parser("sweep")
     sw.add_argument("--hours", type=float, default=STALE_HOURS)
     s = sub.add_parser("status")
@@ -632,6 +657,9 @@ def main(argv: list[str] | None = None) -> int:
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))
         return 0 if ok else 1
+    if args.cmd == "look-reason":
+        print(look_reason(os.environ))
+        return 0
     if args.cmd == "sweep":
         tokens = proof_record.read_tokens()
         stale = sweep(os.environ.get("REPO", "manaflow-ai/cmux"), tokens, args.hours)
