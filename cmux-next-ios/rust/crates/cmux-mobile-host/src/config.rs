@@ -471,6 +471,22 @@ impl HostConfig {
                 }
                 config
             }
+            // Standalone (no app): a source process of its own (`CMUX_MOBILE_SURFACE_SOURCE`, e.g.
+            // `cmux-rd`), for this Mac's displays when `CMUX_MOBILE_MAC_DISPLAY=1` (the
+            // screen-stream-eval `iphone-link` target runs hostd so, with no cmux app).
+            None if env("CMUX_MOBILE_SURFACE_SOURCE").is_some() => {
+                let exe = PathBuf::from(env("CMUX_MOBILE_SURFACE_SOURCE").unwrap_or_default());
+                let config = crate::surface::SurfaceConfig::process(
+                    exe,
+                    default_state_dir().join("surface"),
+                    max_tabs,
+                );
+                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
+                    config.with_mac_display()
+                } else {
+                    config
+                }
+            }
             _ => crate::surface::SurfaceConfig::default(),
         };
         let file_roots = env("CMUX_MOBILE_FILE_ROOTS")
