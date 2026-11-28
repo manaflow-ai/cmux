@@ -457,8 +457,12 @@ held_pr() {
     local runs
     runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
       gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    # An advisory check gates nothing (land-judge lands past it), so its failure is not a reason to throw away the
+    # head's CI. 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316 for "2 failed check(s) of its own":
+    # "nightly app compile arm64 fleet job (advisory)" and the merge-train status (below), while its land was seated.
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c))
+      | select(.name | test("\\(advisory\\)$") | not) | .name' <<<"$runs"
   }
   local head_failed base_failed="" staged_on
   head_failed="$(failed_names "$previous")" || return 2
@@ -468,9 +472,12 @@ held_pr() {
   failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
   failed="${failed//[[:space:]]/}"
   [[ "$failed" =~ ^[0-9]+$ ]] || return 2
-  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
-  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
-  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # The merge-train status is the train's seat answer ("turned this head away: not seated"), not a verdict on the
+  # head: its error is the queue, and moving the head for it restarts the CI the train is waiting on.
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" \
+    --jq '[.statuses[]? | select(.context != "merge-train") | select(.state == "failure" or .state == "error")] | length')" || return 2
+  [[ "$status" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + status))
   # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
   # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
   # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended

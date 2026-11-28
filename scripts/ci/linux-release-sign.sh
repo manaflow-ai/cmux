@@ -46,9 +46,25 @@ if [[ "$code" == 200 ]] && python3 scripts/cmux-next/web-ota-pointer.py verify -
   exec scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"
 fi
 rm -f "$lr/payload.json"
-gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-  --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
-mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+# The workflow step downloads them first with actions/download-artifact (LINUX_RELEASE_ARTIFACTS), which
+# reads the run's artifact store over the runner's own token. gh run download spends the repo
+# installation's REST budget: run 45994285415 (80d30ecb, 2026-11-27 12:28Z) got HTTP 403 "API rate limit
+# exceeded for installation", this file was never signed, and linux-nightly stayed on 0a6830e6. gh is the
+# fallback for a caller without that step, retried past a 403 or a dropped connection.
+if [[ -n "${LINUX_RELEASE_ARTIFACTS:-}" ]] && find "$LINUX_RELEASE_ARTIFACTS" -type f -print -quit 2>/dev/null | grep -q .; then
+  artifacts=$LINUX_RELEASE_ARTIFACTS
+else
+  artifacts="$lr/artifacts"
+  for attempt in 1 2 3 4; do
+    rm -rf "$artifacts"
+    gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+      --pattern "cmux-tui-*-unknown-linux-musl" --dir "$artifacts" && break
+    [[ $attempt == 4 ]] && exit 1
+    echo "gh run download failed (attempt $attempt); retrying in $((attempt * 60))s" >&2
+    sleep "$((attempt * 60))"
+  done
+fi
+mkdir -p "$lr/built" && find "$artifacts" -type f -exec mv -t "$lr/built" {} +
 # sequence orders the channel (installers refuse a lower one than they installed): above the published
 # pointer's, which a missing or unverifiable pointer leaves at 0.
 curl -sS --max-time 60 -o "$lr/current.json" \

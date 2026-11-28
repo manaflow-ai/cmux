@@ -22,6 +22,13 @@ extension PaletteModel {
                 deferred.append(provider)
                 continue
             }
+            // A provider whose empty query reads less than its search (the command page reads the actions its
+            // root shows, not every catalog action): those rows now, the rest after the first frame.
+            if defersHidden, !reading.contains(provider.id), let first = provider.firstFrameItems {
+                state.providerItems[provider.id] = first
+                deferred.append(provider)
+                continue
+            }
             // Followed from the read on: a change after it reads the rows again.
             follow(provider, of: state)
             // Read once: most providers build their rows in `immediateItems` (the command page's

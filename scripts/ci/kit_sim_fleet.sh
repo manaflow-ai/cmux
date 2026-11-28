@@ -18,6 +18,12 @@
 #                           A no is where the caller hands the submit to an owned Mac, never a verdict about the
 #                           controller (cmuxterm-hq docs/handbook/unreachable-from-here-read-as-down.md).
 #                           env: CONTROLLER.
+#   kit_sim_fleet.sh supply Does the Linux simsdk pool, which runs the pool's tests, have runners? Writes live=yes|no
+#                           from the controller's /v1/capabilities "simsdk" (cmuxterm-hq ci_step_simsdk_supply.go: false
+#                           for 30 min after a simsdk run got no runner, and the controller then refuses a simsdk step).
+#                           A no skips the Mac's pack and 813 MB upload (437 s in run 45996304968, for a pool run that
+#                           ended "got no runner"); the Mac's own simulator tests run as always. Fails open: no answer,
+#                           or no "simsdk" in it (an older controller), is yes. env: CONTROLLER, REACH_TIMEOUT.
 #
 # Every command whose exit is read runs as `cmd || rc=$?`: a workflow step is `bash -e`, so a bare failing command
 # would end the step before its status is read (review of cmux#59111).
@@ -98,12 +104,15 @@ PY
   # that stay on the Mac). Exit 3: every bundle stays on the Mac, so there is no pool run and no verdict.
   local skips=() brc=0
   python3 -I "$(dirname "${BASH_SOURCE[0]}")/ios_sim_bundles.py" pool > "$dir/skips" || brc=$?
-  mapfile -t skips < "$dir/skips"
+  # No mapfile: an owned Mac runs this under /bin/bash 3.2, where mapfile does not exist and the empty array then
+  # tripped set -u (kit run 46082499576, cmux30, 00:31Z 11-28: every pool submit from an owned Mac died in 7 s).
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do [[ -n "$line" ]] && skips+=("$line"); done < "$dir/skips"
   if [[ "$brc" == 3 ]]; then verdict_out none 0 0 "every simulator test bundle stays on the Mac"; return 0; fi
   [[ "$brc" == 0 ]] || { verdict_out none 0 0 "ios_sim_bundles.py failed (exit $brc)"; return 0; }
   python3 "$client" run --class simulator --os linux --script scripts/ci/ios-sim-linux-test.sh \
     --ref "$HEAD_SHA" --repo manaflow-ai/cmux --env "CMUX_IOS_PRODUCTS=$PRODUCTS" \
-    --arg suite=kit "${skips[@]}" --arg timeout=1800 \
+    --arg suite=kit ${skips[@]+"${skips[@]}"} --arg timeout=1800 \
     --artifact artifacts/ios-sim-linux/result.tgz --timeout 2400 --queue-timeout 900 > "$dir/step.log" 2>&1 || rc=$?
   seconds=$(( $(date +%s) - start ))
   step="$(grep -o -E 'step [0-9a-f]{24}' "$dir/step.log" | head -1 | cut -d' ' -f2 || true)"
@@ -151,9 +160,29 @@ reach() {
   out "reach=no"
 }
 
+supply() {
+  local caps live
+  [[ -n "${CONTROLLER:-}" ]] || { echo "no CMUX_FLEET_CONTROLLER variable; packing as before"; out "live=yes"; return 0; }
+  caps="$(curl -fsS -m "${REACH_TIMEOUT:-5}" "$CONTROLLER/v1/capabilities" 2>/dev/null)" \
+    || { echo "no answer from the controller's capabilities; packing as before"; out "live=yes"; return 0; }
+  live="$(printf '%s' "$caps" | python3 -c 'import json,sys
+try: v = json.load(sys.stdin).get("simsdk")
+except Exception: v = None
+print("no" if v is False else "yes")' 2>/dev/null)" || live=yes
+  if [[ "$live" == no ]]; then
+    echo "::notice title=fleet pool::the Linux simsdk pool has no runners (the controller's capabilities: simsdk false); no pack, no upload, no pool run; the Mac's simulator step runs the tests"
+    summary "### iOS simulator tests, fleet pool: skipped" "The Linux simsdk pool has no runners (controller capabilities simsdk=false). The Mac's own simulator step runs them."
+    out "live=no"
+    return 0
+  fi
+  echo "the Linux simsdk pool is live (or the controller did not say otherwise)"
+  out "live=yes"
+}
+
 case "${1:-}" in
+  supply) supply ;;
   wait) wait_for_build ;;
   pool) pool_run ;;
   reach) reach ;;
-  *) echo "usage: $0 wait|pool|reach" >&2; exit 2 ;;
+  *) echo "usage: $0 wait|pool|reach|supply" >&2; exit 2 ;;
 esac

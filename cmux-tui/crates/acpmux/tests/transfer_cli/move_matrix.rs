@@ -709,3 +709,69 @@ async fn a_claude_chat_with_subagents_moves_its_transcript_and_folds() {
 async fn a_claude_chat_with_subagents_moves_as_the_app_drives_it() {
     claude_subagent_folds_move(Way::Gui).await;
 }
+
+/// The bundle is the source's manifest of the chat's own files: a move whose target cannot keep
+/// one of them fails, and the source still holds the chat, rather than landing without it. Here
+/// the target holds a folder where the Codex rollout goes, so the rollout cannot be placed; the
+/// receive used to count what it placed and move on, and the agent there resumed with no
+/// history.
+#[tokio::test]
+async fn a_move_whose_agent_store_cannot_land_fails_and_the_source_keeps_the_chat() {
+    let tag = "mxun";
+    let env = |side: &str| {
+        json!({"FAMILY": "codex", "FAKE_CODEX_STORE": "1",
+               "CODEX_HOME": home_of(&format!("{tag}-{side}")).join(".codex")})
+    };
+    let target = Daemon::with_env(&format!("{tag}-t"), None, env("t"), &[], "ask").await;
+    let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env("s"), &[], "ask").await;
+    let cwd = source.home.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut src = Rpc::connect(&source.socket).await;
+    let made = src.call("session/new", json!({"cwd": cwd, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let id = id.as_str();
+    src.call("session/prompt", prompt(id, "p-one", "one")).await;
+    let source_codex = home_of(&format!("{tag}-s")).join(".codex");
+    let on_source = files_under(&source_codex.join("sessions"));
+    assert_eq!(on_source.len(), 1, "the agent keeps one rollout: {on_source:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // A folder where the target would put the rollout.
+    let rel = on_source[0].strip_prefix(&source_codex).unwrap();
+    let blocked = home_of(&format!("{tag}-t")).join(".codex").join(rel);
+    std::fs::create_dir_all(blocked.join("in-the-way")).unwrap();
+
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(&destination).unwrap();
+    let mut command = daemon_env::tokio_command(&source.home, daemon_env::Agents::Deny);
+    command
+        .args(["--json", "session", "move", id, "--machine", "target", "--interrupt", "--cwd"])
+        .arg(&destination)
+        .env(
+            "PATH",
+            format!("{}:{}", source.home.join("bin").display(), daemon_env::bare_path(&[])),
+        )
+        .env("ACPMUX_HOME", &source.home)
+        .env("ACPMUX_SOCKET", &source.socket)
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(45), command.output())
+        .await
+        .expect("session move completed")
+        .expect("run session move");
+    let said =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let receipt: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    assert!(
+        !out.status.success() || receipt["moves"][0]["moved"] != true,
+        "the move landed without its rollout: {said}"
+    );
+    assert!(said.contains("not kept here"), "the refusal names no unkept file: {said}");
+
+    // The target holds no chat; the source still does, with its store, and answers.
+    let mut dst = Rpc::connect(&target.socket).await;
+    let there =
+        dst.try_call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 10})).await;
+    assert!(there.is_err(), "the target kept a chat with no rollout: {there:?}");
+    assert!(on_source[0].is_file(), "the source's rollout went");
+    let answer = src.try_call("session/prompt", prompt(id, "p-two", "two")).await;
+    assert!(answer.is_ok(), "the source no longer answers: {answer:?}");
+}
