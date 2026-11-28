@@ -26,6 +26,9 @@
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
 //! - [`restored_history`]: where a relaunched tab's saved back/forward entries sit around the
 //!   engine's own list (`BrowserRestoredHistory`).
+//! - [`link_routes`]: which URLs only a Chromium tab shows, the New Tab page, which sign-in tab to
+//!   close and a popup's requested size (`ChromiumInternalURL`, `BrowserNewTabPage`, `SignInPageTab`,
+//!   `BrowserPopupRequest`).
 //! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
 //!   the state the chrome renders (`BrowserTabStateMachine`).
 
@@ -37,6 +40,7 @@ pub mod cookies;
 pub mod driver;
 pub mod frames;
 pub mod input;
+pub mod link_routes;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
@@ -61,6 +65,8 @@ mod driver_tests;
 mod frames_tests;
 #[cfg(test)]
 mod input_tests;
+#[cfg(test)]
+mod link_routes_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]

@@ -1096,6 +1096,10 @@ path = "tests/test_ci_rust_workspaces_disk.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
 
