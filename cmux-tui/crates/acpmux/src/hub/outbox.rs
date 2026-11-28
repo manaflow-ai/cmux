@@ -1291,10 +1291,14 @@ impl Book {
     /// bound: a daemon holding 25,000 deliveries walked them all on every change
     /// (2026-11-28, 160% CPU on a control plane, every peer snapshot write a change).
     fn changed_one(&mut self, id: &str) -> u64 {
+        // Only a settled, closed delivery counts against a class bound, and a change makes at
+        // most one more of those; a change to a live one spends no room.
         if let Some(d) = self.deliveries.get(id) {
             self.sweep_at = self.sweep_at.min(d.sweep_due());
+            if d.settled() && !d.open_on_peer {
+                self.cap_room = self.cap_room.saturating_sub(1);
+            }
         }
-        self.cap_room = self.cap_room.saturating_sub(1);
         self.note_change()
     }
 
