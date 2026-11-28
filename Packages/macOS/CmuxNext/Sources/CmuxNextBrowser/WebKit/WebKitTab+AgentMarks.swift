@@ -15,22 +15,26 @@ extension WebKitTab {
 }
 
 /// WebKit adds each standard load's URL to the page's visited-link store, which colours `:visited`
-/// links. The private `_addsVisitedLinks` (WKWebViewPrivate.h, on by default) turns that off for one
-/// web view; a WebKit without it keeps adding, as before.
+/// links. The private `_addsVisitedLinks` (WKWebViewPrivate.h) turns that off for one web view; a WebKit
+/// without it keeps adding, as before. Its accessors are called by selector: KVC on the key
+/// `_addsVisitedLinks` looks for `set_addsVisitedLinks:`, not `_setAddsVisitedLinks:`, and raises
+/// NSUnknownKeyException (#64709 did, and an agent's mark ended the app).
 enum WebKitVisitedLinks {
     // crash-allow: making a selector from a string never raises; every use is behind responds(to:) on it.
     static let setter = NSSelectorFromString("_setAddsVisitedLinks:")
+    // crash-allow: making a selector from a string never raises; every use is behind responds(to:) on it.
+    static let getter = NSSelectorFromString("_addsVisitedLinks")
 
     static func stopAdding(_ webView: WKWebView) {
-        // crash-allow: guarded by responds(to:) on the private setter the KVC key resolves to; absent on older WebKit, skipped.
-        guard webView.responds(to: setter) else { return } // crash-allow: same guard
-        webView.setValue(false, forKey: "_addsVisitedLinks")
+        guard webView.responds(to: setter), let method = webView.method(for: setter) else { return }
+        typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method, to: Set.self)(webView, setter, false)
     }
 
     /// Whether `webView` adds its loads as visited links (nil: this WebKit has no switch).
     static func adds(_ webView: WKWebView) -> Bool? {
-        guard webView.responds(to: setter) else { return nil }
-        // crash-allow: guarded by responds(to:) on the setter above; WebKit declares the getter with it (one @property).
-        return (webView.value(forKey: "_addsVisitedLinks") as? NSNumber)?.boolValue
+        guard webView.responds(to: getter), let method = webView.method(for: getter) else { return nil }
+        typealias Get = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(method, to: Get.self)(webView, getter)
     }
 }
