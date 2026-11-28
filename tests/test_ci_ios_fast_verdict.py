@@ -424,7 +424,8 @@ class WorkflowTest(unittest.TestCase):
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
         self.assertEqual(job["needs"], ["ios-fast-runner"])
-        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' }}")
+        # A pass on the same inputs (ios-fast-runner's reuse lookup) skips the Mac.
+        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}")
         self.assertIn("needs.ios-fast-runner.outputs.runs_on", job["runs-on"])
         self.assertIs(job["steps"][0]["with"]["clean"], False)
         names = [s.get("name") for s in job["steps"]]
@@ -446,7 +447,9 @@ class WorkflowTest(unittest.TestCase):
     def test_the_verdict_reaches_the_router(self) -> None:
         call = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         outputs = call.get("on", call.get(True))["workflow_call"]["outputs"]
-        self.assertEqual(outputs["ios_fast_verdict"]["value"], "${{ jobs.ios-fast.outputs.verdict }}")
+        # A reused pass reads success; else the Mac job's own verdict.
+        self.assertEqual(outputs["ios_fast_verdict"]["value"],
+                         "${{ jobs.ios-fast.outputs.verdict || (jobs.ios-fast-runner.outputs.reused == 'true' && 'success' || '') }}")
         self.assertEqual(outputs["ios_fast_run"]["value"], "${{ jobs.ios-fast-runner.outputs.run }}")
         record = next(s for s in self.jobs["ios-fast"]["steps"] if s.get("id") == "verdict")
         self.assertIn("success() || failure()", record["if"])

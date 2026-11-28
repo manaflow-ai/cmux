@@ -840,7 +840,7 @@ jobs:
             --extra "plan=$targets" --extra "xcode_app=$XCODE_APP" >> "$GITHUB_OUTPUT"
       - name: Look for a pass on the same inputs
         id: reuse
-        if: steps.reuse-key.outputs.key != ''
+        if: steps.plan.outputs.run == 'true' && steps.reuse-key.outputs.key != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
