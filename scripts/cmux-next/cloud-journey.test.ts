@@ -1962,6 +1962,11 @@ describe("clean-room provider key probe", () => {
       // counted; a key found by its context (a refresh token's field) counts there too.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
       "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
+      // An installed Python library's own source names the refresh token field (an OAuth client's grants): shipped. A
+      // key's name given a value in that same tree, and the field in a tool's config outside one, still count.
+      "opt/venv/lib/python3.12/site-packages/authlib/grants.py": `doc = '{"refresh_token": "${tok("", 24)}"}'\n`,
+      "opt/venv/lib/python3.12/site-packages/tool/.env": `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "opt/tool/token.json": `{"refresh_token": "${tok("", 24)}"}\n`,
       // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
       "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
@@ -1999,13 +2004,16 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/.env:1: MISTRAL_API_KEY",
+        "file /opt/[a name]/token.json:1: an OAuth refresh token",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
         "file /opt/[a name]/bin/[a name]: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/[a name].py:1: an OAuth refresh token",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
-      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
+      expect(keyProbeDetail(probe)).toStartWith("25 findings: ");
+      expect(keyProbeDetail(probe)).toContain("3 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
