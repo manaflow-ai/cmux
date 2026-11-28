@@ -81,7 +81,7 @@ test("an empty known child's transcript explains itself, with no line naming its
   try {
     await draw(undefined);
     expect(document.querySelector("h3")?.textContent).toBe("No messages yet");
-    expect(document.body.textContent).toContain("Messages and tool calls from this agent appear here.");
+    expect(document.body.textContent).not.toContain("appear here");
     expect(document.querySelector("[aria-busy=true]")).toBeNull();
     await draw({ reviewer: [] });
     expect(document.querySelector("h3")?.textContent).toBe("No messages yet");

@@ -68,7 +68,7 @@ export default componentEntry<Props>({
     },
     subagents: {
       props: { phase: "subagents" },
-      note: '"Waiting on 2 subagents 15m 15s": the agent waits on its helpers, named, never Thinking.',
+      note: "The subagents' mark and 2, then 15m 15s: the agent waits on its helpers, named on hover, never Thinking.",
     },
   },
   load: () => Promise.resolve(Fixture),

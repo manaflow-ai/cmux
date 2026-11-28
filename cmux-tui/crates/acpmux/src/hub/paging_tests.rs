@@ -711,6 +711,26 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert_eq!(older.last().unwrap().seq, all[9].seq);
 }
 
+/// The prompt index marks a prompt the person did not type `others` (a notice, another agent's
+/// message, a line Claude Code queued by itself), so the scroll rail ticks only the person's.
+/// Leo, 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore."
+#[test]
+fn the_prompt_index_marks_prompts_the_person_did_not_type() {
+    let person =
+        json!({"text": "fix the rail", "_meta": {"origin": {"actor": "person", "verified": true}}});
+    let notice = json!({
+        "text": "[notice from glaeda-land · WARN] glaeda land: https://github.com/x",
+        "_meta": {"provenance": {"kind": "notice", "to": "c"}},
+    });
+    let agent = json!({"text": "done", "_meta": {"provenance": {"kind": "agent_message", "from": "a", "to": "c"}}});
+    let queued = json!({"text": "<task-notification>\n<task-id>t</task-id>"});
+    assert!(prompt_index_msg(&person).get("others").is_none());
+    assert!(prompt_index_msg(&json!({"text": "typed"})).get("others").is_none());
+    for other in [notice, agent, queued] {
+        assert_eq!(prompt_index_msg(&other)["others"], true, "{other}");
+    }
+}
+
 /// The prompt index goes in bounded pages, newest first and oldest first within each, so its
 /// cost is a page's however long the chat (goal infinite-chats: one reply of a 1 GB chat's 4,577
 /// prompts took 113 ms against 0.2 ms at 1 MB). Walking `hasMore` from each page's first prompt,
@@ -971,6 +991,91 @@ fn subagent_page_perf() {
         );
         std::fs::remove_dir_all(&root).ok();
     }
+}
+
+/// The subagent pane's open as `readSubagentLog` makes it: the newest page of one subagent's own
+/// records, behind a long chat of the parent's and other subagents' lines. Before the newest read
+/// took the forward read's byte search it parsed every line back to the subagent's records. Run
+/// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_newest_page_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn subagent_newest_page_perf() {
+    for later in [2_000usize, 20_000, 100_000] {
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-subagent-newest-perf-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let mut seq = 0;
+        {
+            let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+            writer.save(&meta("c")).unwrap();
+            for n in 0..40 {
+                seq += 1;
+                writer
+                    .append("c", &update_of(seq, (n % 2 == 1).then_some("sub-old"), "early"))
+                    .unwrap();
+            }
+            let text = "x".repeat(900);
+            for n in 0..later {
+                seq += 1;
+                let sub = (n % 7 == 0).then_some("sub-new");
+                writer.append("c", &update_of(seq, sub, &text)).unwrap();
+            }
+        }
+        let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+        let filter = transcript(true).of_subagent(Some("sub-old"));
+        let mut runs = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let page = hub
+                .events_page("c", 0, Some(seq + 1), OPEN_LIMIT, Some(256 * 1024), true, &filter)
+                .unwrap();
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(page.events.len(), 20);
+        }
+        runs.sort_by(f64::total_cmp);
+        println!(
+            "subagent newest page after {later} later lines: median {:.1} ms (min {:.1})",
+            runs[2], runs[0]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+/// A subagent's newest page skips the chat's other lines unparsed and still holds exactly that
+/// subagent's records, oldest first, as the forward page does.
+#[test]
+fn subagent_newest_page_matches_forward_page() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-subagent-newest-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut seq = 0;
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        writer.save(&meta("c")).unwrap();
+        for n in 0..200 {
+            seq += 1;
+            let sub = match n % 3 {
+                0 => Some("sub-a"),
+                1 => Some("sub-b"),
+                _ => None,
+            };
+            writer.append("c", &update_of(seq, sub, "t")).unwrap();
+        }
+    }
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    for omit in [false, true] {
+        let filter = transcript(omit).of_subagent(Some("sub-a"));
+        let forward = hub.events_page("c", 0, None, 5000, None, false, &filter).unwrap();
+        let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+        let newest = hub.events_page("c", 0, Some(seq + 1), 5000, None, true, &filter).unwrap();
+        let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+        // Its own 67 lines, never the other subagent's or the parent's 133.
+        assert!(parsed <= 67, "the newest page parsed {parsed} lines for 67 records");
+        let seqs = |p: &EventPage| p.events.iter().map(|e| e.seq).collect::<Vec<_>>();
+        assert_eq!(seqs(&newest), seqs(&forward));
+        assert_eq!(newest.events.len(), 67);
+    }
+    std::fs::remove_dir_all(&root).ok();
 }
 
 /// A Codex chat as the app server logs it: per turn a prompt, an answer, and the app server's
