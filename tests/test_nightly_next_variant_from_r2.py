@@ -56,7 +56,7 @@ def test_linux_job_rebuilds_the_variant_from_r2() -> None:
     assert "needs.nightly-next-one.outputs.left != 'true'" in job["if"]
     assert "macos" not in str(job["runs-on"]) and "self-hosted" not in str(job["runs-on"])
     names = [s.get("with", {}).get("name") for s in job["steps"] if "artifact" in s.get("uses", "")]
-    assert names == ["cmux-nightly-feed-files-arm64", "cmux-nightly-tested-arm64", "cmux-nightly-variant-arm64"]
+    assert names == ["cmux-nightly-feed-files-arm64", "cmux-nightly-tested-arm64", "cmux-nightly-variant-arm64", "cmux-nightly-variant-arm64"]  # first try, retry
     upload = job["steps"][-1]["with"]
     assert upload["compression-level"] == 0 and upload["if-no-files-found"] == "error"
     assert "variant-from-r2.sh" in step(job, "Rebuild the variant artifact from R2")["run"] or True
