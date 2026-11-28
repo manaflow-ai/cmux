@@ -105,6 +105,21 @@
 :where(.ui-backdrop) {
   transition: opacity var(--ui-dialog-open) ease-out;
 }
+/* Dialog `blurBackdrop`: the page behind blurs through the backdrop; none under Reduce Transparency. */
+.ui-backdrop[data-blur] {
+  -webkit-backdrop-filter: var(--ds-glass-lens-blur);
+  backdrop-filter: var(--ds-glass-lens-blur);
+}
+:root[data-reduce-transparency] .ui-backdrop[data-blur] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ui-backdrop[data-blur] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
 :where(.ui-dialog, .ui-backdrop)[data-starting-style],
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
   opacity: 0;

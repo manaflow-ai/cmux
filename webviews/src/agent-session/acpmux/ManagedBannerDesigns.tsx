@@ -9,6 +9,8 @@ import { Icon } from "./icons/Icon";
 import { ManagedBanner } from "./ManagedBanner";
 import { managerDrivingUntil, type ManagedBy, type PromptRow } from "./managedBy";
 import "./managedBanner.css";
+import { Button } from "../../ui/Button";
+import { Tooltip } from "../../ui/Tooltip";
 
 export type ManagedBannerDesign =
   | "sending"
@@ -88,15 +90,19 @@ function RoundPair({ design, name }: { design: ManagedBannerDesign; name: string
   return (
     <div className="acpmux-managed-round-stage" data-round={design}>
       <div className="acpmux-managed-round-pill">
-        <button type="button" className="acpmux-managed-pill-open" title={`Open ${name}'s chat`}>
-          <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" />
-          <span className="acpmux-managed-pill-text">
-            <strong className="acpmux-managed-name">{name}</strong> is sending messages here
-          </span>
-        </button>
-        <button type="button" className="acpmux-managed-pill-hide" aria-label="Hide" title="Hide">
-          Hide
-        </button>
+        <Tooltip label={`Open ${name}'s chat`}>
+          <Button bare type="button" className="acpmux-managed-pill-open">
+            <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" />
+            <span className="acpmux-managed-pill-text">
+              <strong className="acpmux-managed-name">{name}</strong> is sending messages here
+            </span>
+          </Button>
+        </Tooltip>
+        <Tooltip label="Hide">
+          <Button bare type="button" className="acpmux-managed-pill-hide" aria-label="Hide">
+            Hide
+          </Button>
+        </Tooltip>
       </div>
       <OneCardComposer />
     </div>
@@ -123,16 +129,20 @@ function ManagedPill({ design, name }: { design: ManagedBannerDesign; name: stri
         data-shown=""
         data-design={design}
       >
-        <button type="button" className="acpmux-managed-pill-open" title={`Open ${name}'s chat`}>
-          {live ? <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" /> : null}
-          <span className="acpmux-managed-pill-text">
-            <strong className="acpmux-managed-name">{name}</strong>
-            {short ? " is sending" : " is sending messages here"}
-          </span>
-        </button>
-        <button type="button" className="acpmux-managed-pill-hide" aria-label="Hide" title="Hide">
-          {hideWord ? "Hide" : "\u00d7"}
-        </button>
+        <Tooltip label={`Open ${name}'s chat`}>
+          <Button bare type="button" className="acpmux-managed-pill-open">
+            {live ? <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" /> : null}
+            <span className="acpmux-managed-pill-text">
+              <strong className="acpmux-managed-name">{name}</strong>
+              {short ? " is sending" : " is sending messages here"}
+            </span>
+          </Button>
+        </Tooltip>
+        <Tooltip label="Hide">
+          <Button bare type="button" className="acpmux-managed-pill-hide" aria-label="Hide">
+            {hideWord ? "Hide" : "\u00d7"}
+          </Button>
+        </Tooltip>
       </div>
     </div>
   );
@@ -153,9 +163,9 @@ export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }
         <span className="acpmux-managed-text">
           <strong className="acpmux-managed-name">{name}</strong> is driving this chat
         </span>
-        <button type="button" className="acpmux-managed-take-over">
+        <Button bare type="button" className="acpmux-managed-take-over">
           Hide
-        </button>
+        </Button>
       </output>
     );
   return (

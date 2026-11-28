@@ -23,7 +23,7 @@ button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-pill-stage{position:relative;height:72px}
 .acpmux-managed-pill.acpmux-jump-latest{bottom:16px;color:var(--agent-muted);font-size:var(--text-detail);gap:var(--ds-space-2);padding-inline:var(--ds-space-3) var(--ds-space-1)}
 .acpmux-managed-pill[data-design="pill-straddle"]{bottom:-14px}
-.acpmux-managed-pill[data-design="pill-left"]{left:calc(var(--cv-inset,18px) + 8px);transform:none}
+.acpmux-managed-pill[data-design="pill-left"]{left:calc(var(--cv-inset,18px) + var(--ds-space-2));transform:none}
 .acpmux-managed-pill[data-design="pill-accent"]{color:var(--agent-text);--glass-edge:color-mix(in srgb,var(--agent-accent) 45%,transparent);background-image:linear-gradient(color-mix(in srgb,var(--agent-accent) 14%,transparent),color-mix(in srgb,var(--agent-accent) 14%,transparent))}
 .acpmux-managed-pill[data-design="pill-glass"]{--glass-tint:color-mix(in srgb,var(--agent-page-bg) 40%,transparent)}
 .acpmux-managed-pill-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -45,7 +45,7 @@ button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-round-stage[data-round="round-tab"] .acpmux-managed-round-pill{align-self:flex-start;margin-inline-start:12px;border-bottom:0;border-end-start-radius:0;border-end-end-radius:0;position:relative;top:1px;z-index:1}
 .acpmux-managed-round-pill .acpmux-managed-pill-hide{border-radius:var(--inner)}
 .acpmux-managed-card{align-self:stretch;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:calc(var(--inner) + 12px);background:var(--agent-input-bg);padding:12px} /* concentric-allow: --inner is the bar chips' corner per variant, so this is chip corner + the 12 px padding */
-.acpmux-managed-card-field{padding:0 2px 12px;color:var(--agent-muted);font-size:var(--text-body)}
+.acpmux-managed-card-field{padding:0 var(--grid-half-step) var(--ds-space-3);color:var(--agent-muted);font-size:var(--text-body)}
 .acpmux-managed-card-bar{display:flex;align-items:center;gap:4px}
 .acpmux-managed-card-spacer{flex:1}
 .acpmux-managed-card-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 7px;border-radius:var(--inner);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font-size:12.5px}

@@ -75,6 +75,7 @@ import { CloudServedContext, cloudPickerState, cloudPickerFamily, cloudPickerRea
 import { pickerHeightBounds, cloudPickerFloor, rememberLocalPickerHeight } from "./modelPickerLayout";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
+import { Button } from "../../ui/Button";
 type ModelChoice = {
   id: string;
   name: string;
@@ -2272,7 +2273,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   !starredView &&
                   (cloudDisconnected(selected) || (!signInNote && offersLinkedClaudeConnect(selected))) &&
                   signInAction && (
-                    <button
+                    <Button
+                      bare
                       type="button"
                       className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
                       data-cloud-connect=""
@@ -2287,7 +2289,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         </span>
                         {signInNote && <span className="text-detail text-muted">{signInNote}</span>}
                       </span>
-                    </button>
+                    </Button>
                   )}
                 {selected && !searching && !starredView && missingHere(selected) ? (
                   <>
@@ -2332,7 +2334,8 @@ export function ModelPicker(props: ModelPickerProps) {
                       </button>
                     ) : (
                       signInAction && (
-                        <button
+                        <Button
+                          bare
                           type="button"
                           className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
                           onClick={() => {
@@ -2343,7 +2346,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           <span className="acpmux-menu-label flex-1 truncate">
                             {signInAction.label ?? t("harness.logIn")}
                           </span>
-                        </button>
+                        </Button>
                       )
                     )}
                     {pickerState(selected) === "unsupported" && !signInAction && (
