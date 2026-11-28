@@ -1,5 +1,6 @@
 import type { Translate } from "../i18n";
 import { messagePreview } from "../conversation/incomingMessage";
+import { promptPreview } from "../conversation/nextStepAsk";
 import type { QuestionReply } from "../question/model";
 import type { AskContext } from "./context";
 import type { NeedsYouAnswer, NeedsYouItem } from "./model";
@@ -60,8 +61,9 @@ export type NeedsYouActions = {
 /// The ask's line, shared by the web list and native descriptors: its own text, else what its
 /// kind says (a permission asks to allow, anything else for an answer).
 export function askText(item: NeedsYouItem, t: Translate): string {
-  // A guest's held prompt reads as its text, as a question reads as its prompt.
-  if (item.kind === "held" && item.promptId) return messagePreview(item.ask);
+  // A guest's held prompt reads as its text, as a question reads as its prompt; an answer to an ask
+  // as the answer, not its quote of the ask (conversation/nextStepAsk.ts).
+  if (item.kind === "held" && item.promptId) return messagePreview(promptPreview(item.ask));
   if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
   return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
 }

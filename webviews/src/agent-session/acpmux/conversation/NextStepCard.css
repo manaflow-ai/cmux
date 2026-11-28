@@ -216,3 +216,21 @@
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
 }
+/* The ask's tag (NextStepCard.tsx `chip`): the hat's tag chip (hatQuestions.css
+   .acpmux-hat-questions__tag), inline before the question's first word, on the inset level. */
+.acpmux-next-step__tag {
+  display: inline-block;
+  max-width: 40%;
+  margin-right: var(--ds-space-2, 8px);
+  overflow: hidden;
+  padding: 0 var(--ds-space-1, 4px);
+  border-radius: var(--ds-radius-md, 6px);
+  background: var(--ds-surface-inset);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: normal;
+  line-height: var(--text-caption--line-height);
+  text-overflow: ellipsis;
+  vertical-align: 1px;
+  white-space: nowrap;
+}

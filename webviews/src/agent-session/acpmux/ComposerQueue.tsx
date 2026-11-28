@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
@@ -59,9 +59,9 @@ import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/que
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
-import { useSkillWords } from "./conversation/skillWords";
+import { type SkillWords, useSkillWords } from "./conversation/skillWords";
+import { answerPreview } from "./conversation/nextStepAsk";
 import { withSkillWords } from "./conversation/withSkillWords";
-import { claimedReply } from "./conversation/waitingAskStore";
 import { type QueuedEntry, shownText, heldReason, uniqueById } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
@@ -194,6 +194,23 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
   const cut = text.scrollWidth > text.clientWidth || (covered > 0 && contentWidth(text) > text.clientWidth - covered);
   if (cut || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
+}
+
+/// A queued prompt's words in its row. A skill's `/name`, and the command it starts with, draw as in
+/// the prompt's bubble (SkillWord.tsx). An answer to an ask (a card clicked while the turn runs,
+/// nextStepAsk.ts `answerPrompt`) reads as the answer, the question it answers muted after it,
+/// never its raw `> ` quote (Leo, 2026-11-19: "odd looking").
+function QueuedPromptWords({ prompt, skills }: { prompt: string; skills: SkillWords }) {
+  const answered = answerPreview(prompt);
+  const words = (text: string) =>
+    withSkillWords(withoutSkillDollars(text, skills), skills.words, undefined, skills.leading);
+  if (!answered) return <>{words(prompt)}</>;
+  return (
+    <>
+      {words(answered.answer)}
+      <span className="acpmux-queued-quote">{answered.question}</span>
+    </>
+  );
 }
 
 /** The width `el`'s content lays out at, whatever its box cuts. */
@@ -1136,14 +1153,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
                 )}
               </>
             ) : (
-              // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
-              // An answer a card sent reads as the answer, not its quote of the ask (`claimedReply`).
-              withSkillWords(
-                withoutSkillDollars(claimedReply(entry.prompt) ?? entry.prompt, skills),
-                skills.words,
-                undefined,
-                skills.leading,
-              )
+              <QueuedPromptWords prompt={entry.prompt} skills={skills} />
             )}
           </span>
         </button>

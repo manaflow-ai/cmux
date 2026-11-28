@@ -71,6 +71,27 @@ export function wrapUpAsk(tool: Tool): NextStepAsk | undefined {
   return args ? askOf(args) : undefined;
 }
 
+// A bracket word at the very start of the question, as the rulebook tags an ask ("[trust] Trust
+// ~/fun/cmux for the new sub-session?"): any word, not only the hat's known tags; not a
+// reference such as "[#43627]" or "[PR 12]".
+const LEADING_TAG = /^\[([a-z][a-z -]{0,22})\]:?\s*/i;
+
+/// The question without its leading bracket word, and that word lowercased. Leo, 2026-11-19, on a
+/// pinned ask that read "[trust] Trust ~/fun/cmux ...": "odd looking". A tag with nothing after it
+/// stays the question.
+export function splitLeadingTag(question: string): { question: string; label?: string } {
+  const match = LEADING_TAG.exec(question);
+  const label = match?.[1]!.trim().toLowerCase();
+  const rest = match ? question.slice(match[0].length).trim() : "";
+  if (!match || !label || !rest) return { question };
+  return { question: rest.charAt(0).toUpperCase() + rest.slice(1), label };
+}
+
+/// The question as the card draws it: without the leading bracket word its label chips.
+export function shownQuestion(ask: NextStepAsk): string {
+  return ask.label ? splitLeadingTag(ask.question).question : ask.question;
+}
+
 /// The other names the tool takes for each field (`ALIASES` in acpmux_mcp_wrap_up.rs): a call
 /// that sent `summary` for `recap` is accepted, so its card draws it too (cmuxterm-hq#18786).
 const ALIASES: Record<string, readonly string[]> = {
@@ -83,7 +104,10 @@ const field = (args: Record<string, unknown>, name: string): unknown =>
 
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
   const recap = words(field(args, "recap"));
+  // The question stays as asked: an answer quotes it (`answerPrompt`), and `answerOf` and `askKey`
+  // match it whole. The card draws it without its tag (`shownQuestion`).
   const question = words(field(args, "ask"));
+  const label = question ? splitLeadingTag(question).label : undefined;
   if (!recap && !question) return undefined;
   let options: NextStepOption[] = [];
   const actions = field(args, "actions");
@@ -108,7 +132,14 @@ function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI
         ];
   }
-  return { tag: WRAP_UP, question: question ?? "", options, rest: "", ...(recap && { recap }) };
+  return {
+    tag: WRAP_UP,
+    ...(label && { label }),
+    question: question ?? "",
+    options,
+    rest: "",
+    ...(recap && { recap }),
+  };
 }
 
 /// The last wrap-up call among a turn's rows, read as its card.

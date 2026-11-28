@@ -1,6 +1,7 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { Translate } from "./i18n";
 import { withoutSkillDollars, type SkillCatalog } from "./slashCommands";
+import { answerPreview } from "./conversation/nextStepAsk";
 
 export type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -8,7 +9,12 @@ export type QueuedEntry = AcpmuxSnapshot["queue"][number];
 /// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
 export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
   const retry = entry.retry;
-  if (!retry) return withoutSkillDollars(entry.prompt, skills);
+  if (!retry) {
+    // An answer to an ask reads as the answer, then the question it answers (nextStepAsk.ts).
+    const answered = answerPreview(entry.prompt);
+    if (answered) return `${withoutSkillDollars(answered.answer, skills)}\n${answered.question}`;
+    return withoutSkillDollars(entry.prompt, skills);
+  }
   return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
     .filter(Boolean)
     .join("\n");

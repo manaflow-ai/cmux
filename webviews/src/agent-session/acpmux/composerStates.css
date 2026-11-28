@@ -1122,6 +1122,16 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   display: block;
   color: var(--acpmux-composer-dim);
 }
+/* A queued answer to an ask (ComposerQueue.tsx QueuedPromptWords): the question it answers, muted
+   after the answer on the row's one line and cut with it; opened, on its own line under it. */
+.acpmux-queued-quote {
+  margin-left: 8px;
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-queued-text[data-open] .acpmux-queued-quote {
+  display: block;
+  margin-left: 0;
+}
 /* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
    one note, drawn as the paused note is but muted: it waits on the trust question above, not on an
    error. */

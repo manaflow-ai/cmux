@@ -32,22 +32,14 @@ import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, use
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { TAG_KEY } from "./askTag";
 import { inlineText } from "./inlineText";
-import { keepShown, type HatAnswer, type HatQuestion, type HatTag } from "./hatModel";
+import { keepShown, type HatAnswer, type HatQuestion } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 import "./hatQuestions.css";
 import { focusRoute } from "../../../ui/focusRoute";
-
-const TAG_KEY: Record<HatTag, StringKey> = {
-  taste: "hat.tag.taste",
-  irreversible: "hat.tag.irreversible",
-  outward: "hat.tag.outward",
-  physical: "hat.tag.physical",
-  "check-in": "hat.tag.checkIn",
-  "for you": "hat.tag.forYou",
-};
 
 export type HatQuestionActions = {
   /// Sends one of the question's answers; rejects when it was refused (the band takes input again).

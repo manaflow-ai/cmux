@@ -2,11 +2,12 @@
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
-import { sentByPerson, transcriptColumn, type AcpmuxRow } from "../model";
+import { transcriptColumn, type AcpmuxRow, sentByPerson } from "../model";
 import { keptPrefix } from "../conversation/prefixFlatMap";
 import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
+import { promptPreview } from "../conversation/nextStepAsk";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
 import { SUBAGENTS } from "../subagents/subagentFold";
@@ -696,10 +697,11 @@ export function promptSender(row: AcpmuxRow): string | undefined {
 }
 
 /// A turn's prompt as its tick shows it: another agent's message without the broker's label around
-/// it (conversation/relayEnvelope.ts), the person's as written.
+/// it (conversation/relayEnvelope.ts), the person's as written, an answer to an ask as the answer
+/// without its quote of the ask (conversation/nextStepAsk.ts `promptPreview`).
 function promptText(row: AcpmuxRow): string {
   const text = (row.text ?? "").trim();
-  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : promptPreview(text);
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
