@@ -209,7 +209,7 @@ def _capture_and_ocr(ctx, marker: str) -> dict:
     try:
         hot = _load("chat_widget_hot_verify", ROOT / "scripts/cmux-next/hot-verify.py")
         how = hot.Shooter()(pid, shot)
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+    except Exception as error:  # noqa: BLE001 - capture failures become row evidence
         return {"ok": False, "pid": pid, "error": f"window capture: {error}"}
     if not shot.is_file() or shot.stat().st_size == 0:
         return {"ok": False, "pid": pid, "shot": str(shot), "error": "window capture produced no PNG"}
