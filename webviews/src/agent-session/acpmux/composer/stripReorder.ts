@@ -15,6 +15,23 @@ import { reducedMotion } from "../threadMinimap/scrollMotion";
 /// How far the pointer moves before a press becomes a drag; less is a click (open, remove).
 export const DRAG_SLOP_PX = 4;
 
+/// How far past the strip's top or bottom edge a dragged chip goes before it leaves the strip: the
+/// host then drags its picture out to another app (attachmentImageCopy.ts), as one from the
+/// transcript does.
+export const TEAR_OFF_PX = 24;
+
+/// Whether the pointer at (`x`, `y`) has left the strip `bounds` far enough to drag out: past its top
+/// or bottom by ``TEAR_OFF_PX``, or out of the page (`width` by `height`) altogether.
+export function tornOff(
+  x: number,
+  y: number,
+  bounds: { top: number; bottom: number },
+  width: number,
+  height: number,
+): boolean {
+  return y < bounds.top - TEAR_OFF_PX || y > bounds.bottom + TEAR_OFF_PX || x < 0 || y < 0 || x > width || y > height;
+}
+
 /// A chip's content opened in place under its face (ContentChip.tsx), never a place a drag starts.
 const OPENED_CONTENT = ".acpmux-paste-chip__panel";
 
@@ -132,11 +149,14 @@ export function reordered<T extends { id: string }>(list: readonly T[], id: stri
 export function useStripReorder(
   ids: readonly string[],
   onReorder?: (id: string, index: number) => void,
+  /// A press on chip `id` dragged out of the strip (``tornOff``): true when it took the drag (a
+  /// picture the host now drags out), which ends the reorder; false leaves the press to it.
+  onDragOut?: (id: string) => boolean,
 ): { ref: (element: HTMLElement | null) => void; dragging: string | undefined } {
   const [strip, setStrip] = useState<HTMLElement | null>(null);
   const [dragging, setDragging] = useState<string>();
-  const live = useRef({ ids, onReorder });
-  live.current = { ids, onReorder };
+  const live = useRef({ ids, onReorder, onDragOut });
+  live.current = { ids, onReorder, onDragOut };
   /// The drag on screen: the chip that rides the pointer, where the pointer is, and where it was
   /// grabbed (from the chip's left edge).
   const ride = useRef<{ id: string; pointerX: number; grab: number }>(undefined);
@@ -178,7 +198,9 @@ export function useStripReorder(
   }, [order, strip]);
   useEffect(() => {
     if (!strip) return;
-    let press: { id: string; x: number; y: number; pointer: number; dragged: boolean } | undefined;
+    /// `moved`: past the slop (a drag, not a click); `dragged`: the chip lifted to reorder.
+    let press: { id: string; x: number; y: number; pointer: number; moved: boolean; dragged: boolean } | undefined;
+    const canReorder = () => Boolean(live.current.onReorder) && live.current.ids.length > 1;
     const slotOf = (target: EventTarget | null) =>
       target instanceof Element ? (target.closest(SLOT) as HTMLElement | null) : null;
     const idOf = (slot: HTMLElement | null) =>
@@ -202,26 +224,50 @@ export function useStripReorder(
       if (offset && !reducedMotion()) slide(chip, offset);
     };
     const down = (event: PointerEvent) => {
-      if (!live.current.onReorder || event.button !== 0 || live.current.ids.length < 2) return;
+      if (event.button !== 0 || (!canReorder() && !live.current.onDragOut)) return;
       // A chip's content opened in place (ContentChip.tsx's panel: a pick's report) is for reading:
       // a press there selects its text and never picks the chip up.
       if (event.target instanceof Element && event.target.closest(OPENED_CONTENT)) return;
       const id = idOf(slotOf(event.target));
       if (!id) return;
-      press = { id, x: event.clientX, y: event.clientY, pointer: event.pointerId, dragged: false };
+      press = { id, x: event.clientX, y: event.clientY, pointer: event.pointerId, moved: false, dragged: false };
     };
     const move = (event: PointerEvent) => {
       if (!press || event.pointerId !== press.pointer) return;
       // Released where the strip never heard it: the press is over.
       if (event.buttons === 0) return end();
-      if (!press.dragged) {
+      const view = strip.ownerDocument.defaultView;
+      const out = live.current.onDragOut;
+      if (
+        out &&
+        press.moved &&
+        tornOff(
+          event.clientX,
+          event.clientY,
+          strip.getBoundingClientRect(),
+          view?.innerWidth ?? Infinity,
+          view?.innerHeight ?? Infinity,
+        ) &&
+        out(press.id)
+      ) {
+        event.preventDefault();
+        return end();
+      }
+      if (!press.moved) {
         if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_SLOP_PX) return;
-        press.dragged = true;
+        press.moved = true;
         try {
+          // Held past the strip's edges, so its moves still come here for a drag out.
           strip.setPointerCapture?.(event.pointerId);
         } catch {
           // No active pointer to capture (a synthetic one): the drag goes on without capture.
         }
+      }
+      event.preventDefault();
+      // One chip, or a strip that does not reorder: the press only waits to leave the strip.
+      if (!canReorder()) return;
+      if (!press.dragged) {
+        press.dragged = true;
         const chip = chipsById(strip, live.current.ids).get(press.id);
         // A slide or settle still running on it stops: the chip is picked up where its slot is.
         if (chip) finishSlides(chip);
@@ -229,7 +275,6 @@ export function useStripReorder(
         ride.current = { id: press.id, pointerX: event.clientX, grab: press.x - left };
         setDragging(press.id);
       }
-      event.preventDefault();
       const drag = ride.current;
       if (drag) drag.pointerX = event.clientX;
       const { ids: order, onReorder: reorder } = live.current;
@@ -251,7 +296,7 @@ export function useStripReorder(
     };
     const up = (event: PointerEvent) => {
       if (!press || event.pointerId !== press.pointer) return;
-      if (press.dragged) {
+      if (press.moved) {
         // The press was a drag: the click it ends with opens nothing and removes nothing.
         const swallow = (click: MouseEvent) => {
           click.stopPropagation();
@@ -259,6 +304,8 @@ export function useStripReorder(
         };
         strip.addEventListener("click", swallow, { capture: true, once: true });
         setTimeout(() => strip.removeEventListener("click", swallow, { capture: true }), 0);
+      }
+      if (press.dragged) {
         settle(press.id);
         setDragging(undefined);
       }
