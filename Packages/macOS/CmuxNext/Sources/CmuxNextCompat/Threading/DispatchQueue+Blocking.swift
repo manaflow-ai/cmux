@@ -1,4 +1,4 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 public import Darwin
 #endif
 public import Dispatch
@@ -16,7 +16,7 @@ extension DispatchQueue {
     @inlinable
     public func blockingSync<T>(fileID: StaticString = #fileID, line: UInt = #line, execute work: () throws -> T) rethrows -> T {
         // Not through blockingCall: a rethrows function may only call functions that rethrow its own closure.
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
         guard pthread_main_np() != 0 else { return try sync(execute: work) }
         let previous = BlockingOpenCall.enter(.syncWait, fileID: fileID, line: line)
