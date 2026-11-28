@@ -19,6 +19,14 @@
 //!
 //! `--freeing-idle-seconds N` (the bench) turns freeing on with an idle time of N seconds,
 //! whatever the settings file says.
+//!
+//! The measure clock (`--measure-freeing-clock-fifo`, the bench only, `scripts/measure/infinite-items.py`):
+//! the timer reads time as the wall clock plus an offset that a measurement advances
+//! (`advance_freeing_clock`), so a bench "day" that lasts seconds can let a day pass for this
+//! timer, at the product's idle time. An advance runs one pass on the clock as it was (what was
+//! attached until then counts as use), then moves the clock on and runs the pass again. Output a
+//! terminal printed is read on the clock in effect when it printed. Nothing in the product
+//! advances it: without the flag the offset stays 0.
 
 use super::park_eligibility::ParkRules;
 use super::*;
@@ -59,6 +67,44 @@ struct FreeingInner {
     /// `--freeing-idle-seconds`: on, with this idle time.
     override_idle: Option<Duration>,
     tracker: FreeingTracker,
+    clock: MeasureClock,
+}
+
+/// The measure clock (module docs): wall time plus the advances a measurement asked for.
+#[derive(Debug, Default)]
+pub(crate) struct MeasureClock {
+    /// Asked for and not yet applied by a pass (ms).
+    pending_ms: u64,
+    /// Each applied advance: the wall time it was applied at and the total offset from then on
+    /// (both ms, ascending).
+    applied: Vec<(u64, u64)>,
+}
+
+impl MeasureClock {
+    /// The offset in effect at wall time `wall_ms`.
+    fn offset_at(&self, wall_ms: u64) -> u64 {
+        self.applied.iter().rev().find(|(at, _)| *at <= wall_ms).map_or(0, |(_, offset)| *offset)
+    }
+
+    /// `wall_ms` on this clock.
+    pub(crate) fn at(&self, wall_ms: u64) -> u64 {
+        wall_ms.saturating_add(self.offset_at(wall_ms))
+    }
+
+    /// Applies the pending advance at wall time `wall_ms`; returns it (0: none).
+    pub(crate) fn apply_pending(&mut self, wall_ms: u64) -> u64 {
+        let advance = std::mem::take(&mut self.pending_ms);
+        if advance > 0 {
+            let offset = self.offset_at(u64::MAX).saturating_add(advance);
+            self.applied.push((wall_ms, offset));
+        }
+        advance
+    }
+
+    /// The total offset applied so far (ms).
+    pub(crate) fn offset_ms(&self) -> u64 {
+        self.offset_at(u64::MAX)
+    }
 }
 
 impl Default for FreeingInner {
@@ -69,6 +115,7 @@ impl Default for FreeingInner {
             settings: FreeingSettings { enabled: false, ..FreeingSettings::default() },
             override_idle: None,
             tracker: FreeingTracker::default(),
+            clock: MeasureClock::default(),
         }
     }
 }
@@ -194,6 +241,16 @@ impl Mux {
         self.wake_idle_close_reaper();
     }
 
+    /// The measure clock (module docs; `--measure-freeing-clock-fifo`, the bench only): lets
+    /// `by` pass for the freeing timer at its next pass, which this wakes.
+    pub fn advance_freeing_clock(&self, by: Duration) {
+        let by_ms = u64::try_from(by.as_millis()).unwrap_or(u64::MAX);
+        let mut inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.clock.pending_ms = inner.clock.pending_ms.saturating_add(by_ms);
+        drop(inner);
+        self.wake_idle_close_reaper();
+    }
+
     /// Whether `--freeing-idle-seconds` turned freeing on.
     pub(crate) fn freeing_overridden(&self) -> bool {
         self.idle_freeing
@@ -227,7 +284,33 @@ impl Mux {
     /// One freeing pass at `now` (module docs): parks what came due, and returns when the next
     /// terminal comes due (`None`: freeing is off or nothing will without a change).
     pub(crate) fn free_idle_terminals_until_next(&self, now: Instant) -> Option<Instant> {
-        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        let wall_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        let (now_ms, advance) = {
+            let inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            (inner.clock.at(wall_ms), inner.clock.pending_ms)
+        };
+        if advance == 0 {
+            return self.free_idle_pass(now, now_ms);
+        }
+        // The measure clock moves on: first a pass on the clock as it was, so what was attached
+        // until now counts as use, then the pass a day (or `advance`) later.
+        self.free_idle_pass(now, now_ms);
+        let (now_ms, offset_ms) = {
+            let mut inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.clock.apply_pending(wall_ms);
+            (inner.clock.at(wall_ms), inner.clock.offset_ms())
+        };
+        let next = self.free_idle_pass(now, now_ms);
+        eprintln!(
+            "cmux-tui: measure freeing clock advanced {} s (offset {} s), pass done",
+            advance / 1000,
+            offset_ms / 1000
+        );
+        next
+    }
+
+    /// One freeing pass at `now`, `now_ms` on the measure clock.
+    fn free_idle_pass(&self, now: Instant, now_ms: u64) -> Option<Instant> {
         let (idle, agents) = {
             let mut inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
             match inner.active() {
@@ -242,16 +325,18 @@ impl Mux {
         let idle_ms = u64::try_from(idle.as_millis()).unwrap_or(u64::MAX);
         let mut candidates = self.reclaim_candidates(None);
         let due: HashSet<String> = {
+            let mut inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            let clock = &inner.clock;
             let views: Vec<FreeingCandidate<'_>> = candidates
                 .iter()
                 .map(|candidate| FreeingCandidate {
                     host: &candidate.host,
                     attached: candidate.facts.attached,
                     attach_epoch: candidate.attach_epoch,
-                    last_output_ms: candidate.last_output_ms,
+                    // Output is read on the clock in effect when it was printed.
+                    last_output_ms: candidate.last_output_ms.map(|wall| clock.at(wall)),
                 })
                 .collect();
-            let mut inner = self.idle_freeing.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.tracker.due(now_ms, idle_ms, &views).into_iter().collect()
         };
         if !due.is_empty() {
@@ -367,6 +452,39 @@ mod tests {
             "a newer attach epoch: someone looked at it since the last pass"
         );
         assert_eq!(tracker.due(later + IDLE_MS, IDLE_MS, &[view("t", false, 2, None)]), ["t"]);
+    }
+
+    #[test]
+    fn the_measure_clock_moves_on_by_its_advances_and_reads_output_when_printed() {
+        let mut clock = MeasureClock::default();
+        assert_eq!(clock.at(5_000), 5_000, "no advance: the wall clock");
+        clock.pending_ms = IDLE_MS;
+        assert_eq!(clock.apply_pending(10_000), IDLE_MS);
+        assert_eq!(clock.apply_pending(10_001), 0, "applied once");
+        assert_eq!(clock.at(9_999), 9_999, "output before the advance keeps its time");
+        assert_eq!(clock.at(10_000), 10_000 + IDLE_MS);
+        assert_eq!(clock.at(20_000), 20_000 + IDLE_MS, "output after it is on the moved clock");
+        clock.pending_ms = IDLE_MS;
+        clock.apply_pending(30_000);
+        assert_eq!(clock.offset_ms(), 2 * IDLE_MS);
+        assert_eq!(clock.at(20_000), 20_000 + IDLE_MS);
+        assert_eq!(clock.at(30_000), 30_000 + 2 * IDLE_MS);
+    }
+
+    #[test]
+    fn a_day_on_the_measure_clock_frees_a_quiet_terminal_at_the_product_idle_time() {
+        let start = 100 * IDLE_MS;
+        let mut clock = MeasureClock::default();
+        let mut tracker = FreeingTracker::default();
+        let printed = start + 2_000;
+        let quiet = |clock: &MeasureClock| [view("t", false, 0, Some(clock.at(printed)))];
+        assert!(tracker.due(clock.at(start), IDLE_MS, &quiet(&clock)).is_empty());
+        // Seconds of a bench day later, a day passes for the timer.
+        let wall = start + 10_000;
+        assert!(tracker.due(clock.at(wall), IDLE_MS, &quiet(&clock)).is_empty(), "not a day yet");
+        clock.pending_ms = IDLE_MS;
+        clock.apply_pending(wall);
+        assert_eq!(tracker.due(clock.at(wall), IDLE_MS, &quiet(&clock)), ["t"]);
     }
 
     #[test]
