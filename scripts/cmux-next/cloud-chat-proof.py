@@ -51,6 +51,7 @@ import collections
 import hashlib
 import json
 import os
+import plistlib
 import re
 import secrets
 import shutil
@@ -266,6 +267,7 @@ def clean(text: str, limit: int = 2000) -> str:
 evidence["tag"] = clean(args.tag, 256)
 # The link log reads from before the app's launch (the step before this one), not from the chat's
 # start: the app starts its link at sign-in, so a Native route that failed then logged before the chat.
+LAUNCH_STARTED = time.time()
 LINK_LOG_SINCE = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 600))
 
 
@@ -420,12 +422,12 @@ EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-cha
 )
 
 
-def app_link_log(since: str, keep: int = 300) -> dict:
+def app_link_log(since: str, keep: int = 300, predicate: str = LINK_LOG_PREDICATE) -> dict:
     """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", before the app launched) on, read
     as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
         proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
-                                 "--predicate", LINK_LOG_PREDICATE],
+                                 "--predicate", predicate],
                                 env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
@@ -667,7 +669,69 @@ def validate_credentials_file(path_text: str) -> str:
     return str(path)
 
 
-def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> dict:
+# Every app subsystem line, for a launch that never answered: the link categories alone say nothing about a
+# startup that died before sign-in (runs 46147479576, 46111167228: the DEV app's socket never came up, and
+# `open -W` returned 0, so the app had already exited).
+APP_LOG_PREDICATE = 'subsystem BEGINSWITH "com.cmuxterm.app."'
+CRASH_DIRS = (Path.home() / "Library" / "Logs" / "DiagnosticReports", Path("/Library/Logs/DiagnosticReports"))
+
+
+def crash_reports(executable: str, since: float, keep: int = 3) -> list[dict]:
+    """The newest crash reports (.ips) for `executable` written since `since`: name, exception and termination
+    fields only (a report's thread state and paths stay on the runner)."""
+    found = []
+    for folder in CRASH_DIRS:
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            try:
+                if path.suffix in (".ips", ".crash") and path.name.startswith(executable) and path.stat().st_mtime >= since:
+                    found.append(path)
+            except OSError:
+                continue
+    reports = []
+    for path in sorted(found, key=lambda item: item.stat().st_mtime, reverse=True)[:keep]:
+        report: dict = {"file": path.name}
+        try:
+            header, _, body = path.read_text(errors="replace").partition("\n")
+            report["bug_type"] = json.loads(header).get("bug_type")
+            detail = json.loads(body) if body.strip().startswith("{") else {}
+            for key in ("exception", "termination", "asi"):
+                if key in detail:
+                    report[key] = clean(json.dumps(detail[key]), 600)
+            if "faultingThread" in detail:
+                report["faulting_thread"] = detail["faultingThread"]
+        except (OSError, ValueError):
+            report["unreadable"] = True
+        reports.append(report)
+    return reports
+
+
+def launch_diagnostics(bundle: str, launcher, since: float) -> dict:
+    """Why a launched app never answered on its socket: whether `open -W` (it returns once the app exits) is
+    still waiting, whether the bundle's process runs, its crash reports, and its own log lines since the launch."""
+    out: dict = {"launcher_exit": launcher.poll() if launcher is not None else None}
+    executable = Path(bundle).stem
+    try:
+        with open(Path(bundle, "Contents", "Info.plist"), "rb") as handle:
+            executable = plistlib.load(handle).get("CFBundleExecutable") or executable
+    except (OSError, ValueError):
+        pass
+    try:
+        running = subprocess.run(["/usr/bin/pgrep", "-f", str(Path(bundle, "Contents", "MacOS"))],
+                                 capture_output=True, text=True, timeout=10)
+        out["app_pids"] = [int(pid) for pid in running.stdout.split() if pid.isdigit()]
+    except (OSError, subprocess.TimeoutExpired):
+        out["app_pids"] = None
+    out["crash_reports"] = crash_reports(executable, since - 5)
+    started = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(since - 5))
+    out["app_log"] = app_link_log(started, keep=120, predicate=APP_LOG_PREDICATE)
+    return out
+
+
+def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240, on_fail=None) -> dict:
     """Bounded wait for app launch or authentication; record only safe status fields."""
     started = time.monotonic()
     deadline = started + timeout
@@ -689,6 +753,8 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
     if not satisfied and code == 0 and not (err or "").strip():
         # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
         why = "last answer: " + json.dumps(safe, sort_keys=True)
+    if not satisfied and on_fail is not None:
+        safe.update(on_fail())
     record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
            elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
     if not satisfied:
@@ -751,13 +817,15 @@ if args.cleanup_tag:
         launchable_cleanup = False
 if launchable_cleanup:
     try:
+        LAUNCH_STARTED = time.time()
         app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")
     record("launch app", 0, "", "", launch_flag=args.cloud_backend)
     wait_for("launched app ready", ("app", "identify", "--json"),
-             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
+             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path,
+             on_fail=lambda: launch_diagnostics(app_path, app_launcher, LAUNCH_STARTED))
     owned_app = True
 
 if args.cleanup_machine:

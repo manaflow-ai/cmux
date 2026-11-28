@@ -43,6 +43,7 @@ fn claude_name_args(
 }
 
 #[derive(Debug, thiserror::Error)]
+// retry-prompt-ok: a reconnect is a sign-in only the person can do.
 #[error("Reconnect GitHub Copilot in Settings > Models.")]
 pub(crate) struct CopilotReconnect;
 
