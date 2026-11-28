@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
 import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 
 type Sample = {
   id: string;
@@ -382,7 +383,7 @@ test("T5 detector clips ghost ink while preserving partial and unclipped overlap
     ] as const) {
       const animation = ghost.animate([{ clipPath: `inset(${clip}px 0 0)` }, { clipPath: `inset(${clip}px 0 0)` }], {
         delay: 40,
-        duration: 180,
+        duration: MOTION_SETTLE_MS,
         fill: "both",
       });
       const reply = p.frame(8, "reply");
