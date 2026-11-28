@@ -58,13 +58,13 @@ fn parks_only_idle_quiet_unwatched_unkept_shells_oldest_first() {
         resumable,
     ];
     assert_eq!(
-        pick_reclaim(&candidates, now, 20),
+        pick_reclaim(&candidates, now, 20, false),
         [sid(8), sid(1)],
         "the oldest prompt first; nothing busy, watched, kept, reporting, printing, fresh, \
          running a job, unread or an agent"
     );
-    assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
-    assert!(pick_reclaim(&candidates, now, 0).is_empty());
+    assert_eq!(pick_reclaim(&candidates, now, 1, false), [sid(8)]);
+    assert!(pick_reclaim(&candidates, now, 0, false).is_empty());
 }
 
 #[test]
