@@ -8,7 +8,7 @@
 // that on each focus change (`focusin`, `focusout`, the window's `focus` and `blur`), and again on a
 // key press, since a key can turn a pointer-placed focus visible. It calls `onChange` only when the
 // answer changes: a keystroke writes nothing.
-import { focusRingShown } from "../../ui/focusModality";
+import { matchesFocusVisible } from "../../ui/focusModality";
 
 /// Whether a descendant of `scope` (not `scope` itself, as `:has()` reads) is focused and matches
 /// `:focus-visible`.
@@ -16,8 +16,7 @@ export function focusVisibleWithin(scope: Element): boolean {
   const active = scope.ownerDocument.activeElement;
   if (!active || active === scope || !scope.contains(active)) return false;
   try {
-    // The ring gate (FOCUS-RING): a click's focus earns no keyboard mark, as the gated CSS reads it.
-    return focusRingShown(active);
+    return matchesFocusVisible(active);
   } catch {
     // An engine without `:focus-visible` (jsdom before 22) reads focus alone.
     return active.matches(":focus");

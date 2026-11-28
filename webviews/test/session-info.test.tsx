@@ -1267,13 +1267,11 @@ const subagent = (index: number, state: string): Subagent => ({
 
 /// The Subagents lines in order: each one's name and its state. The lean line (AgentLine `lean`) shows
 /// the state word only when it waits, failed or stopped; else the word is for screen readers.
-/// Each line's name and state word. A running started chat draws only its spinner and keeps the word
-/// for hover (#56223: "\"running\" doesn't need text"), so its word is the state's title.
 const lines = (element: Element) =>
-  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => {
-    const state = line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr");
-    return [line.querySelector(".acpmux-summary-agent__name")?.textContent, state?.textContent || state?.getAttribute("title")];
-  });
+  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => [
+    line.querySelector(".acpmux-summary-agent__name")?.textContent,
+    line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent,
+  ]);
 const endedRow = (element: Element) =>
   element.querySelector<HTMLButtonElement>("button.acpmux-session-info-subagents__ended");
 
@@ -1441,7 +1439,6 @@ test("with only started chats Subagents is still drawn, and the running line's c
   expect(panel(container)).not.toBeNull();
   const subagents = section(container, "subagents")!;
   expect(sessionInfoState().sections.subagents).toBe(true);
-  console.log("DBG", subagents.querySelector("button.acpmux-agent-line__button")?.outerHTML);
   expect(lines(subagents)).toEqual([["Migrate the settings store", "Running"]]);
   expect(endedRow(subagents)!.textContent).toBe("1 done");
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);

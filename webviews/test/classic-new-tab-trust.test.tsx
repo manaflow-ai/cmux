@@ -387,11 +387,16 @@ test("App failed-row Retry cannot bypass a pending folder choice or duplicate th
   await act(async () => trustButton()!.click());
   await quiet("trust accepted while the folder question waits");
   expect(retries).toBe(1);
-  const retry = [...host.querySelectorAll<HTMLButtonElement>(".cv-user__status--failed button")].find(
-    (button) => button.textContent === "Retry",
-  );
-  expect(retry).toBeDefined();
-  await act(async () => retry!.click());
+  // Retry lives in the failed message's menu (#53458: the failed row keeps only Trust folder and its X);
+  // the native menu runs `chat.retryPrompt` with the row's id, as this does.
+  const failedRowId = host
+    .querySelector(".cv-user__status--failed")
+    ?.closest<HTMLElement>("[data-row-id]")
+    ?.getAttribute("data-row-id");
+  expect(failedRowId).toBeTruthy();
+  await act(async () => {
+    await Promise.resolve(actions["chat.retryPrompt"]!({ rowId: failedRowId! })).catch(() => undefined);
+  });
   await quiet("actual App Retry settles behind the folder question");
   expect(retries).toBe(1);
   await act(async () => useFolder()!.click());
