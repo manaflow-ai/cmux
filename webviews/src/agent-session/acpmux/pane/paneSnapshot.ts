@@ -25,6 +25,7 @@ import { setDeviceChats } from "../newtab/deviceChats";
 import { setRecentlyClosed } from "../newtab/recentlyClosed";
 import { setNowPlaying } from "../newtab/nowPlaying";
 import { setAttentionTabs } from "../needsYou/attentionTabs";
+import { shareChanged } from "../share/shareChanges";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { type useEarlyNewTabContext, type useLostSharedPart, withHandshakeNewTab } from "../newtab/adoption";
 import { markMockPage, publishSessions } from "../newtab/chatStore";
@@ -826,6 +827,9 @@ export function paneSnapshotEffect({
     },
     applyAttentionTabs(tabs) {
       setAttentionTabs(tabs);
+    },
+    applyShareChanged(session) {
+      shareChanged(session);
     },
     applyLinkPlaces(places) {
       setLinkPlaces(places);

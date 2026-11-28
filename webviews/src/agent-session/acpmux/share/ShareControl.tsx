@@ -4,10 +4,11 @@
 // the clipboard and says so in a toast with Manage links (Settings > Shared links).
 //
 // Every step is the daemon's (`share.op` through the host, shareState.ts): the dialog re-reads the
-// chat's shares after each one, so what it shows is what the daemon holds. No timer and no
-// observer: the dialog reads on open and after a step; the toast queue arms its one timeout only
-// while a toast shows (NoticeStack.tsx).
-import { useEffect, useMemo, useState } from "react";
+// chat's shares after each one, so what it shows is what the daemon holds. No timer: the dialog
+// reads on open, after a step, and while open on each change the daemon reports for its chat
+// (`shareChanged`, shareChanges.ts: a request, a role change or a removal made elsewhere); the
+// toast queue arms its one timeout only while a toast shows (NoticeStack.tsx).
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
@@ -16,6 +17,7 @@ import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
 import { NativeError } from "../nativeError";
 import { ShareDialogBody } from "./ShareDialog";
+import { onShareChanged } from "./shareChanges";
 import {
   inviteStep,
   shareClient,
@@ -126,6 +128,36 @@ export function ShareDialogHost({
     await reload();
     setBusy(false);
   };
+  // While open, a change the daemon reports for this chat (made elsewhere: a request, a role, a
+  // removal) reads the shares again. Changes during a read cost one more read, not one each.
+  const reading = useRef<{ busy: boolean; again: boolean }>({ busy: false, again: false });
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    const reread = async () => {
+      const state = reading.current;
+      if (state.busy) {
+        state.again = true;
+        return;
+      }
+      state.busy = true;
+      do {
+        state.again = false;
+        try {
+          const next = await client.state();
+          if (current) setView(next);
+        } catch (error) {
+          console.warn("agent pane: reading the chat's shares after a change failed", error);
+        }
+      } while (state.again && current);
+      state.busy = false;
+    };
+    const stop = onShareChanged(sessionId, () => void reread());
+    return () => {
+      current = false;
+      stop();
+    };
+  }, [open, client, sessionId]);
   // Each open reads the chat's shares afresh: what the dialog shows is what the daemon holds now.
   useEffect(() => {
     if (!open) return;

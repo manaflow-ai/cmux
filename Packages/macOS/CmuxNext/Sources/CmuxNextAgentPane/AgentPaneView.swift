@@ -338,6 +338,7 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onSharesRead = { [weak self] in if let self { AgentPaneShareChanges.shared.watch(self) } }
         model.onCustomizationsMenuRequested = { [weak self] point in self?.popCustomizationsMenu(at: point) ?? false }
         model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
             self?.onNativeToolMenuRequested?(id, menuItemID)

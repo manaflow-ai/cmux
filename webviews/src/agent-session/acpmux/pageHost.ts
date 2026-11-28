@@ -16,6 +16,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
+import { shareChanged } from "./share/shareChanges";
 import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
@@ -146,6 +147,9 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
+    case "shareChanged":
+      // A chat's shares changed (share/shareChanges.ts): its open Share dialog reads them again.
+      return shareChanged(event.value);
     case "attentionTabs":
       // Keep a push that arrives before the Needs you header mounts.
       return setAttentionTabs(event.value);
