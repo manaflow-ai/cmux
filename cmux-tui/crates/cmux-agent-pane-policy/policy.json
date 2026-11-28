@@ -264,7 +264,7 @@
     "_acpmux/agent_home_resolve": {"params": ["sessionId", "accept", "drop"], "acpmux": []},
     "_acpmux/context": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"], "acpmux": []},
-    "_acpmux/ask_ledger": {"params": [], "acpmux": []},
+    "_acpmux/ask_ledger": {"params": ["related", "sessionId", "skip"], "acpmux": []},
     "_acpmux/team_audit": {"params": ["since", "until", "groupBy", "format"], "acpmux": []},
     "_acpmux/review_queue": {"params": ["localOnly", "limit"], "acpmux": []},
     "_acpmux/review_verdict": {"params": ["prUrl", "sessionId", "verdict", "comment"], "acpmux": []},

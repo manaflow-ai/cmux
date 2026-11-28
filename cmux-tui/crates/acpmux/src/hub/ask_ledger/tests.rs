@@ -178,3 +178,106 @@ fn six_thousand_asks_fold_once_and_read_in_constant_pages() {
     assert!(fold < std::time::Duration::from_secs(5), "fold took {fold:?}");
     assert!(read < std::time::Duration::from_millis(500), "a page took {read:?}");
 }
+
+fn related_ids(ledger: &AskLedger, text: &str, sid: Option<&str>) -> Vec<String> {
+    ledger.related(text, sid, None)["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["ask"]["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn ask_ledger_matcher_finds_a_reworded_repeat_and_ignores_unrelated_asks() {
+    let ledger = AskLedger::default();
+    ledger.record(
+        captured("a", "s1", 1, "make the sidebar collapse when the window is narrow"),
+        None,
+    );
+    ledger.record(captured("b", "s1", 2, "rename the billing page title to Plans"), None);
+    ledger.record(captured("c", "s2", 3, "upgrade the tokio dependency everywhere"), None);
+    let ids = related_ids(&ledger, "the sidebar should collapse on a narrow window", None);
+    assert_eq!(ids.first().map(String::as_str), Some("a"), "{ids:?}");
+    assert!(!ids.contains(&"c".to_string()), "unrelated ask above the floor: {ids:?}");
+    let reply = ledger.related("the sidebar should collapse on a narrow window", None, None);
+    let top = &reply["matches"][0];
+    for part in ["score", "cosine", "structure", "keyword"] {
+        assert!(top[part].is_number(), "{part} missing: {top}");
+    }
+    assert_eq!(top["ask"]["status"], "open", "the match carries the ask's folded row");
+    assert!(related_ids(&ledger, "zzqx wvvk", None).is_empty(), "nonsense matched");
+}
+
+#[test]
+fn ask_ledger_matcher_keeps_keyword_hits_for_rare_identifiers() {
+    let ledger = AskLedger::default();
+    ledger.record(captured("pr", "s1", 1, "why is #60862 still not merged"), None);
+    ledger.record(captured("prose", "s1", 2, "why is the merge still not done for that PR"), None);
+    let ids = related_ids(&ledger, "you forgot 60862", None);
+    assert_eq!(ids.first().map(String::as_str), Some("pr"), "{ids:?}");
+    let file = AskLedger::default();
+    file.record(captured("f", "s1", 1, "the bug in hub/ask_ledger/store.rs"), None);
+    file.record(captured("g", "s1", 2, "a bug in the hub store"), None);
+    let ids = related_ids(&file, "store.rs again", None);
+    assert_eq!(ids.first().map(String::as_str), Some("f"), "{ids:?}");
+}
+
+#[test]
+fn ask_ledger_matcher_prefers_the_same_session_and_skips_the_ask_itself() {
+    let ledger = AskLedger::default();
+    let now = crate::store::now_ms();
+    ledger.record(captured("other", "s2", now, "add a dark theme toggle"), None);
+    ledger.record(captured("mine", "s1", now, "add a dark theme toggle"), None);
+    let ids = related_ids(&ledger, "add a dark theme toggle", Some("s1"));
+    assert_eq!(ids, ["mine", "other"]);
+    let reply = ledger.related("add a dark theme toggle", Some("s1"), Some("mine"));
+    assert_eq!(reply["matches"].as_array().unwrap().len(), 1);
+    assert_eq!(reply["matches"][0]["ask"]["id"], "other");
+    // Newer wins a tie on words.
+    let ages = AskLedger::default();
+    ages.record(captured("old", "s", 0, "add a dark theme toggle"), None);
+    ages.record(captured("new", "s", now, "add a dark theme toggle"), None);
+    assert_eq!(related_ids(&ages, "add a dark theme toggle", None), ["new", "old"]);
+}
+
+#[test]
+fn ask_ledger_matcher_returns_at_most_top_and_survives_a_restart_and_a_purge() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = AskLedger::open(Some(dir.path().into()));
+    for n in 0..10 {
+        ledger.record(captured(&format!("x{n}"), "s", n, "fix the flaky login test"), None);
+    }
+    assert_eq!(related_ids(&ledger, "fix the flaky login test", None).len(), matcher::TOP);
+    ledger.flush();
+    ledger.close(std::time::Duration::from_secs(5));
+    let again = AskLedger::open(Some(dir.path().into()));
+    assert_eq!(
+        related_ids(&again, "flaky login test", None).len(),
+        matcher::TOP,
+        "index not refolded"
+    );
+    again.purge("s");
+    assert!(related_ids(&again, "fix the flaky login test", None).is_empty());
+}
+
+#[test]
+fn ask_ledger_matcher_stays_fast_over_seven_thousand_asks() {
+    let ledger = AskLedger::default();
+    let words = ["sidebar", "billing", "theme", "login", "merge", "daemon", "chat", "browser"];
+    for n in 0..7_000u64 {
+        let text = format!(
+            "ask {n}: change the {} and the {} near {}",
+            words[(n % 8) as usize],
+            words[(n / 8 % 8) as usize],
+            n * 7
+        );
+        ledger.record(captured(&format!("n{n}"), "s", n, &text), None);
+    }
+    let start = std::time::Instant::now();
+    let ids = related_ids(&ledger, "change the daemon and the chat near 35", None);
+    let took = start.elapsed();
+    assert!(!ids.is_empty());
+    // The RFD measured 10 ms per query over 6,647 records brute force; debug builds are slower.
+    assert!(took < std::time::Duration::from_millis(500), "one query took {took:?}");
+}

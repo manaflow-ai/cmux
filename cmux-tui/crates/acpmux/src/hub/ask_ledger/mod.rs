@@ -12,6 +12,7 @@
 //! the hub is built. A purge drops the chat's asks and rewrites the file without them, so the
 //! words leave the disk with the chat. A memory store keeps the events in memory only.
 
+mod matcher;
 mod store;
 
 use super::{Hub, Session};
@@ -68,6 +69,8 @@ pub(crate) enum Line {
 struct Ask {
     sid: String,
     events: Vec<(u64, String, Kind)>,
+    /// Its words as the matcher sees them, computed once when it is folded in.
+    index: matcher::Indexed,
 }
 
 impl Ask {
@@ -150,8 +153,13 @@ impl State {
                         known.events.push((ts, by, kind));
                     }
                 } else if matches!(kind, Kind::Captured { .. }) {
+                    let text = match &kind {
+                        Kind::Captured { row } => row.get("text").and_then(Value::as_str),
+                        _ => None,
+                    };
+                    let index = matcher::Indexed::of(text.unwrap_or_default());
                     self.order.push(ask.clone());
-                    self.asks.insert(ask, Ask { sid, events: vec![(ts, by, kind)] });
+                    self.asks.insert(ask, Ask { sid, events: vec![(ts, by, kind)], index });
                 }
             }
             Line::Purge { sid } => {
@@ -293,6 +301,37 @@ impl AskLedger {
             .filter_map(|id| state.asks.get(id).map(Ask::row))
             .collect();
         json!({"entries": entries})
+    }
+
+    /// The asks `text` most likely repeats or follows up (RFD 0010's matcher), best first, each
+    /// with its score's parts and the ask's row. Proposals only: nothing is linked or merged.
+    /// `session` is the chat the text is typed in; `skip` an ask that must not match itself.
+    pub(crate) fn related(&self, text: &str, session: Option<&str>, skip: Option<&str>) -> Value {
+        let state = self.lock();
+        let candidates = state.order.iter().filter_map(|id| {
+            let ask = state.asks.get(id)?;
+            Some(matcher::Candidate {
+                ask: id,
+                sid: &ask.sid,
+                ts: ask.events.first().map(|(ts, ..)| *ts).unwrap_or_default(),
+                index: &ask.index,
+            })
+        });
+        let matches: Vec<Value> =
+            matcher::related(text, session, crate::store::now_ms(), skip, candidates)
+                .into_iter()
+                .filter_map(|m| {
+                    let row = state.asks.get(&m.ask)?.row();
+                    Some(json!({
+                        "ask": row,
+                        "score": m.score,
+                        "cosine": m.cosine,
+                        "structure": m.structure,
+                        "keyword": m.keyword,
+                    }))
+                })
+                .collect();
+        json!({"matches": matches})
     }
 
     /// Shutdown: closes the writer's queue and waits up to `within` for it to write what it

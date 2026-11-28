@@ -300,6 +300,12 @@ pub(super) async fn route(
         if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
             return Err(RpcError::method_not_found(m));
         }
+        // `related`: the asks this text repeats or follows up (the matcher); else the newest page.
+        if let Some(text) = params.get("related").and_then(Value::as_str) {
+            let session = params.get("sessionId").and_then(Value::as_str);
+            let skip = params.get("skip").and_then(Value::as_str);
+            return Ok(hub.ask_ledger.related(text, session, skip));
+        }
         return Ok(hub.ask_ledger.page());
     }
     if m == crate::rpc::method::MUX_LEDGER {
