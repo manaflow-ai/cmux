@@ -176,17 +176,6 @@ jobs:
       # compare, and for high the comments, reviews and label events) draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out again on 2026-10-26).
       # A failed mint leaves GITHUB_TOKEN, and a refused read is graded again on GITHUB_TOKEN.
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
       - name: Mint the cmux-bot read token
         # Every run reads on cmux-bot's installation budget, so per-PR reads
         # stop draining the build controller's routing App (5067688 read 0
@@ -208,6 +197,19 @@ jobs:
           permission-pull-requests: read
           skip-token-revoke: true
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        # Only when the cmux-bot mint above gave no token: the spread action is the fallback mint's code, and
+        # checking it out on every run was 4 s of a ~25 s job (risk evidence ran ~9k times a day, 2026-11-27).
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.glaeda-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the glaeda-route token
         id: glaeda-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
