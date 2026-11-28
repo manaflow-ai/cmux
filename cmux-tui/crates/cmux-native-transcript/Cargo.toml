@@ -1,0 +1,15 @@
+[package]
+name = "cmux-native-transcript"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The read-only native transcript scene (RFD 0121 app-perf section 6, first PR): rows laid out once, a viewport of instance quads per frame, glyph atlas slots, rich-row texture prefetch, fling and the frame record. Pure: the macOS app owns the Metal layer and rasterizes (include/cmux_native_transcript.h)"
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "scene_frame"
+harness = false

@@ -42,6 +42,8 @@
 //! include/cmux_screenshots.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
+//! `native_transcript` is the read-only native transcript scene behind the
+//! debug flag (RFD 0121; cmux-native-transcript, include/cmux_native_transcript.h).
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 //! `sign_clone_sweep` removes the Chromium code-sign clones that cmux apps
@@ -112,6 +114,7 @@ pub use cmux_launch_record;
 pub use cmux_launch_shell::ffi as launch_shell;
 pub use cmux_layout_cache::ffi as layout_cache;
 pub use cmux_layout_reducer_ffi as layout_reducer;
+pub use cmux_native_transcript::ffi as native_transcript;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;

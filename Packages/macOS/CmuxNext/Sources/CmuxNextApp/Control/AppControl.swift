@@ -517,6 +517,10 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // Agent chat open: stages and the pane's surface per frame (Leo 2026-10-22, the black gap).
             DebugChatOpenTrace.method(services),
+            // RFD 0121: the native transcript window (read-only fixture) for transcript_fling.py.
+            .async("debug.native_transcript") { [weak services] call in
+                await services?.nativeTranscript.handle(call.params) ?? .null
+            }.withDeadline(.fixed(.seconds(60))),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }
