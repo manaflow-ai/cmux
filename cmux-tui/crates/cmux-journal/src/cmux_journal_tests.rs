@@ -114,6 +114,62 @@ fn records_round_trip_in_order_across_a_reopen() {
     assert_eq!(journal.append(7, Class::Ack, b"next"), Ok(51));
 }
 
+/// The bytes of the live segments in `storage`'s journal folder.
+fn segment_bytes(storage: &SimStorage) -> u64 {
+    let names = storage.list(&dir()).unwrap_or_else(|error| panic!("list: {error}"));
+    names
+        .iter()
+        .filter(|name| format::parse_segment_name(name).is_some())
+        .map(|name| {
+            storage
+                .open(&dir().join(name), crate::storage::OpenMode::Read)
+                .and_then(|file| file.size())
+                .unwrap_or_else(|error| panic!("size {name}: {error}"))
+        })
+        .sum()
+}
+
+/// A seal that the caller's compaction point covers hands over a folder holding no record: the
+/// next open reads one empty segment, not the history since the last rotation (the god-chat
+/// restart read 20.9 MiB of journal for a 20.9 MiB log, cmux-next-degenerate-lab).
+#[test]
+fn a_seal_covered_by_the_compaction_point_hands_over_no_record() {
+    let storage = SimStorage::new(41);
+    let (journal, _, _) = open(&storage);
+    for lsn in 1..=50 {
+        assert_eq!(journal.append(1, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    journal.wait_durable(50, WAIT).unwrap_or_else(|error| panic!("wait: {error}"));
+    assert!(segment_bytes(&storage) > 50 * 8);
+    let id = journal.journal_id();
+    assert_eq!(journal.seal_compacted(WAIT, 50), Ok(50));
+    assert_eq!(segment_bytes(&storage), u64::try_from(SEGMENT_HEADER_LEN).unwrap_or(u64::MAX));
+    drop(journal);
+    let (journal, report, seen) = open_at(&storage.restart(Crash::PowerLoss), quick(), 50)
+        .unwrap_or_else(|error| panic!("open: {error}"));
+    assert!(seen.is_empty());
+    assert_eq!(report.damage, Vec::new());
+    assert_eq!(report.next_lsn, 51);
+    assert_eq!(journal.journal_id(), id, "the empty hand-over keeps the journal's id");
+    assert_eq!(journal.append(1, Class::Ack, b"next"), Ok(51));
+}
+
+/// One that it does not cover keeps every segment: the next open replays the records after it.
+#[test]
+fn a_seal_past_the_compaction_point_keeps_the_records_after_it() {
+    let storage = SimStorage::new(42);
+    let (journal, _, _) = open(&storage);
+    for lsn in 1..=50 {
+        assert_eq!(journal.append(1, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    assert_eq!(journal.seal_compacted(WAIT, 30), Ok(50));
+    drop(journal);
+    let (_, report, seen) = open_at(&storage.restart(Crash::PowerLoss), quick(), 30)
+        .unwrap_or_else(|error| panic!("open: {error}"));
+    assert_eq!(lsns(&seen), (31..=50).collect::<Vec<_>>());
+    assert_eq!(report.damage, Vec::new());
+}
+
 #[test]
 fn replay_starts_after_the_compaction_point() {
     let storage = SimStorage::new(2);
