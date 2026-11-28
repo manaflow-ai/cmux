@@ -43,7 +43,7 @@ jobs:
     if: ${{ (inputs.only == '' || inputs.only == 'linux') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # pr-pipeline.yml's bound for the same job: every linux step runs here.
-    timeout-minutes: 1090
+    timeout-minutes: 1196
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -158,6 +158,13 @@ jobs:
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
           # The batch runs the full tier at the merged tip: the pull request's pr tier (#55022) leaves the rest to it.
           TIER: full
+          # guard-steps-reached (scripts/ci/guards_reached.sh) reads a red step's recorded base verdict from
+          # feat-cmux-next's push run instead of re-running it on the base, as pr-pipeline.yml's linux job (cmux#65119).
+          CI_GUARDS_REACHED_BASE_VERDICTS: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS || '0' }}
+          GH_TOKEN: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS == '1' && github.token || '' }}
+          # As pr-pipeline.yml's linux job (#65521): a pull request's job stops after a blocking red; the batch is no
+          # pull request, so it is 0 here and every step runs.
+          CI_RUN_FAIL_FAST: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_PR_PIPELINE_LINUX_FAIL_FAST) != '0' && steps.tooling-tests-base-red.outputs.base_red != 'true' && '1' || '0' }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
