@@ -5,7 +5,7 @@
 # HEAD's wall time, the peak RSS of the biggest child (rustc) and the rlib's sha256.
 #
 # usage: scripts/measure/acpmux-zthreads.sh BASE_SHA HEAD_SHA [N ...]   (default N: 1 4 8)
-# CI:    cmux-ci test --setup rust --timeout 150 -- 'scripts/measure/acpmux-zthreads.sh BASE HEAD 1 4 8'
+# CI:    cmux-ci test --setup rust --timeout 170 -- scripts/measure/acpmux-zthreads.sh BASE HEAD 1 4 8
 # Needs more memory than rustc's plain peak (about 15 GiB at -j6) times the thread factor.
 set -uo pipefail
 base=$1 head=$2
