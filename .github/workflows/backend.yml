@@ -963,6 +963,7 @@ jobs:
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase expand
       # Buildx for wrangler's container builds (see the preview job).
       - name: Set up Docker Buildx (wrangler container builds)
+        if: steps.source.outputs.deploy == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
@@ -1484,6 +1485,7 @@ jobs:
             --config wrangler.jsonc "${bases[@]}" --env development --wrangler ./node_modules/.bin/wrangler
       # Buildx for wrangler's container builds (see the preview job).
       - name: Set up Docker Buildx (wrangler container builds)
+        if: steps.source.outputs.deploy == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker

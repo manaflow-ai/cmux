@@ -213,12 +213,23 @@ describe("gitFetchRetrying (advance's fetch; run 45740936781 died on one \"Opera
 describe("backend deployment lock wiring", () => {
   const workflow = Bun.YAML.parse(readFileSync(new URL("../../../../.github/workflows/backend.yml", import.meta.url), "utf8")) as any
   it("separates trusted NEXT push runs while preserving complete environment locks", () => {
-    expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha)")
-    expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
+    // feat-cmux-next pushes coalesce into one group that never cancels (Leo, #57227: "coalesce feat-cmux-next push
+    // runs into one group"); a newer push waits for the running one, and each environment keeps its own complete lock.
+    expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push'")
+    expect(workflow.concurrency["cancel-in-progress"]).toContain("github.event_name == 'pull_request'")
     expect(workflow.jobs["vitess-development"].concurrency).toEqual({ group: "cmux-next-vitess-development", queue: "max", "cancel-in-progress": false })
     for (const environment of ["development", "staging"]) {
       const job = workflow.jobs[`deploy-${environment}`]
-      expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, queue: "max", "cancel-in-progress": false })
+      // A pull_request label event that runs nothing gets its own group (#54886); every push and run that deploys
+      // holds the complete environment lock (the suffix is empty outside those label events).
+      const { group, ...lock } = job.concurrency
+      expect(lock).toEqual({ queue: "max", "cancel-in-progress": false })
+      expect(group.startsWith(`cmux-next-deploy-${environment}`)).toBe(true)
+      const suffix = group.slice(`cmux-next-deploy-${environment}`.length)
+      if (suffix) {
+        expect(suffix).toStartWith("${{ github.event_name == 'pull_request' && ")
+        expect(suffix).toContain("format('-label-{0}', github.run_id) || '' }}")
+      }
       const guard = job.steps.findIndex((s: any) => s.id === "source")
       expect(guard).toBeGreaterThan(0)
       expect(job.steps[guard].env).toBeUndefined()
