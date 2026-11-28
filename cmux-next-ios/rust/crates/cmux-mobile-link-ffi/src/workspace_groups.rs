@@ -451,7 +451,7 @@ impl GroupEditLedger {
                     e.edit.sent_at = Some(at);
                 }
             }
-        })
+        });
     }
 
     /// The Mac accepted the edit at `at` seconds: refreshes keep it until one
@@ -468,13 +468,13 @@ impl GroupEditLedger {
                     l.edits.remove(&id);
                 }
             }
-        })
+        });
     }
 
     /// Forgets every edit (sign-in); generations keep counting, so a request
     /// from before never matches a later edit.
     pub fn remove_all(&self) {
-        self.with(|l| l.edits.clear())
+        self.with(|l| l.edits.clear());
     }
 
     /// The Mac refused the edit: the workspaces it was still the latest edit
