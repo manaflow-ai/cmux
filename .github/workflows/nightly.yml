@@ -6967,7 +6967,7 @@ jobs:
       left: ${{ steps.one-leave.outputs.superseded }}
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
-    env:
+    env: &one-env
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
@@ -7047,7 +7047,8 @@ jobs:
           IN_SLOT: 1
           GH_BUDGET_WAIT_MAX_SECONDS: "0"
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/resolve-leave-build-slot.sh"
-      - name: Point the signing steps at the build products
+      - &one-paths
+        name: Point the signing steps at the build products
         if: ${{ !env.LEFT_SLOT }}
         env:
           VARIANTS: ${{ needs.decide.outputs.variants }}
@@ -7061,27 +7062,32 @@ jobs:
       - *x1
       - *x2
       # Why: docs/ci/nightly-workflow-notes.md#note-15
-      - name: Read whether the kept Zig package cache is complete
+      - &one-zig-kept
+        name: Read whether the kept Zig package cache is complete
         id: zig-kept
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh check
-      - name: Cache Zig packages
+      - &one-zig-cache
+        name: Cache Zig packages
         if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true' && !env.LEFT_SLOT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with: *zig-cache
-      - name: Key the Ghostty CLI helper cache
+      - &one-helper-key
+        name: Key the Ghostty CLI helper cache
         id: helper-cache-key
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/helper-cache-key.sh
-      - name: Cache the Ghostty CLI helper
+      - &one-helper-cache
+        name: Cache the Ghostty CLI helper
         id: helper-cache
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Caches/cmux/ghostty-cli-helper
           key: ${{ steps.helper-cache-key.outputs.key }}
-      - name: Build Ghostty CLI helper
+      - &one-helper-build
+        name: Build Ghostty CLI helper
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
@@ -7095,7 +7101,8 @@ jobs:
         env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh mark
       - *x5
-      - name: Compile this build (no product reuse)
+      - &one-product
+        name: Compile this build (no product reuse)
         if: ${{ !env.LEFT_SLOT }}
         id: nightly-product
         run: echo hit=false >> "$GITHUB_OUTPUT"
@@ -7103,7 +7110,8 @@ jobs:
       - *x15
       - *x16
       # Why: docs/ci/nightly-workflow-notes.md#note-15
-      - name: Install compilation dependencies
+      - &one-compile-deps
+        name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/one-job-compile-deps.sh
       # Why: docs/ci/nightly-workflow-notes.md#note-17
@@ -7131,7 +7139,8 @@ jobs:
       - *x32
       - *x33
       # Why: docs/ci/nightly-workflow-notes.md#note-48
-      - name: Build nightly app (Release)
+      - &one-release-build
+        name: Build nightly app (Release)
         id: app-release-build
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         timeout-minutes: 60

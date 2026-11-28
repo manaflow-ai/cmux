@@ -34,8 +34,16 @@ the shared budget ran dry and the pick fell back (run 45575194160, 2026-11-25: "
 both builds took cmux15 and the second waited 10.5 min at the slot. Leo (ask-c0123d25e8): "why so long that they
 didnt publish either tho cuz it's been 5h". The script never fails the job.
 
+The hedge (nightly.yml's nightly-next-hedge): the OTHER signer Mac compiles the same tree, no signing, no publish,
+so a build that breaks on one Mac and not the other shows as a disagreement (the flake signal), not just a red
+nightly. Leo (ask-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES. YOU CANNOT. YOU
+MUST HAVE MORE." hedge() names that Mac only when it is wholly free: an online idle signer runner, no busy runner
+of that host (a tail job: pkg, dSYMs, deltas) and no nightly-next-one holding or waiting for it. Else no hedge
+(hedge_pin empty, with the reason): the hedge never takes a Mac from a tail job or a build. The fallback pick (the
+label alone) has no hedge either, since its host is not known.
+
 usage: nightly_next_signer_pick.py   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
-Writes host=..., pin=... and reason=... to $GITHUB_OUTPUT.
+Writes host=..., pin=..., reason=..., hedge_host=..., hedge_pin=... and hedge_reason=... to $GITHUB_OUTPUT.
 """
 from __future__ import annotations
 
@@ -203,6 +211,28 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
                                          "the signer label alone, as before")
 
 
+def hedge(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+          primary: str) -> tuple[str, str, str]:
+    """(host, pin, why) for the hedge compile on the signer Mac that is not primary, or ("", "", why) when that Mac
+    is not wholly free (a busy runner of the host, a nightly-next-one holding or waiting for it, or none online)."""
+    others = [host for host in HOSTS if host != primary]
+    if primary not in HOSTS or not others:
+        return "", "", f"no hedge: the primary pick {primary!r} is not one signer host"
+    host = others[0]
+    names = [str(r.get("name") or "") for r in runners]
+    found = signers(runners)[host]
+    if any(r.get("busy") for r in found):
+        return "", "", f"no hedge: {host} is busy (a tail job or a build holds it)"
+    if any(job.get("name") == ONE_JOB and job.get("status") in (*WAITING, "in_progress") and holder_host(job, names) == host
+           for job in holders):
+        return "", "", f"no hedge: a nightly-next-one holds or waits for {host}"
+    idle = sorted((r for r in found if r.get("status") == "online"), key=lambda r: str(r.get("name")))
+    if not idle:
+        return "", "", f"no hedge: no signer runner of {host} is online"
+    runner = str(idle[0].get("name"))
+    return host, pin_for(runner), f"`{runner}` on {host}: wholly free"
+
+
 def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
     """A reader that sends each request as the first token that still has budget: a 403 or 429 moves to the next."""
     remaining = [token for token in tokens if token]
@@ -226,6 +256,12 @@ def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
 def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
              now: dt.datetime | None = None) -> tuple[str, str, str]:
     """(host, pin, why); any failure is the fallback (cmux15, the label alone)."""
+    return evaluate_all(env, get, now)[0]
+
+
+def evaluate_all(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
+                 now: dt.datetime | None = None) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """((host, pin, why), (hedge_host, hedge_pin, hedge_why)); any failure is the fallback and no hedge."""
     try:
         repo = env.get("GITHUB_REPOSITORY", "")
         document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now,
@@ -253,24 +289,32 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
                 done.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
         except Exception as error:  # noqa: BLE001
             print(f"::warning title=nightly-next signer pick::last-outcome read failed ({type(error).__name__})")
-        return pick(runners, holders, failed_last(done, [str(r.get("name") or "") for r in runners]))
+        chosen = pick(runners, holders, failed_last(done, [str(r.get("name") or "") for r in runners]))
+        if chosen[1] == FALLBACK_PIN:
+            return chosen, ("", "", "no hedge: the pick fell back to the signer label alone")
+        return chosen, hedge(runners, holders, chosen[0])
     except Exception as error:  # noqa: BLE001 - never fail the job: the label alone is the routing before this
         why = f"pick failed ({type(error).__name__}: {str(error)[:200]}); the signer label alone, as before"
         print(f"::warning title=nightly-next signer pick::{why}")
-        return FALLBACK_HOST, FALLBACK_PIN, why
+        return (FALLBACK_HOST, FALLBACK_PIN, why), ("", "", "no hedge: the pick failed")
 
 
 def main(env: Mapping[str, str] = os.environ) -> int:
-    host, pin, why = evaluate(env)
+    (host, pin, why), (hedge_host, hedge_pin, hedge_why) = evaluate_all(env)
     if host not in HOSTS or not pin.startswith(f'["{SIGNER_LABEL}"'):
         host, pin, why = FALLBACK_HOST, FALLBACK_PIN, f"refused an unexpected pick ({host!r}, {pin!r})"
-    print(f"nightly-next signer: host={host} pin={pin} ({why})")
+        hedge_host, hedge_pin, hedge_why = "", "", "no hedge: the pick was refused"
+    if hedge_pin and (hedge_host not in HOSTS or hedge_host == host or not hedge_pin.startswith(f'["{SIGNER_LABEL}",')):
+        hedge_host, hedge_pin, hedge_why = "", "", f"no hedge: refused an unexpected hedge ({hedge_host!r}, {hedge_pin!r})"
+    print(f"nightly-next signer: host={host} pin={pin} ({why}); hedge: {hedge_host or 'none'} ({hedge_why})")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"host={host}\npin={pin}\nreason={why}\n")
+            handle.write(f"host={host}\npin={pin}\nreason={why}\n"
+                         f"hedge_host={hedge_host}\nhedge_pin={hedge_pin}\nhedge_reason={hedge_why}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
-            handle.write(f"\nnightly-next signer: `{host}`, runs-on `{pin}` ({why})\n")
+            handle.write(f"\nnightly-next signer: `{host}`, runs-on `{pin}` ({why})\n"
+                         f"\nnightly-next hedge compile: `{hedge_host or 'none'}` ({hedge_why})\n")
     return 0
 
 

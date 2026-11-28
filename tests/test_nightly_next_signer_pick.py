@@ -263,16 +263,67 @@ class EvaluateTests(unittest.TestCase):
         from unittest import mock
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch) / "out"
-            with mock.patch.object(pick_mod, "evaluate", return_value=("ultra1", '["glaeda-trusted-next-signing","glaeda-runner-ultra1-glaeda"]', "ok")):
+            ultra = '["glaeda-trusted-next-signing","glaeda-runner-ultra1-glaeda"]'
+            cmux = '["glaeda-trusted-next-signing","glaeda-runner-cmux15-glaeda"]'
+            with mock.patch.object(pick_mod, "evaluate_all", return_value=(("ultra1", ultra, "ok"), ("cmux15", cmux, "free"))):
                 pick_mod.main({"GITHUB_OUTPUT": str(out)})
             text = out.read_text()
             self.assertIn("host=ultra1\n", text)
-            self.assertIn('pin=["glaeda-trusted-next-signing","glaeda-runner-ultra1-glaeda"]\n', text)
+            self.assertIn(f"pin={ultra}\n", text)
+            self.assertIn(f"hedge_host=cmux15\nhedge_pin={cmux}\n", text)
             out.unlink()
-            with mock.patch.object(pick_mod, "evaluate", return_value=("evil", '["macos-26"]', "x")):
+            with mock.patch.object(pick_mod, "evaluate_all", return_value=(("evil", '["macos-26"]', "x"), ("cmux15", cmux, "free"))):
                 pick_mod.main({"GITHUB_OUTPUT": str(out)})
             self.assertIn(f"host=cmux15\npin={LABEL_ONLY}\n", out.read_text())
+            self.assertIn("hedge_host=\nhedge_pin=\n", out.read_text(), "a refused pick has no hedge")
+            out.unlink()
+            # A hedge on the primary's own host, or one that is not a signer pin, is refused.
+            for bad in (("ultra1", ultra, "same"), ("cmux15", '["macos-26"]', "wide")):
+                with mock.patch.object(pick_mod, "evaluate_all", return_value=(("ultra1", ultra, "ok"), bad)):
+                    pick_mod.main({"GITHUB_OUTPUT": str(out)})
+                self.assertIn("hedge_host=\nhedge_pin=\n", out.read_text(), bad)
+                out.unlink()
             del os
+
+
+class HedgeTests(unittest.TestCase):
+    """The hedge compile names the other signer only when it is wholly free; it never takes a Mac from a tail job."""
+
+    def test_a_free_other_signer_is_the_hedge(self):
+        host, pin, why = pick_mod.hedge(fleet(), [], "cmux15")
+        self.assertEqual(host, "ultra1", why)
+        self.assertEqual(json.loads(pin), [SIGNER, "glaeda-runner-ultra1-glaeda"])
+        self.assertEqual(pick_mod.hedge(fleet(), [], "ultra1")[0], "cmux15")
+
+    def test_a_tail_job_on_the_other_signer_means_no_hedge(self):
+        busy = fleet(ultra1_glaeda_1=runner("ultra1-glaeda-1", busy=True))
+        host, pin, why = pick_mod.hedge(busy, [], "cmux15")
+        self.assertEqual((host, pin), ("", ""))
+        self.assertIn("busy", why)
+
+    def test_a_build_waiting_for_the_other_signer_means_no_hedge(self):
+        waiting = one("queued", labels=(SIGNER, "glaeda-runner-ultra1-glaeda"))
+        self.assertEqual(pick_mod.hedge(fleet(), [waiting], "cmux15")[:2], ("", ""))
+
+    def test_an_offline_other_signer_means_no_hedge(self):
+        down = fleet(ultra1_glaeda=runner("ultra1-glaeda", status="offline"),
+                     ultra1_glaeda_1=runner("ultra1-glaeda-1", status="offline"))
+        self.assertEqual(pick_mod.hedge(down, [], "cmux15")[:2], ("", ""))
+
+    def test_evaluate_all_hedges_on_the_signer_the_pick_did_not_take(self):
+        (host, _, _), (hedge_host, hedge_pin, why) = pick_mod.evaluate_all(env(), get=Api([], {}), now=NOW)
+        self.assertEqual((host, hedge_host), ("cmux15", "ultra1"), why)
+        self.assertTrue(hedge_pin.startswith(f'["{SIGNER}",'))
+
+    def test_a_fallback_pick_has_no_hedge(self):
+        both = fleet(cmux15_glaeda=runner("cmux15-glaeda", busy=True), ultra1_glaeda=runner("ultra1-glaeda", busy=True))
+        holders = {1: [one("queued", labels=(SIGNER, "glaeda-runner-cmux15-glaeda")), one("in_progress", "cmux15-glaeda")],
+                   2: [one("queued", labels=(SIGNER, "glaeda-runner-ultra1-glaeda")), one("in_progress", "ultra1-glaeda")]}
+        (_, pin, _), (_, hedge_pin, why) = pick_mod.evaluate_all(
+            env(both), get=Api([loop_run(1), loop_run(2)], holders), now=NOW)
+        self.assertEqual((pin, hedge_pin), (LABEL_ONLY, ""), why)
+        _, (_, hedge_pin, _) = pick_mod.evaluate_all({}, get=Api([], {}), now=NOW)
+        self.assertEqual(hedge_pin, "")
 
 
 class WorkflowTests(unittest.TestCase):
