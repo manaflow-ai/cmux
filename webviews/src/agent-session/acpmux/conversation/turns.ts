@@ -2999,10 +2999,8 @@ function foldTailTurns(
   // started, done later) is a stretch of its own, and draws as it came under that fold, never a second
   // "Worked for" of the same id.
   const folded = new Set<string>();
-  // An ended stretch is shaped once, not again on every record of the turn running under it (`foldedTails`).
-  const key = foldedTailKey(expanded, endedBackground, clockOffset, agentFamily);
   const flush = (to: number) => {
-    out.push(...foldedTail(rows, from, to, key, folded));
+    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, folded));
     from = to;
   };
   // The background turn the stretch from `from` belongs to, once a row names it.
@@ -3022,88 +3020,6 @@ function foldTailTurns(
   // Only ended turns reach here (a running one's rows follow the last summary), so the rest folds too.
   if (from < rows.length) flush(rows.length);
   return out;
-}
-
-/// What a folded tail stretch's shape reads besides its rows: `shapedTurn`'s cache key, the same arms.
-interface FoldedTailKey {
-  expanded: Folds;
-  ended: string;
-  endedBackground: ReadonlySet<string>;
-  clockOffset: number;
-  agentFamily: string | undefined;
-  arms: TurnArms;
-}
-
-function foldedTailKey(
-  expanded: Folds,
-  endedBackground: ReadonlySet<string>,
-  clockOffset: number,
-  agentFamily: string | undefined,
-): FoldedTailKey {
-  const ended = [...endedBackground].join("\u0000");
-  return { expanded, ended, endedBackground, clockOffset, agentFamily, arms: turnArms(agentFamily) };
-}
-
-function sameFoldedTailKey(a: FoldedTailKey, b: FoldedTailKey): boolean {
-  return (
-    a.expanded === b.expanded &&
-    a.ended === b.ended &&
-    a.clockOffset === b.clockOffset &&
-    a.agentFamily === b.agentFamily &&
-    a.arms.foldStyle === b.arms.foldStyle &&
-    a.arms.repliesArm === b.arms.repliesArm &&
-    a.arms.steeredArm === b.arms.steeredArm &&
-    a.arms.messagesArm === b.arms.messagesArm &&
-    a.arms.lineArm === b.arms.lineArm &&
-    a.arms.compact === b.arms.compact
-  );
-}
-
-/// The ended tail stretches already shaped, by their first row. A running turn's tail of ended
-/// background turns was shaped again on every record of the turn (`foldTailTurns`, 5% of the pane's
-/// render under scripts/measure/replay-under-load.sh). A stretch of the same row objects, under the
-/// same key and fold state (`folded`), draws the same rows.
-const foldedTails = new WeakMap<
-  AcpmuxRow,
-  { stretch: AcpmuxRow[]; key: FoldedTailKey; background: string | undefined; wasFolded: boolean; rows: AcpmuxRow[] }
->();
-
-function foldedTail(
-  rows: readonly AcpmuxRow[],
-  from: number,
-  to: number,
-  key: FoldedTailKey,
-  folded: Set<string>,
-): AcpmuxRow[] {
-  const cached = foldedTails.get(rows[from]!);
-  if (
-    cached &&
-    cached.stretch.length === to - from &&
-    sameFoldedTailKey(cached.key, key) &&
-    (cached.background === undefined || folded.has(cached.background) === cached.wasFolded)
-  ) {
-    let same = true;
-    // ends: `at` rises by one each pass, to the stretch's length
-    for (let at = 0; same && at < cached.stretch.length; at += 1) same = cached.stretch[at] === rows[from + at];
-    if (same) {
-      if (cached.background !== undefined) folded.add(cached.background);
-      return cached.rows;
-    }
-  }
-  const stretch = rows.slice(from, to);
-  const background = tailBackground(stretch);
-  const wasFolded = background !== undefined && folded.has(background);
-  const shaped = foldTailTurn(stretch, key.expanded, key.endedBackground, key.clockOffset, key.agentFamily, folded);
-  // A stretch that folded (or found its turn folded) reads `folded`; one that did not, never does.
-  const reads = background !== undefined && folded.has(background);
-  foldedTails.set(stretch[0]!, { stretch, key, background: reads ? background : undefined, wasFolded, rows: shaped });
-  return shaped;
-}
-
-/// The background turn a tail stretch belongs to, as `foldTailTurn` reads it.
-function tailBackground(stretch: readonly AcpmuxRow[]): string | undefined {
-  const line = stretch.find((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
-  return line?.background?.id ?? stretch.find((row) => row.inBackground !== undefined)?.inBackground;
 }
 
 function foldTailTurn(
