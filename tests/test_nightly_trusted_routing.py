@@ -44,7 +44,8 @@ TAIL_CONTROL_JOBS = (
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
-NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
+# RFD 0185 phase 2 (#61222, Leo 2026-11-27: "unify labels to simplify things"): the slot's unified label.
+NIGHTLY_SLOT = 'mac-nightly'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
 # jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
