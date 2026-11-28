@@ -31,6 +31,14 @@ iOS-affecting head handed to land, then this check's own verdict, so a ruleset c
 A path the ios-kit step does not route (notes, verify/ evidence, agent scripts) plans nothing, as it takes no Mac in
 the full matrix either.
 
+A Rust file the ios-kit step routes (a .rs, a Cargo.toml, the Cargo.lock, under cmux-tui/ or cmux-next-ios/rust/)
+plans nothing unless it can change what Swift sees: the FFI reaches Swift only through its uniffi bindings and its C
+exports, so a .rs or Cargo.toml that names neither (`uniffi`, `extern "C"`, `no_mangle`) nor an Apple target
+(`target_os = "ios"`/`"macos"`, `target_vendor = "apple"`) at the head or the base compiles the same Swift surface;
+the Linux Rust steps compile and test it, and the full matrix after merge builds it for the phone. A build.rs, a
+file it cannot read, and any other file there still build. Before: 7 of 10 sampled Mac runs (11-27 22:00-23:30Z,
+693 Mac min in 1.5 h) were a Cargo.lock bump, a crate's internals or its tests.
+
     python3 scripts/ci/ios_fast_verdict.py plan [--paths-file FILE] [--root DIR]
     python3 scripts/ci/ios_fast_verdict.py status STATE DESCRIPTION   (env REPO, SHA, TOKENS; never fails the job)
 
@@ -43,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -74,6 +83,56 @@ MAX_WHY = 20
 STATUS_CONTEXT = "cmux/ios-fast"
 
 
+# Data only kit tests read (ConnectivityMatrixTests, TickHarnessCellsTests): their test target, no build of the app.
+TEST_DATA = {"cmux-next-ios/reliability-matrix/": "CmuxMobileLiveTests"}
+# The Rust trees the FFI compiles. A file there reaches Swift only through what RUST_SWIFT_MARK names.
+RUST_ROOTS = ("cmux-tui/", "cmux-next-ios/rust/")
+RUST_SWIFT_MARK = re.compile(r'uniffi|extern\s+"C"|no_mangle|target_os\s*=\s*"(?:ios|macos)"|target_vendor\s*=\s*"apple"')
+# The same pattern for `git grep -E` (POSIX ERE: no \s, no non-capturing group).
+RUST_SWIFT_MARK_ERE = 'uniffi|extern[[:space:]]+"C"|no_mangle|target_os[[:space:]]*=[[:space:]]*"(ios|macos)"|target_vendor[[:space:]]*=[[:space:]]*"apple"'
+
+
+def rust_inner(path: str) -> bool:
+    """Whether PATH is Rust the Swift surface can only see through RUST_SWIFT_MARK: a .rs (not a build.rs), a
+    Cargo.toml or a Cargo.lock under RUST_ROOTS."""
+    if not path.startswith(RUST_ROOTS):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    return name in ("Cargo.toml", "Cargo.lock") or (path.endswith(".rs") and name != "build.rs")
+
+
+def swift_facing(path: str, root: Path, base_marked: set[str] | frozenset[str] = frozenset()) -> bool:
+    """Whether rust_inner PATH can change the Swift surface: it names RUST_SWIFT_MARK at the head (ROOT) or the base
+    (BASE_MARKED, the paths whose base text does), or the head file is unreadable. A Cargo.lock never does: a uniffi
+    or target change comes with a Cargo.toml or a .rs that names it."""
+    if path.rsplit("/", 1)[-1] == "Cargo.lock":
+        return False
+    if path in base_marked:
+        return True
+    try:
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return True
+    return bool(RUST_SWIFT_MARK.search(text))
+
+
+def base_marked_paths(paths: list[str], base: str = "HEAD^1") -> set[str]:
+    """The rust_inner PATHS whose BASE text names RUST_SWIFT_MARK (one `git grep`): a removed uniffi export changes
+    the bindings though the head no longer names it. Unreadable is every one of them."""
+    rust = [p for p in paths if rust_inner(p) and not p.endswith("Cargo.lock")]
+    if not rust:
+        return set()
+    try:
+        out = subprocess.run(["git", "grep", "-l", "-z", "-E", RUST_SWIFT_MARK_ERE, base, "--", *rust],
+                             capture_output=True, text=True)
+    except OSError:
+        return set(rust)
+    if out.returncode not in (0, 1):
+        return set(rust)
+    prefix = base + ":"
+    return {p[len(prefix):] if p.startswith(prefix) else p for p in out.stdout.split("\0") if p}
+
+
 def kit_step(table: ci_steps.Table | None = None) -> ci_steps.Step:
     return (table or ci_steps.load()).steps["ios-kit"]
 
@@ -88,11 +147,12 @@ def routes_ios(step: ci_steps.Step, path: str) -> bool:
     return True
 
 
-def affects(paths: list[str], step: ci_steps.Step | None = None) -> bool:
+def affects(paths: list[str], step: ci_steps.Step | None = None, root: Path = ROOT) -> bool:
     """Whether any of PATHS is one this check builds (the router's instant-success test; plan()'s `run` without the
-    kit's test-target listing, which the router's sparse checkout does not have)."""
+    kit's test-target listing, which the router's sparse checkout does not have). A Rust file it cannot read affects."""
     step = step or kit_step()
-    return any(path in SELF or routes_ios(step, path) for path in paths)
+    return any(path in SELF or (routes_ios(step, path) and (not rust_inner(path) or swift_facing(path, root)))
+               for path in paths)
 
 
 def test_targets(root: Path) -> set[str]:
@@ -100,7 +160,8 @@ def test_targets(root: Path) -> set[str]:
     return {p.name for p in tests.iterdir() if p.is_dir()} if tests.is_dir() else set()
 
 
-def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None) -> dict:
+def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
+         base_marked: set[str] | frozenset[str] = frozenset()) -> dict:
     step = step or kit_step()
     have = test_targets(root)
     tests: set[str] = set()
@@ -115,7 +176,14 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
             continue
         if not routes_ios(step, path):
             continue
+        if rust_inner(path) and not swift_facing(path, root, base_marked):
+            continue
         proof = True
+        data = next((t for prefix, t in TEST_DATA.items() if path.startswith(prefix)), None)
+        if data and data in have:
+            tests.add(data)
+            why.append(f"{path}: {data} reads it")
+            continue
         if path.startswith(APP_PATHS):
             app = True
             why.append(f"{path}: app build")
@@ -231,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         result = {"run": False, "tests": [], "build": False, "app": False, "proof": False,
                   "why": ["no merge commit to diff: the full matrix runs"]}
     else:
-        result = plan(paths, Path(args.root))
+        result = plan(paths, Path(args.root), base_marked=base_marked_paths(paths) if not args.paths_file else set())
     print(json.dumps(result, indent=2))
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
