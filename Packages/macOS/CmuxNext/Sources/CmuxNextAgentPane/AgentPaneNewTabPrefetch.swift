@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextPages
+public import AppKit
+public import CmuxNextPages
 import CmuxNextWakeups
 
 /// Renders a parked New Tab page at exact split sizes on its one renderer. The App supplies
