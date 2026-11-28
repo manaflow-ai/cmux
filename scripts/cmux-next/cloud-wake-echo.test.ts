@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, pauseWithReconciliation, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -173,4 +173,17 @@ test("wake on intent: the key lands lead ms after the wake; before ready it wait
   expect(falseWakeCost([c]).p50).toBe(34000);
   expect(intentMarkdown([c, on], [1000])).toContain("| 1.00 | both | 1 | 1.45 | 1.45 | 0/1 |");
   expect(wakeEchoMarkdown([c, on], {})).toContain("Wake on intent");
+});
+
+test("restore splits into the start's answer and the wait after it; failed cycles and unanswered starts count nowhere", () => {
+  const ok = { ...cycle(0, true, { resumed: 4965, net_up: 5034, pty_attach: 5003, input: 5003, echo: 5007 }), answered_ms: 1626,
+    start_attempts: [{ sent_at_ms: 0, answered_at_ms: 1626, http_status: 200, machine_status: "starting", timing_ms: { vmapi: 1610, total: 1610 } }] };
+  expect(restoreParts(ok)).toEqual({ answer: 1626, after_answer: 3339, vmapi: 1610 });
+  const prov = { ...ok, start_attempts: [{ ...ok.start_attempts[0]!, timing_ms: { vmapi: 900, provider: 450 } }] };
+  expect(restoreParts(prov)).toMatchObject({ vmapi: 900, provider: 450 });
+  expect(restoreParts({ ...ok, ok: false })).toEqual({});
+  expect(restoreParts({ ...ok, answered_ms: null })).toEqual({});
+  const rows = restoreSplit([ok, cycle(1, false, {})]);
+  expect(rows.find((r) => r.part === "after_answer")).toMatchObject({ n: 1, p50: 3339 });
+  expect(rows.find((r) => r.part === "provider")).toMatchObject({ n: 0, p50: null });
 });

@@ -107,6 +107,40 @@ export function summarize(cycles: WakeCycle[]) {
 }
 
 /**
+ * Restore split (goal competitive-agent-computer-beyond, RFD 0167 row 3): restore is the start's answer plus the wait
+ * after it until the guest runs. Run 46000366770 (staging, n 13): answer p50 1.11 s, max 7.33 s; after it p50 3.34 s,
+ * max 136.79 s, so most of restore came after the platform had answered. `answer` is cloud.machine.start's wall time
+ * on the runner (with any retries), `vmapi` and `provider` its Server-Timing (the VM API call and the provider's own ms
+ * in it, absent when it did not say), and `after_answer` restore less answer: the provider's resume and the guest's
+ * first tick, which no platform stage times.
+ */
+export const RESTORE_PARTS = ["answer", "vmapi", "provider", "after_answer"] as const;
+export type RestorePart = (typeof RESTORE_PARTS)[number];
+export function restoreParts(c: Pick<WakeCycle, "ok" | "phases" | "answered_ms" | "start_attempts">): Partial<Record<RestorePart, number>> {
+  const out: Partial<Record<RestorePart, number>> = {};
+  if (!c.ok || typeof c.phases.restore !== "number" || c.answered_ms === null) return out;
+  out.answer = c.answered_ms;
+  out.after_answer = Math.max(0, c.phases.restore - c.answered_ms);
+  const last = c.start_attempts?.at(-1)?.timing_ms;
+  if (last && Number.isFinite(last.vmapi)) out.vmapi = last.vmapi;
+  if (last && Number.isFinite(last.provider)) out.provider = last.provider;
+  return out;
+}
+export function restoreSplit(cycles: WakeCycle[]) {
+  const parts = cycles.map(restoreParts);
+  return RESTORE_PARTS.map((part) => {
+    const xs = parts.map((p) => p[part]).filter((x): x is number => typeof x === "number");
+    return { part, n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95), max: xs.length ? Math.max(...xs) : null };
+  });
+}
+export function restoreSplitMarkdown(cycles: WakeCycle[]): string {
+  const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
+  const lines = ["### Restore split: the start's answer, then the wait until the guest runs", "", "| part | n | p50 | p95 | max |", "|---|---|---|---|---|"];
+  for (const r of restoreSplit(cycles)) lines.push(`| ${r.part} | ${r.n} | ${f(r.p50)} | ${f(r.p95)} | ${f(r.max)} |`);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
  * Wake on intent (cmux#55110, hq#21300): the app starts the wake at the person's intent (focus, a terminal shown, an
  * unlock) instead of at the first key, `lead` ms before that key. The hint changes when the start is sent, never the
  * wake itself, so each measured cycle gives its intent arm too, paired, with no extra machine: on a client-side timer
@@ -173,6 +207,7 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
+  lines.push("", restoreSplitMarkdown(cycles).trimEnd());
   lines.push("", intentMarkdown(cycles, INTENT_LEADS_MS).trimEnd());
   if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
