@@ -585,6 +585,8 @@ pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use peer_row::PeerRow;
 pub use person_hold::PromptTriager;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) mod ask_ledger;
+mod watch_match;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
@@ -671,36 +673,8 @@ pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
 
-/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
-/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
-pub const MAX_MATCH_BYTES: usize = 2 * 1024;
-
-/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
-/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
-/// bound.
-pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
-    match pattern {
-        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
-            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
-/// it was cut.
-pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
-    let Some(p) = pattern else { return false };
-    if p.len() <= MAX_MATCH_BYTES {
-        return false;
-    }
-    let mut end = MAX_MATCH_BYTES;
-    while !p.is_char_boundary(end) {
-        end -= 1;
-    }
-    p.truncate(end);
-    true
-}
+pub(crate) use watch_match::cap_match;
+pub use watch_match::{MAX_MATCH_BYTES, validate_match};
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -1230,6 +1204,8 @@ pub struct Hub {
     pub(crate) review_index: review_queue::Index,
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
+    /// Opt-in accepted human asks, bounded in memory (`ask_ledger.rs`).
+    pub(crate) ask_ledger: ask_ledger::AskLedger,
     pub shutdown: Notify,
     /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
     /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
@@ -1896,6 +1872,7 @@ impl Hub {
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
+            ask_ledger: ask_ledger::AskLedger::default(),
             shutdown: Notify::new(),
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
