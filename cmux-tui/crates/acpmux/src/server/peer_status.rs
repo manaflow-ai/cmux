@@ -88,7 +88,7 @@ pub(crate) async fn host_health_with(
     if let Some(age) = pressure_age_ms() {
         v.set("pressureAgeMs", json!(age));
     }
-    let fraction = pressure["available_ram_fraction"].as_f64();
+    let fraction = pressure.get("available_ram_fraction").and_then(Value::as_f64);
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
         if let Some(f) = fraction {
@@ -242,7 +242,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
         "liveSessions",
     ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
-            row[key] = v.clone();
+            row.set(key, v.clone());
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
@@ -263,7 +263,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             if let Some(fields) = health.as_object() {
                 for (k, v) in fields {
-                    row[k.as_str()] = v.clone();
+                    row.set(k.as_str(), v.clone());
                 }
             }
             row.set("name", json!(name));
