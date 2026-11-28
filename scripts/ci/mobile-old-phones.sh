@@ -100,7 +100,10 @@ for p in "${phones[@]}"; do
   [[ -x "$cache/dial-$sha" ]] && continue
   src="${OLD_PHONES_TREES:-/nonexistent}/$sha"
   if [[ ! -d "$src" ]]; then
-    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q --no-tags --depth=1 origin "$sha"
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow (tests/test_ci_no_shallow_dev_fetch.py).
+    depth=()
+    [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
     git -C "$repo" worktree add -q --detach "$work/phone-$sha" "$sha"
     src="$work/phone-$sha"
   fi

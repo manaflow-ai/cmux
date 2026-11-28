@@ -148,6 +148,10 @@ public final class MacScreenPages {
     var defaultPreferences = ScreenPreferences()
     /// `remoteDesktop.clipboard`: whether a session syncs clipboard text (default: own devices only).
     public var clipboardSetting: RemoteDesktopSettings.Clipboard = .ownDevicesOnly
+    /// Where each viewer session's report goes when it ends (goal screen-share-fast): the app passes
+    /// its crash reporting at construction, which sends only while anonymous telemetry is on. The
+    /// default drops it.
+    public private(set) var sessionReports = RemoteRdSessionReports()
     /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
     /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
     public var maxFpsCap: Int? {
@@ -205,6 +209,12 @@ public final class MacScreenPages {
             // task-owner: one devices read after a finished run.
             Task { await hub.refreshDevices() }
         }
+    }
+
+    /// The app's pages: as above, with each ended viewer session's report going to `sessionReports`.
+    public convenience init(store: MacScreenStore, work: BackgroundWork, sessionReports: RemoteRdSessionReports) {
+        self.init(store: store, work: work)
+        self.sessionReports = sessionReports
     }
 
     /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
@@ -623,6 +633,7 @@ public final class MacScreenPages {
         pane.session?.encodeProfile = encodeProfile
         pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
         pane.session?.maxFpsCap = maxFpsCap
+        pane.session?.sessionReports = sessionReports
         pane.session?.offersSharpText = sharpLinuxText
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
