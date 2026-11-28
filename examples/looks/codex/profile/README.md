@@ -75,7 +75,7 @@ cmux's own values back.
 | A fold opening or closing | 0.24 s on `cubic-bezier(0.22, 1, 0.36, 1)` (disclosure rows) | `--cmux-motion-settle: 240ms`, `--cmux-ease-settle` |
 | A selection that travels | the snappy `linear()` spring (20 stops) | `--cmux-ease-spring` |
 | Working line shine | one band half the line wide, -100% to 250% in 2 s, `steps(48)` | `agentPane.display.thinking.shimmer: continuous`, `shimmerPeriod: 2000`, `shimmerBand: 0`. Gap: cmux's band eases, the reference steps |
-| Streaming text reveal | each new word fades in over 0.7 s on `cubic-bezier(0.37, 0.55, 0.86, 0.88)`, no stagger, while live; 0.15 s with a 24 ms stagger (at most 0.8 s) otherwise | cmux's word fade (`agentPane.display.streaming: words`), 120 ms. Gap: no token for its length |
+| Streaming text reveal | each new word fades in over 0.7 s on `cubic-bezier(0.37, 0.55, 0.86, 0.88)`, no stagger, while live; 0.15 s with a 24 ms stagger (at most 0.8 s) otherwise | `--cmux-motion-stream: 600ms` (the look bound; 0.1 s short of the reference), `--cmux-ease-stream` on its curve |
 | Send button morph (send, stop, voice) | 0.48 to 0.52 s keyframes, the stop square turning 90 degrees | Gap: cmux's send button swaps its icon |
 | Sent prompt and the thread's rise | a 0.5 s spring, no bounce | left to `../send-parity` (the send placement is still being chosen) |
 | Sidebar reorder on new activity | not found in the build (its list moves run in script) | cmux's sidebar motion at fast speed |
@@ -96,8 +96,8 @@ These are the places where the public API could not express the reference app:
   workspace switcher header over the sidebar.
 - **Settings nav and section rows.** `sidebar.nav` styles the sidebar only; no setting restyles the Settings window's
   nav or rows (the `settingsSections` look is not a key), so the Settings gap stays.
-- **Motion left.** The streaming fade's length, the send button's icon morph and the stepped shine
-  have no token yet (Motion, above).
+- **Motion left.** The send button's icon morph and the stepped shine have no token yet, and the
+  streaming fade stops at the 600 ms look bound (Motion, above).
 - **No "next chat that needs you" action** that walks every waiting chat; Option-Command-A jumps to the
   latest unread.
 - **Model and effort as separate chips.** Effort is inside the model menu. `cmux.composer.chip/1` could draw an effort chip, but it would need its own customize app (see the first gap).

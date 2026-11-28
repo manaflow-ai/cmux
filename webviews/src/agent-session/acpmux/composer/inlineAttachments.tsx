@@ -324,11 +324,13 @@ export function useInlineAttachments(options: Options) {
     /// the composer"). One whose node a value from outside took away (a command's clear) is the strip's
     /// again.
     inText(markdown: string): ReadonlySet<string> {
+      // The field's own nodes are where the person sees each attachment: every known one with a node
+      // is in the text, whether or not the markdown last read back has its token yet. Leo,
+      // 2026-11-27, inline view: "did we fix that inline + top isn't the thing that gets displayed
+      // when you select inline?" A pasted image whose placeholder had turned into its chip, read
+      // from a value without its token, also drew in the row over the text.
       const ids = new Set(inlineTokenIds(markdown, known));
-      if (placed.current.size) {
-        const nodes = new Set(live.current.field.current?.inlineIds() ?? []);
-        for (const id of placed.current) if (nodes.has(id)) ids.add(id);
-      }
+      for (const id of live.current.field.current?.inlineIds() ?? []) if (known(id)) ids.add(id);
       return ids;
     },
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
