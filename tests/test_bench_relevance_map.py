@@ -83,6 +83,21 @@ class RelevanceIndexTest(unittest.TestCase):
             bad = [p for p in paths if not same(self.index.match(p), self.scan.match(p))]
             self.assertFalse(bad[:10], f"seed {seed}: the prefix index and the scan disagree")
 
+    def test_matcher_and_suffix_agree_with_the_regex(self):
+        """The index's shortcuts (a bare path matched by prefix, a literal-suffix compare before the regex) against
+        pattern_of's regex, on globs and paths drawn from the characters that decide them: `**/` matching nothing,
+        `[` taken literally, a bare folder against its sibling `a/bc`."""
+        rng = random.Random(11)
+        globs = ["**/Cargo.toml", "a/b", "a/b/", "**/*.rs", "a/*/c", "x[1]", "a/**", "?b", "**"]
+        globs += ["".join(rng.choice(["a", "b", "/", "*", "**", "?", ".rs", "[", "**/", "Cargo.toml"])
+                          for _ in range(rng.randint(1, 5))) for _ in range(600)]
+        paths = ["Cargo.toml", "a/Cargo.toml", "x.rs", "a/b", "a/bc", "a/b/c", "x[1]", "ab"]
+        paths += ["".join(rng.choice(["a", "b", "/", "x", ".rs", "Cargo.toml", "[", "."])
+                          for _ in range(rng.randint(1, 6))) for _ in range(300)]
+        bad = [(g, p) for g in globs for p in paths
+               if bool(re.match(rel.pattern_of(g), p)) != (p.endswith(rel.literal_suffix(g)) and bool(rel.matcher(g).match(p)))]
+        self.assertFalse(bad[:10], "the index's matcher or suffix compare disagrees with the glob's regex")
+
     def test_specificity_and_bare_paths(self):
         rules = rel.parse('''
 [[area]]
@@ -254,6 +269,24 @@ class RelevanceMapFileTest(unittest.TestCase):
         if (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar").is_dir():
             self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
                              "swift:CmuxNextSidebar")
+
+    def test_every_tracked_file_is_mapped(self):
+        # Advisory job 141105799487 (run 46185961880): "default:cmux-next-ios has no mapping"; repo-wide 4,441 of
+        # 78,494 tracked files fell back to a default (cmux-next-ios 2,935, Resources 690, ios 216, art 179, ...).
+        # Every top-level folder now has second-level units and a top-level unit, and repo-root files have one.
+        index = rel.load()
+        unmapped = [f for f in tracked() if not index.match(f).mapped]
+        self.assertEqual(unmapped[:20], [], f"{len(unmapped)} tracked files fall back to a default")
+        self.assertEqual(index.match("README.md").unit.name, "(repo root)")
+        if any(f.startswith("cmux-next-ios/verify/") for f in tracked()):
+            self.assertEqual(index.match("cmux-next-ios/verify/ACCEPTANCE.md").unit.name, "cmux-next-ios:verify")
+
+    def test_units_do_not_depend_on_a_sparse_checkout(self):
+        # A folder hidden by a sparse checkout (cmux-next-ios/verify/ on lane checkouts) still gets its unit: the
+        # folder list comes from git ls-files, not the disk.
+        units = rel.generate_units(ROOT, ["zz-not-on-disk/sub/a.txt", "zz-not-on-disk/b.txt", "root.txt"])
+        names = {u["name"] for u in units}
+        self.assertLessEqual({"zz-not-on-disk:sub", "zz-not-on-disk:(top level)", "(repo root)"}, names)
 
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
