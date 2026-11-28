@@ -6,7 +6,11 @@
 // (#abd8ff light, #3f638b dark) whatever the theme was.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../src/appearance";
+import { importWithDom } from "./support/importWithDom";
+
+const { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } = await importWithDom(
+  () => import("../src/appearance"),
+);
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
 
