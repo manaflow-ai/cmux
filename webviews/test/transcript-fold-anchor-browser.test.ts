@@ -715,7 +715,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         await probe(page, opening && one.held ? one.held : "[data-toggle]");
         const watched = await clickAndWatch(page, 450, at);
         expect({ opening, held: watched.moved <= 1 }).toEqual({ opening, held: true });
-        expect({ opening, stacked: Math.min(watched.stacked, 2) }).toEqual({ opening, stacked: 1 });
+        // Show more plays nothing as it opens: the bubble takes its height in one frame (#60630,
+        // transcript-motion-model rule 7); every other open and close plays one animation per element.
+        const plays = opening && one.held ? 0 : 1;
+        expect({ opening, stacked: Math.min(watched.stacked, 2) }).toEqual({ opening, stacked: plays });
         await settle(page);
         await mark();
         expect(await page.locator("[data-toggle]").getAttribute("aria-expanded")).toBe(String(opening));
