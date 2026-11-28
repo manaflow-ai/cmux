@@ -8,6 +8,11 @@
 // is decided in Rust (`cmux-autocloud-status`); this file only draws it, from the same fixtures file the
 // Rust test reads.
 import { useState } from "react";
+import { Button } from "../ui/Button";
+import { Popover as UiPopover } from "../ui/Popover";
+import { Switch } from "../ui/Switch";
+import { Toggle, ToggleGroup } from "../ui/Toggle";
+import { Tooltip } from "../ui/Tooltip";
 import "./AutoCloudStatus.css";
 import fixtures from "./autocloudStatus.fixtures.json";
 
@@ -75,7 +80,7 @@ function Avatar({ who }: { who: Here }) {
       className="acs-avatar"
       data-kind={who.kind}
       style={{ "--acs-hue": hue(who.name) } as React.CSSProperties}
-      title={who.name}
+      aria-label={who.name}
     >
       {who.kind === "agent" ? "✳" : who.name[0]}
     </span>
@@ -144,7 +149,19 @@ function Mark({ f, badge }: { f: Fixture; badge: boolean }) {
   );
 }
 
-function Popover({ f, onToggle, enabled }: { f: Fixture; onToggle: () => void; enabled: boolean }) {
+function Popover({
+  f,
+  onToggle,
+  enabled,
+  anchor,
+  onClose,
+}: {
+  f: Fixture;
+  onToggle: () => void;
+  enabled: boolean;
+  anchor: HTMLElement | null;
+  onClose: () => void;
+}) {
   const s = f.status;
   const text = label(f);
   const cloudLine =
@@ -162,12 +179,21 @@ function Popover({ f, onToggle, enabled }: { f: Fixture; onToggle: () => void; e
         ? `Syncing ${s.sync.changes} change${s.sync.changes === 1 ? "" : "s"}`
         : `Offline, ${s.sync.pending} edit${s.sync.pending === 1 ? "" : "s"} queued`;
   return (
-    <div className="acs-popover" role="dialog" aria-label="AutoCloud">
+    <UiPopover
+      open={anchor !== null}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      anchor={anchor}
+      label="AutoCloud"
+      side="top"
+      align="start"
+      initialFocus={false}
+      className="acs-popover"
+    >
       <header className="acs-pop-head">
         <span className="acs-pop-title">AutoCloud</span>
-        <button type="button" role="switch" aria-checked={enabled} className="acs-switch" onClick={onToggle}>
-          <i />
-        </button>
+        <Switch size="sm" className="acs-switch" aria-label="AutoCloud" checked={enabled} onCheckedChange={onToggle} />
       </header>
       <p className="acs-pop-lede">
         {enabled ? text.detail : "Turn on to start every chat instantly and warm a cloud machine behind it."}
@@ -204,7 +230,7 @@ function Popover({ f, onToggle, enabled }: { f: Fixture; onToggle: () => void; e
         <span>Open cloud chat</span>
         <span>AutoCloud settings</span>
       </footer>
-    </div>
+    </UiPopover>
   );
 }
 
@@ -217,7 +243,9 @@ function Footer({
   toggleOpen,
   enabled,
   onToggleEnabled,
+  footerRef,
 }: {
+  footerRef: (el: HTMLDivElement | null) => void;
   design: AutoCloudDesign;
   f: Fixture;
   spaces: boolean;
@@ -232,57 +260,62 @@ function Footer({
     switch (design) {
       case "glyph":
         return (
-          <button
-            type="button"
-            className="acs-btn"
-            aria-label={t.title}
-            title={t.title}
-            onClick={toggleOpen}
-            data-open={open || undefined}
-          >
-            <Mark f={f} badge />
-          </button>
+          <Tooltip label={t.title} side="top" disabled={open}>
+            <Button
+              variant="ghost"
+              icon
+              className="acs-btn"
+              aria-label={t.title}
+              onClick={toggleOpen}
+              data-open={open || undefined}
+            >
+              <Mark f={f} badge />
+            </Button>
+          </Tooltip>
         );
       case "pill":
         return (
-          <button
-            type="button"
-            className="acs-pill"
-            aria-label={t.title}
-            title={t.title}
-            onClick={toggleOpen}
-            data-open={open || undefined}
-            data-tone={f.expect.tone}
-            data-headline={f.expect.headline}
-          >
-            <span className="acs-pill-dot" />
-            {here.length > 0 ? <Stack here={here} max={3} /> : <Glyph headline={f.expect.headline} />}
-            {f.expect.pending > 0 && <span className="acs-pill-count">{f.expect.pending}</span>}
-          </button>
+          <Tooltip label={t.title} side="top" disabled={open}>
+            <Button
+              variant="subtle"
+              size="sm"
+              className="acs-pill"
+              aria-label={t.title}
+              onClick={toggleOpen}
+              data-open={open || undefined}
+              data-tone={f.expect.tone}
+              data-headline={f.expect.headline}
+            >
+              <span className="acs-pill-dot" />
+              {here.length > 0 ? <Stack here={here} max={3} /> : <Glyph headline={f.expect.headline} />}
+              {f.expect.pending > 0 && <span className="acs-pill-count">{f.expect.pending}</span>}
+            </Button>
+          </Tooltip>
         );
       case "split":
         return (
           <span className="acs-split">
-            <button
-              type="button"
-              className="acs-btn"
-              aria-pressed={enabled}
-              aria-label={enabled ? "Turn AutoCloud off" : "Turn AutoCloud on"}
-              title={enabled ? `${t.title}. Click to turn off` : "Turn AutoCloud on"}
-              onClick={onToggleEnabled}
-            >
-              <Mark f={f} badge={false} />
-            </button>
+            <Tooltip label={enabled ? `${t.title}. Click to turn off` : "Turn AutoCloud on"} side="top">
+              <Toggle
+                icon
+                className="acs-btn"
+                pressed={enabled}
+                aria-label={enabled ? "Turn AutoCloud off" : "Turn AutoCloud on"}
+                onPressedChange={onToggleEnabled}
+              >
+                <Mark f={f} badge={false} />
+              </Toggle>
+            </Tooltip>
             {enabled && here.length > 0 && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 className="acs-people"
                 aria-label={`${here.length} here`}
                 onClick={toggleOpen}
                 data-open={open || undefined}
               >
                 <Stack here={here} max={3} />
-              </button>
+              </Button>
             )}
             {enabled && f.expect.pending > 0 && (
               <span className="acs-split-count" data-tone={f.expect.tone}>
@@ -293,21 +326,23 @@ function Footer({
         );
       case "strip":
         return (
-          <button
-            type="button"
-            className="acs-btn"
-            aria-label={t.title}
-            title={t.title}
-            onClick={toggleOpen}
-            data-open={open || undefined}
-          >
-            <Mark f={f} badge={false} />
-          </button>
+          <Tooltip label={t.title} side="top" disabled={open}>
+            <Button
+              variant="ghost"
+              icon
+              className="acs-btn"
+              aria-label={t.title}
+              onClick={toggleOpen}
+              data-open={open || undefined}
+            >
+              <Mark f={f} badge={false} />
+            </Button>
+          </Tooltip>
         );
     }
   })();
   return (
-    <div className="acs-footer">
+    <div className="acs-footer" ref={footerRef}>
       <span className="acs-account">L</span>
       <span className="acs-slot">{slot}</span>
       {spaces && (
@@ -334,22 +369,24 @@ function Strip({ f, onClick }: { f: Fixture; onClick: () => void }) {
   const t = label(f);
   if (f.expect.tone === "quiet" && f.status.here.length === 0) return null;
   return (
-    <button
-      type="button"
-      className="acs-strip"
-      data-tone={f.expect.tone}
-      data-headline={f.expect.headline}
-      onClick={onClick}
-    >
-      <span className="acs-strip-mark">
-        <Mark f={f} badge={false} />
-      </span>
-      <span className="acs-strip-text">
-        <b>{f.expect.tone === "quiet" ? `${f.status.here.length} here` : t.title}</b>
-        <small>{f.expect.tone === "quiet" ? f.status.here.map((w) => w.name).join(", ") : t.detail}</small>
-      </span>
-      {f.status.here.length > 0 && <Stack here={f.status.here} max={2} />}
-    </button>
+    <div className="acs-strip-host">
+      <Button
+        variant="subtle"
+        className="acs-strip"
+        data-tone={f.expect.tone}
+        data-headline={f.expect.headline}
+        onClick={onClick}
+      >
+        <span className="acs-strip-mark">
+          <Mark f={f} badge={false} />
+        </span>
+        <span className="acs-strip-text">
+          <b>{f.expect.tone === "quiet" ? `${f.status.here.length} here` : t.title}</b>
+          <small>{f.expect.tone === "quiet" ? f.status.here.map((w) => w.name).join(", ") : t.detail}</small>
+        </span>
+        {f.status.here.length > 0 && <Stack here={f.status.here} max={2} />}
+      </Button>
+    </div>
   );
 }
 
@@ -368,6 +405,8 @@ export function AutoCloudStatusDesigns({
   // AutoCloud off shows the off state whatever the feed says; turned on from off, it starts from synced.
   const shown: Fixture = enabled ? (picked.status.cloud === "off" ? byId("synced") : picked) : byId("off");
   const toggleEnabled = () => setEnabled((v) => !v);
+  // The popover opens from the footer row (its left edge), above it; the matrix's cells draw none.
+  const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   return (
     <div className="acs-root" data-design={design}>
       <div className="acs-sidebar" data-footer-only={footerOnly || undefined}>
@@ -389,25 +428,32 @@ export function AutoCloudStatusDesigns({
           toggleOpen={() => setOpen((v) => !v)}
           enabled={enabled}
           onToggleEnabled={toggleEnabled}
+          footerRef={setFooter}
         />
-        {isOpen && <Popover f={shown} enabled={enabled} onToggle={toggleEnabled} />}
+        {isOpen && !footerOnly && (
+          <Popover f={shown} enabled={enabled} onToggle={toggleEnabled} anchor={footer} onClose={() => setOpen(false)} />
+        )}
       </div>
       {simulate && (
-        <div className="acs-sim" role="group" aria-label="Simulate a state">
+        <ToggleGroup
+          className="acs-sim"
+          variant="outline"
+          size="sm"
+          aria-label="Simulate a state"
+          value={[current]}
+          onValueChange={(next) => {
+            const id = next[0];
+            if (!id) return;
+            setCurrent(id);
+            setEnabled(byId(id).status.cloud !== "off");
+          }}
+        >
           {all.map((x) => (
-            <button
-              key={x.id}
-              type="button"
-              data-on={x.id === current || undefined}
-              onClick={() => {
-                setCurrent(x.id);
-                setEnabled(x.status.cloud !== "off");
-              }}
-            >
+            <Toggle key={x.id} value={x.id}>
               {x.id}
-            </button>
+            </Toggle>
           ))}
-        </div>
+        </ToggleGroup>
       )}
     </div>
   );
