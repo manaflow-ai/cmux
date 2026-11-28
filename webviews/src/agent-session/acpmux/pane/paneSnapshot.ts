@@ -924,7 +924,6 @@ export function paneSnapshotEffect({
   /// another chat (paneSnapshotLane.ts), or the live line ran ahead of a pass that drew the pane's
   /// older rows (`urgent`, liveCallLine.ts `flush`).
   const redrawPane = (next: AcpmuxSnapshot, urgent: boolean) => {
-    { const v = ((globalThis as any).__vfp ??= {}); const k = urgent ? "redrawUrgent" : "redrawCall"; v[k] = (v[k] ?? 0) + 1; }
     streamingRow.clear();
     liveSummary.clear();
     toolOutputEpoch.current = liveToolOutput.redraw();
@@ -1370,7 +1369,6 @@ export function paneSnapshotEffect({
           }
           // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
           // the composer and Session Info keep the snapshot they drew.
-          { const v = ((globalThis as any).__vfp ??= {}); v.received = (v.received ?? 0) + 1; }
           const drawn = drawnSnapshot.current;
           const received = receivedSnapshot.current;
           receivedSnapshot.current = next;
