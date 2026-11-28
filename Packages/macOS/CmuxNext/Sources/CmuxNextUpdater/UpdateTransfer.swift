@@ -62,7 +62,9 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
         // a Double fraction floored under-reads an exact one (29 of 50 is 57.999…%).
         // The product is 128-bit (`multipliedFullWidth`), so the floor is exact at any size.
         let percentage = expected.dividingFullWidth(min(received, expected).multipliedFullWidth(by: 100)).quotient
-        return UpdaterStrings.downloadedOf(got, total, Self.percentText(Int(percentage)))
+        // The percent pads after itself, not before: a leading pad left a wide hole after the "·"
+        // ("151.1 MB of 258.0 MB ·   58%"; Lawrence 2026-11-26: "think about alignment and spacing").
+        return UpdaterStrings.downloadedOf(got, total, Self.trailingPercentText(Int(percentage)))
     }
 
     /// `whole` percent (0...100) as "42%", padded with figure spaces to "100%"'s width, so a percent that counts
@@ -72,6 +74,14 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
     public static func percentText(_ whole: Int) -> String {
         let style = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
         return padded((Double(min(100, max(0, whole))) / 100).formatted(style), toWidthOf: 1.0.formatted(style))
+    }
+
+    /// `whole` percent as "58%" padded with figure spaces AFTER it to "100%"'s width: the line keeps its width
+    /// while it counts and the percent sits right after its separator.
+    static func trailingPercentText(_ whole: Int) -> String {
+        let style = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
+        let text = (Double(min(100, max(0, whole))) / 100).formatted(style), reference = 1.0.formatted(style)
+        return text + String(repeating: "\u{2007}", count: max(0, reference.count - text.count))
     }
 
     /// `fraction` (0...1) floored to whole percent, as ``percentText(_:)`` reads it.
