@@ -202,6 +202,16 @@ final class EventLog: @unchecked Sendable {
         #expect(connector.count.value == 1)
     }
 
+    /// URLSession fails a WebSocket receive idle past `timeoutIntervalForRequest`; between pings the
+    /// hub's pong is the only frame, so the socket's session must outlast the ping (#54449 went to 60 s
+    /// while the shared REST transport kept 30 s, and every socket timed out between pings).
+    @Test func theSocketSessionOutlastsThePingInterval() {
+        let timeout = URLSessionDeviceHubConnector.transport.configuration.timeoutIntervalForRequest
+        let ping = TimeInterval(DeviceHubSocket.defaultPingInterval.components.seconds)
+        #expect(timeout > ping)
+        #expect(timeout == TimeInterval(URLSessionDeviceHubConnector.idleTimeout.components.seconds))
+    }
+
     @Test func onlyTheReplacedRemovedAndSignedOutCloseCodesAreTerminal() {
         #expect(DeviceHubSocket.terminalState(closeCode: 4000) == .replaced)
         #expect(DeviceHubSocket.terminalState(closeCode: 4001) == .removed)

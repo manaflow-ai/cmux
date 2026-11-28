@@ -21,7 +21,22 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
     public let client: DeviceHubClient
     let session: URLSession
 
-    public init(client: DeviceHubClient, session: URLSession = DeviceHubClient.transport) {
+    /// The socket's own session. URLSession fails a WebSocket receive that sees no frame within
+    /// `timeoutIntervalForRequest` ("The request timed out"), and between pings the only frame is the
+    /// hub's pong, so this bound must outlast the ping interval with room for a slow pong. The REST
+    /// transport's 30 s did not once the ping went to 60 s (#54449): each socket timed out between pings.
+    public static let idleTimeout: Duration = DeviceHubSocket.defaultPingInterval * 2
+
+    public static let transport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpCookieStorage = nil
+        configuration.timeoutIntervalForRequest = TimeInterval(idleTimeout.components.seconds)
+        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubSocket", configuration: configuration)
+    }()
+
+    public init(client: DeviceHubClient, session: URLSession = URLSessionDeviceHubConnector.transport) {
         self.client = client
         self.session = session
     }
@@ -126,13 +141,16 @@ public final class DeviceHubSocket: Sendable {
         case push(DeviceHubPush)
     }
 
+    /// PROTOCOL.md's keepalive; ``URLSessionDeviceHubConnector/idleTimeout`` is derived from it.
+    public static let defaultPingInterval: Duration = .seconds(60)
+
     let connector: any DeviceHubSocketConnector
     let pingInterval: Duration
     let backoff: Backoff
     let clock: any Clock<Duration>
     let connectTimeout: Duration
 
-    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(60),
+    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = DeviceHubSocket.defaultPingInterval,
                 backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
                 connectTimeout: Duration = DeviceHubSocket.connectTimeout,
                 clock: any Clock<Duration> = ContinuousClock()) {
