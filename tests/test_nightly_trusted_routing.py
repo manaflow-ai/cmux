@@ -49,10 +49,13 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 # jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
-OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
+# RFD 0185 phase 2 (cmux#61222) renamed the nightly slot's literal; the same slots carry both labels until phase 3
+# (.github/single-host-fallbacks.json "mac-nightly").
+NIGHTLY_SLOT_UNIFIED = 'mac-nightly'
+OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, NIGHTLY_SLOT_UNIFIED, SIGNING_SLOT, HOSTED}
 # The light jobs that hold no routing key run on our Linux pool, one label for every own-branch Linux job.
 CMUX_LINUX = 'cmux-linux'
-CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
+CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
                    'published-build', 'check-nightly-app-store-shelf', 'check-nightly-webviews',
                    'early-nightly-webviews')
@@ -63,7 +66,7 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
 # ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github', 'keep-published-dsyms', 'published-in', 'wake-nightly-next-tick',
-                      'dispatch-published-in')
+                      'dispatch-published-in', 'restore-historical-notes')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -100,6 +103,8 @@ OWNED_SECRET_JOBS = {
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
+    'resolve-nightly-ghostty-cli-helper': "reads quota-goblin's one-repo read token (NIGHTLY_HELPER_LOOKUP_TOKEN, #60803) for "
+                                          'the helper reuse lookup; a credentialed control, so the nightly-only pool',
     'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
     'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
     'pick-nightly-next-signer': 'reads the glaeda-route App key for a read-only token to pick the signer Mac; a credentialed control',
@@ -659,8 +664,10 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertTrue(reason.strip())
         # The hosted half keeps its reasons in one place.
-        from test_nightly_owned_minis_only import HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
-        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS))
+        from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_RESTORE_JOBS,
+                                                   HOSTED_TAIL_JOBS)
+        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS)
+                         | set(HOSTED_RESTORE_JOBS))
 
     def test_a_new_secret_job_is_named_until_classified(self):
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
