@@ -46,21 +46,41 @@ PY`;
 /** The awake guest publishes through its existing edge identity; no secret is stored here. */
 export function guestResourceReporterScript(): string {
   return `${GUEST_RESOURCE_SAMPLE_SCRIPT}
-import ssl, urllib.request
+import ssl, sys, urllib.error, urllib.request
 context = ssl.create_default_context()
 ca = '/usr/local/share/ca-certificates/freestyle-tls.crt'
 if os.path.isfile(ca):
     context.load_verify_locations(ca)
-while True:
+def report_once():
+    try:
+        stats = sample()
+        if not stats:
+            return False, 'sample failed'
+        payload = json.dumps(stats).encode()
+    except Exception:
+        return False, 'sample failed'
     try:
         request = urllib.request.Request(
             ${JSON.stringify(`https://${vmEdgeAliasDomain()}/api/vm/resource-usage/self`)},
-            data=json.dumps(sample()).encode(), method='POST',
+            data=payload, method='POST',
             headers={'Content-Type': 'application/json', 'Authorization': ${JSON.stringify(`Bearer ${VM_PLACEHOLDER_API_KEY}`)}})
         with urllib.request.urlopen(request, timeout=5, context=context) as response:
             response.read(1024)
+            return True, 'accepted HTTP %d' % response.status
+    except urllib.error.HTTPError as error:
+        error.close()
+        return False, 'HTTP %d' % error.code
     except Exception:
-        pass
+        return False, 'transport failed'
+
+previous = None
+while True:
+    current = report_once()
+    if current != previous:
+        accepted, status = current
+        recovered = accepted and previous is not None and not previous[0]
+        print('resource reporter: ' + ('recovered, ' if recovered else '') + status, file=sys.stderr, flush=True)
+        previous = current
     time.sleep(30)
 `;
 }
