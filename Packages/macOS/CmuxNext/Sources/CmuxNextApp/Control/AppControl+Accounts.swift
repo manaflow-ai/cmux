@@ -16,16 +16,12 @@ extension AppControl {
     func registerAccountsMethods(_ services: AppServices) {
         let network: ControlMethod.Deadline = .fixed(.seconds(20))
         service?.router.register([
+            // Waits for detection: nothing else starts it until Settings > Accounts opens.
             .mainActor("accounts.list") { _ in
-                let model = services.accounts.model
-                return .value(.object([
-                    "signed_in": .bool(model.isSignedInToCmux),
-                    "active_team": services.cloud.auth.activeTeam.team.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) } ?? .null,
-                    "refreshing": .bool(model.isRefreshing),
-                    "handles_stable": .bool(services.accounts.handlesStable),
-                    "providers": .array(model.rows.map(Self.json)),
-                ]))
-            },
+                let model = services.accounts.model, stable = services.accounts.handlesStable
+                let team: JSONValue = services.cloud.auth.activeTeam.team.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) } ?? .null
+                return .followUp { await model.controlList(activeTeam: team, handlesStable: stable) }
+            }.withDeadline(network),
             Self.passthrough("coderouter.claude_upstream.get", services) { client, team, _ in
                 try await client.request("GET", "/api/coderouter/claude-upstream", team: team)
             }.withDeadline(network),
@@ -132,38 +128,4 @@ extension AppControl {
         return body
     }
 
-    static func json(_ row: AccountRowState) -> JSONValue {
-        let phase: String = switch row.phase {
-        case .idle: "idle"
-        case .detecting: "detecting"
-        case .reauthenticating: "reauthenticating"
-        case .connecting: "connecting"
-        case .removing: "removing"
-        }
-        let outcome: JSONValue = switch row.outcome {
-        case .connected: "connected"
-        case .removed: "removed"
-        case .failed(let message): .object(["failed": .string(message)])
-        case nil: .null
-        }
-        return .object([
-            "provider": .string(row.provider.rawValue),
-            "name": .string(row.provider.displayName),
-            "status": row.status.map { .string($0.rawValue) } ?? .null,
-            "account": row.detection?.account.map { .string($0.handle) } ?? .null,
-            "label": row.detection?.account.map { .string($0.display) } ?? .null,
-            "detail": row.detection?.detail.map(JSONValue.string) ?? .null,
-            "plan": row.detection?.plan.map(JSONValue.string) ?? .null,
-            "sources": .array((row.detection?.sources ?? []).map { .string($0.label) }),
-            "phase": .string(phase),
-            "outcome": outcome,
-            "can_connect": .bool(row.canConnect),
-            "linkable": .bool(row.isLinkable),
-            "linked": .array(row.linked.map { account in
-                .object(["id": .string(account.id), "account": .string(account.account.handle), "label": .string(account.label),
-                         "state": .string(account.state),
-                         "family": .string(account.family.rawValue), "visibility": account.visibility.map(JSONValue.string) ?? .null])
-            }),
-        ])
-    }
 }
