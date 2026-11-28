@@ -164,6 +164,20 @@ class FetchRunsRetryTest(unittest.TestCase):
         self.assertEqual(got, [{"id": 2}])
         self.assertEqual(slept, [5, 20, 60, 605])
 
+    def test_a_reset_anywhere_in_the_hour_window_is_waited_for(self):
+        # Run 46188049903: quota spent, no cached list, reset more than 20 min away: it went red after 85 s.
+        import io
+        calls, slept = [], []
+        def opener(req, timeout):
+            calls.append(1)
+            if len(calls) <= 4:
+                raise self._err(403, reset=1000 + 3540)
+            return io.BytesIO(b'{"workflow_runs":[{"id":3}]}')
+        got = mop.fetch_runs("o/r", "t", opener=opener, sleep=slept.append, now=lambda: 1000,
+                             reset_wait_max=mop.RESET_WAIT_MAX_S)
+        self.assertEqual(got, [{"id": 3}])
+        self.assertEqual(slept, [5, 20, 60, 3545])
+
     def test_reset_further_than_the_bound_fails_without_waiting(self):
         slept = []
         def opener(req, timeout):
