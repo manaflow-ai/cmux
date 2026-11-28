@@ -715,8 +715,10 @@ impl Mux {
     }
 
     /// The dialer's keepalive and idle close, until the circuit closes or `owner` (the carrier)
-    /// is gone.
+    /// is gone. A circuit carrying a stream is pinged every `every`; an idle one only every
+    /// [`IDLE_KEEPALIVE`] ([`keepalive_tick`]), so a paused far machine is not woken twice a minute.
     async fn keep(self: Arc<Self>, owner: Weak<()>, every: Duration, idle: Duration) {
+        let mut pinged = Instant::now();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(every) => {}
@@ -726,6 +728,12 @@ impl Mux {
                 return;
             }
             let quiet = self.quiet_for() >= idle;
+            let tick = keepalive_tick(
+                self.streams() > 0 || self.quiet_since().elapsed() < every * 2,
+                self.heard().elapsed(),
+                pinged.elapsed(),
+                every,
+            );
             // Every close says why at info: a kept circuit that ends early costs the next dial a
             // whole new handshake (0.6 s against 0.07 s), and the reason was debug-only.
             let why = if owner.upgrade().is_none() {
@@ -734,7 +742,7 @@ impl Mux {
             } else if quiet {
                 self.reopen.store(false, Ordering::SeqCst);
                 Some(format!("no stream for {} s", idle.as_secs()))
-            } else if self.heard().elapsed() >= every * 2 {
+            } else if tick == KeepaliveTick::Dead {
                 Some(format!("nothing heard for {} s", self.heard().elapsed().as_secs()))
             } else {
                 None
@@ -744,6 +752,10 @@ impl Mux {
                 self.close().await;
                 return;
             }
+            if tick != KeepaliveTick::Ping {
+                continue;
+            }
+            pinged = Instant::now();
             if let Err(e) = self.send(PING, 0, &[]).await {
                 tracing::info!("hub carrier: closing a kept circuit: its keepalive failed: {e}");
                 self.close().await;
@@ -751,6 +763,49 @@ impl Mux {
             }
         }
     }
+
+    fn quiet_since(&self) -> Instant {
+        *self.quiet_since.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// How often the dialer pings a kept circuit with no stream: just under the relay's 10 min
+/// circuit idle close (`relays/cloudflare-do/src/abuse.rs` `CIRCUIT_IDLE_TIMEOUT_MS`), so the
+/// circuit stays open. Freestyle resumes a paused VM on any inbound packet; the 30 s ping every
+/// fleet machine's kept circuit sent woke a paused machine every 30 s (hq#38778: one machine
+/// woken and repaused 188 times in 93 min, `person_pause_rewoken` about 31 s apart). A dial on an
+/// idle circuit whose far end went away meanwhile hedges onto a fresh one in [`KEPT_HEDGE`]
+/// (`hub_carrier_kept_hedge.rs`), so the slow ping costs a dead link 0.5 s, not a whole timeout.
+///
+/// [`KEPT_HEDGE`]: super::kept_hedge::KEPT_HEDGE
+pub(crate) const IDLE_KEEPALIVE: Duration = Duration::from_secs(9 * 60);
+
+/// What one tick of a kept circuit's keepalive does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KeepaliveTick {
+    /// Send a PING.
+    Ping,
+    /// Send nothing: an idle circuit between its slow pings.
+    Wait,
+    /// Close it: its last ping went unanswered for two periods.
+    Dead,
+}
+
+/// One keepalive tick, every `every`. `busy`: a stream rides the circuit or ended under two
+/// periods ago. `heard`: since any record came in. `pinged`: since the dialer's last PING (or the
+/// circuit opened). A circuit is dead when nothing came back for two periods after a ping; an idle
+/// one is pinged only every [`IDLE_KEEPALIVE`], since every packet wakes a paused far machine.
+pub(crate) fn keepalive_tick(
+    busy: bool,
+    heard: Duration,
+    pinged: Duration,
+    every: Duration,
+) -> KeepaliveTick {
+    let ping_unanswered = heard > pinged;
+    if heard >= every * 2 && (busy || (ping_unanswered && pinged >= every * 2)) {
+        return KeepaliveTick::Dead;
+    }
+    if busy || pinged + every > IDLE_KEEPALIVE { KeepaliveTick::Ping } else { KeepaliveTick::Wait }
 }
 
 /// Run the carrier's reopen loop ([`super::HubCarrier::keep_reopening`]) under this scope.
@@ -1128,3 +1183,7 @@ mod live {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "hub_carrier_idle_keepalive_tests.rs"]
+mod idle_keepalive_tests;
