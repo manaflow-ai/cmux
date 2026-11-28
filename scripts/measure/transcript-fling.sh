@@ -6,12 +6,16 @@
 # it launches an app:
 #   cmux-ci run --class exclusive --measurement --label measure [--label gui-session-v1] \
 #     --script scripts/measure/transcript-fling.sh --ref <sha> [--arg=--rounds=N] [--arg=--seconds=S] \
-#     [--arg=--config=debug|bench] [--arg=--vdisplay=HZ] --artifact transcript-fling.json
+#     [--arg=--config=debug|bench] [--arg=--vdisplay=HZ] [--arg=--build-at=SHA] --artifact transcript-fling.json
+# --build-at=SHA builds the app at SHA (a pull request's head) with that commit's own reload.sh and runs this
+# checkout's bench against it (scripts/measure/app-at-commit.sh): the controller runs an unlisted measure script only
+# at a commit on feat-cmux-next or main, so a pull request's head is measured this way.
 # The step's log has one TRANSCRIPT_FLING_JSON line per arm (the median over the rounds) and the build's
 # BUILD-FLAGS line; transcript-fling.json is the whole report. The tool exits 0 whatever the numbers (report only)
 # and 1 when the app never came up.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+. scripts/measure/app-at-commit.sh
 tag="ntfling"
 # A fleet step checks out no submodules: the app build needs Ghostty's headers, the ghostty-next tree and
 # GhosttyKit.xcframework (a prebuilt download).
@@ -26,6 +30,16 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 out="$(mktemp -d)"
+app="" vdisplay_pid=""
+# shellcheck disable=SC2329 # run by the trap below
+cleanup() {
+  if [[ -n "$app" ]]; then python3 scripts/cmux-next/tag_teardown.py "$app" || true; fi
+  if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
+  measure_remove_scratch "$out"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # Steps run with a per-step HOME: bun and node live under the account's real home (as held-new-tab.sh).
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
@@ -34,29 +48,28 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-config="bench" vdisplay_hz="120" bench_args=()
+config="bench" vdisplay_hz="120" build_at="" bench_args=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) config="${arg#--config=}" ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
+    --build-at=*) build_at="${arg#--build-at=}" ;;
     *) bench_args+=("$arg") ;;
   esac
 done
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --config "$config" 2>&1 | tee "$out/reload.log"
-app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+if [[ -n "$build_at" ]]; then
+  app="$(measure_app_at_commit "$build_at" "$tag" "$out/at" --config "$config")"
+  cp "$out/at.reload.log" "$out/reload.log" 2>/dev/null || true
+else
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --config "$config" 2>&1 | tee "$out/reload.log"
+  app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+fi
 if [[ -z "$app" || ! -d "$app" ]]; then
-  echo "transcript-fling: the tagged reload printed no app path" >&2
+  echo "transcript-fling: the build printed no app path" >&2
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
 python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/build-flags.json" || true
-vdisplay_pid=""
-# shellcheck disable=SC2329 # run by the trap below
-cleanup() {
-  python3 scripts/cmux-next/tag_teardown.py "$app" || true
-  if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
-}
-trap cleanup EXIT
 if [[ -n "$vdisplay_hz" && "$vdisplay_hz" != 0 ]]; then
   vd="$out/vdisplay"
   mkdir -p "$vd/VDisplay.app/Contents/MacOS"
