@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudUI
@@ -267,6 +268,8 @@ extension CloudHandlers {
         }
         // Not only for Cloud: an own machine needs no sign-in (deliverSecrets checks it for a Cloud machine).
         bind("cloudDeliverSecrets", registry, reason: { nil }) { invocation in try deliverSecrets(invocation, context) }
+        // One chat only, in acpmux's memory (CloudHandlers+ChatSecrets); no sign-in, this Mac's own daemon.
+        bind("agentPane.deliverSecrets", registry, reason: { nil }) { invocation in try deliverSecretsToChat(invocation, context) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
@@ -448,12 +451,7 @@ extension CloudHandlers {
     static func deliverSecrets(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         // The arguments first. A bare `--repo` (no value) arrives as `true`: refuse it, never deliver the global
         // values instead.
-        if invocation["repo"] != nil, invocation["repo"]?.stringValue == nil { throw ActionFailure(message: CloudStrings.secretRepoInvalid("--repo")) }
-        let repo = try invocation["repo"]?.stringValue.map { text in
-            guard let scope = CloudMachineSecrets.repoScope(text) else { throw ActionFailure(message: CloudStrings.secretRepoInvalid(text)) }
-            return scope
-        }
-        let names = try secretNames(invocation)
+        let repo = try KeychainSecrets().repo(invocation), names = try KeychainSecrets().names(invocation)
         // An own machine (an SSH machine or an acpmux peer) over ssh, with the names the person gives
         // (CloudHandlers+OwnMachineSecrets).
         if let target = invocation.target, target.kind == .machine, !isCloudMachine(target.id, context) {
@@ -507,7 +505,7 @@ extension CloudHandlers {
                 answer["status"] = .string("unchanged")
                 return answer
             }
-            let values = try await keychainValues(items)
+            let values = try await KeychainSecrets().values(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
             // no value crosses the platform, a file API, a terminal or a log.
             let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)

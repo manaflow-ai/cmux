@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -31,8 +32,8 @@ struct CloudDeliverSecretsTests {
     }
 
     @Test func namesAreSecretNamesEachOnceAndABareOrBadListIsRefused() throws {
-        let names = { (value: ActionValue) in try CloudHandlers.secretNames(ActionInvocation(arguments: ["names": value], origin: .cli)) }
-        #expect(try CloudHandlers.secretNames(ActionInvocation(origin: .cli)) == nil)
+        let names = { (value: ActionValue) in try KeychainSecrets().names(ActionInvocation(arguments: ["names": value], origin: .cli)) }
+        #expect(try KeychainSecrets().names(ActionInvocation(origin: .cli)) == nil)
         #expect(try names(.string("API_KEY, DATABASE_URL,API_KEY")) == ["API_KEY", "DATABASE_URL"])
         for (value, shown) in [(ActionValue.bool(true), "--names"), (.string(""), ""), (.string("API_KEY,bad-name"), "API_KEY,bad-name"),
                                (.string("1X"), "1X"), (.string("PATH"), "PATH"), (.string("A,,B"), "A,,B")] {

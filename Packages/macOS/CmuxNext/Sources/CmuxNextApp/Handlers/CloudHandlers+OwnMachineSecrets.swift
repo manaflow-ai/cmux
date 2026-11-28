@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
@@ -16,18 +17,6 @@ import Foundation
 /// value from another daemon (acpmux `server/secrets.rs`); the person's delivery here is the one way a
 /// value reaches that machine, written to its file by the receiver, and its shells and agents read it there.
 extension CloudHandlers {
-    /// `--names A,B`: nil when not given; refused when bare, empty or not secret names. Each once, in order.
-    static func secretNames(_ invocation: ActionInvocation) throws -> [String]? {
-        guard let value = invocation["names"] else { return nil }
-        guard let text = value.stringValue else { throw ActionFailure(message: CloudStrings.secretNamesInvalid("--names")) }
-        let names = text.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-        guard !names.isEmpty, names.allSatisfy({ CloudMachineSecrets.isName($0) }) else {
-            throw ActionFailure(message: CloudStrings.secretNamesInvalid(text))
-        }
-        var seen = Set<String>()
-        return names.filter { seen.insert($0).inserted }
-    }
-
     /// Whether `id` names a Cloud machine (its id, or the `machine_…` resource id of a connected one).
     static func isCloudMachine(_ id: String, _ context: AppActionContext) -> Bool {
         let machines = context.services.machines
@@ -87,14 +76,7 @@ extension CloudHandlers {
                 case .ssh(let route): destination = route
                 }
             }
-            // This build's index (BuildStatePaths: a DEV build's own), the file `cmux cloud secret` writes.
-            let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment,
-                                                             home: FileManager.default.homeDirectoryForCurrentUser)
-            let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }
-            guard let stored = CloudMachineSecrets.index(from: index) else {
-                throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path))
-            }
-            let (items, missing) = CloudMachineSecrets.plan(declared: names, repo: repo, index: stored)
+            let (items, missing) = try await storedSecrets(names, repo: repo, work: work)
             // The file the machine gets holds exactly what is sent: names with no value here never clear it.
             guard !items.isEmpty else { throw ActionFailure(message: CloudStrings.secretsNoneStored(missing.joined(separator: ", "))) }
             var answer: [String: ActionResultValue] = ["machine": .string(id), "declared": .array(names.map(ActionResultValue.string)),
@@ -109,7 +91,7 @@ extension CloudHandlers {
             try await work.run(.userBlocking, mayBlock: .files) {
                 do { try FileManager.default.removeItem(at: ledgerURL) } catch CocoaError.fileNoSuchFile {}
             }
-            let values = try await keychainValues(items)
+            let values = try await KeychainSecrets().values(items)
             let word = CloudMachineSecrets.randomHex()
             let link = SSHMachineSecrets.link(to: destination, environment: await SSHService.environment(), word: word)
             let count: Int
@@ -131,19 +113,36 @@ extension CloudHandlers {
         }
     }
 
-    /// The values of `items` from this Mac's Keychain (`cmux cloud secret set`), each one line as it stores them.
-    static func keychainValues(_ items: [CloudMachineSecrets.Item]) async throws -> [(name: String, value: String)] {
-        var values: [(name: String, value: String)] = []
-        for item in items {
-            let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
-                ["find-generic-password", "-s", CloudMachineSecrets.service, "-a", item.account, "-w"], timeout: .seconds(30)))
-            guard ran.succeeded else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-            let value = String(ran.text.dropLast(ran.text.hasSuffix("\n") ? 1 : 0))
-            // One line, no NUL, as `cmux cloud secret set` stores it: an item made some other way never
-            // turns into extra records on the machine.
-            guard CloudMachineSecrets.isValue(value) else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-            values.append((item.name, value))
+    /// `cmux agent deliver-secrets --target agent-chat:<session> --names A,B [--repo OWNER/NAME]`: one chat's
+    /// secrets in this Mac's acpmux memory, for that chat's agent only (CmuxNextAccounts `AcpmuxChatSecrets`).
+    static func deliverSecretsToChat(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        let secrets = KeychainSecrets(), repo = try secrets.repo(invocation)
+        guard let names = try secrets.names(invocation) else { throw ActionFailure(message: CloudStrings.secretNamesRequired) }
+        guard let session = chatSession(invocation, context) else { return context.registry.refuse(.noChat, "agentPane.deliverSecrets") }
+        guard let environment = QuitAgents.environment(context.services) else { throw ActionFailure(message: CloudStrings.secretsNotDelivered("acpmux")) }
+        let work = context.services.work
+        result("deliver chat secrets", context) {
+            let (items, missing) = try await storedSecrets(names, repo: repo, work: work)
+            guard !items.isEmpty else { throw ActionFailure(message: CloudStrings.secretsNoneStored(missing.joined(separator: ", "))) }
+            let applied = try await AcpmuxChatSecrets(environment: environment).give(try await secrets.values(items), to: session)
+            return ["session_id": .string(session), "delivered": .array(items.map { .string($0.name) }),
+                    "missing": .array(missing.map(ActionResultValue.string)), "applied": .string(applied)]
         }
-        return values
+    }
+
+    /// The acpmux session the run names: an `agent-chat:` target's id, else the targeted or focused agent tab's.
+    static func chatSession(_ invocation: ActionInvocation, _ context: AppActionContext) -> String? {
+        if let target = invocation.target, target.kind == .agentChat { return target.id.isEmpty ? nil : target.id }
+        let scope = context.scope(invocation)
+        return (scope.tab?.id.rawValue ?? scope.pane?.currentTabKey).flatMap { context.services.agentTabs.session(of: $0) }
+    }
+
+    /// The stored names this build's index (BuildStatePaths: a DEV build's own, the file `cmux cloud secret`
+    /// writes) has for `names` in scope `repo`, and the ones it lacks. An unreadable index is refused, never "none".
+    static func storedSecrets(_ names: [String], repo: String?, work: BackgroundWork) async throws -> (items: [CloudMachineSecrets.Item], missing: [String]) {
+        let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment, home: FileManager.default.homeDirectoryForCurrentUser)
+        let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }
+        guard let stored = CloudMachineSecrets.index(from: index) else { throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path)) }
+        return CloudMachineSecrets.plan(declared: names, repo: repo, index: stored)
     }
 }
