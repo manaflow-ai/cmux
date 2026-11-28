@@ -176,8 +176,7 @@ pub(super) fn activity_of(update: &Value) -> Option<String> {
 }
 
 /// How long past its declared bound a call in flight may run before it stalls its turn: the
-/// harness's own kill and its `completed` update may land a little late. The same 2 min as
-/// leo-workspace `stall_reconciler`'s `hung_call_grace_minutes`, which reports the same call.
+/// harness's own kill and its `completed` update may land a little late.
 pub(super) const PAST_BOUND_GRACE_MS: u64 = 2 * 60 * 1000;
 
 /// Since when a running turn that started at `started_at` has stalled, or None: its model's last
