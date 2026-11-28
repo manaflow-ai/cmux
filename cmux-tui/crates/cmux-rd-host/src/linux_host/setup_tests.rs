@@ -236,6 +236,21 @@ fn a_headless_host_unit_needs_no_graphical_session() {
 }
 
 #[test]
+fn the_host_reads_the_config_directory_enable_wrote_to() {
+    let drop_in = host_config_drop_in(Path::new("/tmp/join/home/.config")).unwrap();
+    assert!(drop_in.contains("\n[Service]\n"), "{drop_in}");
+    assert!(
+        drop_in.ends_with("\nEnvironment=\"XDG_CONFIG_HOME=/tmp/join/home/.config\"\n"),
+        "{drop_in}"
+    );
+    // systemd's quoting and specifiers: the value it reads back is the path.
+    let odd = host_config_drop_in(Path::new(r#"/home/a b/100%"x\y"#)).unwrap();
+    assert!(odd.ends_with("Environment=\"XDG_CONFIG_HOME=/home/a b/100%%\\\"x\\\\y\"\n"), "{odd}");
+    assert!(host_config_drop_in(Path::new("relative/.config")).is_err());
+    assert!(host_config_drop_in(Path::new("/home/a\nb")).is_err());
+}
+
+#[test]
 fn the_installed_host_unit_is_the_repositorys() {
     assert!(HOST_UNIT_TEXT.contains("ExecStart=%h/.local/bin/cmux-rd linux-host run"));
     assert!(HOST_UNIT_TEXT.contains("RestartPreventExitStatus=78"));
