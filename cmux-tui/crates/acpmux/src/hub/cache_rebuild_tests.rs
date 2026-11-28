@@ -105,12 +105,13 @@ fn a_call_is_judged_by_the_same_rule_and_its_own_cause() {
     assert_eq!(r, CallRebuilds::default(), "warm: wrote what grew");
     r.call(100_000, 101_000, (101_000, 101_000), 40 * MIN, false);
     r.call(101_000, 102_000, (102_000, 0), 2 * MIN, false);
-    r.call(100_000, 40_000, (40_000, 40_000), MIN, true);
+    // A compaction to 30k that wrote 60k: at least half the old context written again.
+    r.call(100_000, 30_000, (60_000, 60_000), MIN, true);
     assert_eq!(r.by_cause["idle"], 100_000);
     assert_eq!(r.by_cause["prefix"], 101_000);
-    assert_eq!(r.by_cause["compaction"], 40_000);
-    assert_eq!(r.tokens, 241_000);
-    assert_eq!(r.tokens_1h, 140_000);
+    assert_eq!(r.by_cause["compaction"], 60_000);
+    assert_eq!(r.tokens, 261_000);
+    assert_eq!(r.tokens_1h, 160_000);
     assert_eq!(r.idle_ms, 40 * MIN);
     let j = r.to_json();
     assert_eq!((j["cause"].clone(), j["idleSeconds"].clone()), (json!("prefix"), json!(2400)));
