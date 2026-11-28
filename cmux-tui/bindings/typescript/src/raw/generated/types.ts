@@ -1490,6 +1490,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type SetTerminalNotifyWhenDoneResult = {
+  "on": boolean;
+  "terminal": string;
+};
+
 export type SetTerminalTailPinResult = {
   "pinned": boolean;
   "terminal": string;

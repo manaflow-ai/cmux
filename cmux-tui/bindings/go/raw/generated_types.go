@@ -13381,6 +13381,36 @@ func (value *SetTerminalKeepResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type SetTerminalNotifyWhenDoneResult struct {
+	On       bool   `json:"on"`
+	Terminal string `json:"terminal"`
+}
+
+func (value *SetTerminalNotifyWhenDoneResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneResult: expected object")
+	}
+	var fields struct {
+		On       *bool   `json:"on"`
+		Terminal *string `json:"terminal"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneResult: %w", err)
+	}
+	type wire SetTerminalNotifyWhenDoneResult
+	var decoded wire
+	if fields.On == nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneResult: required field on is missing or null")
+	}
+	decoded.On = *fields.On
+	if fields.Terminal == nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneResult: required field terminal is missing or null")
+	}
+	decoded.Terminal = *fields.Terminal
+	*value = SetTerminalNotifyWhenDoneResult(decoded)
+	return nil
+}
+
 type SetTerminalTailPinResult struct {
 	Pinned   bool   `json:"pinned"`
 	Terminal string `json:"terminal"`

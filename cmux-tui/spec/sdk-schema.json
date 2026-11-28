@@ -6118,6 +6118,28 @@
    },
    "additional_properties": false
   },
+  "SetTerminalNotifyWhenDoneResult": {
+   "kind": "object",
+   "fields": {
+    "terminal": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "on": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalResumeCommandResult": {
    "kind": "object",
    "fields": {
@@ -15057,6 +15079,61 @@
    "constraints": [
     "Pins live in the owner's memory: an owner restart unpins every terminal and removes their tail entries.",
     "A pinned terminal publishes its last non-empty output line, without escapes, as the workspace status entry tail:<term id> at most twice a second; unpinning or the terminal's exit removes the entry."
+   ]
+  },
+  "set-terminal-notify-when-done": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-notify-when-done-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^term_[0-9a-f]{32}$",
+        "format": "public term_ resource id"
+       }
+      ]
+     },
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetTerminalNotifyWhenDoneResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The watch lives in the owner's memory: an owner restart drops it, so it never fires twice.",
+    "The next command the shell finishes (OSC 133 D, or a prompt ending a running command) posts one terminal notification, then the watch disarms; extra.notify_when_done is true while it is armed."
    ]
   },
   "terminal-last-command": {

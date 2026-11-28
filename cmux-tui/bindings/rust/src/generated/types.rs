@@ -2384,6 +2384,13 @@ pub struct SetTerminalKeepResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalNotifyWhenDoneResult {
+    pub on: bool,
+    pub terminal: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTerminalTailPinResult {
     pub pinned: bool,
     pub terminal: String,

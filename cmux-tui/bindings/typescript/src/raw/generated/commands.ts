@@ -2750,6 +2750,14 @@ export interface SetTerminalKeepRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface SetTerminalNotifyWhenDoneRequest extends CmuxRequestBase {
+  cmd: "set-terminal-notify-when-done";
+  "on": boolean;
+  "surface"?: (T.Id) | null;
+  "terminal"?: (string) | null;
+}
+
+/** Protocol v12; authority: control. */
 export interface SetTerminalTailPinRequest extends CmuxRequestBase {
   cmd: "set-terminal-tail-pin";
   "pinned": boolean;
@@ -3478,6 +3486,7 @@ export type CmuxRequest =
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
   | SetTerminalKeepRequest
+  | SetTerminalNotifyWhenDoneRequest
   | SetTerminalTailPinRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
@@ -5656,6 +5665,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-reap-v1";
+    stream: null;
+  };
+  "set-terminal-notify-when-done": {
+    request: SetTerminalNotifyWhenDoneRequest;
+    result: T.SetTerminalNotifyWhenDoneResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-notify-when-done-v1";
     stream: null;
   };
   "set-terminal-tail-pin": {

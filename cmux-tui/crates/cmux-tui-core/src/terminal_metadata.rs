@@ -461,6 +461,26 @@ impl TerminalNotification {
         Some(Self { title, body, level: crate::NotificationLevel::Info })
     }
 
+    /// The one notification an armed `notify_when_done` watch posts when its
+    /// command finishes.
+    pub(crate) fn command_done(last: crate::terminal_activity::LastCommand) -> Self {
+        let ran = last
+            .started_at_ms
+            .map(|start| crate::terminal_activity::duration_text(last.finished_at_ms.saturating_sub(start)));
+        let (title, level, status) = match last.exit_code {
+            Some(0) => ("Command finished", crate::NotificationLevel::Info, "exit 0".to_owned()),
+            Some(code) => ("Command failed", crate::NotificationLevel::Error, format!("exit {code}")),
+            None => ("Command finished", crate::NotificationLevel::Info, String::new()),
+        };
+        let body = match (status.is_empty(), ran) {
+            (false, Some(ran)) => format!("{status} after {ran}"),
+            (false, None) => status,
+            (true, Some(ran)) => format!("after {ran}"),
+            (true, None) => String::new(),
+        };
+        Self { title: title.to_owned(), body, level }
+    }
+
     /// The notification an OSC 7501 record asks for.
     pub(crate) fn from_program_status(alert: crate::program_status::ProgramStatusAlert) -> Self {
         let level = match alert.state {
@@ -755,7 +775,7 @@ impl OscBodySink<'_> {
                     }
                     shell_marks.push(mark);
                 }
-                None
+                activity.take_done_notice().map(TerminalNotification::command_done)
             }
             _ => None,
         };

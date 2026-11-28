@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783" as const;
+export const SDK_IR_SHA256 = "ed2535a9c48f3811c86e07a70a8708f3080da38797585ca6751be8dae6874fe6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3379,6 +3379,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "The keep flag is stored durably with the terminal and survives owner restarts.",
       "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+    ]
+  },
+  "set-terminal-notify-when-done": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-notify-when-done-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The watch lives in the owner's memory: an owner restart drops it, so it never fires twice.",
+      "The next command the shell finishes (OSC 133 D, or a prompt ending a running command) posts one terminal notification, then the watch disarms; extra.notify_when_done is true while it is armed."
     ]
   },
   "set-terminal-tail-pin": {
@@ -13771,6 +13782,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": true,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetTerminalNotifyWhenDoneResult": {
+    "additional_properties": false,
+    "fields": {
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "terminal": {
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -31116,6 +31149,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SetTerminalKeepResult"
+    }
+  },
+  "set-terminal-notify-when-done": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal is present."
+      ],
+      "fields": {
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal": {
+          "constraints": [
+            {
+              "format": "public term_ resource id",
+              "pattern": "^term_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetTerminalNotifyWhenDoneResult"
     }
   },
   "set-terminal-tail-pin": {
