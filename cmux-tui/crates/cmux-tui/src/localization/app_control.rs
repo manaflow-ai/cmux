@@ -84,6 +84,8 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app chat page` (cli/app/chat_page.rs).
+    pub chat_page: ChatPageMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
     /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
@@ -147,6 +149,19 @@ pub(crate) struct LaunchTimesMessages {
 
 /// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
 /// keys stay English; `{name}` placeholders are filled by cli/app/chat_perf.rs.
+/// `cmux app chat page`: a chat page's elements, computed styles and masked picture, read-only.
+/// `{name}` placeholders are filled by cli/app/chat_page.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatPageMessages {
+    pub usage: &'static str,
+    /// `{tab}`, `{shown}`: elements printed, `{count}`: elements matched.
+    pub header: &'static str,
+    /// After an element outside the viewport.
+    pub offscreen: &'static str,
+    /// Added to a `cmux browser <tab>` refusal of a chat tab: `{tab}`.
+    pub browser_hint: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ChatPerfMessages {
     pub usage: &'static str,
@@ -620,6 +635,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         page_source_refused_why: "  Spare refused because: {reasons}",
         page_source_pages: "Pages now: {chat} chat pages built ({frozen} asleep), {new_tab} New Tab pages; {released} chat pages let go while hidden since launch",
         page_source_unsupported: "This cmux does not count how chat pages were made (a build from before the count was added)",
+    },
+    chat_page: ChatPageMessages {
+        usage: "usage: cmux app chat page --tab <tab> query [<selector>] [--style <property,...>] [--limit <1-1000>]\n       cmux app chat page --tab <tab> screenshot [--out <file>|-]\n  Reads the chat in <tab> as its page draws it, without focusing or showing it, so it works behind\n  other windows and while the Mac is locked. query lists the elements matching <selector> (default\n  every element, the first 200): tag, classes, data-*, role, label, text, rect, and the computed\n  --style properties asked for; secrets in them are masked. screenshot saves the page's own picture\n  with every text, image and field greyed, so it shows layout and colors, never words. --json prints\n  the answer.",
+        header: "Chat {tab}: {shown} of {count} elements",
+        offscreen: "(offscreen)",
+        browser_hint: "{tab} is a chat tab. Read its page with `cmux app chat page --tab {tab} query [<selector>]` or `cmux app chat page --tab {tab} screenshot`.",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",

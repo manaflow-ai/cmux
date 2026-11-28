@@ -45,7 +45,8 @@ mod update_notice;
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{
-    AppControlMessages, NightlyMessages, RecordMessages, ShareMessages, TryMessages, VersionLabels,
+    AppControlMessages, ChatPageMessages, NightlyMessages, RecordMessages, ShareMessages,
+    TryMessages, VersionLabels,
 };
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;

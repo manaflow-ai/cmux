@@ -22,6 +22,9 @@ import Testing
         }
         #expect(registrations == 1)
         #expect(!AgentChatPerfControl.method.hasPrefix("debug."))
+        // The same registration brings `cmux app chat page`'s read-only methods.
+        let names = AgentChatPerfControl { _ in .missing }.controlMethods().map(\.name)
+        #expect(names == [AgentChatPerfControl.method, AgentChatPageControl.queryMethod, AgentChatPageControl.screenshotMethod])
     }
 
     @Test func surfaceIDsNormalizeToTabIDs() {

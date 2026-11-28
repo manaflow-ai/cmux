@@ -265,6 +265,12 @@ pub(in super::super) const JAPANESE: AppControlMessages = AppControlMessages {
         page_source_pages: "現在のページ: 構築済みのチャットのページ {chat} (スリープ中 {frozen})、新規タブのページ {new_tab}。起動後に非表示のまま解放したチャットのページ {released}",
         page_source_unsupported: "この cmux はチャットのページの作られ方を数えていません (追加される前のビルドです)",
     },
+    chat_page: ChatPageMessages {
+        usage: "使い方: cmux app chat page --tab <タブ> query [<セレクタ>] [--style <プロパティ,...>] [--limit <1-1000>]\n       cmux app chat page --tab <タブ> screenshot [--out <ファイル>|-]\n  <タブ> のチャットを、フォーカスも表示もせずにページが描くとおりに読み取ります。ほかのウインドウの\n  後ろでも、Mac がロック中でも動きます。query は <セレクタ> に一致する要素 (既定はすべて、最初の 200 個)\n  のタグ、クラス、data-*、ロール、ラベル、テキスト、位置と、--style で指定した計算済みスタイルを\n  一覧にします。中の秘密情報はマスクされます。screenshot はページ自身の画像を、文字、画像、入力欄を\n  すべて灰色にして保存します。レイアウトと色はわかりますが、文字は写りません。--json で結果を表示します。",
+        header: "チャット {tab}: {count} 個中 {shown} 個の要素",
+        offscreen: "(画面外)",
+        browser_hint: "{tab} はチャットタブです。ページは `cmux app chat page --tab {tab} query [<セレクタ>]` または `cmux app chat page --tab {tab} screenshot` で読み取れます。",
+    },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",
