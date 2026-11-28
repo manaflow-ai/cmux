@@ -17,7 +17,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, DAY_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -804,21 +804,25 @@ describe("cloud journey: leaked machine sweep", () => {
     const dir = join(import.meta.dir, "../../.github/workflows");
     const seen: string[] = [];
     const long: string[] = [];
+    const dayJobs: string[] = [];
     for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
       const text = readFileSync(join(dir, f), "utf8");
-      if (!/cloud-journey(\.ts|-ci\.sh)/.test(text)) continue;
+      if (!/cloud-journey(\.ts|-ci\.sh)|cloud-resume-matrix-shard\.sh/.test(text)) continue;
       seen.push(f);
       // A file that runs a long journey (its machines named `… long`) is held to the long bound; every other to 3 h.
-      const isLong = /--resume-matrix|--wake-echo/.test(text);
+      const isLong = /--resume-matrix|--wake-echo|cloud-resume-matrix-shard\.sh/.test(text);
       if (isLong) long.push(f);
-      const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
+      const fileBound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
       // Every timeout in a job that runs a journey (its block names the script); a file that names it but no job
       // that does (a matrix that runs it through another script) holds every job. A job that runs none, like
       // backend.yml's `test` (95 min, #56565), makes no journey machine and so needs no age bound.
       const jobs = (text.split(/^jobs:\s*$/m)[1] ?? text).split(/^(?=  [A-Za-z0-9_-]+:\s*$)/m);
-      const journeyJobs = jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j));
+      const journeyJobs = jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)|cloud-resume-matrix-shard\.sh/.test(j));
       for (const job of journeyJobs.length ? journeyJobs : jobs) {
         const name = /^  ([A-Za-z0-9_-]+):/.exec(job)?.[1] ?? "?";
+        // The resume matrix's 24 h cell (machine-day: pauses past LONG_PAUSE_MAX_S, machines named `… day`).
+        const bound = f === "cloud-resume-matrix.yml" && name === "machine-day" ? DAY_JOURNEY_MS : fileBound;
+        if (name === "machine-day") dayJobs.push(f);
         for (const m of job.matchAll(/timeout-minutes:\s*(\d+)/g)) {
           expect({ f, name, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, name, fits: true });
         }
@@ -826,6 +830,26 @@ describe("cloud journey: leaked machine sweep", () => {
     }
     expect(seen).toContain("cmux-vm.yml");
     expect(long).toContain("cloud-resume-matrix.yml");
+    expect(dayJobs).toEqual(["cloud-resume-matrix.yml"]);
+  });
+
+  test("a day run (a pause past LONG_PAUSE_MAX_S, RFD 0071's 24 h cell) is named ` day` and held to DAY_JOURNEY_MS", () => {
+    expect(journey.journeyLength([], 0)).toBe(false);
+    expect(journey.journeyLength([3600], 0)).toBe(true);
+    expect(journey.journeyLength([], 50)).toBe(true);
+    expect(journey.journeyLength([86_400], 0)).toBe("day");
+    const tag = tagAt(now - LONG_JOURNEY_MS - 60_000);
+    const pastDay = tagAt(now - DAY_JOURNEY_MS - 60_000);
+    expect(autoMachineName(tag, "day")).toBe(`cloud journey auto ${tag} day`);
+    expect(journey.journeyMachineTtl("day", { GITHUB_ACTIONS: "true" })).toEqual({ ttl_seconds: DAY_JOURNEY_MS / 1000 });
+    expect(ids([
+      { id: "vm_day", name: autoMachineName(tag, "day"), status: "paused" },
+      { id: "vm_day_gw", name: `${autoMachineName(tag, "day")} gateway`, status: "paused" },
+      { id: "vm_long", name: autoMachineName(tag, true), status: "paused" },
+      { id: "vm_day_old", name: autoMachineName(pastDay, "day"), status: "paused" },
+      { id: "vm_glued", name: `cloud journey auto ${tag} days`, status: "paused" },
+    ])).toEqual(["vm_long", "vm_day_old", "vm_glued"]);
+    expect(journey.ownNamedMachines([{ id: "vm_day", name: autoMachineName(tag, "day"), status: "paused" }], tag).map((r: any) => r.id)).toEqual(["vm_day"]);
   });
 
   test("a CI run's machines carry a ttl past any run that named them; a hand run's none unless asked", () => {
@@ -917,7 +941,11 @@ describe("cloud journey: leaked install sweep", () => {
       inst("i_auto", `cloud journey auto ${old}`),
       inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
       inst("i_nottime", "cloud journey jr-zz"),
-    ], now)).toEqual(["i_old"]);
+      // A day run's install keeps DAY_JOURNEY_MS: its machine dials with it after the 24 h pause.
+      inst("i_day", journey.journeyInstallName(old, "day")),
+      inst("i_day_old", journey.journeyInstallName(tagAt(now - DAY_JOURNEY_MS - 60_000), "day")),
+      inst("i_day_glued", `cloud journey ${old} days`),
+    ], now)).toEqual(["i_old", "i_day_old"]);
   });
 
   test("takes the Auto mode journey's live cli install (auto journey aj-<tag>) once it is older than any run", () => {

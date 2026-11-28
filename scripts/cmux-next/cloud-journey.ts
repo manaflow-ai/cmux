@@ -4496,9 +4496,30 @@ export const STALE_JOURNEY_MS = 3 * 3_600_000;
  * backend run 45572634999) while every sweep deleted 0. Installs keep it too (a long run still uses its install).
  */
 export const LONG_JOURNEY_MS = 11 * 3_600_000;
-/** The machine name of a run that deletes its machine at the end: ` long` marks a run that may outlast STALE_JOURNEY_MS. */
-export function autoMachineName(tag: string, long: boolean): string {
-  return `cloud journey auto ${tag}${long ? " long" : ""}`;
+/**
+ * The bound for a day run's machines and install (` day`): the resume matrix's 24 h pause (RFD 0071's long-pause resume
+ * p95, `resume-matrix: day`), whose job runs up to 26 h; twice that, as every other bound. Under LONG_JOURNEY_MS the
+ * next journey's sweep deleted the paused machine 11 h into its 24 h hold, and the ttl alarm did the same.
+ */
+export const DAY_JOURNEY_MS = 54 * 3_600_000;
+/** A run's length class: short (false), long (true: past STALE_JOURNEY_MS) or day (past LONG_JOURNEY_MS). */
+export type JourneyLength = boolean | "day";
+/** The longest pause a long (not day) run holds: the 3600 s cell's job fits LONG_JOURNEY_MS; past this a run is a day run. */
+export const LONG_PAUSE_MAX_S = 4 * 3600;
+/** A run's length class from its resume pauses and wake-echo count. */
+export function journeyLength(resumePauses: number[], wakeEchoN: number): JourneyLength {
+  if (resumePauses.some((p) => p > LONG_PAUSE_MAX_S)) return "day";
+  return resumePauses.length > 0 || wakeEchoN > 0;
+}
+const lengthSuffix = (long: JourneyLength) => (long === "day" ? " day" : long ? " long" : "");
+const lengthBound = (long: JourneyLength) => (long === "day" ? DAY_JOURNEY_MS : long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS);
+/** The machine name of a run that deletes its machine at the end: ` long` / ` day` mark a run that may outlast STALE_JOURNEY_MS / LONG_JOURNEY_MS. */
+export function autoMachineName(tag: string, long: JourneyLength): string {
+  return `cloud journey auto ${tag}${lengthSuffix(long)}`;
+}
+/** The install name a run registers (`cloud journey jr-<tag>`, ` day` for a day run, so the sweep holds it to DAY_JOURNEY_MS). */
+export function journeyInstallName(tag: string, long: JourneyLength): string {
+  return `cloud journey ${tag}${long === "day" ? " day" : ""}`;
 }
 /**
  * The `ttl_seconds` a CI journey's own machines are created with, so the platform's alarm (cmux-platform
@@ -4511,7 +4532,7 @@ export function autoMachineName(tag: string, long: boolean): string {
  * CLOUD_JOURNEY_MACHINE_TTL_S overrides it (300 to 604800, the create's bounds; 0 = none). Outside CI a hand run has no
  * timeout, so its machines get none unless that is set.
  */
-export function journeyMachineTtl(long: boolean, env: Record<string, string | undefined> = process.env): { ttl_seconds?: number } {
+export function journeyMachineTtl(long: JourneyLength, env: Record<string, string | undefined> = process.env): { ttl_seconds?: number } {
   const raw = env.CLOUD_JOURNEY_MACHINE_TTL_S;
   if (raw !== undefined && raw !== "") {
     const n = Number(raw);
@@ -4520,7 +4541,7 @@ export function journeyMachineTtl(long: boolean, env: Record<string, string | un
     return { ttl_seconds: n };
   }
   if (env.GITHUB_ACTIONS !== "true") return {};
-  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+  return { ttl_seconds: Math.round((long ? lengthBound(long) : STALE_JOURNEY_MS / 2) / 1000) };
 }
 /**
  * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
@@ -4530,7 +4551,7 @@ export function journeyMachineTtl(long: boolean, env: Record<string, string | un
  * against the 20-machine cap) until the next run's STALE_JOURNEY_MS sweep 3 h later. --kept adds a --keep run's names.
  */
 export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolean; exclude?: Iterable<string | null | undefined> } = {}): any[] {
-  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
+  const names = new Set(([false, true, "day"] as JourneyLength[]).flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
   if (opts.kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
   return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
@@ -4593,19 +4614,19 @@ export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" |
   return strandedGatewayMode(body) ? "off" : "keep";
 }
 
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS, dayMs = DAY_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( long| day)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] === " day" ? dayMs : m[2] ? longMs : maxAgeMs)) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -4622,16 +4643,17 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
  * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
  * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
  */
-export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = LONG_JOURNEY_MS): string[] {
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = LONG_JOURNEY_MS, dayMs = DAY_JOURNEY_MS): string[] {
   const out: string[] = [];
   for (const i of installs) {
     if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
     // The Auto mode journey's install (`auto journey aj-<tag>`, revoked at its cleanup) is the sweep's too.
-    const m = /^(?:cloud journey (jr-([0-9a-z]+))|auto journey (aj-([0-9a-z]+)))$/.exec(typeof i.name === "string" ? i.name : "");
+    // A day run's (`cloud journey jr-<tag> day`) keeps DAY_JOURNEY_MS: its machine still dials with it after a 24 h pause.
+    const m = /^(?:cloud journey (jr-([0-9a-z]+))( day)?|auto journey (aj-([0-9a-z]+)))$/.exec(typeof i.name === "string" ? i.name : "");
     if (!m) continue;
-    const started = parseInt(m[2] ?? m[4], 36);
+    const started = parseInt(m[2] ?? m[5], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= maxAgeMs) continue;
+    if (nowMs - started <= (m[3] ? dayMs : maxAgeMs)) continue;
     if (typeof i.id === "string" && i.id) out.push(i.id);
   }
   return out;
@@ -5479,7 +5501,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // per pause length and per arm (--resume-arms, default direct,platform,send), each wake timed from its event to the
   // resume's answer, the guest running, the relay registered and the reply's first byte (cloud-resume-matrix.ts).
   const resumePauses = (argValue("--resume-matrix", argv) ?? "").split(",").filter(Boolean).map(Number);
-  if (resumePauses.some((x) => !Number.isFinite(x) || x < 0 || x > 21_600)) throw new Error("--resume-matrix takes pause seconds 0..21600, comma separated");
+  if (resumePauses.some((x) => !Number.isFinite(x) || x < 0 || x > 90_000)) throw new Error("--resume-matrix takes pause seconds 0..90000, comma separated");
   const resumeN = Number(argValue("--resume-n", argv) ?? 20);
   if (!Number.isInteger(resumeN) || resumeN < 1) throw new Error("--resume-n must be a positive integer");
   const resumeArms = (argValue("--resume-arms", argv) ?? RESUME_ARMS.join(",")).split(",").filter(Boolean) as ResumeArm[];
@@ -5557,9 +5579,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
-  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
+  // A pause past LONG_PAUSE_MAX_S (the 24 h cell) is a day run: its machine and install outlive LONG_JOURNEY_MS's sweep.
+  const runLength = journeyLength(resumePauses, wakeEchoN);
+  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, runLength);
   // A CI run's own machines carry a ttl, so the platform deletes one this run leaves behind (journeyMachineTtl).
-  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0);
+  const machineTtl = journeyMachineTtl(runLength);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -5839,7 +5863,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const install = await J.step("install token", async () => {
       const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
       const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-      const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey ${tag}`, device_name: "cloud journey", platform: "linux" }, `${tag}-install`);
+      const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: journeyInstallName(tag, runLength), device_name: "cloud journey", platform: "linux" }, `${tag}-install`);
       const userId = inst.user ?? user.id ?? user.user?.id;
       const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: inst.id }, {});
       if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);

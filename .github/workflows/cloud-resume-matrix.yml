@@ -11,6 +11,11 @@ name: Cloud resume matrix (staging)
 # again: a new head runs beside the one running (never cancelled), the same head queues behind it:
 #   resume-matrix: run    5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h; 6 machines side by side)
 #   resume-matrix: full   also 900 s (4 machines, n = 5 each) and 3600 s (20 machines, n = 1 each), about 3 h 10 min
+#   resume-matrix: long   RFD 0071's long-pause resume: 3600 s, platform arm only (the app's Resume), 75% of the
+#                         guest's memory resident through the pause and walked after the wake (about 3 GiB of a 2 / 4
+#                         machine: 4 GiB touched on a 4 GiB guest leaves it none), n = 20 (4 runners x 5 machines)
+#   resume-matrix: day    the same at 86400 s (24 h), on the machine-day job (26 h); its machines and install are named
+#                         `… day` so no other run's sweep or ttl deletes them mid-hold (cloud-journey.ts DAY_JOURNEY_MS)
 # The last job merges every machine's samples into one p50 / p95 table (job summary and the resume-matrix artifact).
 #
 # GitHub serves no log until a job ends, so every machine ends itself in time: each shard has a wall budget (about
@@ -45,12 +50,13 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository && (
         github.event.action == 'labeled' && (github.event.label.name == 'resume-matrix' || github.event.label.name == 'resume-matrix-full') ||
-        github.event.action != 'labeled' && (contains(github.event.pull_request.body, 'resume-matrix: run') || contains(github.event.pull_request.body, 'resume-matrix: full')) &&
+        github.event.action != 'labeled' && (contains(github.event.pull_request.body, 'resume-matrix: run') || contains(github.event.pull_request.body, 'resume-matrix: full') || contains(github.event.pull_request.body, 'resume-matrix: long') || contains(github.event.pull_request.body, 'resume-matrix: day')) &&
         (github.event.action != 'edited' || github.event.changes.body != null))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      day: ${{ steps.plan.outputs.day }}
     steps:
       - id: plan
         env:
@@ -62,15 +68,29 @@ jobs:
           # The marker counts alone on its line: a body that quotes `resume-matrix: full` in its prose is not one
           # (run 45147962604 planned full off such a quote).
           lines = {l.strip() for l in os.environ.get("BODY", "").splitlines()}
-          full = os.environ["LABEL"] == "resume-matrix-full" or (not os.environ["LABEL"] and "resume-matrix: full" in lines)
-          # (pause seconds, machines, samples per arm on each): n = machines * samples per pause length.
-          plan = [(5, 2, 10), (30, 2, 10), (300, 2, 10)]
-          if full:
-              plan += [(900, 4, 5), (3600, 20, 1)]
+          label = os.environ["LABEL"]
+          full = label == "resume-matrix-full" or (not label and "resume-matrix: full" in lines)
+          long_ = not label and "resume-matrix: long" in lines
+          day = not label and "resume-matrix: day" in lines
           # Each shard's wall budget, minutes: 1.5 x (3 arms x n x (pause + 60 s)), within 20..290 (step timeout 300).
           budget = lambda p, n: max(20, min(290, round(1.5 * 4 * n * (p + 60) / 60)))
-          shards = [{"pause": p, "shard": k, "n": n, "budget": budget(p, n)} for p, m, n in plan for k in range(m)]
+          # fill: % of MemTotal held resident through each pause (shard 1 of the short cells: 25, hq#21300 lane C);
+          # arms: --resume-arms; parallel: machines one runner runs side by side (each its own journey).
+          shard = lambda p, k, n, b, fill=None, arms="", parallel=1: {"pause": p, "shard": k, "n": n, "budget": b, "fill": (25 if k == 1 else 0) if fill is None else fill, "arms": arms, "parallel": parallel}
+          shards = []
+          if not (long_ or day) or full:
+              # (pause seconds, machines, samples per arm on each): n = machines * samples per pause length.
+              plan = [(5, 2, 10), (30, 2, 10), (300, 2, 10)]
+              if full:
+                  plan += [(900, 4, 5), (3600, 20, 1)]
+              shards += [shard(p, k, n, budget(p, n)) for p, m, n in plan for k in range(m)]
+          # RFD 0071: n = 20 at one pause, platform arm, 75% resident; 4 runners x 5 machines each, one sample each.
+          # Budget: create and chat (about 20 min) plus the hold and its wake, x 1.25, from the step's start.
+          if long_:
+              shards += [shard(3600, k, 1, 100, 75, "platform", 5) for k in range(4)]
           print("shards=" + json.dumps(shards))
+          days = [shard(86400, k, 1, 1500, 75, "platform", 5) for k in range(4)] if day else []
+          print("day=" + json.dumps(days))
           PY
 
   build:
@@ -146,6 +166,7 @@ jobs:
 
   machine:
     needs: [plan, build]
+    if: ${{ needs.plan.outputs.shards != '[]' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
@@ -179,19 +200,66 @@ jobs:
           PAUSE: ${{ matrix.pause }}
           N: ${{ matrix.n }}
           BUDGET_MIN: ${{ matrix.budget }}
-        run: |
-          set -euo pipefail
-          chmod +x "$RUNNER_TEMP/cmux-tui-bin/cmux-tui"
-          out="$RUNNER_TEMP/resume-matrix/$PAUSE-${{ matrix.shard }}"
-          mkdir -p "$out"
-          # The journey's create and chat come first; the matrix ends by the budget from this step's start.
-          deadline=$(( $(date +%s) + BUDGET_MIN * 60 ))
-          # hq#21300 lane C, page-in against resident memory: shard 1 holds 25% of the guest's memory resident
-          # through each pause and walks it after the wake; shard 0 holds none, so the two compare.
-          fill=0
-          if [ "${{ matrix.shard }}" = "1" ]; then fill=25; fi
-          bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/cmux-tui-bin/cmux-tui" \
-            --model stub --resume-matrix "$PAUSE" --resume-n "$N" --resume-deadline "$deadline" --resume-fill "$fill"
+          FILL: ${{ matrix.fill }}
+          ARMS: ${{ matrix.arms }}
+          PARALLEL: ${{ matrix.parallel }}
+          SHARD: ${{ matrix.shard }}
+        run: bash scripts/cmux-next/cloud-resume-matrix-shard.sh
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: resume-matrix-${{ matrix.pause }}-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/resume-matrix/**/resume-matrix.json
+            ${{ runner.temp }}/resume-matrix/**/resume-matrix.md
+            ${{ runner.temp }}/resume-matrix/**/journey.json
+            ${{ runner.temp }}/resume-matrix/**/summary.md
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The 24 h cell (resume-matrix: day): the machine job's steps with a day's timeouts (cloud-journey.ts DAY_JOURNEY_MS
+  # holds its machines twice this long).
+  machine-day:
+    needs: [plan, build]
+    if: ${{ needs.plan.outputs.day != '[]' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # 3 arms x n x (pause + about 40 s of pause, wake and readback) plus the journey's create and chat.
+    timeout-minutes: 1560
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.day) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: resume-matrix-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-tui-bin
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Resume matrix (staging, ${{ matrix.pause }} s, machine ${{ matrix.shard }})
+        # Under the job's 1560: the upload below still runs when this one is cut.
+        timeout-minutes: 1540
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          PAUSE: ${{ matrix.pause }}
+          N: ${{ matrix.n }}
+          BUDGET_MIN: ${{ matrix.budget }}
+          FILL: ${{ matrix.fill }}
+          ARMS: ${{ matrix.arms }}
+          PARALLEL: ${{ matrix.parallel }}
+          SHARD: ${{ matrix.shard }}
+        run: bash scripts/cmux-next/cloud-resume-matrix-shard.sh
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -205,8 +273,8 @@ jobs:
           retention-days: 14
 
   table:
-    needs: machine
-    if: ${{ !cancelled() && needs.machine.result != 'skipped' }}
+    needs: [machine, machine-day]
+    if: ${{ !cancelled() && (needs.machine.result != 'skipped' || needs['machine-day'].result != 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
