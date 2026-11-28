@@ -9,6 +9,7 @@ nonisolated enum SettingsWindowStrings {
     /// App menu > Customizations (`CustomizationsMenu`) and its last row.
     static var customizationsMenu: String { text("customizationsMenu.title", "Customizations") }
     static var allCustomizations: String { text("customizationsMenu.all", "All Customizations…") }
+    static var turnAllOff: String { text("customizationsMenu.turnAllOff", "Turn Off All Experiments and Labs") }
     static func seconds(_ value: String) -> String { format("settingsWindow.seconds", "%@ s", value) }
     static func points(_ value: String) -> String { format("settingsWindow.points", "%@ pt", value) }
 

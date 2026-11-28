@@ -76,4 +76,26 @@ import Testing
         #expect(settings.isOn(preview))
         await #expect(throws: SettingManaged.self) { try await settings.flip(preview) }
     }
+
+    @Test func recoveryOverridesRecommendationsAndPreservesManagedAndDefaultOnSwitches() async throws {
+        let (settings, home) = try Self.settings(managed: ManagedPreferences(
+            forced: ["labs.previewFeatures": .bool(true)],
+            recommended: ["experiments.agentBadges": .bool(true)]))
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        let groups = SettingsSchema.quickToggleGroups(developerTools: true)
+        let badges = try #require(SettingsSchema.descriptor(for: CmuxConfigSnapshot.agentBadgesPath))
+        let preview = try #require(SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath))
+        #expect(settings.isOn(badges))
+        #expect(settings.turnOffTargets(in: groups).contains { $0.id == badges.id })
+        let defaultOn = groups.flatMap(\.rows).filter { $0.defaultValue?.boolValue == true }
+        let before = defaultOn.map { settings.isOn($0) }
+        try await settings.turnAllOff(in: groups)
+        await settings.reload()
+        #expect(!settings.isOn(badges))
+        #expect(settings.isOn(preview))
+        #expect(defaultOn.map { settings.isOn($0) } == before)
+        #expect(settings.turnOffTargets(in: groups).isEmpty)
+    }
+
 }
