@@ -35,6 +35,7 @@ function rows(report) {
     out.set(`${walk.arm}|${walk.width}|skip`, {
       skipRestores: walk.skipRestores !== false,
       footerCovered: (walk.footerCovered ?? []).length,
+      truncated: (walk.truncated ?? []).length,
     });
   }
   return out;
@@ -61,6 +62,7 @@ const summary = {
   passed: [before.passed, after.passed],
   checks: [before.checks, after.checks],
   cls_max: [before.cls_max, after.cls_max],
+  truncated_max: [before.truncated_max, after.truncated_max],
   failures: [(before.failures ?? []).length, (after.failures ?? []).length],
   steps_changed: changed.length,
 };
