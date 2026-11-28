@@ -59,6 +59,24 @@ s="$(run_as "$single" runner)"
 [ ! -s "$s/env" ] && [ ! -s "$s/path" ] || fail "a single-runner host got a CARGO_HOME"
 [ ! -e "$single/runner/_work/.cargo-home" ] || fail "a single-runner host got a cargo home dir"
 
+# A single runner whose registry holds a crate it cannot write (a Hetzner slot
+# on the shared cargo-crates bind, job 140846831178) gets a home of its own.
+slot="$TMP/slot"
+mkdir -p "$slot/runner/_work" "$slot/.cargo/registry/cache/index"
+echo '{}' > "$slot/runner/.runner"
+: > "$slot/.cargo/registry/cache/index/base64-0.22.1.crate"
+chmod 0444 "$slot/.cargo/registry/cache/index/base64-0.22.1.crate"
+f="$(run_as "$slot" runner)"
+if [ "$(id -u)" != 0 ]; then
+  [ "$(cat "$f/env")" = "CARGO_HOME=$slot/runner/_work/.cargo-home" ] \
+    || fail "a registry with an unwritable crate kept the default CARGO_HOME: $(cat "$f/env")"
+  [ ! -e "$slot/runner/_work/.cargo-home/registry" ] || fail "the unwritable registry leaked in"
+fi
+# The same runner with a writable registry keeps the default.
+chmod 0644 "$slot/.cargo/registry/cache/index/base64-0.22.1.crate"
+f="$(run_as "$slot" runner)"
+[ ! -s "$f/env" ] || fail "a single runner with a writable registry got a CARGO_HOME"
+
 # A runner with no .runner of its own (a container job) keeps its CARGO_HOME.
 c="$(run_as "$shared" container)"
 [ ! -s "$c/env" ] || fail "a job outside the runner dirs got a CARGO_HOME"

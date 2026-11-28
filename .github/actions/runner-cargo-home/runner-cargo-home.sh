@@ -14,8 +14,9 @@
 # The home is <runner>/_work/.cargo-home: it persists between this runner's jobs,
 # and the hosts' idle-runner eviction skips dot names in _work. The rustup home
 # and the toolchains stay shared; the toolchain is on PATH by its own bin dir.
-# Ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself to
-# anything but $HOME/.cargo, keep their CARGO_HOME.
+# A runner whose ~/.cargo/registry holds files it cannot write gets its own home
+# too. Ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself
+# to anything but $HOME/.cargo, keep their CARGO_HOME.
 set -euo pipefail
 
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
@@ -42,10 +43,21 @@ runners=0
 for marker in "$(dirname "$runner_root")"/*/.runner; do
   [[ -f "$marker" ]] && runners=$((runners + 1))
 done
-if [[ "$runners" -lt 2 || ! -f "$runner_root/.runner" ]]; then
+# A registry holding files this user cannot write: the Hetzner pool slots bound one
+# /cache/cmux-ci/cargo-crates onto every slot's ~/.cargo/registry/cache, and the
+# crates one slot wrote (0644) failed every other slot's cargo with "failed to
+# open .../anstyle-query-1.1.5.crate: Permission denied (os error 13)" (job
+# 140846831178, hetzner-2-4, and job 140854504311, hetzner-2-7, 2026-11-28).
+# Such a registry is not this runner's to use, however many runners share HOME.
+foreign=""
+if [[ -d "$HOME/.cargo/registry" ]]; then
+  foreign="$(find "$HOME/.cargo/registry" -maxdepth 3 ! -writable -print -quit 2>/dev/null || true)"
+fi
+if [[ -z "$foreign" && ( "$runners" -lt 2 || ! -f "$runner_root/.runner" ) ]]; then
   echo "this runner does not share its HOME with other runner instances; the default CARGO_HOME is kept"
   exit 0
 fi
+[[ -n "$foreign" ]] && echo "$HOME/.cargo/registry holds $foreign, which this user cannot write; using a CARGO_HOME of this runner's own"
 
 cargo_home="$work/.cargo-home"
 mkdir -p "$cargo_home/bin"
