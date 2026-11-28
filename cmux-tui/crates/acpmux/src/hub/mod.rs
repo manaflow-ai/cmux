@@ -228,6 +228,7 @@ mod loop_goal;
 mod loop_goal_tests;
 pub mod mac_approvers;
 mod machine_info;
+mod match_cap;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 pub mod media_handles;
@@ -673,36 +674,8 @@ pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
 
-/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
-/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
-pub const MAX_MATCH_BYTES: usize = 2 * 1024;
-
-/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
-/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
-/// bound.
-pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
-    match pattern {
-        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
-            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
-/// it was cut.
-pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
-    let Some(p) = pattern else { return false };
-    if p.len() <= MAX_MATCH_BYTES {
-        return false;
-    }
-    let mut end = MAX_MATCH_BYTES;
-    while !p.is_char_boundary(end) {
-        end -= 1;
-    }
-    p.truncate(end);
-    true
-}
+pub(crate) use match_cap::cap_match;
+pub use match_cap::{MAX_MATCH_BYTES, validate_match};
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -1476,6 +1449,8 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// Tool calls whose wait is handed to the platform (`parked_wait.rs`).
+    pub parked: crate::parked_wait::Parked,
     /// Paused machines' replicas and write journals, when `writeJournal.enabled` (`paused_fs.rs`).
     pub(super) paused_fs: Option<Arc<crate::write_journal::paused::PausedFs>>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
@@ -2008,6 +1983,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            parked: crate::parked_wait::Parked::default(),
             paused_fs,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
