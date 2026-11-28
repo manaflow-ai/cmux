@@ -213,3 +213,4 @@ jobs:
           name: old-phones-${{ matrix.api }}
           path: ${{ runner.temp }}/old-phones
           if-no-files-found: ignore
+          retention-days: 3
