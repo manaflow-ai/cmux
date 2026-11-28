@@ -46,6 +46,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Cmd-/ shows every shortcut](https://code.claude.com/docs/en/desktop) | keyboard | matched | keybindings.json cmd+slash keybindings.open |
 | [Esc stops Claude's response](https://code.claude.com/docs/en/desktop) | keyboard | matched | cmux's own Esc in the chat (no binding needed) |
 | [Model picker from a key, a short menu](https://code.claude.com/docs/en/desktop) | model_effort_picker | matched | agentPane.display.modelPickerStyle menu (the short models-then-effort menu, not the searchable list); cmd+shift+i and opt+p agentPane.switchModel |
+| [Model menu offers only its own update](https://code.claude.com/docs/en/desktop) | model_effort_picker | matched | agentPane.display.ownHarnessUpdatesOnly true (the menu's update footer offers Claude Code's own update alone, no Codex or other agent row) |
 | [Effort control apart from the model](https://code.claude.com/docs/en/desktop) | model_effort_picker | partial | cmux.composer.model.picker/1 reasoningMenu separate; cmd+shift+e agentPane.setEffort; gap (f): agentPane.setEffort from a key may need --effort (unverified) |
 | [Mode and model chips under the prompt box, outside it](https://code.claude.com/docs/en/desktop) | composer | matched | `agentPane.composerLook` `auto` (Claude's look) draws the computer, folder, mode and model chips in the quiet row under the box. The Chief chip on the nightly is the Chief-only build's, not the profile's |
 | [One-line prompt box, 'Type / for commands'](https://code.claude.com/docs/en/desktop) | composer | matched | agent-pane/theme.css paints the one-line #303030 box; `agentPane.composerPlaceholder` empty keeps 'Type / for commands', the app's own text |
@@ -60,6 +61,10 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Plan mode](https://code.claude.com/docs/en/desktop) | plan_mode | matched | cmd+j p agentPane.composer.togglePlan; action claude-code-plan (--permission-mode plan); cmd+shift+m mode menu |
 | [Plan pane](https://code.claude.com/docs/en/desktop) | plan_mode | gap | gap (l): no plan or tasks pane beside the chat |
 | [Tasks pane with the agent's todos](https://code.claude.com/docs/en/desktop) | status | gap | gap (l): no plan or tasks pane beside the chat |
+| Tool calls as quiet text rows with no icons ("Ran 2 commands >") | transcript | matched | `agentPane.display.transcriptTokens` `{"toolCards": "minimal"}` (profile, whole, transcript) |
+| Working mark: accent dots before the live line and in Jump to latest | status | matched | `agentPane.display.thinking.glyph` `{"$file": "agent-pane/thinking-glyph.json"}` (four dots, clockwise while a tool runs, breathing while it thinks); `thinking.jumpButton` `glyph`. Two other takes beside it: `thinking-glyph-row.json`, `thinking-glyph-pulse.json` |
+| Live line rotates short -ing verbs ("Stewing 19s") | status | matched | `agentPane.display.statusVerbs.mode` `rotate` |
+| Live line token counts ("15s · ↓ 284 out ↑ 342.6K in") | status | gap | no setting shows output and input tokens on the live line |
 | [Worked for Ns, time and token footer](https://code.claude.com/docs/en/desktop) | status | partial | customize/ cmux.session.info.section/1 status line in Session Info, not under the turn |
 | [Context usage ring](https://code.claude.com/docs/en/desktop) | status | matched | agentPane.showContextUsage true; agentPane.composerRing context |
 | [Notifications when Claude needs permission or finishes](https://code.claude.com/docs/en/settings) | status | matched | notifications.delivery.permissionRequest banner, .question badge, .taskComplete off |
@@ -82,8 +87,11 @@ sent to the customization lead. Gap letters are the lines sent.
 | --- | --- | --- | --- |
 | Sent prompt pops in and settles | pop past size ~0.25% at 300 ms, settles by 450 ms (measured, claude-code/send-pop) | matched | agentPane.display.sendPop true |
 | Sidebar opens and closes | unmeasured | partial | ui.animations.sidebar on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Model picker opens | unmeasured | partial | ui.animations.overlays on (cmux's timing); gap (b): a look cannot set motion durations or easings |
+| Model picker opens | in one frame, no fade or scale (measured, 57 fps clip: fully drawn on the first changed frame) | matched | cmux menus and popovers open in one frame (webviews/src/ui/popupSurface.css) |
 | Streaming text arrives | unmeasured | partial | cmux's streaming; gap (b): a look cannot set motion durations or easings |
 | Panes drag and reorder | unmeasured | partial | ui.animations.panes on (cmux's timing); gap (b): a look cannot set motion durations or easings |
 | Hover and press | unmeasured | partial | ui.animations.feedback on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Working spinner | unmeasured | partial | ui.animations.indicators on (cmux's timing); gap (b): a look cannot set motion durations or easings |
+| Working spinner | unmeasured (no clip of the running state) | partial | the look's own glyph (agent-pane/thinking-glyph.json): 1.2 s clockwise turn while a tool runs, 1.4 s breathe while it thinks, both easeInOut |
+| New session view replaces the thread | 105 to 140 ms, ease-out (measured, 57 fps clip: most of the change in the first frame, a tail over 4 to 6 frames) | partial | cmux's own timing; not yet measured beside it |
+| Browser pane opens | in one frame (measured, 57 fps clip) | partial | cmux's pane timing (ui.animations.panes); not yet measured beside it |
+| Settings search results swap | in one frame (measured, 57 fps clip) | partial | gap (n): a look cannot restyle cmux Settings |

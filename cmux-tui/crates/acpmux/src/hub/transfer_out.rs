@@ -525,6 +525,8 @@ impl Hub {
                 )
             }
             "preflight" => self.transfer_preflight(params).await,
+            // What a move of the chat would interrupt (RFD 0063 item 6, `move_interrupts.rs`).
+            "interrupts" => self.transfer_interrupts(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -545,6 +547,56 @@ impl Hub {
         }
         #[cfg(not(feature = "hub-carrier"))]
         None
+    }
+
+    /// A saved local ChatGPT plan has no portable account binding in a move bundle.
+    async fn transfer_has_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let profile =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok();
+        let family = profile
+            .as_ref()
+            .map(|profile| crate::config::derive_family(&meta.harness, profile))
+            .or_else(|| meta.family.clone())
+            .unwrap_or_else(|| meta.harness.clone());
+        if crate::agent_credentials::Family::of_harness(&family)
+            != Some(crate::agent_credentials::Family::Codex)
+        {
+            return false;
+        }
+        let (dir, state) = crate::routes::places(&config);
+        drop(config);
+        let bindings = crate::routes::bindings(&state);
+        let env = profile.map(|profile| profile.env).unwrap_or_default();
+        let selected = crate::routes::spawn_route(
+            dir.as_deref(),
+            &bindings,
+            &session.id,
+            meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+            &family,
+            &env,
+        );
+        if selected.is_some_and(|(id, _)| crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id)) {
+            return true;
+        }
+        let uses_local_plan = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if let Some(uses_local_plan) = uses_local_plan {
+            return uses_local_plan;
+        }
+        session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .is_some_and(|record| record.local_chatgpt_expiry.is_some())
     }
 
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
@@ -573,6 +625,22 @@ impl Hub {
         // does again.
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
+        }
+        // An Auto chat changes machine only as a holder change in the Cloud store
+        // (`move_authority.rs`, RFD 0172): a bundle moved here would run it on another host
+        // while the store still names this machine its holder.
+        if let super::move_authority::Authority::Store { .. } = self.move_authority(session) {
+            let name = session.read_meta(|m| m.name.clone());
+            let to_cloud =
+                crate::chat_place::person_command(&name, crate::chat_place::Place::Cloud);
+            return Err(transfer_error(
+                "auto",
+                format!(
+                    "this is an Auto chat, so the Cloud store moves it, not a session move; \
+                     `{to_cloud}` sends it to the Cloud and `--on local` brings it home"
+                ),
+            )
+            .with_data(json!({"reason": "auto_chat"})));
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
@@ -678,6 +746,12 @@ impl Hub {
             }
             e
         };
+        if self.transfer_has_local_chatgpt_plan(session).await {
+            return Err(unfreeze(
+                transfer_error("account", super::credentials::credential_needed().message),
+                None,
+            ));
+        }
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {

@@ -100,7 +100,10 @@ pub(super) async fn handle(
                 .map(|route| {
                     let mut view = route.view();
                     if let (Some(family), Some(obj)) = (&family, view.as_object_mut()) {
-                        obj.insert("serves".into(), json!(route.serves(family)));
+                        obj.insert(
+                            "serves".into(),
+                            json!(route.serves(family) && route.check_local_launch().is_ok()),
+                        );
                     }
                     view
                 })
@@ -121,30 +124,46 @@ pub(super) async fn handle(
         method::MUX_ROUTE_ADD | method::MUX_ROUTE_EDIT => {
             let id = need("id")?;
             let editing = m == method::MUX_ROUTE_EDIT;
-            let merged = if editing {
-                let old = routes::find(dir.as_deref(), &id).map_err(|e| route_error(&e))?;
-                let mut base = params_of(&old.file);
-                if let (Some(b), Some(p)) = (base.as_object_mut(), params.as_object()) {
-                    for (k, v) in p {
-                        if k == "id" {
-                            continue;
-                        }
-                        if v.is_null() {
-                            b.remove(k);
-                        } else {
-                            b.insert(k.clone(), v.clone());
+            let params = params.clone();
+            let route = tokio::task::spawn_blocking(move || {
+                if !editing {
+                    let file = routes::file_from_json(&params)?;
+                    let replace = params.get("replace").and_then(Value::as_bool).unwrap_or(false);
+                    return routes::add(dir.as_deref(), &id, &file, replace);
+                }
+                routes::edit(dir.as_deref(), &id, |old| {
+                    let mut base = params_of(old);
+                    if let (Some(target), Some(changes)) =
+                        (base.as_object_mut(), params.as_object())
+                    {
+                        for (key, value) in changes.iter().filter(|(key, _)| key.as_str() != "id") {
+                            if value.is_null() {
+                                target.remove(key);
+                            } else {
+                                target.insert(key.clone(), value.clone());
+                            }
                         }
                     }
-                }
-                base
-            } else {
-                params.clone()
-            };
-            let file = routes::file_from_json(&merged).map_err(|e| route_error(&e))?;
-            let replace =
-                editing || params.get("replace").and_then(Value::as_bool).unwrap_or(false);
-            let route = tokio::task::spawn_blocking(move || {
-                routes::add(dir.as_deref(), &id, &file, replace)
+                    let mut file =
+                        routes::file_from_edit(&base, old.kind == routes::RouteKind::ClaudeToken)?;
+                    if file.kind == routes::RouteKind::DirectApiKey
+                        && file.kind == old.kind
+                        && (file.provider() == old.provider() || old.cloud_enabled == Some(false))
+                    {
+                        file.cloud_enabled = old.cloud_enabled;
+                    }
+                    if file.kind == routes::RouteKind::ClaudeToken {
+                        if file.kind != old.kind || file.secret != old.secret {
+                            return Err(routes::RouteError::BadParams(
+                                "sign in with Claude Code on this machine".into(),
+                            ));
+                        }
+                        file.claude_token_expires_at = old.claude_token_expires_at;
+                    }
+                    *old = file;
+                    Ok(())
+                })
+                .map(|(route, ())| route)
             })
             .await
             .map_err(joined)?
@@ -153,17 +172,32 @@ pub(super) async fn handle(
         }
         method::MUX_ROUTE_REMOVE => {
             let id = need("id")?;
-            let backup =
-                routes::remove(dir.as_deref(), &state, &id).map_err(|e| route_error(&e))?;
+            let removing = id.clone();
+            let backup = tokio::task::spawn_blocking(move || {
+                routes::remove(dir.as_deref(), &state, &removing)
+            })
+            .await
+            .map_err(joined)?
+            .map_err(|e| route_error(&e))?;
             Ok(json!({"id": id, "backup": backup}))
         }
         method::MUX_ROUTE_RESTORE => {
             let backup = need("backup")?;
-            routes::restore(dir.as_deref(), &state, &backup)
+            tokio::task::spawn_blocking(move || routes::restore(dir.as_deref(), &state, &backup))
+                .await
+                .map_err(joined)?
                 .map(|r| r.view())
                 .map_err(|e| route_error(&e))
         }
         method::MUX_ROUTE_TEST => {
+            if params["listModels"] == true {
+                if origin != Origin::Local {
+                    return Err(RpcError::invalid_params(
+                        "checking model access requires the local socket",
+                    ));
+                }
+                return super::connections::check_models(dir, params).await;
+            }
             let id = need("id")?;
             let route = routes::find(dir.as_deref(), &id).map_err(|e| route_error(&e))?;
             Ok(routes::probe(&route, &state).await)
@@ -176,25 +210,8 @@ pub(super) async fn handle(
                 ));
             }
             let route = text("routeId").map(str::to_owned);
-            if let Some(id) = &route {
-                let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
-                // A ChatGPT plan serves Cloud threads through the gateway, never a chat here.
-                if matches!(
-                    found.file.kind,
-                    routes::RouteKind::ChatgptPlan | routes::RouteKind::ClaudeToken
-                ) {
-                    return Err(RpcError::invalid_params(format!(
-                        "{id} is a Cloud connection: it serves Cloud chats, not new chats on this Mac"
-                    )));
-                }
-                // A route turned off is no default: new chats would keep running on it.
-                if found.file.disabled {
-                    return Err(RpcError::invalid_params(format!(
-                        "{id} is turned off: turn it on before making it a default"
-                    )));
-                }
-            }
-            let bindings = routes::set_binding(&state, &scope, route.as_deref())
+            let config = hub.config.read().await;
+            let bindings = routes::set_default_binding(&config, &scope, route.as_deref())
                 .map_err(|e| route_error(&e))?;
             Ok(json!({"scope": scope, "routeId": route, "bindings": bindings}))
         }
