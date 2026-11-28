@@ -472,6 +472,16 @@ if [ "${CMUX_WEB_TEST_LIST_ONLY:-}" = 1 ]; then
   tr '\0' '\n' < "$results/files"
   exit 0
 fi
+# No bun, no verdicts: a runner whose toolchain setup failed stops here, before any file starts, and writes no
+# CMUX_WEB_TEST_RESULTS, so the base history records nothing for it. Without this every file "failed" in a second
+# (`timeout: failed to run command 'bun'`) as a file-level red with no test name: post-merge batch 46040477174
+# attempt 2 shard 4 (hetzner-2-28, setup-bun `EACCES: mkdir '/home/runner/.bun/bin'`) wrote 628 such reds, tick
+# 46023562151 shards 6-7 (hetzner-1-13, -11) 1,032 a shard, and those reds read as real ones to the history's flake,
+# known-red and held-red answers. Detector: tests/test_webviews_tests_per_file.py (no bun on PATH).
+if ! command -v bun > /dev/null 2>&1; then
+  echo "::error::run-webviews-tests.sh: no bun on PATH (did Setup Bun fail on this runner?); ran none of the $count files and recorded no verdicts"
+  exit 3
+fi
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
