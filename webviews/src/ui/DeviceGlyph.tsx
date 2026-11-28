@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { DeviceGlyphFrame } from "../agent-session/acpmux/icons/DeviceGlyphFrame";
 import { DEVICE_GLYPH_PATHS, DEVICE_GLYPH_VIEWBOX } from "./deviceGlyphPaths";
 import { DEVICE_SYMBOLS, type DeviceKind, useDeviceKind } from "./deviceKinds";
 import "./DeviceGlyph.css";
@@ -24,24 +25,22 @@ export function DeviceGlyph({
 }) {
   const symbol = DEVICE_SYMBOLS[kind];
   return (
-    <svg
+    <DeviceGlyphFrame
       className={`ui-device-glyph${className ? ` ${className}` : ""}`}
-      data-device={kind}
-      data-symbol={symbol}
-      data-offline={offline ? "" : undefined}
+      kind={kind}
+      symbol={symbol}
+      offline={offline}
       style={style}
       width={width}
       height={height}
       viewBox={DEVICE_GLYPH_VIEWBOX}
-      aria-hidden="true"
-      focusable="false"
     >
       <DeviceGlyphShapes kind={kind} />
-    </svg>
+    </DeviceGlyphFrame>
   );
 }
 
-/// The glyph's paths alone, for an icon that already draws its own `<svg>` with the shared
+/// The glyph's paths alone, for an icon that already draws its own vector root with the shared
 /// `DEVICE_GLYPH_VIEWBOX` (the location picker's EnvironmentIcon, the composer chip).
 export function DeviceGlyphShapes({ kind }: { kind: DeviceKind }) {
   const glyph = DEVICE_GLYPH_PATHS[DEVICE_SYMBOLS[kind]] ?? DEVICE_GLYPH_PATHS[DEVICE_SYMBOLS.generic];
