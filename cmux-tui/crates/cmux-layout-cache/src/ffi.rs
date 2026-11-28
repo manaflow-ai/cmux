@@ -15,7 +15,7 @@ use crate::store::{WriteCoalescer, cache_path, read, write};
 use crate::swap::{ShellKind, swap_wait_ms};
 use crate::usable::{NowState, usable};
 
-/// `cmux_layout_cache_write`'s and `_coalescer_write`'s failures.
+/// `cmux_layout_cache_write_keyed`'s failures.
 pub const BAD_INPUT: i32 = -1;
 pub const IO_FAILED: i32 = -2;
 
@@ -79,17 +79,28 @@ fn parse_cache(json: Option<&str>) -> Option<LayoutCache> {
     LayoutCache::from_json(json?)
 }
 
-/// Writes `json` (a `LayoutCache`) to `path` atomically. 0 written, -1 not a version-1 cache
-/// (or a bad argument), -2 the write failed (the old file is untouched).
+/// Writes `json` (a `LayoutCache`) to `path` atomically, giving the content's key (`key_out`, when non-null and the
+/// write succeeded) for `cmux_layout_cache_coalescer_wrote_key`: the app writes off its main
+/// thread, and the key lets the main thread clear the coalescer without parsing the cache again.
 ///
 /// # Safety
-/// Both arguments are null or NUL-terminated strings.
+/// `path` and `json` are null or NUL-terminated strings; `key_out` is null or points to a `u64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_layout_cache_write(path: *const c_char, json: *const c_char) -> i32 {
+pub unsafe extern "C" fn cmux_layout_cache_write_keyed(
+    path: *const c_char,
+    json: *const c_char,
+    key_out: *mut u64,
+) -> i32 {
     let (path, json) = (unsafe { c_str(path) }, unsafe { c_str(json) });
     guard(BAD_INPUT, || {
         let (Some(path), Some(cache)) = (path, parse_cache(json)) else { return BAD_INPUT };
-        if write(Path::new(path), &cache).is_ok() { 0 } else { IO_FAILED }
+        if write(Path::new(path), &cache).is_err() {
+            return IO_FAILED;
+        }
+        if !key_out.is_null() {
+            unsafe { *key_out = cache.content_key() };
+        }
+        0
     })
 }
 
@@ -289,47 +300,19 @@ pub unsafe extern "C" fn cmux_layout_cache_coalescer_flush_now(
     unsafe { coalescer(c) }.is_some_and(|c| guard(false, || c.flush_now()))
 }
 
-/// Writes `json` (a `LayoutCache`) to `path` unless its content equals the last write
-/// (`written_at_ms` aside). 1 written, 0 unchanged (nothing pending now), -1 bad input, -2 the
-/// write failed (still pending; the old file untouched).
+/// Records that the content `cmux_layout_cache_write_keyed` gave `key` for reached disk: the
+/// pending change clears and the same content later skips its write; no parse on the coalescer's thread. False for a null coalescer.
 ///
 /// # Safety
-/// `c` is null or a live coalescer; `path` and `json` are null or NUL-terminated strings.
+/// `c` is null or a live coalescer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_layout_cache_coalescer_write(
+pub unsafe extern "C" fn cmux_layout_cache_coalescer_wrote_key(
     c: *mut CmuxLayoutCacheCoalescer,
-    path: *const c_char,
-    json: *const c_char,
-) -> i32 {
-    let (Some(c), path, json) =
-        (unsafe { coalescer(c) }, unsafe { c_str(path) }, unsafe { c_str(json) })
-    else {
-        return BAD_INPUT;
-    };
-    guard(BAD_INPUT, || {
-        let (Some(path), Some(cache)) = (path, parse_cache(json)) else { return BAD_INPUT };
-        match c.write(Path::new(path), &cache) {
-            Ok(true) => 1,
-            Ok(false) => 0,
-            Err(_) => IO_FAILED,
-        }
-    })
-}
-
-/// Records that `json` reached disk by another route (`cmux_layout_cache_write`): the pending
-/// change clears and the same content later skips its write. False for bad input.
-///
-/// # Safety
-/// `c` is null or a live coalescer; `json` is null or a NUL-terminated string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_layout_cache_coalescer_wrote(
-    c: *mut CmuxLayoutCacheCoalescer,
-    json: *const c_char,
+    key: u64,
 ) -> bool {
-    let (Some(c), json) = (unsafe { coalescer(c) }, unsafe { c_str(json) }) else { return false };
+    let Some(c) = (unsafe { coalescer(c) }) else { return false };
     guard(false, || {
-        let Some(cache) = parse_cache(json) else { return false };
-        c.wrote(&cache);
+        c.wrote_key(key);
         true
     })
 }

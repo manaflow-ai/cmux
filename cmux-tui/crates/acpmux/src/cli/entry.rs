@@ -114,6 +114,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // A parked wait (`parked_wait.rs`): one `sleep` handed to the platform, no CLI.
+    if args.first().is_some_and(|a| a == crate::parked_wait::ARG) {
+        let rest: Vec<String> =
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        return crate::parked_wait::main(&rest);
+    }
     // `cmux github` for an agent session on a machine added from a Mac (`github_lane_mint.rs`):
     // git's credential helper and the `gh` shim the session's env names. No runtime, no daemon
     // start; stdout is git's or gh's alone.
@@ -776,6 +782,22 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::RunElsewhereCarrier(args)) => {
+            // The bg task's shell reads the far run's own exit code.
+            match crate::cli::run_elsewhere_carrier::run(args).await {
+                Ok(0) => Ok(()),
+                Ok(code) => {
+                    let e = errors::AppError::new(
+                        errors::Code::Runtime,
+                        "run_elsewhere_exit",
+                        format!("the run exited {code}"),
+                    )
+                    .with_exit(code);
+                    errors::exit_with(&e.into(), cli.json)
+                }
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),
             Err(e) => errors::exit_with(&e, cli.json),
