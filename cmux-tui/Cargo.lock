@@ -1437,6 +1437,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-themes"
+version = "0.1.0"
+dependencies = [
+ "cmux-theme-tokens",
+ "serde",
+ "serde_json",
+ "unicase",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
