@@ -143,8 +143,16 @@ def build_stack(base: str, prs: list[PullRequest]) -> Stack:
 
 # ---- GitHub ----
 
-def gh(*args: str, input_text: str | None = None) -> str:
-    return subprocess.run(["gh", *args], capture_output=True, text=True, check=True, input=input_text).stdout
+def gh(*args: str, input_text: str | None = None, token: str | None = None) -> str:
+    """gh, failing loudly: a refused call prints GitHub's reason (run 46080212141, 2026-11-27, failed the ref create
+    with only "exit status 1" because stderr was captured and dropped)."""
+    env = {**os.environ, "GH_TOKEN": token} if token else None
+    done = subprocess.run(["gh", *args], capture_output=True, text=True, check=False, input=input_text, env=env)
+    if done.returncode != 0:
+        print(f"yolo: gh {' '.join(args[:4])} failed ({done.returncode}): {done.stderr.strip()[-2000:]}",
+              file=sys.stderr)
+        raise subprocess.CalledProcessError(done.returncode, ["gh", *args], done.stdout, done.stderr)
+    return done.stdout
 
 
 PR_FIELDS = "number title headRefOid isCrossRepository state"
@@ -176,9 +184,9 @@ def push_branch(branch: str, base: str, head: str) -> None:
     """Create the branch at base through the API, then fast-forward it: a new branch pushed with the job token is
     compared with main's workflows and refused; created at base, the push carries only the stacked PRs
     (next_batch.py's push does the same)."""
+    token = os.environ.get("YOLO_PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
     gh("api", "-X", "POST", f"repos/{REPO}/git/refs", "--input", "-",
-       input_text=json.dumps({"ref": f"refs/heads/{branch}", "sha": base}))
-    token = os.environ.get("GH_TOKEN", "")
+       input_text=json.dumps({"ref": f"refs/heads/{branch}", "sha": base}), token=token or None)
     auth = []
     if token:
         import base64

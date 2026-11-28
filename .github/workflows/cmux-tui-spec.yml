@@ -341,6 +341,9 @@ jobs:
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
           CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
+          # A post-merge-tier workflow the post-merge batch runs plans nothing on a feat-cmux-next pull request
+          # head (head_tier.py's post-merge tier rule); off unless the repository variable is 1.
+          CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
