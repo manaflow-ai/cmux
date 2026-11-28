@@ -511,6 +511,7 @@ def record(run, gesture, label, content="focused", static=True, unchanged=None):
     reported beside the failed rounds, never as a measurement."""
     tracker0 = cef_tracker(run)
     before = unchanged() if unchanged else None
+    hangs_clear(run)
     strip, trace = record_raw(run, gesture, label, content)
     retried = False
     if timed_out(strip) and unchanged and unchanged() == before:
@@ -518,16 +519,48 @@ def record(run, gesture, label, content="focused", static=True, unchanged=None):
         retried = True
         motion_ends(run, "the timed-out gesture")
         tracker0 = cef_tracker(run)
+        hangs_clear(run)
         strip, trace = record_raw(run, gesture, f"{label}-retry", content)
     row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
     if retried:
         row["retried"] = True
     if timed_out(strip):
         row["timed_out"] = True
+    stalls = hangs_read(run)
     cef = cef_delta(tracker0, cef_tracker(run))
     if cef and isinstance(row, dict):
         row["cef"] = cef
+    if stalls and isinstance(row, dict):
+        row["stalls"] = stalls
     return row
+
+
+HANG_STACKS = 3
+HANG_FRAMES = 14
+
+
+def hangs_clear(run):
+    """Empties the main-thread watchdog's ring (`debug.hangs`), untimed, so the next read holds one round's stalls."""
+    run.rpc("debug.hangs", {"clear": True})
+
+
+def hangs_read(run):
+    """The round's main-thread stalls (`debug.hangs`, each over the watchdog's threshold, default 50 ms;
+    `--app-env CMUX_NEXT_HANG_THRESHOLD_MS=8` samples one-frame stalls): their count, total and worst ms, and the
+    HANG_STACKS longest with their first HANG_FRAMES frames, so a slow cell names the main-thread code its frames
+    went to without a profiler run per guess. {} when the read failed or nothing stalled."""
+    reply = run.rpc("debug.hangs") or {}
+    if not isinstance(reply, dict) or not reply.get("count"):
+        return {}
+    records = [r for r in reply.get("records") or [] if isinstance(r, dict)]
+    def ms(r):
+        value = r.get("duration_ms", r.get("ms", 0))
+        return value if isinstance(value, (int, float)) else 0
+    top = sorted(records, key=ms, reverse=True)[:HANG_STACKS]
+    return {"count": reply.get("count"), "total_ms": round(reply.get("total_ms") or 0, 1),
+            "max_ms": round(reply.get("max_ms") or 0, 1), "max_gap_ms": round(reply.get("max_gap_ms") or 0, 1),
+            "top": [{"ms": round(ms(r), 1), "task": r.get("task"),
+                     "frames": [str(f) for f in (r.get("frames") or [])[:HANG_FRAMES]]} for r in top]}
 
 
 CEF_FIELDS = ("fence", "commit", "detaches", "attaches", "geometry_posts", "hosted_pages")
