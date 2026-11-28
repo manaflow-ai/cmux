@@ -106,6 +106,8 @@ public final class AgentsStepModel {
     @ObservationIgnored var installFolders = [FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin"),
                                               URL(filePath: "/opt/homebrew/bin"), URL(filePath: "/usr/local/bin")]
     @ObservationIgnored private var installWatch: InstallFolderWatch?
+    /// The agents whose install the folders are watched for: the one Chief answers through.
+    @ObservationIgnored var watchedInstalls: Set<String> = ["claude"]
     /// A Sign In asked from outside the card (``signInWhenFound(_:)``) that waits for the read under way.
     @ObservationIgnored private var signInAfterRead: String?
 
@@ -138,7 +140,7 @@ public final class AgentsStepModel {
             finishInstall()
             if let id = signInAfterRead {
                 signInAfterRead = nil
-                signIn(id)
+                signIn(id, even: true)
             }
         }
     }
@@ -163,17 +165,27 @@ public final class AgentsStepModel {
     private func show(_ fresh: [OnboardingAgent]) {
         agents = fresh.filter(\.installed)
         installable = fresh.filter { !$0.installed && $0.installPage != nil }
-        if installable.isEmpty {
+        // Only while an agent the watch is for is missing: a Codex nobody installs must not keep a watch (and a
+        // full sign-in recheck on every `brew upgrade` write) for the whole launch.
+        if !installable.contains(where: { watchedInstalls.contains($0.id) }) {
             installWatch = nil
         } else if installWatch == nil {
-            installWatch = InstallFolderWatch(folders: installFolders) { [weak self] in self?.refresh(recheck: true) }
+            installWatch = InstallFolderWatch(folders: installFolders) { [weak self] in self?.installFolderChanged() }
         }
     }
 
+    /// A watched folder changed: one read at a time (a burst of writes, such as an installer's or Homebrew's, is
+    /// one read, not one per entry).
+    private func installFolderChanged() {
+        guard !loading else { return }
+        refresh(recheck: true)
+    }
+
     /// Sign In from outside the card (a signed-out Chief turn's card, first-run findings N5): the login runs now when
-    /// the agent is listed as installed, else after a fresh read finds it (the list may predate its install).
+    /// the agent is installed, even if acpmux reads it as signed in (the turn just failed on its sign-in, which
+    /// acpmux may not see, such as an expired token), else after a fresh read finds it (the list may predate it).
     public func signInWhenFound(_ id: String) {
-        if agents.contains(where: { $0.id == id && $0.offersSignIn }) { return signIn(id) }
+        if agents.contains(where: { $0.id == id }) { return signIn(id, even: true) }
         signInAfterRead = id
         refresh(recheck: true)
     }
@@ -184,9 +196,10 @@ public final class AgentsStepModel {
         refresh(recheck: true)
     }
 
-    /// Sign In: the agent's login in a terminal tab, where the person answers it.
-    public func signIn(_ id: String) {
-        guard let agent = agents.first(where: { $0.id == id }), agent.offersSignIn else { return }
+    /// Sign In: the agent's login in a terminal tab, where the person answers it. `even`: also when acpmux reads it
+    /// as signed in (a press on a card that says its sign-in just failed).
+    public func signIn(_ id: String, even: Bool = false) {
+        guard let agent = agents.first(where: { $0.id == id }), agent.offersSignIn || even && agent.installed else { return }
         signingIn = id
         signInFailed = false
         // task-owner: one sign-in the person asked for; it only opens the terminal tab.
@@ -224,6 +237,8 @@ public final class AgentsStepModel {
         // One install at a time: a second could finish first and its read would skip this one's sign-in.
         guard installable.contains(where: { $0.id == id }), !installs.values.contains(.installing) else { return }
         installs[id] = .installing
+        // The install ends with its own Sign In: a Sign In asked before it must not open a second tab later.
+        signInAfterRead = nil
         // task-owner: one install the person asked for; it ends with the installer (acpmux bounds it).
         Task { [weak self, source] in
             let failure: String? = if let source { await source.installAgent(id) } else { "cmux could not reach its agents service" }
@@ -252,6 +267,7 @@ public final class AgentsStepModel {
         read?.cancel()
         read = nil
         installWatch = nil
+        signInAfterRead = nil
         loading = false
     }
 }

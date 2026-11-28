@@ -35,7 +35,7 @@ final class InstallFolderWatch {
             let descriptor = open(path, O_EVTONLY)
             guard descriptor >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
-            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.fired(path: path, wanted: wanted) } }
+            source.setEventHandler { [weak self] in Task { @MainActor in self?.fired(path: path, wanted: wanted) } }
             source.setCancelHandler { close(descriptor) }
             source.resume()
             sources.append(source)

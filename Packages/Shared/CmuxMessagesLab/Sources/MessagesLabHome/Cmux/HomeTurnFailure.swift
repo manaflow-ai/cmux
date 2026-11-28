@@ -15,6 +15,9 @@ struct HomeTurnFailure: Equatable, Sendable {
     let title: String
     /// The failure line as optchat-chief wrote it, without its parentheses.
     let detail: String
+    /// The turn failed on Claude Code's sign-in (`turn failed on claude: …` and a sign-in error): the one failure
+    /// this Mac's Sign In can fix (first-run findings N5). Another agent's sign-in is not Claude Code's login.
+    let claudeSignedOut: Bool
 
     /// The failure at the end of `text`, or nil when `text` does not end with one.
     init?(text: String) {
@@ -24,6 +27,7 @@ struct HomeTurnFailure: Equatable, Sendable {
         let error = String(match.output.2)
         detail = "\(match.output.1): \(error)"
         title = Self.title(error)
+        claudeSignedOut = title == CmuxStrings.turnFailureSignedOut && match.output.1 == "turn failed on claude"
     }
 
     /// The sentence for a harness error: a usage limit, a sign-in, the network, the model service,

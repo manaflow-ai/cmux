@@ -220,6 +220,15 @@ def nx_worker(hq: Path, name: str) -> Path:
     return hq / ".cmux-scratch" / "nx-worker" / name
 
 
+# A tool path in an installed release (hq_installed.py: $CMUX_HQ_TOOLS_HOME/versions/<main sha>/...). Pruning keeps only
+# the newest releases, so a gate step written now names the `current` link, which always holds hq main's tools.
+RELEASE_PATH = re.compile(r"(/hq-tools)/versions/[0-9a-f]{40}/")
+
+
+def stable_release_paths(line: str) -> str:
+    return RELEASE_PATH.sub(r"\1/current/", line)
+
+
 def hq_tool(hq: Path, name: str, *args: str) -> subprocess.CompletedProcess:
     """Run an hq tool as installed hq main: hq's scripts/lib/hq_installed.py fetches main and runs the tool from
     its release, never the checkout's files (a shared primary checkout can be months behind; 2026-11-28 its
@@ -247,7 +256,13 @@ def main(argv: list[str]) -> int:
     if not changed:
         raise SystemExit(f"gate-plan: HEAD has no change against {args.base}")
 
-    hq = hq_root()  # its tools run as installed hq main (hq_tool), so a stale checkout is fine
+    hq = hq_root()  # affected.py and receipts.py run as installed hq main (hq_tool)
+    # The steps gate-plan writes itself still name the checkout's rbx and freestyle-run.sh.
+    for tool in ("build-fleet/rust-builder/rbx", "scripts/freestyle-run.sh"):
+        stale = subprocess.run(["git", "-C", str(hq), "diff", "--quiet", "HEAD", "origin/main", "--", tool]).returncode
+        if stale == 1:
+            print(f"gate-plan: {hq}/{tool} differs from hq origin/main (stale checkout?); set HQ_ROOT to a current hq"
+                  " checkout if its step fails", file=sys.stderr)
     steps: list[str] = []      # parallel members, each run as "& <step>"
     after: list[str] = []      # plain lines, run alone after the group
     notes: list[str] = [f"# gate plan for {head} ({len(changed)} files against {args.base} {base[:12]})"]
@@ -294,7 +309,7 @@ def main(argv: list[str]) -> int:
                 continue
             # The side-branch push is written below, with the primary checkout's safe-push.sh.
             if not line.startswith("SAFE_PUSH_NEW_BRANCH_BASE="):
-                steps.append(line)
+                steps.append(stable_release_paths(line))
         if crates and not rust_wide and not any("cargo test" in s for s in steps):
             # Every crate is green, but safe-push wants a Rust compile step for a push with Rust files.
             steps.append(shlex.join([str(hq / "build-fleet" / "rust-builder" / "rbx"), "--lane", args.lane, "--", "cargo", "check", "--locked", "--all-targets",
