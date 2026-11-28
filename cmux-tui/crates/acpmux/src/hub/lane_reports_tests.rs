@@ -649,7 +649,11 @@ async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_
     hub.kill(&lane, true).await.unwrap();
     hub.lane_hand_over(&lane.id, due).await;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert_eq!(parent.meta().turn_count, 0, "the closed lane's report went in");
+    // Not `turn_count`: the lane's close hands its parent an exit record (`exit_notify.rs`), a
+    // turn of its own. The report's words are what must not arrive.
+    let records = hub.events(&parent.id, 0, 100_000).unwrap();
+    let went_in = records.iter().any(|r| r.msg.to_string().contains("last words"));
+    assert!(!went_in, "the closed lane's report went in");
     hub.kill(&parent, true).await.unwrap();
 }
 
