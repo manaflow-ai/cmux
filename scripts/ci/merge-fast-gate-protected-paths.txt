@@ -1,6 +1,7 @@
 # gh-merge-green's fast gate (feat-cmux-next) skips the merged-tree checks, except
 # for a pull request that changes one of these paths (leoli-f6, 2026-10-19). The
-# helper reads this file from the base branch, so a PR cannot shrink it for itself.
+# helper reads its own checkout's copy (main), never the base or the head, so a PR
+# into feat-cmux-next cannot shrink it for itself; a missing or empty list refuses.
 # One entry per line: a path ending in / covers everything under it; anything else
 # is one exact file.
 .github/workflows/
