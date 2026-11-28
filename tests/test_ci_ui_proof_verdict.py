@@ -500,12 +500,69 @@ class LookFailedTest(unittest.TestCase):
         posts = []
         prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"), self.node(2, "PENDING", "2026-11-27T23:00:00Z")]
         with mock.patch.object(u, "open_prs", return_value=prs):
-            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True)
+            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                            answered=lambda pr, sha: "", rerun=lambda sha: self.fail("no record, no rerun"))
         self.assertEqual(len(posts), 1)
         state, desc, repo, sha = posts[0][:4]
         self.assertEqual((state, repo, sha), ("failure", "manaflow-ai/cmux", f"{61289:040d}"))
         self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
         self.assertTrue(stale[0]["posted"])
+
+    def test_sweep_regates_a_pending_whose_look_posted_a_record_after_it(self) -> None:
+        # cmux#62379: a passing web-flows record at the head, the gate still pending 12 h on.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(62379, "PENDING", "2026-11-27T21:00:00Z"),  # record after: re-gate, no failure
+               self.node(7, "PENDING", "2026-11-28T11:00:00Z"),      # record before the pending: gate read it
+               self.node(8, "PENDING", "2026-11-27T20:00:00Z")]      # no record, past 6 h: failure
+        records = {62379: "2026-11-27T22:16:00Z", 7: "2026-11-28T10:00:00Z", 8: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr], rerun=lambda sha: reruns.append(sha) or "reran")
+        self.assertEqual(reruns, [f"{62379:040d}"])
+        self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
+        self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
+
+    def test_sweep_reads_the_newest_prs_first(self) -> None:
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
+
+    def test_record_at_is_the_newest_trusted_record_at_the_head(self) -> None:
+        sha = "a" * 40
+        good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
+        with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b: (
+                    {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
+            self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
+            self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
+
+    def test_open_prs_reads_every_page_newest_updated_first(self) -> None:
+        # 4859 open PRs on 2026-11-28: a 10-page cap read 1000 of them, so cmux#63752's pending was never swept.
+        pages, queries = 49, []
+
+        def api(path, token, method="GET", body=None):
+            queries.append(body)
+            n = len(queries)
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": n < pages, "endCursor": f"c{n}"},
+                "nodes": [{"number": n * 1000 + i} for i in range(100)]}}}}
+
+        with mock.patch.object(u, "api", side_effect=api):
+            nodes = u.open_prs("manaflow-ai/cmux", "t")
+        self.assertEqual(len(nodes), pages * 100)
+        self.assertEqual(len(queries), pages)
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", queries[0]["query"])
+        self.assertEqual(queries[1]["variables"]["after"], "c1")
+
+    def test_open_prs_stops_at_page_cap_and_says_so(self) -> None:
+        def api(path, token, method="GET", body=None):
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "c"}, "nodes": [{"number": 1}]}}}}
+
+        err = io.StringIO()
+        with mock.patch.object(u, "api", side_effect=api), contextlib.redirect_stderr(err):
+            nodes = u.open_prs("manaflow-ai/cmux", "t", max_pages=3)
+        self.assertEqual(len(nodes), 3)
+        self.assertIn("page cap 3 reached", err.getvalue())
 
     def test_post_status_falls_through_a_refused_token_and_says_why(self) -> None:
         calls = []
