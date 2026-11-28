@@ -311,4 +311,7 @@ test("acceptance is p95 over every asked cycle: failed, invalid or unrun cycles 
   const md2 = wakeEchoMarkdown([ok(0, 900)], { asked: 1, deploy: { platform_before: { commit: "a803e20f0000ffff", commit_unavailable: null }, api_before: { commit: null, commit_unavailable: "/v1/health names 0.1.0, not a deploy commit" } } });
   expect(md2).toContain("platform a803e20f0000 before, unread (not read) after; API unread (/v1/health names 0.1.0, not a deploy commit)");
   expect(md2).toContain("p95 0.90 s +- 0.04 s, 1 valid of 1: **met**");
+  expect(md2).not.toContain("Updater swap");
+  const md3 = wakeEchoMarkdown([ok(0, 900)], { asked: 1, daemon_before: "c6cd14b", daemon_after: "d788eb8" });
+  expect(md3).toContain("**Updater swap during the run**: daemon c6cd14b -> d788eb8");
 });

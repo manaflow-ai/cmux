@@ -79,5 +79,6 @@ jobs:
             ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/wake-echo.md
             ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/journey.json
             ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/summary.md
+            ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/guest-updater.json
           if-no-files-found: warn
           retention-days: 30
