@@ -51,4 +51,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "agent set-mode",
         ..Action::DEFAULT
     },
+    // Secrets for one chat only (acpmux `chat_secrets.rs`, hq RFD 0211 VM item 4): the values of
+    // --names from this Mac's Keychain go to this Mac's acpmux over the person's own connection,
+    // which keeps them in memory for that chat with a TTL and gives them to that chat's agent only.
+    Action {
+        id: "agentPane.deliverSecrets",
+        group: GROUP,
+        title: Text::raw("Give Secrets to This Chat…"),
+        description: Some("Gives one agent chat (--target agent-chat:<session id>, or the focused chat) the values of --names A,B from this Mac's Keychain (--repo OWNER/NAME for repo-scoped ones), for that chat only: acpmux holds them in memory, never on disk, for an hour, and puts them in that chat's agent environment and no other chat's; the agent restarts between turns to get them. Values are stored with cmux cloud secret set NAME. Returns session_id, delivered, missing and applied."),
+        keywords: &["agent", "chat", "secret", "secrets", "env", "keychain", "token", "scope", "deliver"],
+        category: "agents",
+        symbol: "key",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        arguments: &[args::NAMES, args::REPO_2.optional()],
+        targets: &["pane", "tab", "agent-chat"],
+        cli_name: "agent deliver-secrets",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
 ];
