@@ -114,6 +114,9 @@ impl Hub {
         if body.get("stage").is_some() {
             return self.transfer_pull_stage(source, source_host, body).await;
         }
+        if body.get("listed").is_some() {
+            return self.transfer_pull_listed(body).await;
+        }
         self.transfer_pull(source, source_host, body).await
     }
 
