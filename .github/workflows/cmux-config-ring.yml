@@ -1,0 +1,81 @@
+name: cmux config ring
+
+# Signs and publishes the config rings (cmuxterm-hq docs/rfd/0224-one-update-system.md, "Hot patches":
+# flags first, so flipping a flag is the default fix for a bad feature, with no new build).
+#
+# Each cmux-tui/rings/<ring>.json holds a ring's flags; this writes its signed file to
+# files.cmux.com/cmux-tui/rings/<ring>.json (scripts/ci/cmux-config-ring.py). acpmux reads it on every
+# `host self-update` tick, verifies it with the web update key and keeps the seq it applied
+# (cmux-tui/crates/acpmux/src/cli/host_self_update_ring.rs). The seq is the source commit's time, so a
+# later commit's file is newer; `newer` keeps a file a later run already published. The weekly run re-signs
+# the same seq with a later expiry, so a ring nobody edits never expires on readers (30 days).
+#
+# Cost: one small Linux job per push that touches a ring, and one a week.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/rings/**
+      - scripts/ci/cmux-config-ring.py
+      - .github/workflows/cmux-config-ring.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: sign and publish the config rings
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name != 'schedule' || github.ref == 'refs/heads/feat-cmux-next') }}
+    # R2 credentials and the web update signing key.
+    environment:
+      name: artifacts
+      deployment: false
+    # One writer per ref; a newer push waits, then publishes its own later seq.
+    concurrency:
+      group: cmux-config-ring-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: cmux-linux
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Sign and publish each ring
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/config-ring"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
+          trap 'rm -f "$dir/key.pem"' EXIT
+          seq=$(git show -s --format=%ct HEAD)
+          for source in cmux-tui/rings/*.json; do
+            ring=$(basename "$source" .json)
+            object="cmux-tui/rings/$ring.json"
+            python3 scripts/ci/cmux-config-ring.py payload --source "$source" --ring "$ring" \
+              --seq "$seq" --now "$(date +%s)" --out "$dir/$ring.payload.json"
+            rm -f "$dir/$ring.published.json"
+            curl -fsS --max-time 30 -o "$dir/$ring.published.json" "https://files.cmux.com/$object" || true
+            rc=0
+            python3 scripts/ci/cmux-config-ring.py newer --published "$dir/$ring.published.json" \
+              --payload "$dir/$ring.payload.json" || rc=$?
+            [[ $rc == 3 ]] && continue
+            [[ $rc == 0 ]] || exit "$rc"
+            python3 scripts/cmux-next/web-ota-pointer.py sign --payload "$dir/$ring.payload.json" \
+              --key "$dir/key.pem" --keys "$keys" --out "$dir/$ring.json"
+            python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --cache-control "public, max-age=60" --content-type application/json \
+              --file "$dir/$ring.json" --key "$object"
+            echo "published $object at seq $seq"
+          done
