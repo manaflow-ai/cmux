@@ -602,7 +602,8 @@ fn read_only_drops_every_chat_folder_and_keeps_codex_home_and_tmp() {
     let read_only = Bound { codex_homes: homes, read_only: true, ..sample() }.sandbox_args();
     let profile = &read_only[1];
     assert!(!profile.contains(CWD_WRITE), "Read Only cannot write the chat folder");
-    assert!(!profile.contains("(param \"DIR"), "nor its other folders");
+    // The profile's header comment names `(param "DIRn")`; the generated grant lines are what count.
+    assert!(!profile.contains("  (subpath (param \"DIR0\"))\n"), "nor its other folders");
     assert!(!read_only.iter().any(|a| a.starts_with("DIR")));
     for kept in ["(subpath (param \"SESSION_TMP\"))", "(subpath \"/private/tmp\")"] {
         assert!(profile.contains(kept), "{kept}");
