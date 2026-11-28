@@ -527,3 +527,16 @@ fn a_rule_request_round_trips_through_json() {
         json!({"drawn": [{"index": 0, "depth": 0}, {"index": -1, "depth": 1}]})
     );
 }
+
+/// `runs` cut at each top-level entry: a parent and the nested entries drawn right after it are one run (moved from
+/// the Swift `SidebarLayout.runs` test, which #64419 left calling a function it removed).
+#[test]
+fn runs_cut_at_each_top_level_entry() {
+    let drawn: Vec<Entry> = [(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)]
+        .into_iter()
+        .map(|(index, depth)| Entry { index, depth })
+        .collect();
+    let cut: Vec<Vec<i64>> =
+        runs(&drawn).iter().map(|run| run.iter().map(|e| e.index).collect()).collect();
+    assert_eq!(cut, vec![vec![0, 1, 2], vec![3, 4], vec![5]]);
+}
