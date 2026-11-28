@@ -561,7 +561,15 @@ impl FrameLink for SecureLink {
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
         if self.welcome_pending.swap(false, Ordering::AcqRel) {
-            let Some(encoded) = self.receive_record().await? else { return Ok(None) };
+            // The daemon ends a link it will not serve (a stale generation,
+            // a grant no longer current, a full pending table) without a
+            // word: say which step it ended in, so a resume names it
+            // (`no_welcome`) instead of the plain `link_closed`.
+            let Some(encoded) = self.receive_record().await? else {
+                return Err(LinkError::Transport(
+                    "the daemon closed the link before its welcome".into(),
+                ));
+            };
             let welcome: ServerWelcome = serde_json::from_slice(&encoded)
                 .map_err(|error| LinkError::Protocol(format!("handshake JSON failed: {error}")))?;
             self.note_welcome(&welcome);
