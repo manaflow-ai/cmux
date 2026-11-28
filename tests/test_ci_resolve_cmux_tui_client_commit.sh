@@ -236,6 +236,40 @@ for missing in 404 410; do
   fi
 done
 
+# Exact mode tells "not published" from "lookup failed" (handbook failure-drops-its-reason).
+# Reload run 45957833267 (a9d66bb6) printed one "no published client" line for a real
+# 404 and a probe that never got an answer alike, and its callers could not take the
+# nightly's older tree on a real miss without also taking it on an outage.
+# In $TMP/full, HEAD's input version is C3's alone: one probe decides exact mode.
+exact_with_curl_script() {
+  printf '%s\n' "$@" >"$TMP/curl-script"
+  rc=0
+  (cd "$TMP/full" && PATH="$TMP/shim:$PATH" CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS=0 "$RESOLVER" >/dev/null 2>"$TMP/exact.err") || rc=$?
+}
+exact_with_curl_script 404
+expect_curl_script_drained
+if [[ $rc != 4 ]] || ! grep -q '^error: not published:' "$TMP/exact.err" || grep -q 'lookup failed' "$TMP/exact.err"; then
+  echo "FAIL: a definitive 404 in exact mode must exit 4 with \"not published\", got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
+# Six failed attempts (DNS, 5xx, 429, an empty answer) never answered: lookup failed, exit 1.
+exact_with_curl_script dns 503 429 502 dns 500
+expect_curl_script_drained
+if [[ $rc != 1 ]] || ! grep -q '^error: lookup failed:' "$TMP/exact.err" || grep -q '^error: not published' "$TMP/exact.err"; then
+  echo "FAIL: a probe that keeps failing must exit 1 with \"lookup failed\", got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
+# A transient failure that clears is no failure: the same probe retried finds C3.
+exact_with_curl_script 503 dns
+expect_curl_script_drained
+if [[ $rc != 0 ]]; then
+  echo "FAIL: a transient probe failure that clears must resolve $C3, got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
+
 for bad in x -1; do
   rc=0
   (cd "$TMP/full" && CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS="$bad" "$RESOLVER" >/dev/null 2>&1) || rc=$?
