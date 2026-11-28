@@ -26,6 +26,9 @@ public final class AgentPaneDocumentCover {
         case contentEnded = "content-ended"
         case rendererRestart = "renderer-restart"
         case newDocument = "new-document"
+        /// The page's error boundary caught a render error (`pane.renderFailed`): its document draws nothing
+        /// until the boundary's own retry reloads it.
+        case renderFailed = "render-failed"
     }
 
     /// One recovery: from the cover going up to the new document's first paint report.
@@ -144,7 +147,9 @@ public final class AgentPaneDocumentCover {
     func pictureShown() { if isShown { showsPicture = true } }
 
     /// Whether the shown cover is a reload's whose new document has not committed (the old one still draws).
-    var waitsOnUncommittedReload: Bool { cause == .reload && documentsSince == 0 }
+    /// A render failure's cover waits on the boundary's reload the same way: a reload that never comes (a page whose
+    /// retries back off past ``uncommittedLimit``) shows the page again, with its "Still loading" line.
+    var waitsOnUncommittedReload: Bool { (cause == .reload || cause == .renderFailed) && documentsSince == 0 }
 
     func uncommittedEnded() { uncommittedEnds += 1 }
 

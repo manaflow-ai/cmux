@@ -75,6 +75,8 @@ PS = textwrap.dedent('''\
     app, park, exe = state.get("app_pid"), state.get("park_pid"), os.environ["FAKE_EXE"]
     if args[:1] == ["-axo"]:
         if alive(app): print(f"  {app} {exe}")
+        helper = state.get("helper_pid")
+        if alive(helper): print(f"  {helper} {exe}d")
     elif "-p" in args:
         pid = int(args[args.index("-p") + 1])
         if pid == app and alive(app): print(exe)
@@ -124,11 +126,11 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         """Ends the sleeps this test started that the script under test did not."""
         if not self.state.exists():
             return
-        for key in ("app_pid", "park_pid"):
+        for key in ("app_pid", "park_pid", "helper_pid"):
             pid = json.loads(self.state.read_text()).get(key)
             if pid:
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    os.kill(pid, signal.SIGKILL)
                 except OSError:
                     pass
 
@@ -247,6 +249,22 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.state.write_text(json.dumps(state))
         self.assertEqual(self.side("stop", "probe").returncode, 0)
         self.assertFalse(self.gone(state["park_pid"]))
+
+    def test_stop_kills_a_helper_of_the_copy_that_ignores_term(self):
+        # 2026-11-27, two fleet Macs: a UI look whose every step passed failed at teardown with "processes of hv-fleet
+        # still run: 17136", a helper run from the copy's bundle that outlived TERM. It is the copy's, so stop KILLs it.
+        self.assertEqual(self.side("launch", "probe").returncode, 0)
+        helper = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, "
+                                   "signal.SIG_IGN); time.sleep(300)"], start_new_session=True).pid
+        self.addCleanup(lambda: subprocess.run(["kill", "-KILL", str(helper)], capture_output=True))
+        state = json.loads(self.state.read_text())
+        state["helper_pid"] = helper
+        self.state.write_text(json.dumps(state))
+        time.sleep(0.3)  # the helper has set its TERM handler
+        result = self.side("stop", "probe")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("probe stopped", result.stdout)
+        self.assertTrue(self.gone(helper))
 
 
 if __name__ == "__main__":
