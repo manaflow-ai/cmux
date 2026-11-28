@@ -216,6 +216,15 @@ test("a key into a one-line prompt of plain prose writes it without the serializ
     expect(blockwiseMarkdown(doc, counted, false)).toBe(`${draft}\n`);
     expect(blockwiseMarkdown(doc, counted, true)).toBe(`${draft}\n`);
   }
+  // A word just typed ends in a space, which the serializer keeps as it is (parse would trim it).
+  const paragraph = parse("x").child(0);
+  for (const draft of ["hello ", "a word typed  ", "Done. "]) {
+    const doc = paragraph.type.schema.topNodeType.create(null, [
+      paragraph.type.create(null, [paragraph.type.schema.text(draft)]),
+    ]);
+    expect(serialize(doc)).toBe(`${draft}\n`);
+    expect(blockwiseMarkdown(doc, counted, false)).toBe(`${draft}\n`);
+  }
   // A changed plain paragraph in a longer prompt is written the same way.
   expect(blockwiseMarkdown(parse("first line\n\nsecond, typed now"), counted, false)).toBe(
     "first line\n\nsecond, typed now\n",
@@ -234,7 +243,22 @@ test("plain prose writes as the serializer writes it, and anything it would esca
   const PIECES_MORE = ["#", ">", "+", "=", ")", "(", "[", "]", "`", "~", "<", "&", "\\", "|", "@", "/", "http"];
   let seed = 11;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const texts: string[] = ["1. one", "1.5 points", "www.cmux.dev", "w.x", "go.", ".start", "end ", " start", "a  b"];
+  const texts: string[] = [
+    "1. one",
+    "1.5 points",
+    "www.cmux.dev",
+    "w.x",
+    "go.",
+    ".start",
+    "end ",
+    " start",
+    "a  b",
+    "end.  ",
+    "w. ",
+    "1 ",
+    "12. ",
+    "www. ",
+  ];
   for (let at = 0; at < 3000; at++) {
     const pool = random() < 0.85 ? PIECES : [...PIECES, ...PIECES_MORE];
     let text = "";

@@ -425,6 +425,8 @@ export type CloudPlan = {
     readonly checked_at: number | null
     readonly pause_at: number | null
     readonly paused_at: number | null
+    readonly included_usd?: number | "Infinity" | "-Infinity" | "NaN"
+    readonly overage_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   }
 }
 
@@ -555,6 +557,11 @@ export type CloudUsageCurrent = {
     readonly memory: number | "Infinity" | "-Infinity" | "NaN"
     readonly stored: number | "Infinity" | "-Infinity" | "NaN"
     readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  }
+  readonly rates?: {
+    readonly vcpu_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory_gib_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored_gib_month_usd: number | "Infinity" | "-Infinity" | "NaN"
   }
   readonly gaps: ReadonlyArray<string>
   readonly payment_method: {
@@ -4669,14 +4676,16 @@ export interface CloudOps {
       readonly client_public_key: string
     }
   }
-  /** Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling. */
+  /** Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off). */
   readonly "usage.cap.set": {
     readonly params: {
-      readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly cap_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly overage_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
     }
     readonly result: {
       readonly owner: TeamId | null
       readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly overage_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
     }
   }
   /** This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */

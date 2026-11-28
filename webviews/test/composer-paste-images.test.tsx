@@ -486,6 +486,21 @@ test("an image copied as HTML alone (no file on the clipboard) still comes in as
   expect(field().textContent).toContain("look at these");
 });
 
+// https://github.com/manaflow-ai/cmux/issues/59851: "I do Command-C, copy this whole thing, but it
+// only copies the image and not the text." A draft with an image and text copied in one composer
+// and pasted into another chat's (another web view's storage, so no remembered order): WebKit gives
+// the paste its file and HTML but withholds text/plain beside a file URL. Both come in.
+test("a copy of text with an image pastes both, its text read from the HTML WebKit keeps", async () => {
+  const composer = await openComposer();
+  await paste({
+    files: [screenshot(1)],
+    html: `<span data-cmux-composer-copy="other-chat" style="white-space: pre-wrap">look at this\nmodal</span>`,
+  });
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await until(() => (field().textContent ?? "").includes("modal"), "the pasted text");
+  expect(field().textContent).toContain("look at this");
+});
+
 test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent);

@@ -359,7 +359,7 @@ test("a hidden tail starts no whole-history read, and closing cancels its deferr
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
   const { client, last } = await paneOn(daemon);
   try {
-    expect(text(last())).toContain("Tail ready.");
+    expect(last()).toBeUndefined();
     await turns();
     expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
     client.close();

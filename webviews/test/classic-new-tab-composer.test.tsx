@@ -5,7 +5,7 @@
 // design/new-tab.md: one composer; a template that draws its own field breaks it.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
@@ -84,7 +84,7 @@ afterAll(async () => {
 
 const noop = () => {};
 
-async function render(submitted: unknown[][] = []) {
+async function render(submitted: unknown[][] = [], above?: ReactNode) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   root = createRoot(host);
@@ -99,6 +99,7 @@ async function render(submitted: unknown[][] = []) {
         }}
         onOpenSession={noop}
         onShowAll={noop}
+        {...(above !== undefined ? { above } : {})}
       />,
     ),
   );
@@ -164,4 +165,33 @@ test("a press on the classic field's padding, above or below its text, focuses t
   await act(async () => field.field.dispatchEvent(press));
   expect(press.defaultPrevented).toBe(true);
   expect(field.editor.contains(window.document.activeElement)).toBe(true);
+});
+
+// Leo, 2026-11-16: "the time on new tab at least it doesn't work for me right now". The clock
+// (`tabs.newTabClock.*`) drew only on the New Tab screen's looks; set on with Classic it drew nothing.
+test("the classic New Tab draws the clock over its field, never in the field's place", async () => {
+  const { NewTabClock } = await import("../src/agent-session/acpmux/newtab/NewTabClock");
+  const field = await render(
+    [],
+    <NewTabClock
+      font="rounded"
+      weight="bold"
+      color="text"
+      date
+      now={new Date(2026, 10, 16, 21, 41).getTime()}
+      locale="en-US"
+    />,
+  );
+  const page = host.querySelector(".acpmux-newtab")!;
+  const room = page.querySelector(":scope > .nt-above-room");
+  expect(room?.querySelector(".nt-clock-time")?.textContent).toBe("9:41");
+  // The room comes first; the field is still the page's own, under it.
+  expect(page.firstElementChild).toBe(room);
+  expect(page.contains(field.editor)).toBe(true);
+  expect(room?.contains(field.editor)).toBe(false);
+});
+
+test("with no clock or extension the classic page has no room over its field", async () => {
+  await render();
+  expect(host.querySelector(".nt-above-room")).toBeNull();
 });

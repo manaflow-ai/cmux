@@ -1030,6 +1030,27 @@
             "switches",
             "toggles"
           ]
+        },
+        {
+          "key": "experiments.compactionThresholdInsight",
+          "note": "Show the observed pre-compaction token count and a tuning hint on automatic compaction notes.",
+          "title": {
+            "key": "settings.experiments.compactionThresholdInsight",
+            "text": "Compaction Threshold Insight"
+          },
+          "help": {
+            "key": "settings.experiments.compactionThresholdInsight.help",
+            "text": "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "usage",
+            "efficiency",
+            "compaction",
+            "context",
+            "tokens"
+          ]
         }
       ]
     }

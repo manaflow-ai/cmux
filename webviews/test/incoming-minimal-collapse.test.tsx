@@ -133,7 +133,7 @@ test("switching Minimal Mode leaves a closed message its one line", async () => 
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {
+test("the reader's toggle opens the panel at full ink in one frame and fades it out on close, never animating its height", async () => {
   const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
   const motion = { ...foldMotion };
   const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
@@ -146,14 +146,11 @@ test("the reader's toggle plays the fold: the panel's height grows on open and c
   try {
     const { toggle } = await line("fold-1");
     await act(async () => toggle().click());
-    expect(frames.length).toBeGreaterThan(0);
-    expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
+    // The card opens its panel with no fade (`fadeIn={false}`): the open plays nothing.
+    expect(frames).toEqual([]);
     await act(async () => toggle().click());
-    // A close fades its text out over a short lead while it holds its height, then shuts
-    // (conversation/exitLead.ts; Leo, 2026-11-21: "we must hide text faster and sooner").
-    const close = frames.at(-1)!;
-    expect(close.map((frame) => frame.opacity)).toEqual([1, 0, 0]);
-    expect(close[1]!.height).toBe(close[0]!.height);
+    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
+    expect(frames.flat().some((frame) => frame.height !== undefined || frame.maxHeight !== undefined)).toBe(false);
   } finally {
     delete proto.animate;
     Object.assign(foldMotion, motion);

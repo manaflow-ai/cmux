@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::budget::{self, Forecast, Plan, Projection, Samples};
 use crate::caches;
@@ -52,8 +52,9 @@ pub struct Config {
 }
 
 /// One family's line in a report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct FamilySummary {
     pub name: String,
     pub enabled: bool,
@@ -66,6 +67,22 @@ pub struct FamilySummary {
     /// Never removed by care, only reported.
     pub report_only: bool,
     pub bytes: u64,
+}
+
+impl Default for FamilySummary {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            enabled: true,
+            entries: 0,
+            reclaimable: 0,
+            freed: 0,
+            removed: 0,
+            kept: 0,
+            report_only: false,
+            bytes: 0,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +104,8 @@ pub struct Report {
     pub errors: Vec<String>,
     /// Files the never-delete list was read from that could not be.
     pub never_delete_problems: Vec<String>,
+    /// What the pass's walks and reads cost.
+    pub cost: crate::walk_memo::Cost,
 }
 
 /// The cheap half of a tick: look at the volume, record the sample, and
@@ -109,6 +128,99 @@ pub fn look(home: &Path, store: &Store, settings: &crate::policy::Settings) -> O
     let forecast = budget::forecast(&samples.load(), now, used, usage.total);
     let plan = budget::plan(settings, usage.used_fraction(), &forecast);
     Some(Look { usage, plan, forecast })
+}
+
+/// [`look`] without recording a sample: `status` changes nothing.
+pub fn peek(home: &Path, store: &Store, settings: &crate::policy::Settings) -> Option<Look> {
+    let usage = disk::usage(home)?;
+    let used = usage.total.saturating_sub(usage.available);
+    let forecast =
+        budget::forecast(&Samples::in_dir(&store.dir).load(), now_ms(), used, usage.total);
+    let plan = budget::plan(settings, usage.used_fraction(), &forecast);
+    Some(Look { usage, plan, forecast })
+}
+
+/// The file the last whole pass's report is kept in, in the store folder
+/// (hidden, so the manifest listing never reads it).
+const LAST_PASS: &str = ".care-last-pass";
+
+/// The last whole pass (every family, every worktree), as it was recorded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastPass {
+    pub at_ms: u64,
+    /// How long the pass took.
+    #[serde(default)]
+    pub took_ms: u64,
+    /// The [`Report`], as JSON.
+    pub report: serde_json::Value,
+}
+
+impl LastPass {
+    /// The report's family lines.
+    pub fn families(&self) -> Vec<FamilySummary> {
+        self.report
+            .get("families")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
+
+    fn u64_field(&self, key: &str) -> u64 {
+        self.report.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0)
+    }
+
+    pub fn reclaimable(&self) -> u64 {
+        self.u64_field("reclaimable")
+    }
+
+    pub fn freed(&self) -> u64 {
+        self.u64_field("freed")
+    }
+
+    pub fn applied(&self) -> bool {
+        self.report.get("applied").and_then(serde_json::Value::as_bool).unwrap_or(false)
+    }
+
+    pub fn errors(&self) -> Vec<String> {
+        self.report
+            .get("errors")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
+}
+
+/// Records `report` as the machine's last pass, whole to a temporary file
+/// and renamed, so a reader never sees half of one.
+pub fn record_last_pass(store: &Store, report: &Report, took_ms: u64) -> Result<(), String> {
+    let last = LastPass {
+        at_ms: now_ms(),
+        took_ms,
+        report: serde_json::to_value(report).map_err(|e| e.to_string())?,
+    };
+    let path = store.dir.join(LAST_PASS);
+    let temporary = store.dir.join(format!("{LAST_PASS}.{}.tmp", std::process::id()));
+    let text = serde_json::to_vec(&last).map_err(|e| e.to_string())?;
+    std::fs::write(&temporary, text).map_err(|e| format!("{}: {e}", temporary.display()))?;
+    std::fs::rename(&temporary, &path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The last whole pass on record, if one ran and its file reads.
+pub fn last_pass(store: &Store) -> Option<LastPass> {
+    let bytes = std::fs::read(store.dir.join(LAST_PASS)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// What `care status` shows: the volume now (one `statvfs`, the sample file
+/// read) and the last whole pass's report. No walk, no git, no write.
+pub struct Status {
+    pub look: Look,
+    pub last: Option<LastPass>,
+}
+
+pub fn status(home: &Path, store: &Store, settings: &crate::policy::Settings) -> Option<Status> {
+    Some(Status { look: peek(home, store, settings)?, last: last_pass(store) })
 }
 
 /// The machine's claim for an automatic pass, when one is due: the plan's
@@ -137,6 +249,27 @@ fn wanted(config: &Config, family: &str) -> bool {
 
 /// Runs one pass under the budget.
 pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
+    let started = std::time::Instant::now();
+    // What the last passes measured stands in for walking it all again (`walk_memo`).
+    crate::walk_memo::open(&config.store.dir);
+    let _ = crate::walk_memo::take_cost();
+    let report = run_inner(config, look);
+    if let Err(error) = crate::walk_memo::close(now_ms()) {
+        eprintln!("care: could not keep the walk memo: {error}");
+    }
+    let mut report = report?;
+    report.cost = crate::walk_memo::take_cost();
+    // A whole pass is what `status` shows next; a filtered one is not the machine's picture.
+    if config.only_families.is_empty() && config.pass.only.is_empty() {
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        if let Err(error) = record_last_pass(&config.store, &report, took) {
+            eprintln!("care: could not record the pass's report: {error}");
+        }
+    }
+    Ok(report)
+}
+
+fn run_inner(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     let _background = cmux_git::run::background();
     let (never, never_problems) = NeverDelete::load(&config.home);
     let settings = config.pass.settings.clone();
@@ -171,16 +304,30 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     options.pressure = Some(pressure);
     options.apply = config.apply;
     options.measure = true;
-    let mut scan = if wanted(config, WORKTREES) {
+    // Worktrees not chosen (`--family docker-images`, or turned off): no
+    // root, no session folder to find repositories from, and no archive
+    // expiry at the end; the scan finds nothing and nothing of theirs moves.
+    let worktrees_wanted = wanted(config, WORKTREES);
+    let skipped = pass::Options {
+        roots: Vec::new(),
+        sessions: Vec::new(),
+        only: Vec::new(),
+        apply: false,
+        ..options.clone()
+    };
+    let mut scan = if worktrees_wanted {
         pass::scan(&options, &config.store)?
     } else {
-        pass::scan(
-            &pass::Options { roots: Vec::new(), only: Vec::new(), ..options.clone() },
-            &config.store,
-        )?
+        pass::scan(&skipped, &config.store)?
     };
     for item in &mut scan.report.items {
-        if let Some(glob) = never.holds_tree(&config.home, &item.path) {
+        // Only a worktree that would go is walked for something kept inside.
+        let held = if item.verdict.action == Action::Keep {
+            never.holds(&config.home, &item.path)
+        } else {
+            never.holds_tree(&config.home, &item.path)
+        };
+        if let Some(glob) = held {
             item.verdict.action = Action::Keep;
             item.verdict.reason = format!("never-delete: {glob}");
         }
@@ -275,7 +422,8 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     }
     errors.extend(scan.report.errors.clone());
     errors.extend(cache_report.errors.clone());
-    let worktrees = pass::finish(scan, &options, &config.store)?;
+    let worktrees =
+        pass::finish(scan, if worktrees_wanted { &options } else { &skipped }, &config.store)?;
     if let Err(error) = ledger.append(&rows) {
         errors.push(format!("ledger: {error}"));
     }
@@ -307,6 +455,7 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
         stopped_at_budget: stopped,
         errors,
         never_delete_problems: never_problems,
+        cost: crate::walk_memo::Cost::default(),
     })
 }
 
@@ -548,6 +697,89 @@ mod tests {
         assert!(!gone.exists());
         let item = report.caches.items.iter().find(|i| i.path == old).unwrap();
         assert!(item.verdict.reason.contains("never-delete"), "{}", item.verdict.reason);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_family_filtered_pass_reads_no_worktree_from_sessions() {
+        let home = scratch("care-filtered");
+        let repo = home.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        let linked = home.join("linked");
+        git(&repo, &["worktree", "add", "-q", "-b", "side", &linked.to_string_lossy()]);
+        let mut config = config(&home, true);
+        config.pass.sessions = vec![crate::policy::Session {
+            name: "s".into(),
+            cwd: repo.clone(),
+            open: false,
+            archived_checkout: None,
+            updated_ms: 0,
+            ids: Vec::new(),
+        }];
+        let report = run(&config, None).unwrap();
+        assert!(report.worktrees.items.is_empty(), "{:?}", report.worktrees.items);
+        assert!(report.worktrees.expired.is_empty());
+        assert!(linked.exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Every family but DerivedData off: a whole pass that reads only the scratch home.
+    fn whole(home: &Path) -> Config {
+        let mut config = config(home, false);
+        config.only_families = Vec::new();
+        config.off =
+            caches::families(&caches::Layout { home, worktree_roots: &[], clone_roots: &[] })
+                .iter()
+                .map(|f| f.name.to_string())
+                .filter(|name| name != "xcode-derived-data")
+                .collect();
+        config
+    }
+
+    #[test]
+    fn a_whole_pass_is_what_status_reads_back_without_walking() {
+        let home = scratch("care-status");
+        project(&home, "Old-abc", 30);
+        let config = whole(&home);
+        assert!(status(&home, &config.store, &Default::default()).unwrap().last.is_none());
+        let report = run(&config, None).unwrap();
+        assert!(report.reclaimable >= 8192);
+        assert_eq!(report.cost.sizes_walked, 1);
+
+        let _ = crate::walk_memo::take_cost();
+        let shown = status(&home, &config.store, &Default::default()).unwrap();
+        let last = shown.last.expect("the pass was recorded");
+        assert_eq!(last.reclaimable(), report.reclaimable);
+        assert!(
+            last.families().iter().any(|f| f.name == "xcode-derived-data" && f.reclaimable >= 8192)
+        );
+        assert_eq!(crate::walk_memo::take_cost(), crate::walk_memo::Cost::default());
+
+        // The next pass measures nothing again: the memo answers.
+        let again = run(&config, None).unwrap();
+        assert_eq!(again.reclaimable, report.reclaimable);
+        assert_eq!((again.cost.sizes_walked, again.cost.sizes_reused, again.cost.stats), (0, 1, 0));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_filtered_pass_is_not_recorded_for_status() {
+        let home = scratch("care-status-filtered");
+        project(&home, "Old-abc", 30);
+        let config = config(&home, false);
+        run(&config, None).unwrap();
+        assert!(last_pass(&config.store).is_none());
         let _ = std::fs::remove_dir_all(&home);
     }
 }

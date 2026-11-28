@@ -192,6 +192,93 @@ test("a project the person picks and starts a chat in is the next New Tab's defa
   expect(page.folder).toBe(PICKED);
 });
 
+// Lucas 2026-11-27: "if the user selects a folder (without even sending), that should be the new default on the
+// next tab". A folder picked in the New Tab's folder chip is the next New Tab's default, before any send.
+test("a folder the person picks in the chip, with no send, is the next New Tab's default", async () => {
+  // The folder menu's list reads the window's frame clock (a virtual list).
+  Object.assign(window, {
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs, ...agents])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        projects={[
+          { cwd: PICKED, label: "atlas" },
+          { cwd: "/Users/you/src/billing", label: "billing" },
+        ]}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("billing"),
+  );
+  expect(option, "missing option billing").toBeDefined();
+  await act(async () => option!.click());
+  expect(stored.get("cmux.acpmux.newTab.startedProject.v1")).toBe("/Users/you/src/billing");
+  // The next New Tab, with no folder of its own, starts there.
+  const page = await newTab([theirs, ...agents]);
+  expect(page.chip).toContain("billing");
+  expect(page.folder).toBe("/Users/you/src/billing");
+});
+
+test("a folder picked on a page whose chats start on another machine never becomes this Mac's default", async () => {
+  // The folder menu's list reads the window's frame clock (a virtual list).
+  Object.assign(window, {
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs, ...agents])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        startsRemote
+        projects={[
+          { cwd: PICKED, label: "atlas" },
+          { cwd: "/Users/you/src/billing", label: "billing" },
+        ]}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("billing"),
+  );
+  expect(option, "missing option billing").toBeDefined();
+  await act(async () => option!.click());
+  expect(stored.has("cmux.acpmux.newTab.startedProject.v1")).toBe(false);
+});
+
 test("chats agents, the CLI or the socket start in another folder never change the default", async () => {
   await startChat(PICKED);
   // Agents' chats reach the page only as newer rows of the chat list: no composer send names them.
@@ -760,4 +847,19 @@ test("a chat page with no New Tab context asks the app for Cloud's last pick, an
   askAppCloudPick(async () => Promise.reject(new Error("unsupported")));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(cloudPickChoices()).toEqual([]);
+});
+
+// A chat start that settles after a newer folder pick (another page, while this chat was starting) leaves the
+// newer pick as the next New Tab's default.
+test("a slow chat start never overwrites a folder picked after its send", async () => {
+  const { rememberStartedProject, rememberedStartedProject } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  const post = () => Promise.resolve();
+  const sentAt = Date.now() - 1_000;
+  rememberStartedProject("/Users/you/src/billing", post);
+  rememberStartedProject(PICKED, post, sentAt);
+  expect(rememberedStartedProject()).toBe("/Users/you/src/billing");
+  // A start sent after the pick still writes its folder.
+  rememberStartedProject(PICKED, post, Date.now() + 1);
+  expect(rememberedStartedProject()).toBe(PICKED);
 });

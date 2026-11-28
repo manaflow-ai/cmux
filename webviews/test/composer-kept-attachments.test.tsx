@@ -418,3 +418,50 @@ test("a page going away sends a write still resting", async () => {
   });
   expect(store.writes.map((write) => write.attachments.map((chip) => chip.id))).toEqual([["shot-1"]]);
 });
+
+// Leo 2026-11-22: "there's prob additional lifecycle stuff with making sure they dont get lost
+// sometimes if random state happens". The pane's store keeps the chips in acpmux with the session
+// (composer/draftAttachmentsStore.ts), the host's store only for an older daemon: the composer's
+// chips go there and come back from there through a reopen, a refusal's put-back and a reconnect.
+test("through acpmux's store: a reopen, a refused send's put-back and a reconnect keep chips in order", async () => {
+  const { draftAttachmentsStore } = await import("../src/agent-session/acpmux/composer/draftAttachmentsStore");
+  // acpmux's session folder: contents once per chip, `[]` forgets.
+  const disk = new Map<string, ComposerAttachment[]>();
+  const connection = () => ({
+    read: async (sessionId: string) => ({ sessionId, draft: null, attachments: disk.get(sessionId) ?? [] }),
+    write: async (sessionId: string, attachments: ComposerAttachment[]) => {
+      const had = disk.get(sessionId) ?? [];
+      const kept = attachments.map((chip) =>
+        chip.data || chip.text ? chip : { ...chip, data: had.find((old) => old.id === chip.id)?.data },
+      );
+      if (kept.length) disk.set(sessionId, kept);
+      else disk.delete(sessionId);
+      return { sessionId, held: kept.filter((chip) => chip.data || chip.text).map((chip) => chip.id) };
+    },
+  });
+  let actions = connection();
+  const host = new Host();
+  const store = draftAttachmentsStore(() => actions, host);
+  const page = await openPage("chat-a", store);
+  act(() => {
+    for (const index of [1, 2, 3]) page.current!.attach(screenshot(index));
+  });
+  await settle();
+  expect(disk.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1", "shot-2", "shot-3"]);
+  expect(host.chats.size).toBe(0);
+  // Sent, and refused: the composer gets the chips back as they were.
+  act(() => {
+    page.current!.send();
+  });
+  act(() => page.current!.restore("", [screenshot(1), screenshot(2), screenshot(3)]));
+  await settle();
+  closePage();
+  // A reconnect: the new client's actions read the same folder.
+  actions = connection();
+  const reopened = await openPage(
+    "chat-a",
+    draftAttachmentsStore(() => actions, new Host()),
+  );
+  expect(shown(reopened).map((chip) => chip.id)).toEqual(["shot-1", "shot-2", "shot-3"]);
+  expect(shown(reopened).map((chip) => chip.data)).toEqual([1, 2, 3].map((index) => btoa(`png-bytes-${index}`)));
+});
