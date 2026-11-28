@@ -458,6 +458,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
@@ -501,6 +502,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
@@ -6189,10 +6191,14 @@ jobs:
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
   # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.
+  # It also asks for a push whose tree another run already published (publish skipped, adopt-commit-manifest
+  # wrote or found this commit's manifest): 2026-11-28 10:21-11:20Z every feat-cmux-next window run reused a
+  # tree its PR run had published, so no roll was asked for after 09:00Z and production's image fell 39
+  # commits behind (run 46137991047: tree preflight ready, publish and both roll requests skipped).
   request-image-roll:
     name: request the Cloud VM image roll
-    needs: [publish, verify-publish]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
+    needs: [publish, verify-publish, adopt-commit-manifest]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && ((needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true') || (needs.publish.result == 'skipped' && needs.adopt-commit-manifest.result == 'success' && contains(fromJSON('["present","adopted"]'), needs.adopt-commit-manifest.outputs.state))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.

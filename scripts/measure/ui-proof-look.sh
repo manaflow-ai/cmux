@@ -126,7 +126,7 @@ if [[ -n "$state64" ]]; then
 fi
 [[ "$video" == 0 ]] && video_args=(--no-video)
 python3 "$hv" look --source "sha:$head" --pr "$pr" --app "$app" --head-app "$head_app" --side upl-look \
-  --out "$out/look" --record --no-post "${rust_args[@]}" "${state_args[@]}" "${video_args[@]}" 2>&1 | tee "$out/look.log"
+  --out "$out/look" --record --no-post ${rust_args[@]+"${rust_args[@]}"} ${state_args[@]+"${state_args[@]}"} ${video_args[@]+"${video_args[@]}"} 2>&1 | tee "$out/look.log"
 code=${PIPESTATUS[0]}
 record="$out/look/proof-record.md"
 if [[ -f "$record" ]]; then
