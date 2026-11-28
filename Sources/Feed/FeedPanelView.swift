@@ -894,8 +894,8 @@ struct FeedItemSnapshot: Equatable {
     /// The agent's name as the card shows it. `source` alone can't give
     /// it for agents `WorkstreamSource` doesn't list.
     let agentName: String
-    /// False when `source` is only the fallback for an unlisted agent.
-    let sourceIsListed: Bool
+    /// The source the chip is coloured for; `nil` for an unlisted agent.
+    let chipSource: WorkstreamSource?
     let kind: WorkstreamKind
     let title: String?
     let cwd: String?
@@ -913,7 +913,7 @@ struct FeedItemSnapshot: Equatable {
         self.workstreamId = item.workstreamId
         self.source = item.source
         self.agentName = item.agentDisplayName
-        self.sourceIsListed = item.sourceIsListed
+        self.chipSource = item.listedSource
         self.kind = item.kind
         self.title = item.title
         self.cwd = item.cwd
@@ -1169,8 +1169,7 @@ struct FeedItemRow: View, Equatable {
     }
 
     private var sourceChipForeground: Color {
-        guard snapshot.sourceIsListed else { return .secondary }
-        switch snapshot.source {
+        switch snapshot.chipSource {
         case .claude: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .codex: return .green
         case .opencode: return .blue

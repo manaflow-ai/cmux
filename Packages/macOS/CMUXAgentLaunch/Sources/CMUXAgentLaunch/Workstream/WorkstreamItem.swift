@@ -114,15 +114,11 @@ extension WorkstreamItem {
         return WorkstreamSource.displayName(forSourceID: sourceID)
     }
 
-    /// False for a producer stored under the Claude fallback source.
-    public var sourceIsListed: Bool {
-        guard let sourceID else { return true }
-        return WorkstreamSource(wireName: sourceID) != nil
-    }
-
     /// The listed source this item's card is drawn for, or `nil` for a
-    /// producer `WorkstreamSource` doesn't list.
+    /// producer `WorkstreamSource` doesn't list. A stored row can carry a
+    /// listed id in `sourceID` under the Claude fallback source.
     public var listedSource: WorkstreamSource? {
-        sourceIsListed ? source : nil
+        guard let sourceID else { return source }
+        return WorkstreamSource(wireName: sourceID)
     }
 }

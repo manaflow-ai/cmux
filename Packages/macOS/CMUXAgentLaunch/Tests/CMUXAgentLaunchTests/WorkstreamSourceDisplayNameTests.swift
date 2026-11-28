@@ -52,7 +52,6 @@ struct WorkstreamItemAgentDisplayNameTests {
         let item = try ingestedStop(source: source)
         #expect(item.sourceID == source)
         #expect(item.agentDisplayName == name)
-        #expect(!item.sourceIsListed)
         #expect(item.listedSource == nil)
     }
 
@@ -67,7 +66,6 @@ struct WorkstreamItemAgentDisplayNameTests {
         let item = try ingestedStop(source: source.rawValue)
         #expect(item.sourceID == nil)
         #expect(item.agentDisplayName == source.displayName)
-        #expect(item.sourceIsListed)
         #expect(item.listedSource == source)
     }
 
@@ -81,7 +79,6 @@ struct WorkstreamItemAgentDisplayNameTests {
             payload: .stop(reason: nil)
         )
         #expect(item.agentDisplayName == "Grok")
-        #expect(item.sourceIsListed)
         #expect(item.listedSource == .grok)
     }
 }
