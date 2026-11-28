@@ -72,7 +72,8 @@ jobs:
           set -euo pipefail
           # The client published for this tree (resolve-exact, as gateway-e2e.yml does), else the newest
           # published tree on feat-cmux-next (resolve-newest-published: the last 50 commits, then the daemon-tested
-          # feat-cmux-next channel, CMUX_TUI_TREE_CHANNEL_LOOK=1, within 24 h).
+          # feat-cmux-next channel, CMUX_TUI_TREE_CHANNEL_LOOK=1, within 72 h: age costs this check nothing, since
+          # it checks out the tree's own source commit).
           # feat-cmux-next takes many pushes an hour and the artifacts runs coalesce, so the checked-out head,
           # and often the next few heads too, never publish a tree (runs 46127178925: "no cmux-tui artifacts run
           # will publish tree"; 45967889665: "not published after 30 min"). Waiting on newer heads does not
@@ -83,8 +84,8 @@ jobs:
           head="$(git rev-parse HEAD)"
           if ! resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=600 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"; then
             echo "tree of ${head:0:12} not published within 10 min; resolving the newest published feat-cmux-next tree"
-            resolved="$(CMUX_TUI_TREE_CHANNEL_LOOK=1 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)" ||
-              { echo "error: no published cmux-tui tree in feat-cmux-next's last 50 commits or its channel (24 h)" >&2; exit 1; }
+            resolved="$(CMUX_TUI_TREE_CHANNEL_LOOK=1 CMUX_TUI_TREE_MAX_AGE_HOURS=72 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)" ||
+              { echo "error: no published cmux-tui tree in feat-cmux-next's last 50 commits or its channel (72 h)" >&2; exit 1; }
             source_commit="$(sed -n 's/^source_commit=//p' <<<"$resolved")"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]]
             if [[ "$source_commit" != "$head" ]]; then
