@@ -1053,6 +1053,7 @@ impl Hub {
             placed_by: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
+            idle_gaps_ms: Vec::new(),
             close: None,
             idle_launch: None,
             start_level: None,
