@@ -10,6 +10,7 @@
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Either, Option } from "effect";
 import { afterResponse } from "../db/sql.ts";
+import { timedStep } from "../upstream/timing.ts";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
@@ -131,13 +132,14 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
             // The rate spend (a TenantLimits object call) and the ownership read (Postgres) are independent reads of
             // the caller's own tenant, so they run together; one VM call used to wait for both in turn. They are
             // still judged in the order above: a 429 wins over a 404, and nothing acts before ownership is proven.
-            const [rated, found] = yield* Effect.all(
+            // Named on the answer as `own` (server-timing), so a caller's trace splits this gate from the provider's time.
+            const [rated, found] = yield* timedStep("own", Effect.all(
               [
                 Effect.either(rateLimit(principal, rateClass)),
                 Effect.either(tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
               ],
               { concurrency: 2 },
-            );
+            ));
             if (Either.isLeft(rated)) return yield* Effect.fail(rated.left);
             if (Either.isLeft(found)) return yield* Effect.fail(found.left);
             const owns = found.right;

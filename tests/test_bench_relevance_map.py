@@ -5,8 +5,9 @@ Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product
 
   - model-based: the prefix index answers exactly what the old whole-table scan answers, on every tracked path's
     shape and on random paths built from the map's own globs (the scan is the oracle);
-  - budget: a 2,000-path change resolves in under 1 s, and ten times the rules costs the index far less than ten
-    times (the scan grows linearly; the index reads only a path's own ancestors' buckets);
+  - budget, counted (Leo: "minimally rigorous things to be proving correctness and perf in fast fail open ways"):
+    ten times the rules tries exactly the same globs (the index reads only a path's own ancestors' buckets), at
+    most 64 a path, and twice the paths is twice the work; the 1 s wall check runs only with CMUX_BENCH_WALL=1;
   - joined: each [[area]] names a risky path row of docs/benches/coverage-map.md (same paths), and each bench it
     names is a row of that page (when the page is on this branch);
   - whole: every [[situation]] names a template that exists, every area's situations exist, and the generated
@@ -15,6 +16,7 @@ Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product
 """
 from __future__ import annotations
 
+import os
 import random
 import re
 import subprocess
@@ -164,31 +166,40 @@ ignore = ["a/**/*.md", "!a/keep/*.md"]
         self.assertEqual(idx.match("a/x/y.md").steps, [])
         self.assertEqual([s.name for s in idx.match("a/keep/y.md").steps], ["s"])
 
-    def test_budget_and_flat_at_ten_times_the_rules(self):
+    def test_counted_work_is_flat_at_ten_times_the_rules(self):
+        """Counted work, not a clock: a loaded host (load 30 failed the old 1 s wall assert at base) cannot fail it.
+
+        `probes` is glob patterns match() tried, `compiles` is globs compiled into buckets. The scan tries every
+        glob on every path; the index tries only the globs filed under a path's own ancestors.
+        """
+        paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
+        half = paths[: len(paths) // 2]
+
+        def work(rules, ps):
+            idx = rel.Index(rules)
+            rel.plan(idx, ps)
+            return idx.probes, idx.compiles
+
+        rules = list(self.index.rules)
+        one, ten = work(rules, paths), work(rel.scaled(rules, 10), paths)
+        self.assertEqual(ten, one, f"10x rules: (probes, compiles) {ten} vs {one} (want identical: flat)")
+        globs = sum(len(r.globs) for r in rules)
+        per_path = one[0] / len(paths)
+        # Budget: 64 probes a path (32 today); the scan would try all `globs` (2,815 today) on each.
+        self.assertLessEqual(per_path, 64, f"{per_path:.1f} probes a path (budget 64; a scan is {globs})")
+        small = work(rules, half)
+        self.assertLessEqual(one[0], small[0] * 2.2, f"2x paths: {one[0]} probes vs {small[0]} (want linear)")
+
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
+    def test_wall_budget_on_a_quiet_host(self):
         paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
         def once():
             t = time.perf_counter()
             rel.plan(rel.load(), paths)
             return time.perf_counter() - t
 
-        one = min(once() for _ in range(3))  # best of 3: a busy CI host is noise, not a regression
-        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s, load included)")
-        big = list(self.index.rules)
-        for k in range(9):
-            big += [rel.Rule(kind=r.kind, name=f"{r.name}#{k}", order=len(big) + i, ignore=r.ignore,
-                             globs=tuple(f"x{k}/{g}" for g in r.globs)) for i, r in enumerate(self.index.rules)]
-
-        def cost(rules):
-            idx = rel.Index(rules)
-            for p in paths:  # warm: compile the buckets these paths touch
-                idx.match(p)
-            t = time.perf_counter()
-            for p in paths:
-                idx.match(p)
-            return time.perf_counter() - t
-
-        base, ten = cost(self.index.rules), cost(big)
-        self.assertLess(ten, base * 3 + 0.05, f"10x rules: {ten * 1e3:.1f} ms vs {base * 1e3:.1f} ms (want flat, < 3x)")
+        one = min(once() for _ in range(3))
+        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s)")
 
 
 class RelevanceMapFileTest(unittest.TestCase):
@@ -254,6 +265,55 @@ class RelevanceMapFileTest(unittest.TestCase):
         got = rel.reverse_dependents(root, [f"w/crates/{n}" for n in "abcd"])
         self.assertEqual(got, {"a": ["b", "c"], "b": [], "c": [], "d": []})
 
+    def test_every_cargo_package_is_in_its_workspace(self):
+        # `--manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi` named no package (cmux-app-ffi and the crates it
+        # lists are their own workspace), so its area and unit tests never ran. Ask cargo, not our resolver, which
+        # packages each workspace has, for every cargo command in the map, hand-written and generated.
+        import json
+        import shlex
+        import shutil
+        if not shutil.which("cargo"):
+            self.skipTest("no cargo on this machine")
+        wanted: dict[str, set[str]] = {}
+        for r in self.rules:
+            for cmd in r.tests:
+                lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+                lex.whitespace_split = True
+                tokens, parts = list(lex), [[]]
+                for t in tokens:
+                    parts.append([]) if t in ("&&", "||", ";", "|") else parts[-1].append(t)
+                for words in parts:
+                    part = " ".join(words)
+                    if words[:1] != ["cargo"] or "-p" not in words:
+                        continue
+                    self.assertIn("--manifest-path", words, f"{r.kind} {r.name}: {part.strip()!r} has no --manifest-path")
+                    manifest = words[words.index("--manifest-path") + 1]
+                    wanted.setdefault(manifest, set()).update(
+                        w for i, w in enumerate(words) if i and words[i - 1] in ("-p", "--package"))
+        missing = []
+        for manifest, names in sorted(wanted.items()):
+            out = subprocess.run(["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1",
+                                  "--manifest-path", manifest], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            self.assertEqual(out.returncode, 0, f"cargo metadata {manifest}: {out.stderr[-500:]}")
+            have = {pkg["name"] for pkg in json.loads(out.stdout)["packages"]}
+            missing += [f"-p {n} in {manifest}" for n in sorted(names - have)]
+        self.assertEqual(missing, [], "these cargo commands name a package their workspace lacks")
+
+    def test_cargo_workspace_follows_cargo(self):
+        root = Path(tempfile.mkdtemp())
+        for path, body in (("w/Cargo.toml", '[workspace]\nmembers = ["crates/a"]\nexclude = ["crates/x"]\n'),
+                           ("w/crates/a/Cargo.toml", '[package]\nname = "a"\n'),
+                           ("w/crates/f/Cargo.toml", '[package]\nname = "f"\n[workspace]\nmembers = ["../s"]\n'),
+                           ("w/crates/s/Cargo.toml", '[package]\nname = "s"\nworkspace = "../f"\n'),
+                           ("w/crates/x/Cargo.toml", '[package]\nname = "x"\n')):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(body)
+        self.assertEqual({c: rel.cargo_workspace(root, f"w/crates/{c}") for c in "afsx"},
+                         {"a": "w", "f": "w/crates/f", "s": "w/crates/f", "x": "w/crates/x"})
+        self.assertEqual(rel.cargo_test_commands(root, ["w/crates/a", "w/crates/s", "w/crates/f"]),
+                         ["cargo test --manifest-path w/Cargo.toml -p a",
+                          "cargo test --manifest-path w/crates/f/Cargo.toml -p s -p f"])
+
     def test_top_level_tests_are_mapped(self):
         hit = rel.load().match("tests/test_bench_relevance_map.py")
         self.assertTrue(hit.mapped, "a top-level tests/ file took the default:tests area")
@@ -304,7 +364,7 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn("Swift↔Rust bridge", got.stdout)
         self.assertIn("docs/benches/templates/bridge.md", got.stdout)
-        self.assertIn("cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi", got.stdout)
+        self.assertIn("cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", got.stdout)
 
 
 
@@ -383,6 +443,7 @@ budget_s = 2
         globs = [g for r in rel.load().rules for g in r.globs] + ["*.rs", "**/x", "a/b*/c", "a/[x]/y", "a/b/"]
         self.assertEqual([g for g in globs if rel.literal_prefix(g) != old_literal_prefix(g)], [])
 
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
     def test_mapped_self_bench_runs_flat_at_ten_times_the_rules(self):
         one, ten = (min(rel.self_bench(2000, k) for _ in range(2)) for k in (1, 10))
         self.assertLess(ten, one * 3 + 0.1, f"self-bench: 10x rules {ten:.2f} s vs {one:.2f} s (want < 3x)")
