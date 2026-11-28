@@ -200,6 +200,11 @@ path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_router_web_exact.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
+
+[[test]]
 path = "tests/test_ci_daemon_pr_crate_steps.py"
 lane = "linux-guard"
 
@@ -288,6 +293,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fixit_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fixit_lint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -444,6 +453,10 @@ path = "tests/test_ci_ios_kit_base_red.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_launch_tti_intent.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
@@ -460,6 +473,10 @@ reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that ever
 path = "tests/test_ci_job_list_fixture_mutations.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Proves each job-list fixture goes red with the pre-fix secret, job-header and environment reader and green with tests/workflow_jobs.py; run python3 tests/test_ci_job_list_fixture_mutations.py yourself after changing workflow_jobs.py or a job-list guard (no build)."
+
+[[test]]
+path = "tests/test_ci_job_own_home.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
@@ -730,8 +747,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pool_checkout_reuse_sparse.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs; run python3 tests/test_ci_pool_checkout_reuse_sparse.py yourself after changing a 'Pool mirror: Checkout' step's reuse or sparse lines."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pool_make_room.py"
@@ -1187,6 +1203,10 @@ path = "tests/test_ci_tip_test_compile.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_toolchain_r2_darwin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_tooling_steps.py"
 lane = "linux-guard"
 
@@ -1255,6 +1275,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_web_test_verdict.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_web_tests_affected.py"
+lane = "manual"
+reason = "Pins scripts/ci/web_tests_affected.py's selection for the web-tests-affected step on pull requests; run python3 tests/test_ci_web_tests_affected.py yourself after changing it (about 10 s, no build)."
 
 [[test]]
 path = "tests/test_ci_webviews_affected.py"

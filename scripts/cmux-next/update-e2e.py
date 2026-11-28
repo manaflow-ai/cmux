@@ -584,7 +584,11 @@ def main():
         items = feed_items()
         by_build = {i["build"]: i for i in items}
         to_item = by_build[opts.to_build] if opts.to_build else items[0]
-        from_item = by_build[opts.from_build] if opts.from_build else items[1]
+        from_item = by_build.get(opts.from_build) if opts.from_build else items[1]
+        if from_item is None:
+            # A build that fell off the feed: its DMG stays next to the feed (a regression can live in its updater).
+            base = items[0]["url"].rsplit("-", 1)[0]
+            from_item = {"build": opts.from_build, "url": f"{base}-{opts.from_build}.dmg", "deltas": {}}
         print(f"feed {opts.feed}: {len(items)} items; {from_item['build']} -> {to_item['build']}")
         apps = os.path.join(work, "apps")
         os.makedirs(apps)
