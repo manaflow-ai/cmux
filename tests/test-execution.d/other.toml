@@ -151,6 +151,10 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_acpmux_update_replay.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cas_derived_data_replay.py"
 lane = "linux-guard"
 
@@ -225,7 +229,8 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_daemon_wire_types_plugin_python.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_daemon_wire_types_plugin_python.py"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -273,6 +278,10 @@ lane = "linux-guard"
 path = "tests/test_egress_new_sites.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_egress_new_sites.py"
+
+[[test]]
+path = "tests/test_egress_seeded.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
@@ -372,6 +381,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_git_mirror_bundle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_git_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -819,6 +832,11 @@ path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_prepush_backup_refs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
+
+[[test]]
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
@@ -827,11 +845,6 @@ reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast
 path = "tests/test_prepush_generated_freshness.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_generated_freshness.py"
-
-[[test]]
-path = "tests/test_prepush_backup_refs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
 
 [[test]]
 path = "tests/test_prepush_no_verdict_never_subtracts.py"
@@ -973,7 +986,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_rivals_restart.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rivals_restart.py"
 
 [[test]]
 path = "tests/test_run_checks_concurrently.py"
@@ -1099,6 +1113,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sparse_checkout_keeps_gitmodules.py"
 lane = "linux-guard"
 
 [[test]]

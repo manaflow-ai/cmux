@@ -90,10 +90,7 @@ for attempt in 1 2 3 4 5; do
   why="$branch kept moving under the base pin"
 done
 
-if [[ "$route" == base ]]; then
-  # Five refused base pushes: the pull request carries the pin.
-  commit="$(git rev-parse HEAD)"
-fi
+# Here: a pull-request route, or five refused base pushes (the pull request carries the pin).
 push_with "${APP_TOKEN:?APP_TOKEN}" "HEAD:refs/heads/$pr_branch" --force
 say "mobile FFI pin: pushed $pr_branch ($(git rev-parse --short HEAD)): $why"
 if [[ -z "${GH_TOKEN:-}" ]]; then

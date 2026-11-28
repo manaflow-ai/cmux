@@ -13,7 +13,8 @@ environments whose deployment policy admits the refs that really release:
 - `content-signing`: the content-signing key only
 - `ffi-release`: branch feat-cmux-next, the FFI release App credentials
   (CMUX_FFI_RELEASE_APP_*) only, read by app-ffi-release.yml's publish and
-  repin jobs and app-ffi-repin.yml's repin job. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
+  repin jobs, app-ffi-repin.yml's repin job and cmux-mobile-ffi-release.yml's
+  publish and repin jobs. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
 - `nightly-next-promote` and `release-surface-ack`: the release App
   credentials (CMUX_RELEASE_APP_*) only, read by nightly.yml's promote guard
   jobs (promote-nightly-next and promote-nightly-next-acked) to move
@@ -53,7 +54,8 @@ CONTENT_SIGNING_ENVIRONMENTS = {"content-signing"}
 FFI_RELEASE_ENVIRONMENTS = {"ffi-release"}
 # The only job that may read the FFI release App credentials.
 FFI_RELEASE_READERS = {("app-ffi-release.yml", "publish"), ("app-ffi-release.yml", "repin"),
-                       ("app-ffi-repin.yml", "repin")}
+                       ("app-ffi-repin.yml", "repin"),
+                       ("cmux-mobile-ffi-release.yml", "publish"), ("cmux-mobile-ffi-release.yml", "repin")}
 PROMOTE_ENVIRONMENTS = {"nightly-next-promote", "release-surface-ack"}
 PROMOTE_READERS = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 TRAIN_ENVIRONMENTS = {"nightly-next-train"}

@@ -1,6 +1,25 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
+
+// cmux-mobile-ffi's published xcframework (Packages/Shared/CmuxMobileFFI): linked
+// by CmuxiOSPush once its pin names a release. The first pin comes through the
+// mobile-ffi-repin pull request (scripts/cmux-next/publish-mobile-ffi-repin.sh).
+let mobileFFIPinned: Bool = {
+    let file = Foundation.URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../Packages/Shared/CmuxMobileFFI/mobile-ffi-pin.json")
+    struct Pin: Decodable { let url: String }
+    do {
+        return try !Foundation.JSONDecoder().decode(Pin.self, from: Foundation.Data(contentsOf: file)).url.isEmpty
+    } catch {
+        fatalError("cannot read the CmuxMobileFFIFFI pin (\(file.path)): \(error)")
+    }
+}()
+let mobileFFIPackage: [Package.Dependency] = mobileFFIPinned
+    ? [.package(path: "../../Packages/Shared/CmuxMobileFFI")] : []
+let mobileFFIProduct: [Target.Dependency] = mobileFFIPinned
+    ? [.product(name: "CmuxMobileFFI", package: "CmuxMobileFFI")] : []
 
 // The rewritten iOS app's modules (plans/cmux-next/ios-rewrite.md). The app
 // target in ios/cmux-ios.xcodeproj links only `CmuxiOSApp`.
@@ -29,7 +48,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxPushRegistration"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
-    ],
+    ] + mobileFFIPackage,
     targets: [
         .target(
             name: "CmuxiOSApp",
@@ -113,7 +132,7 @@ let package = Package(
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
-            ],
+            ] + mobileFFIProduct,
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

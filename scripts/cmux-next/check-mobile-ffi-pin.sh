@@ -163,7 +163,7 @@ else
 fi
 
 if [[ "$verify" -eq 1 ]]; then
-  base="https://github.com/manaflow-ai/cmux/releases/download/cmux-mobile-ffi-$sha"
+  base="${CMUX_MOBILE_FFI_RELEASE_BASE:-https://github.com/manaflow-ai/cmux/releases/download}/cmux-mobile-ffi-$sha"
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
   get() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 "$@"; }
