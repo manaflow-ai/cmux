@@ -118,6 +118,11 @@ final class CEFLayerHosting {
     /// build for split_scale divider_drag; off, the default, detaches as before). A window's live resize still detaches.
     nonisolated static let dragKeepsAttached = ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_KEEP_ATTACHED"] == "1"
 
+    /// `CMUX_CEF_RESIZE_SYNC_REAPPLY=1` (default off, instant-splits close_* stall): re-send the pre-commit
+    /// resize-sync deadline when the window's browser set changes or a commit resize becomes owed, instead of
+    /// only when the deadline value changes, so a surviving sibling does not sit out Chromium's 500 ms wait.
+    nonisolated static let resizeSyncReapply = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_SYNC_REAPPLY"] == "1"
+
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
@@ -337,6 +342,7 @@ final class CEFLayerHosting {
     func windowBrowsersChanged(_ browsers: [Int32]) {
         guard let browser, !browsers.contains(browser) else { return }
         self.browser = browsers.first
+        if Self.resizeSyncReapply { appliedDeadlineMs = -1; syncDeadline() }
         if attachOwed { attachIfOwed() }
     }
 
@@ -428,6 +434,7 @@ final class CEFLayerHosting {
     func paneCommitWillResize(_ owed: Bool) {
         guard owed || !commitResizeEnds else { return }
         commitResizeOwed = owed
+        if owed, Self.resizeSyncReapply { appliedDeadlineMs = -1; syncDeadline() }
     }
 
     /// Whether a resize of the view can join the window's resize fence (``pageViewResized()``): the page is hosted, in a

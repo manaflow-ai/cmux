@@ -3120,6 +3120,7 @@ inputs = [
   "cmux-tui/persisted-formats/*",
   "cmux-tui/persisted-formats/agent-host-record/*",
   "cmux-tui/persisted-formats/terminal-host-record/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_member_steps.py
