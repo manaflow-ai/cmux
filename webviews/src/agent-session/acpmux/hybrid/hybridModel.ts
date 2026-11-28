@@ -43,9 +43,6 @@ export type SlotHolder = { session: string; title: string };
 /// cloud over a soft rainbow halo.
 export type HybridLook = "rainbow" | "sky" | "aurora";
 
-/// A chat nobody touched: Auto, off.
-export const HYBRID_OFF: HybridView = { lit: false, pin: "auto", at: "local", used: 0, total: 3 };
-
 /// The view after the person clicks the button, shown at once while the write is in flight.
 export function clicked(view: HybridView): HybridView {
   if (view.lit || view.waiting) {
