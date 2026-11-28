@@ -221,6 +221,12 @@ pub struct SessionMeta {
     /// Ephemeral so this does not change the stored session format.
     #[serde(skip)]
     pub title_thin: bool,
+    /// How this daemon run's `session/new` got its agent: `warm` (it took a pooled agent),
+    /// `cold` (a pooled shape that found none ready) or `unshaped` (a start the pool never
+    /// serves). The create's answer carries it (`startPool`), so a Cloud start's `session_new`
+    /// phase says whether it paid the agent boot (goal `cloud-instant-start`). Never stored.
+    #[serde(skip)]
+    pub start_pool: Option<&'static str>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -231,6 +237,11 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Absolute deadline of an open cold inbox batch. Compaction warms `usage` before
+    /// delivery, so a daemon restart must restore this deadline rather than open another
+    /// window from the new usage. None in older stores and after the batch is consumed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_batch_due: Option<u64>,
     /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]

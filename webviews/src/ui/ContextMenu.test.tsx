@@ -444,14 +444,14 @@ test("a held right-press dragged off the menu and released after the click time 
 });
 
 test("a menu with no room below the pointer opens upward, and one with room opens down", async () => {
-  const { opensUp } = await import("./ContextMenu");
+  const { opensUp } = await import("./contextMenuSide");
   expect(opensUp(780, 4, 800)).toBe(true);
   expect(opensUp(100, 4, 800)).toBe(false);
   expect(opensUp(300, 30, 800)).toBe(false);
 });
 
 test("a caller's own popup side is never overwritten by the flip", async () => {
-  const { popupSide } = await import("./ContextMenu");
+  const { popupSide } = await import("./contextMenuSide");
   expect(popupSide("top", "bottom")).toBe("top");
   expect(popupSide("bottom", "top")).toBe("top");
   expect(popupSide("bottom", "bottom")).toBe("bottom");
