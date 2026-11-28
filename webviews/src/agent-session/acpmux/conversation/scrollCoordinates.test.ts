@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   clearScrollOrigin,
+  holdRoomFraction,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -96,4 +97,30 @@ test("large clamp residuals reset and coordinates do not leak between scrollers"
   expect(writeAnchorScrollTop(first.node, 2_000)).toBe(0);
   expect(scrollOrigin(first.node)).toBe(0);
   expect(first.css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+});
+
+test("the room's fraction shares the margin with the origin and moves no coordinate", () => {
+  const { node, css } = quantizedNode();
+  let writes = 0;
+  const set = node.style.setProperty;
+  node.style.setProperty = (name, value) => {
+    writes += 1;
+    set(name, value);
+  };
+  holdRoomFraction(node, 0.5);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.5px");
+  expect(scrollOrigin(node)).toBe(0);
+  expect(layoutScrollTop(node)).toBe(100);
+  writeAnchorScrollTop(node, 100.25);
+  expect(scrollOrigin(node)).toBe(-0.25);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.25px");
+  expect(layoutScrollTop(node)).toBe(100.25);
+  writes = 0;
+  // The same fraction again (a frame whose room did not move) writes nothing.
+  holdRoomFraction(node, 0.5);
+  expect(writes).toBe(0);
+  clearScrollOrigin(node);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.5px");
+  holdRoomFraction(node, 0);
+  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
 });

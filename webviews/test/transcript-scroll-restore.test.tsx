@@ -7,6 +7,13 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
 
+/// The thread's margin holds the scroll origin and the fraction of a pixel of the older-history room
+/// its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less that.
+function roomFraction(scroller: HTMLElement): number {
+  const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
+  return room - Math.floor(room);
+}
+
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -147,10 +154,11 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
     expect(Math.abs(scroller().scrollTop - logicalResting)).toBeLessThanOrEqual(1);
     // The DOM correction, not just the coordinate bookkeeping, must preserve the rendered place.
     const cssOrigin =
-      Number.parseFloat(
+      (Number.parseFloat(
         scroller().querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
-      ) || 0;
-    expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
+      ) || 0) - roomFraction(scroller());
+    // Less the room's fraction, a float difference: equal to well under a pixel's millionth.
+    expect(scroller().scrollTop - cssOrigin).toBeCloseTo(logicalResting, 6);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.
     await scrollAndRest(scroller(), latest, anchors);
