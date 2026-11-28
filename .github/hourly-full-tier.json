@@ -128,6 +128,14 @@
         "tests/test_terminal_hang_release_gate.py",
         ".github/workflows/terminal-hang-diagnostics.yml"
       ]
+    },
+    "cmux-next-ios-gestures.yml": {
+      "paths": [
+        "cmux-next-ios/**/*.swift",
+        "cmux-next-ios/project.yml",
+        "scripts/ci/cmux-next-ios-sim.sh",
+        ".github/workflows/cmux-next-ios-gestures.yml"
+      ]
     }
   }
 }
