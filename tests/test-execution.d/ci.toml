@@ -200,6 +200,11 @@ path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_router_web_exact.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
+
+[[test]]
 path = "tests/test_ci_daemon_pr_crate_steps.py"
 lane = "linux-guard"
 
