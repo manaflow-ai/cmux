@@ -20,6 +20,8 @@
 // box is a forced layout after React's writes: each streamed token of a reply in view paid one (0.65 to
 // 1.3 ms a token, bench/transcript-replay.bench.ts PROFILE=1, `observer` and `started` here).
 
+import { CHAT_MOTION_ATTR, MINIMAL_MOTION } from "./frameBudget";
+
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
 const ROW = ".acpmux-row";
@@ -75,13 +77,18 @@ function paintsOnly(animation: Animation): boolean {
   return true;
 }
 
+/// Whether `animation` is one `finishAll` ends: still to play, with a finite end, painting only.
+function pending(animation: Animation): boolean {
+  if (animation.playState === "finished" || animation.playState === "idle") return false;
+  if (!paintsOnly(animation)) return false;
+  const end = animation.effect?.getComputedTiming?.().endTime;
+  return end !== undefined && Number.isFinite(Number(end));
+}
+
 /// Finishes each of `animations` that has a finite end, is still to play and paints only.
 function finishAll(animations: readonly Animation[]): void {
   for (const animation of animations) {
-    if (animation.playState === "finished" || animation.playState === "idle") continue;
-    if (!paintsOnly(animation)) continue;
-    const end = animation.effect?.getComputedTiming?.().endTime;
-    if (end === undefined || !Number.isFinite(Number(end))) continue;
+    if (!pending(animation)) continue;
     try {
       animation.finish();
     } catch {
@@ -119,6 +126,8 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
         { root: scroller, rootMargin: `${EDGE_PX}px`, threshold: [0, 1] },
       )
     : undefined;
+  /// The chat over the scroller is in its minimal motion.
+  const minimal = () => scroller.closest(`[${CHAT_MOTION_ATTR}="${MINIMAL_MOTION}"]`) !== null;
   const watched = new WeakSet<Element>();
   const watch = (row: Element) => {
     if (!seen || watched.has(row)) return;
@@ -159,6 +168,19 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
           }
         }
         if (rows.size === 0) return;
+        // In the chat's minimal motion (frameBudget.ts) every chat motion is 0 ms, so a commit's motions
+        // have ended by the time they can be read and there is nothing to finish: drop each row and
+        // element that has no motion still to play before any box is read. Reading the animations
+        // flushes style only; the box reads after it forced a layout on every streamed token of a reply
+        // the view cuts, on the frames the chat is already missing (composer_typing.l1.webkit). A motion
+        // that runs on its own clock there (a spinner's loop, a transition from an inherited value) is
+        // still judged by its box as before.
+        if (minimal()) {
+          for (const row of rows) if (!cssOf(row).some(pending)) rows.delete(row);
+          for (const element of changed)
+            if (!rows.has(element.closest(ROW)!) || !cssOf(element).some(pending)) changed.delete(element);
+          if (rows.size === 0) return;
+        }
         const view = scroller.getBoundingClientRect();
         for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
         for (const element of changed)
