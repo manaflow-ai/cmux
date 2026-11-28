@@ -630,7 +630,9 @@ struct AgentPaneVideoInfoTests {
             }
         }
         let started = ContinuousClock.now
-        @Sendable func ms(_ since: ContinuousClock.Instant) -> Double {
+        // A @Sendable closure, not a local func: a local func in this main-actor test is main-actor isolated
+        // and cannot be @Sendable (the Swift 6.2 compiler refuses it).
+        let ms: @Sendable (ContinuousClock.Instant) -> Double = { since in
             let took = (ContinuousClock.now - since).components
             return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
         }
