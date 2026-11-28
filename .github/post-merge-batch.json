@@ -105,6 +105,18 @@
       ],
       "jobs": {"sweep": "acpmux simulation sweep"}
     },
+    "chat-size-ladder": {
+      "workflow": "chat-size-ladder.yml",
+      "paths": [
+        "cmux-tui/crates/acpmux/**",
+        "cmux-tui/crates/coord-sim/**",
+        "cmux-tui/Cargo.lock",
+        "scripts/measure/chat-size-sweep.sh",
+        "scripts/measure/chat-size-compare.py",
+        ".github/workflows/chat-size-ladder.yml"
+      ],
+      "jobs": {"ladder": "chat-size ladder, base vs head (advisory)"}
+    },
     "swift-acpmux-protocol": {
       "workflow": "swift-acpmux-protocol.yml",
       "paths": [
