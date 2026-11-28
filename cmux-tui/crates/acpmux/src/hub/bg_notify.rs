@@ -266,6 +266,13 @@ comes to you."
         // chat once ([`end_hold`]). Into a running turn it steers at the next tool step as
         // before, and a chat that never ran a turn takes it as its first work.
         let idle = session.turn().is_none() && session.meta().turn_count > 0;
+        // A command that handed its work on (`bg_handoff.rs`): another notice brings the news.
+        if super::bg_handoff::drops_end(dir, id, ok, idle) {
+            if let Err(e) = crate::home_fs::write(&mark, b"") {
+                tracing::warn!(mark = %mark.display(), "a handed-off task end was not marked: {e}");
+            }
+            return;
+        }
         let hold = end_hold(ok, listed, ended.is_some(), idle);
         if let Some(within) = hold.flatten() {
             provenance.set(crate::prompt_provenance::WITHIN, json!(within));

@@ -57,6 +57,7 @@ mod background_turn_end_tests;
 mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
+mod bg_handoff;
 mod bg_notify;
 mod bg_registry;
 mod bg_tasks;
