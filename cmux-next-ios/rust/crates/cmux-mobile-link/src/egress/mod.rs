@@ -57,6 +57,21 @@ pub async fn connect_websocket(
     let host = uri.host().ok_or_else(|| WebSocketError::BadUrl(uri.to_string()))?;
     let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
     let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    // The seeded-secret capture (tests only): the upgrade goes to its server.
+    if let Some((addr, tls)) = cmux_egress::ws::capture_route(&request) {
+        let tcp = TcpStream::connect(addr)
+            .await
+            .map_err(|error| WebSocketError::Egress(EgressError::Io(format!("{addr}: {error}"))))?;
+        let (socket, _) = tokio_tungstenite::client_async_tls_with_config(
+            request,
+            tcp,
+            None,
+            Some(tokio_tungstenite::Connector::Rustls(tls)),
+        )
+        .await
+        .map_err(WebSocketError::Upgrade)?;
+        return Ok((socket, Via::Direct));
+    }
     let (tcp, via) = connect_tcp(&host, port, secure, egress).await.map_err(WebSocketError::Egress)?;
     let connector = if secure {
         tokio_tungstenite::Connector::Rustls(tls::client_config(&egress.trust).map_err(WebSocketError::Tls)?)

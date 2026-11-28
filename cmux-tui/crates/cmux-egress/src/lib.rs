@@ -696,6 +696,22 @@ pub mod ws {
         Ok(request)
     }
 
+    /// With capture on (feature `capture`), where a `wss://` upgrade of `request`
+    /// goes instead and the TLS config that trusts the capture CA; `None`
+    /// otherwise. For a crate that dials its own TCP stream (a proxy hop, a raced
+    /// dial) and upgrades it itself, as cmux-mobile-link's relay and signaling do:
+    /// without it their seeded-secret tests never reach the capture server.
+    pub fn capture_route(
+        request: &Request,
+    ) -> Option<(std::net::SocketAddr, std::sync::Arc<rustls::ClientConfig>)> {
+        #[cfg(feature = "capture")]
+        if request.uri().scheme_str() == Some("wss") {
+            return request.uri().host().and_then(crate::capture::ws_redirect);
+        }
+        let _ = request;
+        None
+    }
+
     /// A gated `tokio_tungstenite::connect_async`.
     pub async fn connect_async<R: IntoClientRequest + Unpin>(
         request: R,

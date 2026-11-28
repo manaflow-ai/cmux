@@ -537,6 +537,21 @@ async fn open_socket(
     let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
     let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
     let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    // The seeded-secret capture (tests only): the upgrade goes to its server.
+    if let Some((addr, tls)) = cmux_egress::ws::capture_route(&request) {
+        let tcp = tokio::net::TcpStream::connect(addr)
+            .await
+            .map_err(|error| SignalingError::Connect(format!("{addr}: {error}")))?;
+        let (socket, _) = tokio_tungstenite::client_async_tls_with_config(
+            request,
+            tcp,
+            None,
+            Some(tokio_tungstenite::Connector::Rustls(tls)),
+        )
+        .await
+        .map_err(connect_error)?;
+        return Ok(socket);
+    }
     // Direct: the base's raced, remembered dial (`signal_dial`, IPv6 and IPv4
     // racing). Through a proxy: `CONNECT` or SOCKS5 to the proxy.
     let direct = |_: &str, _: u16| {
