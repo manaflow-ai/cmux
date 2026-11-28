@@ -1854,11 +1854,35 @@ jobs:
           fi
           echo "warm target: restore took $(( $(date +%s) - start )) s"
 
+      # The same warm target on a cmux-runner-pool slot (vars.CI_TUI_CLIPPY_POOL_WARM=1; unset keeps the R2
+      # restore below). cmux-linux now lands on pool runners, which mount no sticky disk, so the steps above are
+      # skipped and every run restored the stripped R2 build: job 141070887031 (2026-11-28) compiled 519 crates
+      # for clippy (405 workspace units: the strip drops them and the checkout's fresh mtimes dirty the rest;
+      # 296 third-party: this run's 9-package -p set unifies other features than the saving batch's 79, e.g.
+      # serde_json [default,std] vs [default,float_roundtrip,raw_value,std,unbounded_depth], indexmap without
+      # serde) and 477 more for the frame work contracts' test build, which the batch never finished inside
+      # its budget, so R2 never held it. A pool slot keeps HOME, so the slot's own tree
+      # (scripts/ci/machine-channel-warm-target.sh pool-dir) keeps every feature variant and the test build it
+      # compiled, and restore gives unchanged sources their recorded mtimes back: only what changed rebuilds.
+      # A recorded tree skips rust-cache and R2; an unrecorded one is seeded from them. A run linked to it never
+      # saves to R2 (the strip below), so R2 stays built from restored R2 content and feat-cmux-next runs alone.
+      - name: Locate the pool warm clippy target
+        id: pool-warm
+        if: ${{ vars.CI_TUI_CLIPPY_POOL_WARM == '1' && startsWith(runner.name, 'cmux-runner-pool-') && steps.warm.outputs.linked != 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          disk="$(bash scripts/ci/machine-channel-warm-target.sh pool-dir clippy-x86_64-unknown-linux-gnu)"
+          [[ -n "$disk" ]] || exit 0
+          hit="$(bash scripts/ci/machine-channel-warm-target.sh probe "$disk" clippy-x86_64-unknown-linux-gnu)"
+          echo "pool warm clippy target: $hit at $disk"
+          { echo "disk=$disk"; echo "hit=$([[ "$hit" == hit ]] && echo true || echo false)"; } >> "$GITHUB_OUTPUT"
+
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       # Skipped when the warm target above is linked.
       - name: Cache cargo build
         id: rust-cache
-        if: steps.warm.outputs.linked != 'true'
+        if: steps.warm.outputs.linked != 'true' && steps.pool-warm.outputs.hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -1877,7 +1901,7 @@ jobs:
       # from R2 (cmux-ci-cache-next), as cmux-next.yml's fast-tier-cargo.
       - name: Key the cargo build in R2
         id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && steps.warm.outputs.linked != 'true' }}
+        if: ${{ github.repository == 'manaflow-ai/cmux' && steps.warm.outputs.linked != 'true' && steps.pool-warm.outputs.hit != 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -1922,6 +1946,22 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+
+      # After the restores above: a slot's first run moves their cmux-tui/target into its empty tree.
+      - name: Link the pool warm clippy target
+        id: pool-link
+        if: ${{ steps.pool-warm.outputs.disk != '' }}
+        continue-on-error: true
+        env:
+          POOL_DISK: ${{ steps.pool-warm.outputs.disk }}
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          bash scripts/ci/machine-channel-warm-target.sh restore "$POOL_DISK" clippy-x86_64-unknown-linux-gnu
+          if [[ "$(readlink cmux-tui/target 2>/dev/null || true)" == "$POOL_DISK/target" ]]; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pool warm clippy target: restore took $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix
@@ -2039,7 +2079,7 @@ jobs:
       # only, as rust-cache keeps (scripts/ci/cargo_target_strip.py; cmux-next.yml's fast-tier-cargo does the same).
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
-        if: ${{ !cancelled() && (steps.clippy.outcome == 'success' || steps.clippy.outcome == 'failure') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.commit == '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && (steps.clippy.outcome == 'success' || steps.clippy.outcome == 'failure') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.commit == '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' && steps.pool-link.outputs.linked != 'true' }}
         continue-on-error: true
         env:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
@@ -2088,3 +2128,20 @@ jobs:
         if: ${{ !cancelled() && steps.warm-next.outcome == 'success' && steps.warm.outputs.linked == 'true' }}
         continue-on-error: true
         run: bash scripts/ci/machine-channel-warm-target.sh record /home/runner/cmux-tui-clippy-warm x86_64-unknown-linux-gnu
+
+      # Every run on the slot records (red or green, pull request too): the tree is the slot's own, never saved
+      # to R2, and restore trusts a recorded mtime only for a source whose content still matches.
+      - name: Record the pool warm clippy target
+        if: ${{ !cancelled() && steps.pool-link.outputs.linked == 'true' }}
+        continue-on-error: true
+        env:
+          POOL_DISK: ${{ steps.pool-warm.outputs.disk }}
+        run: bash scripts/ci/machine-channel-warm-target.sh record "$POOL_DISK" clippy-x86_64-unknown-linux-gnu
+
+      # Last: a host short of disk drops the tree (and its link) only after every step that read it.
+      - name: Release the pool warm clippy target
+        if: ${{ always() && steps.pool-warm.outputs.disk != '' }}
+        continue-on-error: true
+        env:
+          POOL_DISK: ${{ steps.pool-warm.outputs.disk }}
+        run: bash scripts/ci/machine-channel-warm-target.sh release "$POOL_DISK" clippy-x86_64-unknown-linux-gnu
