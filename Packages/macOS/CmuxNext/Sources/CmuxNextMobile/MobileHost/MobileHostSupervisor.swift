@@ -342,14 +342,17 @@ public actor MobileHostSupervisor {
         }, failed: { error in
             logger.error("no access token for cmux-mobile-host: \(String(describing: type(of: error)), privacy: .public)")
         })
+        let acpmux = MobileHostAcpmuxSupply(fetch: inputs.acpmux, send: { endpoint in
+            child.send(MobileHostLaunch.acpmuxLine(url: endpoint.url, token: endpoint.token))
+        })
         let result = await withTaskGroup(of: Watched.self) { group in
             group.addTask { .exited(await child.waitForExit()) }
             group.addTask {
-                await self.pump(child, inputs: inputs, tokens: tokens)
+                await self.pump(child, inputs: inputs, tokens: tokens, acpmux: acpmux)
                 return .drained
             }
             group.addTask {
-                await self.handOver(child, inputs: inputs, tokens: tokens)
+                await self.handOver(child, inputs: inputs, tokens: tokens, acpmux: acpmux)
                 return .handedOver
             }
             var exit: Int32?
@@ -367,18 +370,19 @@ public actor MobileHostSupervisor {
             return exit
         }
         await tokens.stop()
+        await acpmux.stop()
         return result
     }
 
     /// Reads hostd's status lines until its stdout ends, answering its requests.
-    private func pump(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
+    private func pump(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply, acpmux: MobileHostAcpmuxSupply) async {
         for await line in child.lines {
             guard let event = MobileHostEvent(line: line) else { continue }
             switch event {
             case .needToken:
                 await tokens.request()
             case .needAcpmux:
-                await sendAcpmux(child, inputs: inputs)
+                await acpmux.request()
             case let .needCloudLinks(request):
                 // task-owner: one bounded hostd request; sends only to the child that asked.
                 // Looking up an install token must not hold up pairing or token control lines.
@@ -417,8 +421,8 @@ public actor MobileHostSupervisor {
         }
     }
 
-    /// What hostd needs before its first connect: a token and the acpmux endpoint.
-    private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
+    /// Send initial state and start the independent token and acpmux lookups.
+    private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply, acpmux: MobileHostAcpmuxSupply) async {
         child.send(MobileHostLaunch.siteDataHandoffLine(enabled: siteDataHandoffEnabled && inputs.siteData != nil))
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
@@ -427,7 +431,7 @@ public actor MobileHostSupervisor {
         if let appearanceLine { child.send(appearanceLine) }
         for line in tabPictureLines.values { child.send(line) }
         await tokens.request()
-        await sendAcpmux(child, inputs: inputs)
+        await acpmux.request()
     }
 
     /// The person's explicit opt-in. Defaults off, replays across hostd restarts.
@@ -533,11 +537,6 @@ public actor MobileHostSupervisor {
                 child.send(MobileHostLaunch.surfaceFailedLine(request: request, reason: String(describing: error)))
             }
         }
-    }
-
-    private func sendAcpmux(_ child: MobileHostProcess, inputs: Inputs) async {
-        guard let endpoint = await inputs.acpmux() else { return }
-        child.send(MobileHostLaunch.acpmuxLine(url: endpoint.url, token: endpoint.token))
     }
 
     private func publish(_ change: (inout MobileHostState) -> Void) {
