@@ -23,9 +23,11 @@
 //! needs start it once: the restart marks the terminal respawning under the
 //! registry lock, and every later need waits for that start.
 //!
-//! The setting: `CMUX_TUI_LAZY_START` (`1`/`on` turns the restore parking
-//! on; off by default). The wake on first need is always on: it only acts on
-//! tabs that are already parked to start on show.
+//! The setting: `CMUX_TUI_LAZY_START`, on by default (Leo, 2026-10-21:
+//! "Fix it in small PRs, defaulting to aggressive savings"); `0`/`off`/
+//! `false`/`no` turns the restore and create parking off, so every shell
+//! starts at once as before. The wake on first need is always on: it only
+//! acts on tabs that are already parked to start on show.
 
 use super::manual::TabRestartError;
 use super::*;
@@ -38,10 +40,17 @@ pub(crate) const LAZY_START_ENV: &str = "CMUX_TUI_LAZY_START";
 /// The longest a request waits for a parked tab's shell to start.
 const WAKE_WAIT: Duration = Duration::from_secs(10);
 
-/// Whether `CMUX_TUI_LAZY_START` turns the restore parking on.
+/// Whether lazy start is on: unless `CMUX_TUI_LAZY_START` turns it off.
 pub(crate) fn lazy_start_from_env() -> bool {
-    std::env::var(LAZY_START_ENV)
-        .is_ok_and(|value| matches!(value.trim(), "1" | "on" | "true" | "yes"))
+    lazy_start_setting(std::env::var(LAZY_START_ENV).ok().as_deref())
+}
+
+/// Lazy start for the value of [`LAZY_START_ENV`]: on when unset, empty or
+/// anything but an explicit off.
+fn lazy_start_setting(value: Option<&str>) -> bool {
+    !value.is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no")
+    })
 }
 
 impl Mux {
@@ -619,4 +628,19 @@ impl Mux {
 
     #[cfg(not(unix))]
     pub(crate) fn finish_lazy_created_at(&self, _slot: SurfaceId) {}
+}
+
+#[cfg(test)]
+mod setting_tests {
+    use super::lazy_start_setting;
+
+    #[test]
+    fn lazy_start_is_on_unless_turned_off() {
+        for on in [None, Some(""), Some("1"), Some("on"), Some("true"), Some("yes")] {
+            assert!(lazy_start_setting(on), "{on:?} should leave lazy start on");
+        }
+        for off in [Some("0"), Some("off"), Some(" OFF "), Some("false"), Some("no")] {
+            assert!(!lazy_start_setting(off), "{off:?} should turn lazy start off");
+        }
+    }
 }

@@ -169,7 +169,7 @@ pub(crate) fn make(base: &Path, acpmux_home: &Path, session_id: &str) -> Option<
 /// `parent/name`, made 0700 when missing; only a real directory (lstat, never
 /// a symlink) owned by `uid`, narrowed to 0700 if it is wider.
 #[cfg(unix)]
-fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
+pub(super) fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let dir = parent.join(name);
     match crate::home_fs::create_dir(&dir, 0o700) {
@@ -277,7 +277,7 @@ pub(crate) fn user_runtime_dir(uid: u32) -> Option<PathBuf> {
 /// Remove `dir` when it is a real directory (lstat: a symlink there is left,
 /// and nothing it points at is touched; `remove_dir_all` does not follow
 /// symlinks inside it either).
-fn remove_dir(dir: &Path) {
+pub(super) fn remove_dir(dir: &Path) {
     if std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_dir())
         && let Err(e) = crate::home_fs::remove_dir_all(dir)
     {
@@ -310,6 +310,17 @@ fn own_root(base: &Path, acpmux_home: &Path) -> Option<PathBuf> {
     (private && recorded_home(&root).as_deref() == Some(acpmux_home)).then_some(root)
 }
 
+pub(super) fn existing_session(base: &Path, home: &Path, id: &str) -> Option<PathBuf> {
+    let dir = session_dir(&own_root(base, home)?, id)?;
+    private_to_me(&dir).then_some(dir)
+}
+
+pub(super) fn existing_sessions(base: &Path, home: &Path) -> Vec<PathBuf> {
+    own_root(base, home).map_or_else(Vec::new, |root| {
+        real_dirs_in(&root, &one_component).into_iter().filter(|dir| private_to_me(dir)).collect()
+    })
+}
+
 /// `root/<session_id>`, for an id that is one path component.
 fn session_dir(root: &Path, session_id: &str) -> Option<PathBuf> {
     one_component(session_id).then(|| root.join(session_id))
@@ -317,7 +328,7 @@ fn session_dir(root: &Path, session_id: &str) -> Option<PathBuf> {
 
 /// The real directories in `root` (itself a real directory) whose names
 /// pass `take`. Files, symlinks and other names are never listed.
-fn real_dirs_in(root: &Path, take: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
+pub(super) fn real_dirs_in(root: &Path, take: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     if !std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_dir()) {
         return Vec::new();
     }
