@@ -4,6 +4,13 @@ Leo, 2026-11-14: "for 3 its supposed to be customization in general likr our api
 who wanted to do whatever". Standing: customization and hot reload first; widgets are made by the
 community, not bundled, so cmux ships the primitive and the recipe, not a widget set.
 
+Example widgets (`cmux.widget/1`), each its own repository to install or copy:
+[cmux-widget-clock](https://github.com/manaflow-ai/cmux-widget-clock),
+[cmux-widget-calendar](https://github.com/manaflow-ai/cmux-widget-calendar),
+[cmux-widget-todo](https://github.com/manaflow-ai/cmux-widget-todo) and
+[cmux-widget-weather](https://github.com/manaflow-ai/cmux-widget-weather). Add one with
+`cmux ext add manaflow-ai/cmux-widget-clock`; each README says how to make your own from it.
+
 This page is the map: each way in, the files behind it, whether it reloads live, and what is still
 missing. Design: `plans/cmux-next/extensibility-DESIGN.md` (rules R1-R7, steps) and cmuxterm-hq
 `plans/cmux-next/extensions/DESIGN.md` (the platform: places, signals, slots, safe mode, registry).
