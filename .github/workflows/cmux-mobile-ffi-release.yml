@@ -1,0 +1,269 @@
+# Publishes a cmux-mobile-ffi build as a release and pins it for the iOS app
+# (RFD 0213 slice 1). cmux-mobile-ffi.yml's `release` job dispatches it after a
+# feat-cmux-next build's apple job passes, with that run's id, source sha and
+# checksum. A separate, dispatch-only workflow because cmux-mobile-ffi.yml also
+# runs on wildcard feature-branch pushes, where no job may read the FFI release
+# App credentials (tests/test_ci_signing_secrets_need_release_environment.py).
+#
+# - publish: checks the run is cmux-mobile-ffi.yml on feat-cmux-next at SOURCE
+#   with a green apple job, downloads its xcframework artifact, and publishes
+#   CmuxMobileFFIFFI.xcframework.zip, CmuxMobileFFI.swift (the uniffi bindings
+#   of the same build), SHA256SUMS and SOURCE_SHA as the prerelease
+#   cmux-mobile-ffi-<source sha> (never latest, never overwritten), the way
+#   app-ffi-release.yml publishes CCmuxAppFFI.
+# - repin: pins it in Packages/Shared/CmuxMobileFFI (mobile-ffi-pin.json and the
+#   bindings, one commit; scripts/cmux-next/publish-mobile-ffi-repin.sh): on the
+#   base with the base autofix identity when CMUX_NEXT_BASE_AUTOFIX is 1 and the
+#   bindings only add API, else through the mobile-ffi-repin pull request (the
+#   first pin always). ios/CmuxiOS links the pinned xcframework through that
+#   package; scripts/cmux-next/check-mobile-ffi-pin.sh checks the pin.
+name: cmux-mobile-ffi-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The cmux-mobile-ffi.yml run whose CmuxMobileFFIFFI.xcframework artifact to publish"
+        required: true
+        type: string
+      source:
+        description: "The commit that run built (40-hex sha)"
+        required: true
+        type: string
+      checksum:
+        description: "The SwiftPM checksum of its CmuxMobileFFIFFI.xcframework.zip"
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  publish:
+    name: publish release
+    # Dispatch-only on the exact protected ref (the ffi-release environment admits only it).
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    # Never cancelled: two runs of one commit publish one at a time, so the
+    # second sees the first's release and checks its checksum.
+    concurrency:
+      group: cmux-mobile-ffi-publish-${{ inputs.source }}
+      cancel-in-progress: false
+    # The FFI release App credentials (feat-cmux-next only, as app-ffi-release.yml).
+    environment: ffi-release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TAG: cmux-mobile-ffi-${{ inputs.source }}
+      SOURCE: ${{ inputs.source }}
+      CHECKSUM: ${{ inputs.checksum }}
+      RUN_ID: ${{ inputs.run_id }}
+      HAND_PUBLISH: >-
+        gh run download ${{ inputs.run_id }} --repo ${{ github.repository }} --name CmuxMobileFFIFFI.xcframework --dir mobile-ffi-${{ inputs.source }}
+        && (cd mobile-ffi-${{ inputs.source }}/xcframework && shasum -a 256 -c SHA256SUMS && test "$(cat SOURCE_SHA)" = ${{ inputs.source }}
+        && gh release create cmux-mobile-ffi-${{ inputs.source }} CmuxMobileFFIFFI.xcframework.zip CmuxMobileFFI.swift SHA256SUMS SOURCE_SHA
+        --repo ${{ github.repository }} --target ${{ inputs.source }} --title cmux-mobile-ffi-${{ inputs.source }}
+        --notes "cmux-mobile-ffi CmuxMobileFFIFFI.xcframework, source ${{ inputs.source }}, SwiftPM checksum ${{ inputs.checksum }}"
+        --prerelease --latest=false)
+        && scripts/cmux-next/repin-mobile-ffi.sh ${{ inputs.source }} ${{ inputs.checksum }}
+        && scripts/cmux-next/check-mobile-ffi-pin.sh --verify-release
+    steps:
+      # The build is cmux-mobile-ffi.yml's run RUN_ID: a feat-cmux-next push (or
+      # dispatch of the tip) of SOURCE, whose apple job passed. Anything else, a
+      # hand dispatch included, publishes nothing.
+      - name: The build run is cmux-mobile-ffi.yml's on feat-cmux-next at SOURCE
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ && "$RUN_ID" =~ ^[0-9]+$ ]] \
+            || { echo "::error::source, checksum and run_id must be a 40-hex sha, a 64-hex checksum and a run id" >&2; exit 1; }
+          read -r path branch sha event < <(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" \
+            --jq '[.path, .head_branch, .head_sha, .event] | @tsv')
+          [[ "$path" == .github/workflows/cmux-mobile-ffi.yml && "$branch" == feat-cmux-next && "$sha" == "$SOURCE" \
+             && ( "$event" == push || "$event" == workflow_dispatch ) ]] \
+            || { echo "::error::run $RUN_ID is $path on $branch at $sha ($event), not cmux-mobile-ffi.yml on feat-cmux-next at $SOURCE" >&2; exit 1; }
+          apple="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name | startswith("apple")) | .conclusion] | first // ""')"
+          [[ "$apple" == success ]] || { echo "::error::run $RUN_ID's apple job is '$apple', not success" >&2; exit 1; }
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: CmuxMobileFFIFFI.xcframework
+          path: ${{ runner.temp }}/artifact
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Create the release (never overwrite)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/artifact/xcframework"
+          (cd "$assets" && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < "$assets/SOURCE_SHA")" == "$SOURCE" ]]
+          grep -qxF "$CHECKSUM  CmuxMobileFFIFFI.xcframework.zip" "$assets/SHA256SUMS"
+          notes="cmux-mobile-ffi for the iOS app: CmuxMobileFFIFFI.xcframework (static, iOS arm64, iOS simulator arm64/x86_64, macOS arm64/x86_64) and the uniffi Swift bindings generated from the same build (CmuxMobileFFI.swift). Source $SOURCE. SwiftPM binaryTarget checksum: $CHECKSUM"
+          # Only gh's "release not found" means absent; any other failed read is asked again.
+          exists=""
+          probe="$(mktemp)"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>"$probe"; then exists=1; break; fi
+            if grep -qi "release not found" "$probe"; then exists=no; break; fi
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$probe")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$exists" ]]; then
+            echo "::error title=Publish by hand::could not read release $TAG after 6 tries; rerun this job, or publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          if [[ "$exists" == 1 ]]; then
+            existing="$(mktemp -d)"
+            gh release download "$TAG" --pattern "CmuxMobileFFIFFI.xcframework.zip" --dir "$existing"
+            published="$(sha256sum "$existing/CmuxMobileFFIFFI.xcframework.zip" | awk '{print $1}')"
+            if [[ "$published" != "$CHECKSUM" ]]; then
+              echo "::error::release $TAG exists with checksum $published, not $CHECKSUM; it is never overwritten" >&2
+              exit 1
+            fi
+            echo "release $TAG already has the matching archive"
+          elif ! gh release create "$TAG" \
+              "$assets/CmuxMobileFFIFFI.xcframework.zip" "$assets/CmuxMobileFFI.swift" \
+              "$assets/SHA256SUMS" "$assets/SOURCE_SHA" \
+              --target "$SOURCE" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
+            echo "::error title=Publish by hand::the release App token could not create release $TAG (see the gh error above). Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+
+      - name: The latest release is not an FFI tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          echo "latest release: ${latest:-none}"
+          if [[ "$latest" == cmux-mobile-ffi-* ]]; then
+            echo "::error::the repository's latest release now points at $latest" >&2
+            exit 1
+          fi
+
+      # The last word, as in app-ffi-release.yml: green only when an anonymous
+      # download of the release has this run's checksum (the public URL, so its
+      # retries spend no API token). Runs after a failed step too.
+      - name: The release exists with this run's archive
+        if: ${{ !cancelled() }}
+        env:
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check="$(mktemp -d)"
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CmuxMobileFFIFFI.xcframework.zip"
+          found=""
+          for attempt in 1 2 3 4 5 6; do
+            rm -f "$check/archive.zip"
+            if curl -fsSL -o "$check/archive.zip" "$url" 2>"$check/read.err"; then found=1; break; fi
+            echo "read $attempt of $url failed: $(tr '\n' ' ' < "$check/read.err")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$found" ]]; then
+            echo "::error title=Publish by hand::release $TAG does not exist; this run published nothing. Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          published="$(sha256sum "$check/archive.zip" | awk '{print $1}')"
+          [[ "$published" == "$CHECKSUM" ]] || { echo "::error::release $TAG has checksum $published, not $CHECKSUM" >&2; exit 1; }
+          echo "release $TAG exists with checksum $CHECKSUM"
+
+  repin:
+    name: pin the new release
+    needs: publish
+    # Only after this run published. A release older than the pin pins nothing
+    # (publish-mobile-ffi-repin.sh); a build that failed leaves the pin to the
+    # next one (check-mobile-ffi-pin.sh fails base after 90 min behind).
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' && needs.publish.result == 'success' }}
+    environment: ffi-release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    concurrency:
+      group: cmux-mobile-ffi-repin
+      cancel-in-progress: false
+    steps:
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      # A separate token: a mint that asks for a permission the App lacks fails whole.
+      - name: Mint the release App token for the pull request
+        id: pr-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+
+      # The base autofix's push identity (the bypass actor of feat-cmux-next's
+      # required check), as app-ffi-release.yml's re-pin pins on the base.
+      - name: Mint the base pin token
+        id: base-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/feat-cmux-next
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Pin the new release (base, else the re-pin pull request)
+        env:
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_TOKEN: ${{ steps.base-token.outputs.token }}
+          BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          SOURCE: ${{ inputs.source }}
+          CHECKSUM: ${{ inputs.checksum }}
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
+        shell: bash
+        run: bash scripts/cmux-next/publish-mobile-ffi-repin.sh
