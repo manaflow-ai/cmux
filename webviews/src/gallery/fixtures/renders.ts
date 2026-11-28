@@ -46,16 +46,6 @@ export function plainReport(): string {
   );
 }
 
-/** A nested list with its sub-items `gap` px under their parent. */
-export function listMock(gap: number): string {
-  const item = (text: string) => `<li>${text}<ul><li>First detail</li><li>Second detail</li></ul></li>`;
-  return (
-    `<style>body{padding:12px 16px}ul{margin:0;padding-left:18px}li{line-height:20px}` +
-    `li ul{margin-top:${gap}px;color:var(--cmux-muted)}li+li{margin-top:6px}</style>` +
-    `<ul>${item("Install the app")}${item("Open a workspace")}${item("Start an agent")}</ul>`
-  );
-}
-
 /** A pricing card in `accent`, `rows` feature lines tall. */
 export function pricingCard(plan: string, price: string, accent: string, rows = 4): string {
   const features = Array.from({ length: rows }, (_, index) => `<li>Feature ${index + 1}</li>`).join("");

@@ -47,9 +47,13 @@ impl Peer {
                         let p = params.unwrap_or_default();
                         let result = match m.as_str() {
                             method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {"origin": "peer"}}}),
-                            method::MUX_WATCH => json!({"sessions": (0..sessions).map(|i| json!({
+                            // A summary short of the turn_result at 601 is a turn still running when the watch is
+                            // armed: a match watch only wakes on a turn that ends after it (#60876).
+                            method::MUX_WATCH => json!({"sessions": (0..sessions).map(|i| if summary < 601 { json!({
+                                "sessionId": format!("job-{i}"), "status": "working", "lastSeq": summary})
+                            } else { json!({
                                 "sessionId": format!("job-{i}"), "status": "ready", "lastSeq": summary,
-                                "lastTurn": {"turnId": "finished"}})).collect::<Vec<_>>()}),
+                                "lastTurn": {"turnId": "finished"}}) }).collect::<Vec<_>>()}),
                             method::MUX_EVENTS => {
                                 let after = p["afterSeq"].as_u64().unwrap_or(0);
                                 seen.lock().unwrap().push(after);

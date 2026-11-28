@@ -151,7 +151,13 @@ def run_bench(name, argv, log_dir, timeout):
         said += [t[:3500] for t in lines[:-6] if t.startswith("BENCH-LAUNCH ")][-1:]  # the report: exit, crash summary
         tail = said + tail
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
-    return {"exit": code, "seconds": took, "log": log}
+    run = {"exit": code, "seconds": took, "log": log}
+    if code != 0:
+        # The log stays on the Mac that ran it; the uploaded JSON is all a reader off that Mac gets. A failed bench
+        # carries its reason here: its FAIL rows (tab-switch-matrix, burst-bench) and its last lines.
+        failed = [t[:400] for t in lines if t.startswith("FAIL")][-12:]
+        run["tail"] = failed + [t[:400] for t in said + lines[-30:] if t not in failed]
+    return run
 
 
 # --load: the same benches under agent-like load (ask c-71825c54b5; Leo, 2026-10-29: "well somehow at "100% cpu" usage
