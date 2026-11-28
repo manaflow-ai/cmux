@@ -480,7 +480,7 @@ export function EnvironmentPicker({
   type Action = {
     value: string;
     text: string;
-    kind: "local" | "cloud";
+    kind: EnvironmentKind;
     run(): void;
     signsIn?: true;
     /// Why the row runs nothing now: greyed, with this under its name.
@@ -1607,11 +1607,12 @@ const AGENTS_MENU = ACTION + "agentMachines";
 /// grace a Mac submenu gives a slanted path into it.
 const AGENTS_LEAVE_MS = 250;
 
-/// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac.
+/// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac;
+/// `cloud` a Cloud machine and `ssh` a machine added over SSH, each named by its label.
 export interface MoveTarget {
   readonly id: string;
   readonly label: string;
-  readonly kind: "local" | "cloud";
+  readonly kind: EnvironmentKind;
   /// Why a move there would refuse now: the row is greyed with it.
   readonly reason?: string;
 }
