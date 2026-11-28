@@ -1824,8 +1824,7 @@ impl Store for LocalStore {
     }
 
     fn close_log(&self, id: &str) {
-        let mut writers = self.writers.lock_or_recover();
-        self.close_writer_locked(id, &mut writers);
+        self.close_log_copied(id);
     }
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {

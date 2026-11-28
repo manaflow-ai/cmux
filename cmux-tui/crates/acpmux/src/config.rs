@@ -483,22 +483,41 @@ pub(crate) fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
 
 /// Open an existing state file without following a final symlink, verify its
 /// owner and type, and narrow an older file to mode 0600 before reading it.
+fn diag_rchar() -> u64 {
+    std::fs::read_to_string("/proc/self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines()
+                .find_map(|l| l.strip_prefix("rchar: ").and_then(|v| v.trim().parse().ok()))
+        })
+        .unwrap_or(0)
+}
+
+pub(crate) fn diag_mark(label: &str) {
+    if std::env::var_os("ACPMUX_DIAG_OPENS").is_some() {
+        eprintln!("DIAG {} MARK {label}", diag_rchar());
+    }
+}
+
 pub(crate) fn diag_open(path: &Path) {
     if std::env::var_os("ACPMUX_DIAG_OPENS").is_none() {
         return;
     }
     let p = path.to_string_lossy();
-    if !p.contains("/events/") {
+    if !p.contains("/events/") && !p.contains("/kinds/") && !p.contains("index") {
         return;
     }
     let bt = std::backtrace::Backtrace::force_capture().to_string();
-    let frames: Vec<&str> = bt
+    let frames: Vec<String> = bt
         .lines()
         .map(str::trim)
         .filter(|l| l.contains("acpmux::") && !l.contains("diag_open") && !l.starts_with("at "))
-        .take(14)
+        .filter(|l| l.contains("hub::") || l.contains("stress::") || l.contains("scan_"))
+        .take(5)
+        .map(|l| l.split(": ").nth(1).unwrap_or(l).replace("acpmux::", "").replace("<impl ", "<"))
         .collect();
-    eprintln!("DIAG-OPEN {} | {}", p.rsplit('/').next().unwrap_or(""), frames.join(" <- "));
+    let tail: Vec<&str> = p.rsplit('/').take(2).collect();
+    eprintln!("DIAG {} OPEN {}/{} {}", diag_rchar(), tail[1], tail[0], frames.join(" < "));
 }
 
 #[cfg(unix)]

@@ -91,6 +91,21 @@ impl SegmentWriter {
 impl LocalStore {
     /// Closes chat `id`'s open segment, if any, under the writers' lock: a write in flight to it
     /// finishes first and none lands after until the lock is let go.
+    /// DIAG: closes `id`'s log and, with ACPMUX_DIAG_SEALCOPY, copies its last segment.
+    pub(super) fn close_log_copied(&self, id: &str) {
+        let index = {
+            let mut writers = self.writers.lock_or_recover();
+            let index = writers.open.get(id).map(|w| w.seg.index);
+            self.close_writer_locked(id, &mut writers);
+            index
+        };
+        if let Some(index) = index
+            && std::env::var_os("ACPMUX_DIAG_SEALCOPY").is_some()
+        {
+            self.copy_filled_segment(id, index);
+        }
+    }
+
     pub(super) fn close_writer_locked(&self, id: &str, writers: &mut Writers) {
         if let Some(w) = writers.open.remove(id) {
             w.close(id, &self.sync_failed);
