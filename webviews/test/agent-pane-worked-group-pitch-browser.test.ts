@@ -149,9 +149,13 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
     await page.getByText(NOTICE_REPLY).waitFor();
     await page.mouse.move(0, 0);
     await atRest(page);
-    // Open every turn's "Worked for" group.
-    for (let pass = 0; pass < 4; pass += 1) {
-      const shut = page.locator("button.cv-worked.is-toggle[aria-expanded='false']");
+    // Open every turn's "Worked for" group, and every run line in it: a lone call folds with the
+    // thinking around it into one run line (toolRunSummary.ts isFoldedRun, #55248), so the thought
+    // this file measures is a step of the opened run.
+    for (let pass = 0; pass < 8; pass += 1) {
+      const shut = page.locator(
+        "button.cv-worked.is-toggle[aria-expanded='false'], button.cv-tool.is-run[aria-expanded='false']",
+      );
       if ((await shut.count()) === 0) break;
       await shut.first().click();
       await page.mouse.move(0, 0);
@@ -210,7 +214,7 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
       const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")]
         .filter((row) => row.getBoundingClientRect().height > 0)
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-      const out: { run: number; top: number; height: number; text: string; row: string }[] = [];
+      const out: { run: number; top: number; height: number; text: string; row: string; head: boolean }[] = [];
       const dump: string[] = [];
       let run = 0;
       for (const row of rows) {
@@ -235,6 +239,7 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
             height: Math.round(rect.height * 10) / 10,
             text: (node.textContent ?? "").trim().slice(0, 40),
             row: row.className.split(/\s+/).slice(1, 3).join("."),
+            head: node.matches(".cv-tool.is-run"),
           });
         }
         if (prose) run += 1;
@@ -252,6 +257,7 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
       .map(({ prev, line }) => ({
         from: prev.text,
         to: line.text,
+        head: prev.head,
         pitch: Math.round((line.top - prev.top) * 10) / 10,
       }));
     // Base drew thought->next 26 and notice->next 54 (cmux#44818). WORKED_GROUP_PITCH_LOG=1 prints the rows.
@@ -262,16 +268,24 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
     expect(thought).toBeDefined();
     expect(notice).toBeDefined();
     // One pitch: --cv-tool-row-height (22px plus --cv-row-air since #50376), read off the page.
-    const row = await page.evaluate(() => {
-      const probe = document.createElement("div");
-      probe.style.height = "var(--cv-tool-row-height)";
-      document.querySelector(".acpmux-row")!.append(probe);
-      const height = probe.getBoundingClientRect().height;
-      probe.remove();
-      return Math.round(height);
-    });
+    const [row, runGap] = await page.evaluate(() =>
+      ["var(--cv-tool-row-height)", "var(--grid-base)"].map((height) => {
+        const probe = document.createElement("div");
+        probe.style.height = height;
+        document.querySelector(".acpmux-row")!.append(probe);
+        const px = probe.getBoundingClientRect().height;
+        probe.remove();
+        return Math.round(px);
+      }),
+    );
     expect(row).toBeGreaterThanOrEqual(22);
-    for (const pitch of pitches) expect({ ...pitch, pitch: Math.round(pitch.pitch) }).toEqual({ ...pitch, pitch: row });
+    // An opened run line's steps start one --grid-base under it: `.cv-tool-run`'s flex gap, the room
+    // a run's later parts keep too (conversation.css .acpmux-row--run-part). Step to step is one pitch.
+    for (const pitch of pitches)
+      expect({ ...pitch, pitch: Math.round(pitch.pitch) }).toEqual({
+        ...pitch,
+        pitch: pitch.head ? row! + runGap! : row!,
+      });
     await page.close();
   });
 });

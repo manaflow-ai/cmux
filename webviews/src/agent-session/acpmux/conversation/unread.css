@@ -30,6 +30,10 @@
    next row's) showed. A tool card's row does the same for its card (conversation.css). */
 .acpmux-row.acpmux-sinceDivider {
   contain: layout;
+  /* Raised over the rows after it: every row is its own stacking context, painted in transcript
+     order, so the next row's Worked for line (a later sibling) took the mark's clicks and "N new
+     messages" opened or shut the Worked group under it. Only the shown mark takes pointer events. */
+  z-index: var(--layer-raised);
 }
 .cv-since__menu {
   position: absolute;
