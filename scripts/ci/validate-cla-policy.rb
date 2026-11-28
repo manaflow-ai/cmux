@@ -523,8 +523,8 @@ GUARD_VALIDATE_RUN = <<~'SH'.strip.freeze
   if [[ -f "$candidate_dir/cla.yml" ]]; then
     archive="$RUNNER_TEMP/actionlint.tar.gz"
     curl -fsSL -o "$archive" \
-      "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz"
-    echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $archive" | sha256sum --check --strict
+      "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+    echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --strict
     tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
     "$RUNNER_TEMP/actionlint" "$candidate_dir/cla.yml"
   fi
@@ -533,7 +533,7 @@ SH
 # on YAML formatting. They are recomputed from normalize_run_text below when
 # this policy file changes intentionally.
 GUARD_VERIFY_RUN_HASH = "708659eb2df9c50e070dab49190c2c3712a1485a5292eadb86eb4ae3fb01cbb5"
-GUARD_VALIDATE_RUN_HASH = "759f3978ae0a2e0620eb2630cd4c1ec2cbff8f9bcc9a37f76b330b845091bda8"
+GUARD_VALIDATE_RUN_HASH = "c9bc78fd4eb9bc2adc3e96d7d66cfde947ddf2da4b3c610cef6925f554bec747"
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
