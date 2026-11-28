@@ -21,7 +21,7 @@ let targetDependencies: [Target.Dependency] = []
 let package = Package(
     name: "CmuxMobilePairedMac",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
