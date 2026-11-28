@@ -1758,6 +1758,8 @@ export class MockSettingsProvider {
       },
     ],
   };
+  /** Gallery: the first READS refreshes leave `environments` as it is (the list not read yet); the next serves THEN. */
+  environmentsLate: { reads: number; then: CloudEnvironmentsState } | null = null;
   /** Every Cloud Environments gesture the page sent, in order (tests). */
   environmentRuns: CloudEnvironmentsRun[] = [];
 
@@ -1766,6 +1768,10 @@ export class MockSettingsProvider {
     const rows = this.environments.environments;
     switch (run.action) {
       case "refresh":
+        if (this.environmentsLate && this.environmentsLate.reads-- <= 0) {
+          this.environments = this.environmentsLate.then;
+          this.environmentsLate = null;
+        }
         return {};
       case "save":
         if (run.name !== undefined ? !run.name.trim() : !run.id) return { error: "Name must be 1-80 characters." };

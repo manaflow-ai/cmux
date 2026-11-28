@@ -3,10 +3,11 @@
 // image change is pinned, baked and gated with no hand PR, then made production's first boot image by a bot
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
-//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
+//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push|newest [--commit <40-hex>] [--before <sha>]
 //       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>] [--channel <url|file>]
 //     A push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4: the image carries the binary
 //     running VMs take), else the newest published build when the channel is unreadable or its commit fails a guard.
+//     A newest roll (the cadence tick) picks its build the same way, then plans it as a build roll.
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
@@ -24,7 +25,7 @@
 //     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
-//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome> [--smoke-ran <gate output>]
+//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome> [--smoke-ran <gate output>] [--worker-deploy <step outcome>]
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
 //     (see settle() below). Prints the decision as JSON; changes nothing.
@@ -426,6 +427,12 @@ export type SettleInput = {
    * as a self-hosted runner that lost the server does). Absent counts as ran: only a known no-start retries.
    */
   smokeRan?: boolean;
+  /**
+   * Whether deploy-production's Worker deploy step ran (its `worker_deploy` output, the step's outcome; false when a
+   * step before it failed: the ordering gate's 53300 on 2026-11-28, roll 46184101136). Absent counts as ran: only a
+   * known no-start retries.
+   */
+  workerDeployRan?: boolean;
   /** Production's first entry in the deployed commit's wrangler.jsonc. */
   deployedFirst: string;
   /** Production's first entry at the feat-cmux-next tip now. */
@@ -445,7 +452,7 @@ export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: numb
 /**
  * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
  * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
- * create is deployed again, up to ROLLBACK_DEPLOYS deploys, and so is a deploy whose smoke job never ran a step (a
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys (so is one that failed before its Worker deploy step), and so is a deploy whose smoke job never ran a step (a
  * lost runner). Anything else (failed, cancelled, timed out, skipped
  * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
@@ -467,7 +474,10 @@ export function settle(s: SettleInput): Settle {
     // The production deploy never ran (its check failed or hung first) and no create booted anything: production
     // still serves the last deploy, so nothing is known about the image. Deploy the roll again, as a rollback's
     // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
-    if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+    // So did a deploy job that failed before its Worker deploy step (the ordering gate found the database full,
+    // 53300, roll 46184101136 on 2026-11-28): the Worker was never touched.
+    const neverDeployed = s.deploy === "skipped" || (s.deploy === "failure" && s.workerDeployRan === false);
+    if (neverDeployed && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
       return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
     // The deploy ran but smoke-production never ran a step (99de33e5-45840828684-1, 2026-11-26: its runner lost the
     // server during setup): the image is live and untested, not red. Deploy and smoke it again within the same bound;
@@ -686,6 +696,16 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     const reason = `image inputs changed in ${range}; ${newer.why}`;
     return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
   }
+  if (opts.event === "newest") {
+    // The cadence tick (main's cloud-vm-image-roll-tick-dispatch.yml, every 20 min): the newest build, picked as a
+    // push roll picks it, then every guard of a build roll below. A roll started only by a build's dispatch or an
+    // image push left the lock where the last good roll put it when a roll failed or a request never came:
+    // 2026-11-28 the lock pinned c6cd14b5 from 09:21Z to 18:48Z (11.2 h behind at promotion) and 11 of 19 rolls
+    // failed with nothing to retry them until the next trigger. Nothing newer: nothing rolls.
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
+    if (newer.pin === "") return none(newer.why);
+    opts = { ...opts, commit: newer.pin };
+  }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");
     return { roll: true, reason: "dispatched: rebake the tip's image inputs with the pinned cmux-tui", pin: "", cmuxTui: pinned, dryRun, fixes: [], fixesTruncated: false };
@@ -812,6 +832,9 @@ async function main(argv: string[]): Promise<number> {
       bootImage: arg(rest, "--boot-image", ""),
       // --smoke-ran is smoke-production's gate output: "true"/"false" when its first step ran, "" when no step did.
       smokeRan: arg(rest, "--smoke-ran", "unknown") !== "",
+      // --worker-deploy is deploy-production's worker_deploy output (the Worker deploy step's outcome): "" or "skipped"
+      // when the step never ran; absent reads as ran.
+      workerDeployRan: !["", "skipped"].includes(arg(rest, "--worker-deploy", "unknown")),
       deployedFirst: deployed.prod[0] ?? "",
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
