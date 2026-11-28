@@ -111,6 +111,8 @@ impl Hub {
         // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
         #[cfg(unix)]
         self.sweep_closed_tmps();
+        // Asks with no pickup past the bound, every minute (`ask_ledger/sweep.rs`).
+        self.sweep_stalled_asks();
         self.bg_notify_resume_in_background();
     }
 
