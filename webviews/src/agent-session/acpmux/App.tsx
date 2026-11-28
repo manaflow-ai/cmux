@@ -143,7 +143,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
-import { useSettledToasts } from "./settledToasts";
+import { useHeldChats, useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
   useDraftActionsVersion,
@@ -1506,17 +1506,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [notices],
   );
-  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
-  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
-  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
-  useEffect(() => {
-    const shown = snapshot.sessionId;
-    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
-  }, [snapshot.sessionId]);
-  const holdsChat = useCallback(
-    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
-    [shownChats],
-  );
+  // The chats this pane has shown, the ones it may unsettle (settledToasts.ts `useHeldChats`).
+  const holdsChat = useHeldChats(snapshot.sessionId);
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
   if (shareChat !== snapshot.sessionId) {
