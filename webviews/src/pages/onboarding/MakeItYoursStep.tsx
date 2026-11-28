@@ -60,6 +60,7 @@ import {
 } from "./walk";
 import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
 import { Faces } from "./walkLook";
+import { rangeDragEnd } from "../../ui/rangeRelease";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
 export type MakeItYoursLook = "preview" | "segmented" | "form" | "cards" | "rows";
@@ -151,10 +152,8 @@ function OpacitySlider({ value, label, disabled }: { value: number; label: strin
             // A key (or an assistive app's step): its own gesture, written now.
             send(next);
           }}
-          onPointerUp={release}
-          onPointerCancel={release}
-          onLostPointerCapture={release}
-          onBlur={release}
+          // A drag on the thumb ends on its mouseup, with no pointerup (rangeRelease.ts).
+          {...rangeDragEnd(release)}
         />
         <span className="onb-make-adjust-value" aria-hidden="true">
           {percent(shown)}

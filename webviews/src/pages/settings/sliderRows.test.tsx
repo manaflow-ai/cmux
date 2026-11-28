@@ -115,6 +115,24 @@ describe("slider rows", () => {
     expect(ops(page.provider, "cmux.settings.set")).toHaveLength(1);
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/65781: "it drags left and right even when im not
+  // mouse down". A page pointer capture on a range input takes the mouseup from WebKit's thumb,
+  // which stays in drag mode and follows the pointer with no button down. The press must leave the
+  // mouse to the thumb, and its release still writes once through the native change.
+  test("a press on the slider never captures the pointer, and its release still writes once", async () => {
+    page = await renderPage({ path: SURFACE_PAGE });
+    const captured: number[] = [];
+    slider(SURFACE).setPointerCapture = (id: number) => void captured.push(id);
+    await fire(slider(SURFACE), "pointerdown");
+    expect(captured).toEqual([]);
+    await changeValue(slider(SURFACE), "0.45");
+    await fire(slider(SURFACE), "mouseup");
+    await fire(slider(SURFACE), "change");
+    expect(captured).toEqual([]);
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: SURFACE, value: 0.45 }]);
+    expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: SURFACE }]);
+  });
+
   test("on release the thumb keeps the released value while the write is in flight", async () => {
     page = await renderPage({ path: OPACITY_PAGE });
     await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { [OPACITY]: 1 } }));

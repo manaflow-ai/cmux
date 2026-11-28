@@ -46,6 +46,7 @@ import {
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
+import { rangeDragEnd } from "../../ui/rangeRelease";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
@@ -300,15 +301,11 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
       value={shown}
       disabled={!live}
       aria-label={sceneText(node.props.help) || undefined}
-      onPointerDown={(event) => {
+      onPointerDown={() => {
+        // No pointer capture (rangeRelease.ts): the thumb holds the mouse for its drag.
         dragging.current = true;
-        // A release outside the track still ends the drag here.
-        event.currentTarget.setPointerCapture?.(event.pointerId);
       }}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onLostPointerCapture={endDrag}
-      onBlur={endDrag}
+      {...rangeDragEnd(endDrag)}
       onChange={(event) => {
         if (!live) return;
         const snapped = sliderSnap(Number(event.currentTarget.value), range, step);

@@ -5,6 +5,7 @@ import { text } from "../strings";
 import { NumberField } from "./NumberField";
 import type { EditorProps } from "./types";
 import { rangeFill } from "../format";
+import { rangeDragEnd } from "../../../ui/rangeRelease";
 
 /**
  * Slider + field. While the slider moves the page sends `preview` (never written); releasing
@@ -73,13 +74,10 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
           setDrag(next);
           store.preview(row.key, next);
         }}
-        onPointerDown={(event) => {
-          // The release reaches the slider even when the pointer leaves it mid-drag.
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-        }}
-        onPointerUp={release}
+        // No pointer capture (rangeRelease.ts): the native `change` above is the release wherever
+        // the pointer is; these end it too.
+        {...rangeDragEnd(release)}
         onKeyUp={release}
-        onBlur={release}
       />
       <NumberField
         value={drag ?? stored}
