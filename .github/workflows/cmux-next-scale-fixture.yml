@@ -12,6 +12,7 @@ name: cmux-next scale fixture
 # Fail open: no gateway, no client, no free GUI Mac, an infra error or a run that measured nothing warns and
 # passes. Only a `fail` verdict (a flow's main-thread gap over 250 ms, with the watchdog proven live by a probe
 # stall and the rows proven to ask for Chief avatars) or a `crashed` one (the app crashed at launch) fails the job. A `blind` verdict warns.
+# Detached by default: the controller posts that verdict as check run "cmux-next scale fixture (fleet)" (see DETACH).
 # Gated by path until the relevance map (docs/benches/relevance-map.toml) drives it.
 
 on:
@@ -77,6 +78,19 @@ jobs:
         env:
           SHA: ${{ github.event.pull_request.head.sha || inputs.ref }}
           WORKSPACES: ${{ inputs.workspaces || '1100' }}
+          # Detached (the default): the job submits the step and ends; the controller posts the step's verdict (the
+          # bench's exit: pass 0, fail/crashed 1, blind 2; neutral for a queue timeout or a cancel) as the check run
+          # REPORT_CHECK on the head (cmux-ci run --report-check --detach), so no gateway runner waits for a GUI Mac.
+          # Waiting, every run in 11-28 15-19Z held its runner 30-31 min and most passed open with no result (job
+          # 141042736601 queued 16:35-17:05Z, cancelled), and it was the last Actions check on a sidebar PR's head.
+          # CI_SCALE_FIXTURE_DETACH=0 waits here as before; a client without --detach waits too. Same cut as
+          # cmux-next-split-table.yml and nightly-pr-build.yml (#62619).
+          DETACH: ${{ vars.CI_SCALE_FIXTURE_DETACH || '1' }}
+          REPORT_CHECK: cmux-next scale fixture (fleet)
+          # A gateway Mac's own ~/.local/bin/cmux-ci can predate --detach (cmux#63089); then the step fetches the
+          # controller's client, sha256-checked against its manifest as split-table does.
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          LOCAL_CLIENT_ONLY: ${{ vars.CI_SCALE_FIXTURE_LOCAL_CLIENT || '0' }}
         run: |
           # The default shell is bash -e: without +e the 75 from a queue timeout ends the step
           # before the fail-open branch below reads it (run 46101042567 failed that way).
@@ -88,14 +102,54 @@ jobs:
           [[ "$WORKSPACES" =~ ^[0-9]+$ ]] || { echo "::error title=Scale fixture::workspaces must be a whole number"; exit 1; }
           out="$RUNNER_TEMP/scale-fixture"
           mkdir -p "$out"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "$DETACH" != 0 && "$usage" != *--detach* && "$LOCAL_CLIENT_ONLY" != 1 && -n "${CONTROLLER:-}" ]]; then
+            fresh="$RUNNER_TEMP/fleet-client"
+            mkdir -p "$fresh"
+            if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json" &&
+              python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            then
+              printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$fresh/ci-client.py" > "$fresh/cmux-ci"
+              chmod +x "$fresh/cmux-ci"
+              fresh_usage="$("$fresh/cmux-ci" run --help 2>/dev/null || true)"
+              if [[ "$fresh_usage" == *--detach* ]]; then
+                echo "::notice title=Scale fixture::runner $RUNNER_NAME's cmux-ci lacks --detach; using the controller's client"
+                client="$fresh/cmux-ci"
+                usage="$fresh_usage"
+              fi
+            else
+              echo "::warning title=Scale fixture::could not fetch the controller's client; waiting on the local one"
+            fi
+          fi
+          if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--repo "$GITHUB_REPOSITORY" --report-check "$REPORT_CHECK" --detach)
+          fi
           # --priority pr ranks it with agent tag builds; a step still queued after 30 min is cancelled
           # and the check passes with a warning (the exclusive class's p90 queue wait ran to hours).
           "$client" run --class exclusive --measurement --label measure --display --priority pr \
             --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 4800 --queue-timeout 1800 \
             --key "scale-fixture-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --artifact artifacts/split-spring/report.json \
+            --artifact artifacts/split-spring/report.json ${detach[@]+"${detach[@]}"} \
             --arg=--suite=scale-fixture --arg="--workspaces=$WORKSPACES" 2>&1 | tee "$out/run.log"
           rc="${PIPESTATUS[0]}"
+          if [[ ${#detach[@]} -gt 0 ]] && grep -q ') detached; check run' "$out/run.log"; then
+            # Submitted: the GUI Mac posts the verdict as its own check run when it is done; nothing to wait for here.
+            echo "::notice title=Scale fixture::the fleet Mac posts the verdict as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
+            echo "scale fixture: detached; the verdict is check run \"$REPORT_CHECK\"" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/run.log" | head -1 || true)"
           [[ -n "$step" ]] || warn "no fleet step started (no free GUI Mac or controller error)"
           if [[ "$rc" == 75 ]]; then

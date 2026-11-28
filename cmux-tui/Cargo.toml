@@ -90,6 +90,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-app-feed",
     "crates/cmux-phone-core",
     "crates/cmux-browser-rules",
     "crates/cmux-app-workspace-creation",
@@ -128,6 +129,7 @@ members = [
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-no-checkout",
@@ -149,6 +151,7 @@ members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tui-lib",
     "crates/cmux-tui/tests/it/modules",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
@@ -296,6 +299,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-app-feed",
     "crates/cmux-phone-core",
     "crates/cmux-browser-rules",
     "crates/cmux-app-workspace-creation",
@@ -325,6 +329,7 @@ default-members = [
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
@@ -340,6 +345,7 @@ default-members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tui-lib",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
@@ -493,6 +499,7 @@ cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-bytes = { path = "crates/cmux-bytes" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-cloud-phone-acp = { path = "crates/cmux-cloud-phone-acp" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
