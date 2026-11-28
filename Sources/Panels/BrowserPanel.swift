@@ -10074,7 +10074,16 @@ private final class ChromiumCookieDecryptor {
         }
     }
 
+    /// Chromium's "<Browser> Safe Storage" / "Storage Key" items belong to the
+    /// browser. cmux never reads them, so importing from Chromium-family browsers
+    /// never shows a Keychain access prompt. Encrypted cookies are skipped instead.
+    static let keychainAccessEnabled = false
+
     private func passwordData() -> Data? {
+        guard Self.keychainAccessEnabled else {
+            lastFailureReason = .keychain(errSecAuthFailed)
+            return nil
+        }
         if let cachedPasswordData {
             return cachedPasswordData
         }
@@ -10110,6 +10119,7 @@ private final class ChromiumCookieDecryptor {
     }
 
     private func suggestedKeychainItems() -> [ChromiumCookieKeychainItem] {
+        guard Self.keychainAccessEnabled else { return [] }
         var result: [ChromiumCookieKeychainItem] = []
         var seen = Set<ChromiumCookieKeychainItem>()
 
@@ -10198,6 +10208,7 @@ private final class ChromiumCookieDecryptor {
     }
 
     private func readPasswordData(item: ChromiumCookieKeychainItem) -> KeychainLookupResult {
+        guard Self.keychainAccessEnabled else { return .failure(errSecAuthFailed) }
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: item.service,
