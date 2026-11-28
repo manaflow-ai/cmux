@@ -383,6 +383,83 @@ class ForPathsCliTest(unittest.TestCase):
 
 
 
+class AreaOwnsReds(unittest.TestCase):
+    """shadow-leo push 3 (ask c-5ad71ec59c): nightly and probe reds resolve to an area, and an area can carry a
+    count budget (`checks`) that fails the PR job when a count is over."""
+
+    MAP = """
+[[area]]
+name = "pane"
+paths = ["p"]
+benches = ["local-start-matrix-nightly"]
+probes = ["local-chat-replies-nightly"]
+goals = ["local-chat-replies"]
+[[area]]
+name = "ci"
+paths = ["ci"]
+nightly = ["nightly-next-one"]
+checks = ["exit 0"]
+"""
+
+    def test_probe_goal_nightly_and_bench_each_name_their_area(self):
+        rules = rel.parse(self.MAP)
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         [("pane", "probe")])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies")], ["pane"])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "nightly-next-one / cmux-tui tree")],
+                         [("ci", "nightly")])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-start-matrix-nightly")],
+                         [("pane", "bench")])
+        self.assertEqual(rel.area_for(rules, "no-such-probe"), [])
+
+    def test_a_non_list_owner_key_is_a_map_error(self):
+        for key in ("checks", "probes", "goals", "nightly"):
+            with self.assertRaises(rel.MapError, msg=key):
+                rel.parse(f'[[area]]\nname = "a"\npaths = ["p"]\n{key} = "x"\n')
+
+    def test_the_real_map_names_the_local_chat_probe_and_the_nightly_build(self):
+        rules = rel.load_rules(rel.MAP, None)
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         ["Agent pane transport (daemon → pane)"])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "nightly-reliability")],
+                         ["CI pipeline and workflows"])
+        page = [r for r in rules if r.name == "Sidebar chats page (web)"]
+        self.assertEqual(len(page), 1)
+        self.assertTrue(page[0].checks, "the sidebar chats page carries a count budget")
+
+    def test_checks_fail_red_on_exit_and_warn_on_a_missing_tool(self):
+        plan = {"areas": [{"name": "a", "checks": ["exit 0", "exit 3", "no-such-tool-xyz"]},
+                          {"name": "b", "checks": ["exit 0"]}]}
+        got = {r["cmd"]: (r["status"], r["areas"]) for r in rel.run_checks(plan, timeout=10)}
+        self.assertEqual(got, {"exit 0": (rel.OK, ["a", "b"]), "exit 3": (rel.FAILED, ["a"]),
+                               "no-such-tool-xyz": (rel.MISSING, ["a"])})
+
+    def run_cli(self, *args, map_text=None):
+        cmd = [sys.executable, "-I", str(CLI), *args]
+        if map_text is not None:
+            tmp = Path(tempfile.mkdtemp()) / "map.toml"
+            tmp.write_text(map_text)
+            cmd += ["--map", str(tmp)]
+        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=60)
+
+    def test_area_for_cli_exits_1_on_an_unknown_name(self):
+        got = self.run_cli("area-for", "--json", "local-chat-replies-nightly", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn('"area": "pane"', got.stdout)
+        got = self.run_cli("area-for", "local-chat-replies-nightly", "nope", map_text=self.MAP)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("nope: no area", got.stdout)
+
+    def test_for_paths_checks_is_red_when_a_count_is_over(self):
+        over = self.MAP.replace('checks = ["exit 0"]', 'checks = ["echo drew 2 rows, budget 1; exit 1"]')
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=over)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("count budget failed", got.stderr)
+        self.assertIn("drew 2 rows", got.stderr)
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+
 def old_literal_prefix(glob: str) -> str:
     """The per-segment walk literal_prefix replaced: the oracle for the one-search version."""
     lead: list[str] = []

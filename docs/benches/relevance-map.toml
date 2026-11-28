@@ -18,6 +18,9 @@
 #
 # [[area]]       name, paths, benches (names in coverage-map.md), tests (commands), budget, situations
 #                run (Linux bench commands `for-paths --run` runs), budget_s (seconds; over it fails the run)
+#                checks (count-budget commands `for-paths --checks` runs; exit non-zero = over budget, fails the PR)
+#                probes, goals, nightly: names of the reds that are not a path (NOW probe rows, hq goals, nightly
+#                jobs or failure classes) this area owns; `cmux-bench area-for NAME` resolves one to its area
 # [[situation]]  name, paths, template (docs/benches/templates/<name>.md: the minimal check this kind of change needs)
 # [[unit]]       generated: one per Rust crate, Swift module or test target, webviews/src folder, tooling folder
 
@@ -152,6 +155,9 @@ paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane"]
 situations = ["main-thread"]
 benches = ["AgentPaneTransportBench", "AgentPaneTransportBenchParse", "AgentPaneBridgeHopBench", "AgentPageProviderBridgeGapBench", "ChatTailJSONPathBench", "AcpmuxPaneInboundScanBench", "app-stream-bytes"]
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextAgentPaneTests"]
+# The local-chat probe (a local chat gets its first reply in the pane) is this area's red.
+probes = ["local-chat-replies-nightly", "local-chat-probe"]
+goals = ["local-chat-replies"]
 
 [[area]]
 name = "acpmux daemon (send, watch, list)"
@@ -187,6 +193,16 @@ name = "Sidebar chat list (web)"
 paths = ["webviews/src/sidebar"]
 benches = ["webviews/bench/sidebar-chats-*.bench.ts", "webviews/bench/all-chats-list.bench.ts", "webviews/bench/session-*.bench.ts"]
 tests = ["bash scripts/ci/run-webviews-tests.sh src/sidebar"]
+
+[[area]]
+name = "Sidebar chats page (web)"
+paths = ["webviews/src/pages/sidebar-chats", "webviews/test/sidebar-chats-row-renders.test.tsx"]
+situations = ["visible-ui"]
+benches = ["webviews/bench/sidebar-chats-*.bench.ts"]
+tests = ["bash scripts/ci/run-webviews-tests.sh test/sidebar-chats-row-renders.test.tsx"]
+# A count, not a time: the same verdict on any runner. Red when one changed row redraws more than itself.
+budget = "at 1,000 rows: one retitle draws 1 row, an idle age tick 0, one age-label move 1, Show More only the 20 new"
+checks = ["cd webviews && bun test test/sidebar-chats-row-renders.test.tsx"]
 
 [[area]]
 name = "New Tab (web)"
@@ -320,6 +336,8 @@ name = "CI pipeline and workflows"
 paths = [".github/workflows", "ci", "scripts/ci", "tests/test-execution.d"]
 benches = ["agent-quota", "ci-vm-idle"]
 tests = ["python3 tests/test_ci_step_table.py", "python3 tests/test_ci_test_execution_registry.py"]
+# nightly.yml's build jobs: a red there (the nightly-reliability row) is this area's.
+nightly = ["nightly-next-one", "build-sign-notarize-nightly", "nightly-reliability"]
 
 [[area]]
 name = "Settings schema and window"

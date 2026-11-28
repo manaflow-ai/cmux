@@ -9,7 +9,11 @@ name: Bench baselines (pull request)
 # of the pull request's own areas (docs/benches/relevance-map.toml `run`) on the merge commit, 3 repeats each, on
 # the runner label bench-baselines-nightly.yml records on (a baseline is only comparable on its own machine
 # class), and compares each with its area's nightly baseline read from the public R2 URL with no credential.
-# Bun is set up only when one of the areas' benches is a `bun` command.
+# Bun is set up only when one of the areas' benches or count checks is a `bun` command.
+#
+# shadow-leo, 2026-11-28 (ask c-5ad71ec59c): one area gets "a count-based budget ... that a PR job checks and
+# fails in under 60 s". An area's `checks` are counts (rows drawn per change), not times, so they are red on any
+# runner without a baseline: the count-check step below fails this job when one is over; a missing tool warns.
 #
 # The machine class carries the CPU model: one pool label hands out hosts with different CPUs (cmux#65157).
 # Red only when all 3 repeats are more than 15% over the baseline (or a bench is over its area's budget_s). A
@@ -54,7 +58,7 @@ jobs:
               doc = json.load(sys.stdin)
           except Exception:
               print("false"); sys.exit()
-          cmds = [c for a in doc.get("areas", []) for c in (a.get("run") or [])]
+          cmds = [c for a in doc.get("areas", []) for c in (a.get("run") or []) + (a.get("checks") or [])]
           print("true" if any(" bun " in f" {c} " for c in cmds) else "false")
           ')" || bun=false
           echo "bun=$bun" | tee -a "$GITHUB_OUTPUT"
@@ -75,6 +79,23 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         run: cd webviews && bun install --frozen-lockfile
+
+      - name: Run the areas' count budgets (red when a count is over)
+        if: steps.plan.outputs.run == 'true'
+        timeout-minutes: 3
+        env:
+          PATHS: ${{ steps.plan.outputs.paths }}
+        run: |
+          set -uo pipefail
+          start=$(date +%s)
+          python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --checks --timeout 60 < "$PATHS" \
+            | grep -A1000 '^### Count budgets' | tee -a "$GITHUB_STEP_SUMMARY"
+          code=${PIPESTATUS[0]}
+          echo "Count budgets verdict in $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Count budgets::an area's count budget is over (for-paths --checks exited $code); see the step log"
+            exit 1
+          fi
 
       - name: Run the areas' benches (3 repeats) against their nightly baselines
         if: steps.plan.outputs.run == 'true'
