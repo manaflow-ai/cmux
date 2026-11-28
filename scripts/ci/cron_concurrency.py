@@ -79,6 +79,9 @@ EXCLUDED_SHARED: dict[tuple[str, str], str] = {
     ("nightly.yml", "decide"): (
         "main's app ticks decide one at a time so the in-flight cap sees the previous tick's build; "
         "each decides main HEAD when it starts and builds nothing in decide itself"),
+    ("nightly.yml", "decide-main"): (
+        "decide on main's first attempt, on the App's read budget: the same one-at-a-time tick slot as decide, "
+        "and it builds nothing itself"),
     ("nightly.yml", "promote-nightly-next"): "a promotion request builds nothing; decideNewest() covers an evicted one",
     ("nightly.yml", "await-release-surface-ack"): "retired (if: false); it never runs",
     ("nightly.yml", "publish-nightly"): (
