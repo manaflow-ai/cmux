@@ -567,6 +567,9 @@ pub struct PairingPreview {
 /// user_<id>, agent_<name> or addr_<26> (an invited address).
 pub type ParticipantId = String;
 
+/// An X.509 signing certificate of the IdP, PEM or base64 DER.
+pub type PemCertificate = String;
+
 wire_enum! {
     Platform {
         Macos = "macos",
@@ -778,6 +781,13 @@ pub struct RunWithBodyOutcome {
     pub summary: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SamlSettings {
+    pub idp_entity_id: String,
+    pub sso_url: String,
+    pub certificates: Vec<PemCertificate>,
+}
+
 pub type ServerCapability = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -846,16 +856,26 @@ pub struct SshPresenceProof {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SsoConnection {
     pub id: SsoConnectionId,
-    pub kind: LitOidc,
+    pub kind: SsoConnectionKind,
     pub state: SsoConnectionState,
     pub domains: Vec<EmailDomain>,
-    pub oidc: SsoConnectionOidc,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oidc: Option<SsoConnectionOidc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saml: Option<SamlSettings>,
     pub secret_set: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_generation: Option<i64>,
     pub jit: SsoConnectionJit,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+wire_enum! {
+    SsoConnectionKind {
+        Oidc = "oidc",
+        Saml = "saml",
+    }
 }
 
 wire_enum! {
@@ -881,24 +901,4 @@ wire_enum! {
         Member = "member",
         Admin = "admin",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionJitDefaultRole,
-}
-
-pub type SsoConnectionId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Step {
-    Sleep(StepSleep),
-    Note(StepNote),
-    Op(StepOp),
-    Machine(StepMachine),
-    Agent(StepAgent),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
 }
