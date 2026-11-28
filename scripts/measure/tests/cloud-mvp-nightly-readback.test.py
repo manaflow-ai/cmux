@@ -4,7 +4,8 @@
 Run 46142896615 (NIGHTLY 4613363345501) failed "auto: no Runs On control on the New Tab page ... the control shows only
 with an active Cloud plan" with 0 AX rows read at launch and at the failure: the read asked no walk budget, read no
 tree_markdown, dropped CuaDriver's errors, and the copy ran without CMUX_NEXT_ACCESSIBILITY, so its CEF pages had no
-tree. The checks: every get_window_state asks timeout_ms 8000 and the tree; a structuredContent answer and its
+tree. Run 46164486946 then got every row from tree_markdown alone and dropped each row's [N], so the composer on
+screen was "not in the tree"; a markdown row keeps its index. The checks: every get_window_state asks timeout_ms 8000 and the tree; a structuredContent answer and its
 tree_markdown rows are read; an error is kept for the note; an empty tree or a page without its composer is the rig's
 (RigFailure), and only a read page without Runs On is a product failure; the launch passes the accessibility switch.
 Run: python3 -I scripts/measure/tests/cloud-mvp-nightly-readback.test.py
@@ -61,6 +62,15 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(rb.has_text(seen, "Runs On"), "Runs On")
         self.assertEqual(sum(1 for e in seen if e.get("label") == "Type a question"), 1)  # indexed once, not twice
         self.assertGreater(rb.LAST_READ["markdown"], 0)
+
+    def test_markdown_only_rows_keep_their_index_so_the_composer_is_clickable(self):
+        # Run 46164486946: `elements` empty, every row from tree_markdown, composer on screen yet "no composer field".
+        seen, _ = self.read({"structuredContent": {"elements": [], "tree_markdown": MARKDOWN}})
+        field = rb.composer(seen)
+        self.assertIsNotNone(field)
+        self.assertEqual(field["element_index"], 3)
+        self.assertEqual(field["_window"], 7)
+        self.assertFalse(rb.clickable(next(e for e in seen if e["role"] == "AXGroup")))  # no [N]: not clickable
 
     def test_an_error_is_kept_and_an_empty_tree_is_the_rigs(self):
         seen, _ = self.read({"error": "exit 1: AX API disabled"})

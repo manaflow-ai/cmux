@@ -72,6 +72,7 @@ class Ctx:
     raw_cli: Path | None = None
     version_seq: int = 0
     mcp_config: Path | None = None
+    cu_host: str | None = None
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
@@ -1585,6 +1586,7 @@ def main() -> int:
     parser.add_argument("--daemon-socket")
     parser.add_argument("--bundle", help="with --cli: the NIGHTLY bundle the binary came from, for the receipt")
     parser.add_argument("--control-socket")
+    parser.add_argument("--cu-host", choices=["nightly"], help="preflight the installed fleet NIGHTLY host")
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
@@ -1613,7 +1615,7 @@ def main() -> int:
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
     receipt |= {"daemon_socket": daemon, "control_socket": control}
     ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control,
-              mcp_config=args.mcp_config,
+              mcp_config=args.mcp_config, cu_host=args.cu_host,
               app=Path(args.app) if args.app else None, pid_file=Path(args.pid_file) if args.pid_file else None)
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
