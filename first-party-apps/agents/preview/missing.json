@@ -1,0 +1,45 @@
+{
+  "grant": [
+    "machine:read",
+    "agent_cli:read",
+    "agent_cli:execute",
+    "actions:run",
+    "workspace:write"
+  ],
+  "scopes": {
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
+    "agent_cli.update": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "agent_cli.install": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "agent_cli.sign_in": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "machine.list": [
+      {
+        "id": "machine_mac01",
+        "name": "MacBook Pro",
+        "origin": "local",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false,
+        "os": "darwin"
+      }
+    ]
+  }
+}

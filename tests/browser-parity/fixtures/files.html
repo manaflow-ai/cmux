@@ -1,0 +1,12 @@
+<!doctype html><html><head><title>Files Fixture</title></head><body>
+<label>Single <input id="one" type="file"></label>
+<label>Many <input id="many" type="file" multiple></label>
+<button id="picker" onclick="document.getElementById('hidden-file').click()">Choose via button</button><input id="hidden-file" type="file" hidden>
+<a id="dl" href="/download.txt">Download file</a>
+<p id="files">none</p>
+<script>
+for (const id of ["one", "many", "hidden-file"]) document.getElementById(id).addEventListener("change", async (e) => {
+  const f = [...e.target.files]; const texts = await Promise.all(f.map((x) => x.text()));
+  document.getElementById("files").textContent = `${id}: ` + f.map((x, i) => `${x.name}(${texts[i].trim()})`).join(",");
+});
+</script></body></html>

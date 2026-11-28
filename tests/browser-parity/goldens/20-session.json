@@ -1,0 +1,26 @@
+{
+  "oracle": {},
+  "cmux": {
+    "open-during-run": [
+      "PRIMARY/aria.html?oneshot",
+      "PRIMARY/dynamic.html?closed",
+      "PRIMARY/dynamic.html?kept"
+    ],
+    "after-one-shot": [
+      "PRIMARY/dynamic.html?kept"
+    ],
+    "attach-kept": "Dynamic Fixture",
+    "session-name": "parity work",
+    "guide": true,
+    "bindings-persist": [
+      2,
+      "first"
+    ],
+    "page-persists": true,
+    "functions-persist": 20,
+    "session-id": "string",
+    "named-tabs-open": [
+      "PRIMARY/aria.html?named"
+    ]
+  }
+}

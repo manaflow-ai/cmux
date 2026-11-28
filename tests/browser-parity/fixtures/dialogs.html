@@ -1,0 +1,6 @@
+<!doctype html><html><head><title>Dialogs Fixture</title></head><body>
+<button id="alert" onclick="alert('Alert text');document.getElementById('r').textContent='after alert'">Alert</button>
+<button id="confirm" onclick="document.getElementById('r').textContent='confirm '+confirm('Confirm text')">Confirm</button>
+<button id="prompt" onclick="document.getElementById('r').textContent='prompt '+prompt('Prompt text','default')">Prompt</button>
+<button id="unload" onclick="addEventListener('beforeunload',e=>{e.preventDefault();e.returnValue=''});this.textContent='armed'">Arm beforeunload</button>
+<p id="r">idle</p></body></html>

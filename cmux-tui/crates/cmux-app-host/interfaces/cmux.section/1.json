@@ -1,0 +1,36 @@
+{
+  "name": "cmux.section/1",
+  "version": 1,
+  "docs": "A sidebar section the user places in a sidebar region.",
+  "props": {
+    "title": "string",
+    "symbol": "string?",
+    "defaultRegion": "top|middle|bottom?",
+    "maxRows": "integer?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultRegion": {
+        "enum": [
+          "top",
+          "middle",
+          "bottom"
+        ],
+        "description": "Sidebar region the section starts in; the user moves it."
+      },
+      "maxRows": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Rows shown before the section scrolls."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

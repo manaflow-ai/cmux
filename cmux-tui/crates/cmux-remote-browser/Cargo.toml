@@ -1,0 +1,15 @@
+[package]
+name = "cmux-remote-browser"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote browser tab service (cmux.rb/1 on cmux.rd/1): protocol types and pure reducers (no I/O)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,5 @@
+{
+  "cloudTree.error.renameTerminalUnavailable": "Swift passes the terminal id to String(format:) but the catalog copy has no %@ and is terminal-scoped on a path that renames any tab kind; needs a copy decision (#15864).",
+  "remoteDaemon.upload.installFailedWithDetail": "Catalog copy ends in ': %@' but the Swift call site neither includes the specifier in its defaultValue nor formats the detail; fix the call site, then remove this entry (#15864).",
+  "remoteDaemon.bootstrap.removeCorruptFailedWithDetail": "Catalog copy ends in ': %@' but the Swift call site neither includes the specifier in its defaultValue nor formats the detail; fix the call site, then remove this entry (#15864)."
+}

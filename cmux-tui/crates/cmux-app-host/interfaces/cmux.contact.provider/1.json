@@ -1,0 +1,13 @@
+{
+  "name": "cmux.contact.provider/1",
+  "version": 1,
+  "docs": "Contacts for Home, mail and calendar.",
+  "props": {},
+  "methods": {
+    "search": "(query) -> stream<Contact>"
+  },
+  "events": [
+    "contacts.changed"
+  ],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

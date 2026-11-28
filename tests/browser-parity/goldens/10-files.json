@@ -1,0 +1,14 @@
+{
+  "oracle": {
+    "single": "one: a.txt(alpha)",
+    "multiple-with-temp": "many: a.txt(alpha),t.txt(from temp)",
+    "buffer": "one: mem.txt(in memory)",
+    "chooser-multiple": false,
+    "chooser": "hidden-file: b.txt(beta)",
+    "download-name": "parity-download.txt",
+    "download-url": "PRIMARY/download.txt",
+    "download-body": "parity download body\n",
+    "download-saved": "parity download body\n"
+  },
+  "cmux": {}
+}

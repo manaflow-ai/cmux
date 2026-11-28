@@ -1,0 +1,40 @@
+/* The task-list checkbox shared by agent replies and the markdown page. Keep the control a
+   visual mark: task lists do not expose a browser checkbox or a hover affordance. */
+.cmux-markdown-checkbox {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--cmux-markdown-checkbox-secondary, currentColor) 52%,
+    transparent
+  );
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  cursor: default;
+  pointer-events: none;
+  vertical-align: top;
+}
+
+.cmux-markdown-checkbox[data-checked],
+.cmux-markdown-checkbox.is-checked {
+  border-color: var(--cmux-markdown-checkbox-accent, currentColor);
+  background: var(--cmux-markdown-checkbox-accent, currentColor);
+}
+
+.cmux-markdown-checkbox svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  overflow: visible;
+  color: #fff;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

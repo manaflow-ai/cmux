@@ -1,0 +1,28 @@
+{
+  "oracle": {},
+  "cmux": {
+    "start": [
+      "peer b1",
+      "peer parity",
+      "primary a1",
+      "primary a2",
+      "primary parity"
+    ],
+    "by-name": [
+      "peer b1",
+      "peer parity",
+      "primary a2",
+      "primary parity"
+    ],
+    "by-regexp": [
+      "peer b1",
+      "peer parity",
+      "primary a2"
+    ],
+    "this-site": [
+      "peer b1",
+      "peer parity"
+    ],
+    "peer-site": []
+  }
+}

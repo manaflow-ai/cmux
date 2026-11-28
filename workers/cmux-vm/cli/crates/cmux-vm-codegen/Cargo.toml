@@ -1,0 +1,18 @@
+[package]
+name = "cmux-vm-codegen"
+description = "Generates the cmux-vm-client crate from the cmux VM OpenAPI document"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+openapiv3.workspace = true
+prettyplease.workspace = true
+progenitor.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+
+[lints]
+workspace = true

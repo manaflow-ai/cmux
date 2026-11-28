@@ -1,0 +1,13 @@
+{
+  "ops": {
+    "workspace.list": [
+      {
+        "id": "workspace_orbit",
+        "session_id": "s",
+        "name": "orbit",
+        "index": 0,
+        "focused": true
+      }
+    ]
+  }
+}
