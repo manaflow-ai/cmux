@@ -1123,3 +1123,49 @@ fn a_saved_codex_tracker_keeps_its_running_total() {
     assert_eq!(tail.covered_from, Some(0));
     assert_eq!(loaded.minutes[&ms("2026-10-30T11:00:00Z")].tokens, 7);
 }
+
+/// A writer killed mid-line (a chat or subagent stopped while it appended) leaves its file's
+/// last line cut off for good: once the file has been quiet for [`LIVE_QUIET_MS`] that is its
+/// end, so the chat's day is known again; a cut-off line that held a count stays unknown for
+/// its day. Before, one such subagent transcript left every count null (`no_counters`).
+#[test]
+fn a_transcript_cut_off_mid_line_by_a_dead_writer_still_reads_to_its_end() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = crate::store::now_ms();
+    let ago = |minutes: u64| iso(now - minutes * MINUTE_MS);
+    append(&path, &[assistant("msg_1", &ago(5), usage(1, 0, 0, 1), false)]);
+    let dir = path.parent().unwrap().join(SID).join("subagents");
+    let agent = dir.join("agent-cut.jsonl");
+    append(&agent, &[assistant("msg_a", &ago(120), usage(100, 0, 0, 10), true)]);
+    let mut f = std::fs::OpenOptions::new().append(true).open(&agent).unwrap();
+    write!(f, r#"{{"type":"user","isSidechain":true,"timestamp":"{}","message":{{"con"#, ago(119))
+        .unwrap();
+    drop(f);
+    let set_written = |path: &Path, minutes: u64| {
+        let at = std::time::SystemTime::now() - std::time::Duration::from_secs(minutes * 60);
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(at).unwrap();
+    };
+
+    // Still being written a minute ago: unknown, as a line being written always was.
+    set_written(&agent, 1);
+    let mut tracker = Tracker::default();
+    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, None);
+
+    // Quiet for two hours: its writer is gone, and the cut-off line held no count.
+    set_written(&agent, 119);
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, Some(2 + 110));
+    assert_eq!(stats.subagents24h, Some(1));
+
+    // A cut-off reply is a count lost: its day is unknown, not short.
+    let mut main_cut = Tracker::default();
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    write!(f, r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"msg_2","us"#, ago(4))
+        .unwrap();
+    drop(f);
+    set_written(&path, 60);
+    assert_eq!(main_cut.refresh(&source, now, &models()).unwrap().tokens24h, None);
+    let day_later = main_cut.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(day_later.tokens24h, Some(0));
+}
