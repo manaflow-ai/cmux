@@ -164,6 +164,21 @@ class Inputs:
         name = path.rsplit("/", 1)[-1]
         return name.endswith(".py") and name[:-3] in self.modules
 
+    def lists(self, folder: str) -> bool:
+        """A listing of FOLDER is covered: a declared folder holds it, or a declared glob can match a path under it
+        or under a folder below it (a walk to `Sources/**/*.swift` lists every folder on the way). A listing reads
+        names, not contents: a new file it shows that no input matches is one the source does not open."""
+        if folder in self.folders or self.reaches(folder + "/x"):
+            return True
+        for pattern in self.patterns:
+            literal = pattern[:GLOB_CHARS.search(pattern).start()] if GLOB_CHARS.search(pattern) else pattern
+            literal = literal.rsplit("/", 1)[0] + "/" if "/" in literal else ""
+            if (folder + "/").startswith(literal) and ("**" in pattern or folder + "/" == literal):
+                return True
+            if literal.startswith(folder + "/"):
+                return True
+        return False
+
 
 class Tree:
     """The files of one checkout, and what each source reaches."""
@@ -884,6 +899,9 @@ def slash_parts(node: ast.AST) -> list[str]:
     return list(reversed(parts)) if len(parts) > 1 else []
 
 
+WORKSPACE_ROOT = {"$GITHUB_WORKSPACE", "${GITHUB_WORKSPACE}"}
+
+
 def command_files(run: str, working_directory: str | None) -> tuple[list[str], str]:
     """The files a step's command runs, or why its command is not plain test invocations."""
     files: list[str] = []
@@ -911,6 +929,8 @@ def command_files(run: str, working_directory: str | None) -> tuple[list[str], s
             for word in words[len(runner):]:
                 if word.startswith("-"):
                     continue
+                if word in WORKSPACE_ROOT:  # the tree's root: the source's own walk is what it reads (named,
+                    continue                # declared, or whole), so the argument adds no input of its own
                 if any(ch in word for ch in "|;<>`$*") and not word.startswith("$"):
                     return [], f"cannot read {command.strip()!r}"
                 path = os.path.normpath(os.path.join(working_directory or "", word))
@@ -1051,7 +1071,9 @@ def escapes(inputs: Inputs, trace: str, root: Path) -> list[str]:
                 where = argv[argv.index("-C") + 1] if "-C" in argv[:-1] else cwd
                 where = os.path.join(cwd, where) if cwd else where
                 in_tree = not cwd or os.path.abspath(where) == str(root) or os.path.abspath(where).startswith(prefix)
-                if in_tree and any(w in GIT_READS for w in argv[1:5]):
+                words = [w for w in argv[1:5] if w in GIT_READS]
+                # A declared source may list tracked names (ls-files, ls-tree): its opens are still checked.
+                if in_tree and words and not (inputs.declared and set(words) <= GIT_NAME_LISTS):
                     found.add(f"runs {' '.join(argv[:4])}")
             continue
         if not value.startswith(prefix):
@@ -1065,13 +1087,17 @@ def escapes(inputs: Inputs, trace: str, root: Path) -> list[str]:
             continue  # a fixture's made-up path (no/such/runners.json): no change adds a file there unnamed
         if kind == "open" and not ((root / rel).is_dir() or inputs.reaches(rel)):
             found.add(f"reads {rel}")
-        elif kind == "list" and not (rel in inputs.folders or inputs.reaches(rel + "/x")):
+        elif kind == "list" and not inputs.lists(rel):
             found.add(f"lists {rel}/")
     return sorted(found)
 
 
+GIT_NAME_LISTS = {"ls-files", "ls-tree"}
 GIT_READS = {"ls-files", "ls-tree", "grep", "log", "diff", "show", "blame", "rev-list", "cat-file", "merge-base",
              "archive", "worktree", "stash", "write-tree"}
+
+
+ISOLATED = re.compile(r"\bpython3 -I\b")
 
 
 def verify(tree: Tree, steps: list[tuple[str, str, str | None]], jobs: int, names: set[str]) -> int:
@@ -1090,6 +1116,8 @@ def verify(tree: Tree, steps: list[tuple[str, str, str | None]], jobs: int, name
         env = {**os.environ, "CI": "true", **dict(step_env[0] if step_env else ()), "CMUX_GUARD_TRACE": str(log),
                "PYTHONDONTWRITEBYTECODE": "1",
                "PYTHONPATH": os.pathsep.join(filter(None, [str(scratch), os.environ.get("PYTHONPATH")]))}
+        # `python3 -I` ignores PYTHONPATH, so the tracer would never load and the run would show no reads at all.
+        run_text = ISOLATED.sub("python3", run_text)
         try:
             done = subprocess.run(["bash", "-eo", "pipefail", "-c", run_text], cwd=tree.root / (working_directory or ""),
                                   env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)

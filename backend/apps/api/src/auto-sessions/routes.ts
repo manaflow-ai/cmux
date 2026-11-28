@@ -65,8 +65,8 @@ import { SHA256_HEX } from "./snapshots.ts"
  *   POST /v1/auto-sessions/:id/inbox            owner    {id, text} -> {state: delivered|resuming|queued, session}; the same id again answers the same
  *   GET  /v1/auto-sessions/:id/inbox?after=<n>  holder   -> {messages: [{n, id, text, at}]}
  *   POST /v1/auto-sessions/:id/inbox/ack        holder   {holder, epoch, through} -> {session}
- *   POST /v1/auto-sessions/:id/keep             owner    {keepInCloud} -> {session}
- *   POST /v1/auto-sessions/:id/move             owner    {to: cloud|local, device?: "device:<id>"} -> {session}: the wish in `session.move`, and
+ *   POST /v1/auto-sessions/:id/keep             owner, holder machine {keepInCloud} -> {session}
+ *   POST /v1/auto-sessions/:id/move             owner, holder machine {to: cloud|local, device?: "device:<id>"} -> {session}: the wish in `session.move`, and
  *                                                        `keepInCloud` set with it; a parked chat goes at once. 409 auto.off, auto.no_machine,
  *                                                        auto.no_laptop, auto.not_copied (a parked chat with no snapshot, to the Cloud)
  *   POST /v1/auto-sessions/:id/give             holder   {holder, epoch} -> {session}: the chat with the Auto machine (a `takeover`) or the
@@ -186,7 +186,7 @@ const postInbox = async (c: Call): Promise<Response> => {
   return answer(await chat(c).post(c.by.owner, { id: b.id, text: b.text }), (v) => v)
 }
 
-/** `POST move`: where the person wants the chat to run now, and the laptop when they named one. */
+/** `POST move`: where the person (or the agent of a chat its holder machine runs) wants the chat to run now, and the laptop when one is named. */
 const postMove = async (c: Call): Promise<Response> => {
   const b = await bodyOf(c.request)
   if (b instanceof Response) return b
@@ -195,7 +195,7 @@ const postMove = async (c: Call): Promise<Response> => {
   const device = b.device === undefined ? null : isLaptop(b.device) ? b.device : undefined
   if (device === undefined) return invalid("device: the laptop to move the chat to, as device:<id>")
   if (device !== null && to === "cloud") return invalid("device: only with to: local")
-  return answer(await chat(c).move(c.by.owner, to, device), session)
+  return answer(await chat(c).move(who(c), to, device), session)
 }
 
 /** A chat's routes, by method and the path after its id (`chunks/:` stands for a chunk's name). */
@@ -223,14 +223,14 @@ const ROUTES: Record<string, Route> = {
       })
   },
   "POST keep": {
-    allow: "owner",
+    allow: "either",
     run: async (c) => {
       const b = await bodyOf(c.request)
       if (b instanceof Response) return b
-      return typeof b.keepInCloud === "boolean" ? answer(await chat(c).keep(c.by.owner, b.keepInCloud), session) : invalid("keepInCloud: true or false")
+      return typeof b.keepInCloud === "boolean" ? answer(await chat(c).keep(who(c), b.keepInCloud), session) : invalid("keepInCloud: true or false")
     }
   },
-  "POST move": { allow: "owner", run: postMove },
+  "POST move": { allow: "either", run: postMove },
   "POST give": { allow: "either", run: (c) => written(c, async (holder, epoch) => answer(await chat(c).give(who(c), holder, epoch), session)) },
   "POST assignment/ack": { allow: "machine", run: (c) => written(c, async (holder, epoch) => answer(await chat(c).ackAssignment(who(c), holder, epoch), session)) }
 }
