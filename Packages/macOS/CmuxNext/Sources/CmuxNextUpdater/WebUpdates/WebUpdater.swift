@@ -1,4 +1,5 @@
 public import CmuxEgress
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -100,6 +101,14 @@ public final class WebUpdater {
     /// is downloaded and made active (the app asks `cmux app web-pieces refused`; the decision is
     /// Rust's). A refused update is never served. Default: none is.
     @ObservationIgnored public var refuses: @MainActor (WebUpdatePointer) async -> Bool = { _ in false }
+    /// Fetches a new update's tree by `cas/1` (RFD 0166) before the archive: only the chunks the
+    /// kept trees lack, by Range GETs on the published pack (`cmux app web-cas fetch`; every
+    /// decision and id check is Rust's, cmux-tui/crates/cmux-cas). Nil (the default, and while
+    /// `updates.webCas` is off): the archive only. Any miss, failure or tree that does not match
+    /// the signed pointer falls back to the archive in the same check.
+    @ObservationIgnored public var casFetch: CasFetch?
+    /// How the last new update's tree was fetched (`updates.web.status` `last_fetch`).
+    public private(set) var lastFetch: FetchOutcome?
 
     public let store: WebUpdateStore
     public let app: App
@@ -290,24 +299,37 @@ public final class WebUpdater {
                 throw WebUpdateRefusal.refusedBySwitchFile
             }
             phase = .downloading
-            var request = URLRequest(url: pointer.archiveURL(base: base))
-            request.allowsConstrainedNetworkAccess = allowsConstrained
-            request.allowsExpensiveNetworkAccess = allowsExpensive
-            let file: URL
-            do {
-                file = try await download(request)
-            } catch {
-                throw WebUpdateRefusal.transfer(error.localizedDescription)
-            }
-            defer { try? FileManager.default.removeItem(at: file) }
             let tree: URL
-            do {
-                tree = try await store.install(archive: file, pointer: pointer)
-            } catch {
-                // An archive that does not match its signed pointer stays wrong: not again until
-                // the pointer changes.
-                if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
-                throw error
+            let cas = await treeByCas(pointer)
+            if case .tree(let fetched) = cas {
+                tree = fetched
+            } else {
+                // Off or another channel since the cas attempt: no archive for a pointer this check no longer serves.
+                guard self.channel == channel else {
+                    phase = .idle
+                    return
+                }
+                var request = URLRequest(url: pointer.archiveURL(base: base))
+                request.allowsConstrainedNetworkAccess = allowsConstrained
+                request.allowsExpensiveNetworkAccess = allowsExpensive
+                let file: URL
+                do {
+                    file = try await download(request)
+                } catch {
+                    throw WebUpdateRefusal.transfer(error.localizedDescription)
+                }
+                do {
+                    tree = try await store.install(archive: file, pointer: pointer)
+                    await Self.removeStaging([file])
+                } catch {
+                    await Self.removeStaging([file])
+                    // An archive that does not match its signed pointer stays wrong: not again until
+                    // the pointer changes.
+                    if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
+                    throw error
+                }
+                let casMiss: String? = if case .miss(let why) = cas { why } else { nil }
+                lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: casMiss, archiveBytes: pointer.size)
             }
             // Kept after the state writes queued during the download (a channel change).
             try await enqueue { [self] in
@@ -430,6 +452,108 @@ public final class WebUpdater {
 
     @concurrent nonisolated static func prune(_ store: WebUpdateStore, keeping keys: Set<String>) async {
         store.prune(keeping: keys)
+    }
+
+    /// One `cas/1` fetch: the pointer's manifest and pack under `base`, the trees already on disk
+    /// to reuse chunks from, a chunk store for this fetch only, and the folder to assemble into
+    /// (which does not exist yet).
+    nonisolated public struct CasRequest: Sendable, Equatable {
+        public var manifest: String
+        public var pack: String
+        public var base: URL
+        public var have: [URL]
+        public var chunks: URL
+        public var out: URL
+        public var allowsConstrained: Bool
+        public var allowsExpensive: Bool
+    }
+
+    /// What `cmux app web-cas fetch` reported (its one JSON line).
+    nonisolated public struct CasReport: Sendable, Equatable, Decodable {
+        public var treeBytes: Int
+        public var chunks: Int
+        public var reused: Int
+        public var ranges: Int
+        public var rangeBytes: Int
+        public var metaBytes: Int
+
+        nonisolated enum CodingKeys: String, CodingKey {
+            case chunks, reused, ranges
+            case treeBytes = "tree_bytes", rangeBytes = "range_bytes", metaBytes = "meta_bytes"
+        }
+
+        public init(treeBytes: Int, chunks: Int, reused: Int, ranges: Int, rangeBytes: Int, metaBytes: Int) {
+            self.treeBytes = treeBytes
+            self.chunks = chunks
+            self.reused = reused
+            self.ranges = ranges
+            self.rangeBytes = rangeBytes
+            self.metaBytes = metaBytes
+        }
+
+        /// The last line of the CLI's output, when it is the report.
+        public static func parse(_ output: Data) -> CasReport? {
+            guard let line = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).last else { return nil }
+            return try? JSONDecoder().decode(CasReport.self, from: Data(line.utf8))
+        }
+    }
+
+    /// Runs one fetch: the report, or why it did not finish (the archive is taken then).
+    public typealias CasFetch = @Sendable (CasRequest) async -> Result<CasReport, CasMiss>
+
+    nonisolated public struct CasMiss: Error, Sendable, Equatable {
+        public var reason: String
+        public init(_ reason: String) { self.reason = reason }
+    }
+
+    /// How a new update's tree came: by `cas/1` (with its report), or the archive (and why `cas/1`
+    /// was not used, when it was tried).
+    nonisolated public struct FetchOutcome: Sendable, Equatable {
+        nonisolated public enum By: String, Sendable { case cas, archive }
+        public var key: String
+        public var by: By
+        public var cas: CasReport?
+        public var casMiss: String?
+        public var archiveBytes: Int
+    }
+
+    /// How a cas/1 attempt ended: a tree, a miss (the archive is fetched; recorded in ``lastFetch``
+    /// only once the archive is installed), or none tried.
+    enum CasAttempt { case tree(URL), miss(String), none }
+
+    /// The tree of `pointer` by `cas/1`, kept as `trees/<key>`, or why not.
+    func treeByCas(_ pointer: WebUpdatePointer) async -> CasAttempt {
+        guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return .none }
+        let casStore = store
+        let held = [state.active, state.previous].compactMap { $0 }.filter { $0.key != pointer.key }
+        let have = await Self.existingTrees(held.map { casStore.tree(for: $0.key).root })
+        let staging = casStore.casStaging()
+        let out = staging.tree, chunks = staging.chunks
+        let request = CasRequest(manifest: cas.manifest, pack: cas.pack, base: casBase, have: have, chunks: chunks, out: out,
+                                 allowsConstrained: allowsConstrained, allowsExpensive: allowsExpensive)
+        let report: CasReport
+        switch await casFetch(request) {
+        case .success(let got): report = got
+        case .failure(let failure):
+            await Self.removeStaging([out, chunks])
+            return .miss(failure.reason)
+        }
+        await Self.removeStaging([chunks])
+        do {
+            let tree = try await casStore.install(tree: out, pointer: pointer)
+            lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
+            return .tree(tree)
+        } catch {
+            return .miss("tree: \(error)")
+        }
+    }
+
+    @concurrent nonisolated static func removeStaging(_ folders: [URL]) async {
+        for folder in folders { try? FileManager.checked.removeItem(at: folder) }
+    }
+
+    @concurrent nonisolated static func existingTrees(_ trees: [URL]) async -> [URL] {
+        trees.filter { FileManager.checked.fileExists(atPath: $0.path) }
     }
 
     /// Whether an install refusal is about the published archive itself (so trying again cannot

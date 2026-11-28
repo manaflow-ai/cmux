@@ -519,6 +519,27 @@ reach none of them (`fs_ops`, `layout`, `feed_client`, `git_seed`, `blob_fetch`,
 cycle at `server`, the most edited part, so that it builds after the rest of the crate, and doing the
 same in the cmux-tui lib.
 
+Build settings that need no code moved (`scripts/measure/tui-core-edit-levers.py`: the same harness
+once per arm, each an environment change; fleet Linux, 32 cores, rustc 1.95.0; 4 edits per arm in job
+b1d32e6b0416b528e18a77b0, then 12 per arm in two interleaved runs in job e8cd7525058d39c377835ce2):
+
+| Arm | Edit p50 | cmux-tui-core | cmux-tui lib | bin (link) |
+|---|---|---|---|---|
+| rust-live as it was | 28.65 s | 15.23 s | 12.60 s | 3.04 s |
+| `codegen-units = 1024` on the two edited crates (shipped, rust-live only) | 27.86 s | 14.96 s | 11.96 s | 3.10 s |
+| that and `debug = 0` | 27.08 s | 14.78 s | 11.68 s | 2.67 s |
+| `-Z threads=8` (parallel frontend; nightly flag) | 29.57 s against 29.90 s | 15.41 s | 12.54 s | 3.40 s |
+| our crates at opt-level 0 | 30.05 s against 29.90 s | 15.29 s | 12.79 s | 4.23 s |
+| `codegen-units = 16` | 92.70 s | 53.23 s | 61.84 s | 5.47 s |
+
+rust-live's build passes the 1024 units as `--config` for cmux-tui-core and cmux-tui
+(`CMUX_RUST_LIVE_CODEGEN_UNITS`; empty leaves the profile's 256). `debug = 0` saves another 0.8 s but
+drops the line tables that panics, backtraces and profiles read, so it stays off. The parallel
+frontend is within noise at this size, as is opt-level 0, which also makes the link slower. mold is
+not installed on the fleet pool and was not measured. Macs link with Xcode's ld-prime. None of these
+moves the fixed per-crate work (metadata, expansion, the incremental cache, resolution), which is still
+most of the time.
+
 ### Editing while it runs: what survives
 
 `bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
