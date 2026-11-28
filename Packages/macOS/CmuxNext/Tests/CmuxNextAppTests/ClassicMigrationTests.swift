@@ -335,6 +335,9 @@ struct ClassicMigrationTests {
     @Test func aReUpgradeMergesOnlyWhatClassicMadeMeanwhile() async throws {
         let mac = try Mac()
         let tree = try await launch(mac) { services in
+            // The first launch brought everything: a workspace it left half made comes over again in the merge.
+            let first = try await #require(services.onboarding.classicMigrationRun).value
+            #expect(first.failures.isEmpty, "\(first.failures)")
             try mac.write { root in
                 root["createdAt"] = 1_891_728_605.0
                 var windows = root["windows"] as? [[String: Any]] ?? []

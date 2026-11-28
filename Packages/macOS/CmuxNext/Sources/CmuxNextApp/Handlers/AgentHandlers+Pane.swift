@@ -190,9 +190,7 @@ extension AgentHandlers {
                 return .failure(ActionWorkFailure(failure.message))
             } catch is CancellationError {
                 return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
-            } catch {
-                return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed))
-            }
+            } catch { services.daemon.logger.error("new-conversation-tab (agent, cloud) failed: \(String(describing: error), privacy: .public)"); return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed)) }
         }
         context.registry.track(result: task)
     }
@@ -239,9 +237,7 @@ extension AgentHandlers {
             services.registry.track(result: try place.openTab(seed: seed, selects: selects, services: services))
         } catch let failure as ActionFailure {
             services.registry.refuse(failure.message)
-        } catch {
-            services.registry.refuse(RefusalStrings.agentTabCreateFailed)
-        }
+        } catch { place.daemon.logger.error("new-conversation-tab (agent, targeted) failed: \(String(describing: error), privacy: .public)"); services.registry.refuse(RefusalStrings.agentTabCreateFailed) }
         return true
     }
 
