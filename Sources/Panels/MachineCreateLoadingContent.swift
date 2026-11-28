@@ -34,8 +34,9 @@ struct MachineCreateLoadingContent: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 HStack(spacing: 8) {
-                    // Upgrading is the way forward at the machine limit, so it
-                    // takes the prominent style and Retry steps back. A full
+                    // Upgrading is the way forward at the machine limit and on a
+                    // plan without Cloud, so it takes the prominent style and
+                    // Retry steps back. A full
                     // pool frees up when a machine pauses, so Retry leads there.
                     if upgradeIsPrimary {
                         upgradeButton.buttonStyle(.borderedProminent)
@@ -64,21 +65,18 @@ struct MachineCreateLoadingContent: View {
 
     private var upgradeButton: some View {
         Button(String(localized: "machines.pending.upgrade", defaultValue: "Upgrade Plan")) {
-            ProUpgradePresenter.present(source: .createFailedAtLimit)
+            ProUpgradePresenter.present(source: operation.upgradeSource)
         }
         .accessibilityIdentifier("MachineCreateUpgradeButton")
-        .upgradePromptImpression(.createFailedAtLimit)
+        .upgradePromptImpression(operation.upgradeSource)
     }
 
-    /// The create hit the plan's machine limit or its shared vCPU and memory
-    /// pool, and a larger plan exists. At the machine limit an unloaded plan
-    /// still offers it; a full pool waits for the plan, so Max never sees it.
-    private var offersUpgrade: Bool {
-        CloudPlanRefusal.offersUpgrade(
-            for: operation.refusalCode,
-            plan: NewMachineSheetDataCache.shared?.currentData?.plan
-        )
-    }
+    /// The plan has no Cloud, or the create hit its machine limit or its shared
+    /// vCPU and memory pool, and a larger plan exists. Without a loaded plan the
+    /// first two still offer it; a full pool waits for the plan, so Max never sees it.
+    private var offersUpgrade: Bool { operation.offersUpgrade }
 
-    private var upgradeIsPrimary: Bool { offersUpgrade && operation.hitMachineLimit }
+    private var upgradeIsPrimary: Bool {
+        offersUpgrade && (operation.hitMachineLimit || operation.requiresPaidPlan)
+    }
 }
