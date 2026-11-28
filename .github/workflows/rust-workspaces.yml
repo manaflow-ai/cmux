@@ -78,6 +78,7 @@ on:
       - "schemas/keymap/key-styles.json"
       - "schemas/keymap/key-vectors.json"
       - "schemas/layout-model/vectors.json"
+      - "schemas/layout-state/vectors.json"
       - "schemas/mobile-link-reconnect/table.json"
       - "schemas/ownership-mirror/vectors.json"
       - "schemas/pane-close/vectors.json"
@@ -104,6 +105,7 @@ on:
       - "schemas/sidebar-item-order/vectors.json"
       - "schemas/sidebar-list-rules/vectors.json"
       - "schemas/sidebar-pending-records/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/sidebar-row-index/vectors.json"
       - "schemas/sidebar-row/table.json"
       - "schemas/sidebar-sections/vectors.json"
@@ -126,6 +128,7 @@ on:
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/cmux-next/remote-browser-host-layout.sh"
       - "scripts/cmux-next/rust-change-class/**"
+      - "scripts/cmux-next/web-bundle-key.py"
       - "scripts/install-zig-ci.sh"
       - "scripts/journeys/tui-kit/rust/**"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
@@ -173,6 +176,54 @@ on:
       - "cmux-tui/AGENTS.md"
       - "cmux-tui/CLAUDE.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/bindings/ERGONOMICS.md"
+      - "cmux-tui/bindings/RELEASING.md"
+      - "cmux-tui/bindings/SOCKET-DISCOVERY-CONTRACT.md"
+      - "cmux-tui/bindings/bootstrap/rust-sdk/README.md"
+      - "cmux-tui/bindings/bootstrap/rust-sidebar/README.md"
+      - "cmux-tui/bindings/conformance/README.md"
+      - "cmux-tui/bindings/conformance/adapter-protocol.md"
+      - "cmux-tui/bindings/conformance/raw/README.md"
+      - "cmux-tui/bindings/conformance/raw/adapter-protocol.md"
+      - "cmux-tui/bindings/cpp/README.md"
+      - "cmux-tui/bindings/examples/cpp-terminal-frontend/FRICTION.md"
+      - "cmux-tui/bindings/examples/cpp-terminal-frontend/README.md"
+      - "cmux-tui/bindings/examples/go-terminal-bot/FRICTION.md"
+      - "cmux-tui/bindings/examples/go-terminal-bot/README.md"
+      - "cmux-tui/bindings/examples/java-ci-orchestrator/FRICTION.md"
+      - "cmux-tui/bindings/examples/java-ci-orchestrator/README.md"
+      - "cmux-tui/bindings/examples/python-agent-watchdog/FRICTION.md"
+      - "cmux-tui/bindings/examples/python-agent-watchdog/README.md"
+      - "cmux-tui/bindings/examples/python-dev-orchestrator/FRICTION.md"
+      - "cmux-tui/bindings/examples/python-dev-orchestrator/README.md"
+      - "cmux-tui/bindings/examples/rust-agent-dashboard/FRICTION.md"
+      - "cmux-tui/bindings/examples/rust-agent-dashboard/README.md"
+      - "cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md"
+      - "cmux-tui/bindings/examples/rust-agent-screen-detection/README.md"
+      - "cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/README.md"
+      - "cmux-tui/bindings/examples/rust-sidebar-monitor/FRICTION.md"
+      - "cmux-tui/bindings/examples/rust-sidebar-monitor/README.md"
+      - "cmux-tui/bindings/examples/typescript-browser-controller/FRICTION.md"
+      - "cmux-tui/bindings/examples/typescript-browser-controller/README.md"
+      - "cmux-tui/bindings/examples/zig-session-supervisor/FRICTION.md"
+      - "cmux-tui/bindings/examples/zig-session-supervisor/README.md"
+      - "cmux-tui/bindings/go-pane/README.md"
+      - "cmux-tui/bindings/go/README.md"
+      - "cmux-tui/bindings/go/raw/README.md"
+      - "cmux-tui/bindings/java/README.md"
+      - "cmux-tui/bindings/python/README.md"
+      - "cmux-tui/bindings/rust-sidebar/README.md"
+      - "cmux-tui/bindings/rust/README.md"
+      - "cmux-tui/bindings/styles/cpp.md"
+      - "cmux-tui/bindings/styles/go.md"
+      - "cmux-tui/bindings/styles/java.md"
+      - "cmux-tui/bindings/styles/python.md"
+      - "cmux-tui/bindings/styles/rust.md"
+      - "cmux-tui/bindings/styles/typescript.md"
+      - "cmux-tui/bindings/styles/zig.md"
+      - "cmux-tui/bindings/typescript/README.md"
+      - "cmux-tui/bindings/typescript/code-mode/README.md"
+      - "cmux-tui/bindings/zig/README.md"
       - "cmux-tui/build-support/notices/REVIEW.md"
       - "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
       - "cmux-tui/build-support/notices/ghostty/texts/bash-preexec-0.7.0/LICENSE.md"
@@ -204,7 +255,7 @@ on:
       - "cmux-tui/crates/acpmux/docs/tailnet.md"
       - "cmux-tui/crates/acpmux/docs/tool-permission-rules.md"
       - "cmux-tui/crates/acpmux/docs/tool-placement.md"
-      - "cmux-tui/crates/acpmux/skills/acpmux/SKILL.md"
+      - "cmux-tui/crates/acpmux/skills/agents/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-chat/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-quota/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-rich-output/SKILL.md"
@@ -220,6 +271,55 @@ on:
       - "cmux-tui/crates/cmux-tui/src/cli/ext/templates/common/DESIGN.md"
       - "cmux-tui/crates/cmux-tui/src/cli/ext/templates/common/README.md"
       - "cmux-tui/dist/notices/texts/ghostty-next/uucode/LICENSE.md"
+      - "cmux-tui/docs/PR-INTENT-BOARD.md"
+      - "cmux-tui/docs/README.md"
+      - "cmux-tui/docs/TECH-DEBT-BOARD.md"
+      - "cmux-tui/docs/TECH-DEBT-CHANGELOG.md"
+      - "cmux-tui/docs/USER-INTENT-BOARD.md"
+      - "cmux-tui/docs/USER-REQUEST-BOARD.md"
+      - "cmux-tui/docs/agent-hooks.md"
+      - "cmux-tui/docs/browser-panes.md"
+      - "cmux-tui/docs/chatgpt-auth-refresh-remote-lifecycle.md"
+      - "cmux-tui/docs/codex-cloud-broker.md"
+      - "cmux-tui/docs/concepts.md"
+      - "cmux-tui/docs/configuration.md"
+      - "cmux-tui/docs/getting-started.md"
+      - "cmux-tui/docs/inference-gateway.md"
+      - "cmux-tui/docs/journal-operations.md"
+      - "cmux-tui/docs/journal-restore-preview-iterator-design.md"
+      - "cmux-tui/docs/keyboard.md"
+      - "cmux-tui/docs/machines.md"
+      - "cmux-tui/docs/model-connections.md"
+      - "cmux-tui/docs/mouse.md"
+      - "cmux-tui/docs/projection-performance.md"
+      - "cmux-tui/docs/protocol.md"
+      - "cmux-tui/docs/remote.md"
+      - "cmux-tui/frontends/README.ja.md"
+      - "cmux-tui/frontends/README.md"
+      - "cmux-tui/frontends/web/README.ja.md"
+      - "cmux-tui/frontends/web/README.md"
+      - "cmux-tui/spec/README.md"
+      - "cmux-tui/spec/api-versioning.md"
+      - "cmux-tui/spec/bindings.md"
+      - "cmux-tui/spec/cli.md"
+      - "cmux-tui/spec/commands.md"
+      - "cmux-tui/spec/events.md"
+      - "cmux-tui/spec/frontends.md"
+      - "cmux-tui/spec/machine-agent.md"
+      - "cmux-tui/spec/machine-provider.md"
+      - "cmux-tui/spec/native-frontend.md"
+      - "cmux-tui/spec/page-router.md"
+      - "cmux-tui/spec/plugins.md"
+      - "cmux-tui/spec/programmability.md"
+      - "cmux-tui/spec/provider-management.md"
+      - "cmux-tui/spec/remote-daemon.md"
+      - "cmux-tui/spec/remote-rpc.md"
+      - "cmux-tui/spec/render.md"
+      - "cmux-tui/spec/resource-api-v2.md"
+      - "cmux-tui/spec/resource-operations-v2.md"
+      - "cmux-tui/spec/session-journal.md"
+      - "cmux-tui/spec/terminal-host.md"
+      - "cmux-tui/spec/transports.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "first-party-apps/skills/README.md"
       - "skills/cmux-extension-author/SKILL.md"
@@ -285,8 +385,10 @@ jobs:
     # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
     # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     continue-on-error: true
     permissions:
       actions: read
@@ -322,6 +424,8 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       actions: read
@@ -443,6 +547,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for the lock check's serial network pass and retries on a cold, busy runner (cmux#41586).
     timeout-minutes: 20
+    env:
+      GH_HTTP_DEADLINE_S: "1140"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     # head_tier.py reads the previous head's Actions runs (the green-head and red-head base merge rules). No
     # statuses: read, which the callers (cmux-next-post-merge.yml, docs-only-fallback.yml) do not grant; a rule
     # that needs cmux/land-tier reads nothing and keeps the usual tier.
@@ -498,6 +604,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -539,7 +658,8 @@ jobs:
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
           if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
 
       # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml, cmux-tui-spec.yml), with the same
       # switches. A head it gives `none` (an idle or green-head base merge, a same patch, or a base merge onto a
@@ -564,6 +684,9 @@ jobs:
           CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
+          # A post-merge-tier workflow the post-merge batch runs plans nothing on a feat-cmux-next pull request
+          # head (head_tier.py's post-merge tier rule); off unless the repository variable is 1.
+          CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
@@ -803,6 +926,8 @@ jobs:
     if: ${{ ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled()) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     steps:
       - name: Every planned workspace passed
         env:

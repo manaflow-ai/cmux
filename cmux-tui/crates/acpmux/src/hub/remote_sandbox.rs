@@ -459,6 +459,8 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 mod accounts;
+#[path = "fleet/remote_sandbox_sr2.rs"]
+mod sr2; // fleet-only-ok: reached only when the person's own harness is the sr2 launcher, as subrouter_plan is for `sr claude proxy`; it runs Claude Code where sr2 hangs
 
 /// Ok when no one but `uid` can write `path` or any folder above it up to
 /// `boundary` (a sticky `boundary` such as `/tmp` excepted when
@@ -1378,6 +1380,30 @@ impl Hub {
             };
             let (program, args, routed) =
                 subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
+            (crate::claude_stdio::SpawnPlan { program, args }, routed)
+        } else if sr2::is_sr2(&profile.argv) {
+            // fleet-only-ok: only an sr2 harness
+            // fleet-only-ok: sr2 blocks before its main in the sandbox (`fleet/remote_sandbox_sr2.rs`).
+            let claude = self
+                .config
+                .read()
+                .await
+                .harnesses
+                .get("claude")
+                .filter(|c| c.kind == crate::config::HarnessKind::ClaudeStdio)
+                .and_then(|c| c.argv.first().cloned());
+            let route = sr2::route(profile); // fleet-only-ok: see the branch above
+            let (program, args, routed) = sr2::sr2_plan(profile, plan.args, claude, route)
+                .map_err(|why| {
+                    self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
+                    refused(why)
+                })?;
+            self.append(
+                session,
+                "mux",
+                "remote_sandbox",
+                json!({"sr2": "claude on the sr2 gateway", "program": program}), // fleet-only-ok: see the branch above
+            );
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
         } else {
             (plan, profile.clone())

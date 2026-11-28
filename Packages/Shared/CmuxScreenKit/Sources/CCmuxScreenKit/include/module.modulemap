@@ -1,0 +1,4 @@
+module CCmuxScreenKit {
+    header "cmux_screen_kit.h"
+    export *
+}

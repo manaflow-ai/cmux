@@ -534,10 +534,20 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -718,6 +728,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-api"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-auto"
 version = "0.1.0"
 dependencies = [
@@ -745,6 +762,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "bytes",
+ "cmux-api-compat",
  "cmux-build-space",
  "cmux-bundle",
  "cmux-deadline",
@@ -752,6 +770,7 @@ dependencies = [
  "cmux-fault",
  "cmux-json",
  "cmux-message-preview",
+ "cmux-mobile-api",
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
@@ -931,6 +950,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -223,6 +223,9 @@ cmux-tui/crates/acpmux/docs/acpmux-schema.json merge=cmux-insertions-v1
 cmux-tui/crates/acpmux/spec/acpmux-protocol.json merge=cmux-insertions-v1
 cmux-tui/crates/cmux-agent-pane-policy/policy.json merge=cmux-insertions-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods*.swift merge=cmux-insertions-v1
+# Each harness-magic feature's row in FEATURES and TURN_END: every RFD 0158 PR added one at the
+# same spot, and most of them conflicted there (cmux#61593 twice).
+cmux-tui/crates/acpmux/src/hub/harness_magic_registry.rs merge=cmux-insertions-v1
 # The daemon capability export (DaemonCapabilityExportTests) is one sorted
 # array per list. Keeping one side whole dropped the other side's new entries
 # on rebases (cx-urd.9.3), so scripts/merge-daemon-capabilities.py merges each

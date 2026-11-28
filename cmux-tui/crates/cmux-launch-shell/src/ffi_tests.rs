@@ -172,7 +172,7 @@ fn the_plan_struct_has_the_headers_layout() {
 }
 
 #[test]
-fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
+fn a_record_of_another_session_plans_no_stage_zero_window() {
     let support = Support::new("session");
     let data = LaunchRecordData {
         windows: vec![window("w1")],
@@ -188,10 +188,14 @@ fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
     std::fs::create_dir_all(support.0.join("cmux-next")).unwrap();
     let registry = support.0.join("cmux-next/launch-snapshot-registry.cmux-app");
     std::fs::write(&registry, "reg-new").unwrap();
+    // Another session restores it: no picture to draw, and Stage 0 never draws the plain shell
+    // (#62017, Leo: "stop putting the opaque thing from the start"), so it makes no window.
     let (_, p) = plan_in(&support);
+    // #62017: stage 0 never opens a window for the plain shell (no opaque
+    // cover); the reason and default frame still say why.
     assert_eq!(
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
-        (11, true, true, false)
+        (11, false, true, false)
     );
     assert_eq!(text(&p.image_path), "");
     std::fs::write(&registry, "reg-old\n").unwrap();
