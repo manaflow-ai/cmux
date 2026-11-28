@@ -651,6 +651,21 @@ class NeverBoundTests(unittest.TestCase):
                                       "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
         self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
 
+    def test_a_large_row_scan_keeps_its_table_counts_and_caller_names_only(self):
+        """Staging 2026-11-28 04:40-05:06Z (ask-6b8661d57a): cmux-platform#2511's cloud.rows.scan_large was unlisted,
+        so the read meant to name the CloudDO's CPU-heavy scan kept 0 rows."""
+        at = ("at CloudDO.approvalAhead (index.js:2553:9) < at async CloudCore.createMachine (index.js:1797:3) < "
+              "at /srv/hunter2/x.js:1:1")
+        row = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 4120, "yielded": 4120,
+                               "ms": 812, "at": at}))
+        self.assertEqual(row["log"], {"msg": "cloud.rows.scan_large", "table": "machine", "rows": 4120,
+                                      "yielded": 4120, "ms": 812,
+                                      "callers": ["CloudDO.approvalAhead", "CloudCore.createMachine"]})
+        self.assertNotIn("hunter2", json.dumps(row))
+        self.assertNotIn("index.js", json.dumps(row))
+        bare = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 9, "at": "nonsense"}))
+        self.assertNotIn("callers", bare["log"])
+
     def test_a_spare_fill_keeps_its_machine_and_refill_timing(self):
         """Production 2026-11-27 02:37Z (hq#31487): a create missed the spare after a 20 s fill wait; the fill lines
         named no machine and no time, so a late refill could not be told from a slow one."""
