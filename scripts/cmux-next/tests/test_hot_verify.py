@@ -1949,7 +1949,7 @@ class IsolatedHarnessTest(unittest.TestCase):
                                    env=lambda: {"CMUX_NEXT_CONFIG_FILE": str(root / "config.json")})
             spec = {"id": "claude"}
             fake = SimpleNamespace(normalize=lambda value: spec, AGENT_PATH="tests/fake_agent.py", SIBLINGS=("data.json",))
-            prepared = SimpleNamespace(notes={"fake_harness": {"id": "claude"}}, finish=lambda: None)
+            prepared = SimpleNamespace(notes={"fake_harness": {"id": "claude"}}, finish=unittest.mock.Mock())
             def prepare(env, bundle, capture, **kw):
                 self.assertEqual(kw["account_home"], env["HOME"])
                 self.assertEqual(env["CFFIXED_USER_HOME"], env["HOME"])
@@ -1981,6 +1981,12 @@ class IsolatedHarnessTest(unittest.TestCase):
             self.assertIn("HOME=" + env["HOME"], args)
             self.assertIn("CFFIXED_USER_HOME=" + env["HOME"], args)
             self.assertIn("ACPMUX_SOCKET=" + env["ACPMUX_SOCKET"], args)
+            prepared.finish.assert_not_called()
+            with unittest.mock.patch.object(hv, "git", side_effect=git), \
+                    unittest.mock.patch.object(hv.shutil, "copyfile", side_effect=OSError("config unavailable")):
+                with self.assertRaisesRegex(OSError, "config unavailable"):
+                    hv.prepare_kit_home(kit, str(state), root, "exact-head", side, "webkit")
+            prepared.finish.assert_called_once()
 
 
 class LaunchBound(unittest.TestCase):

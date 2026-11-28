@@ -1457,16 +1457,19 @@ def prepare_kit_home(kit, state: str | None, repo: Path, head: str, side: Side, 
         env.pop(key, None)
     prepared = kit.prepare_home(env, "", root, account_home=str(home), kit=kit_path,
                                 engine=engine, fake_dir=files)
-    if spec is not None and not isinstance(prepared.notes.get("fake_harness"), dict):
+    try:
+        if spec is not None and not isinstance(prepared.notes.get("fake_harness"), dict):
+            raise LookError(f"fakeHarness: {prepared.notes.get('fake_harness', 'preparation failed')}")
+        # Keep the side copy's config path: web-overlay and the app must continue to edit/read one file.
+        config = side.env()["CMUX_NEXT_CONFIG_FILE"]
+        shutil.copyfile(env["CMUX_NEXT_CONFIG_FILE"], config)
+        env["CMUX_NEXT_CONFIG_FILE"] = config
+        env["ACPMUX_HOME"] = kit.acpmux_home(env, side.app())[0]
+        env["ACPMUX_SOCKET"] = kit.acpmux_socket(env, side.app())
+        env["XDG_CONFIG_HOME"] = str(home / ".config")
+    except BaseException:
         prepared.finish()
-        raise LookError(f"fakeHarness: {prepared.notes.get('fake_harness', 'preparation failed')}")
-    # Keep the side copy's config path: web-overlay and the app must continue to edit/read one file.
-    config = side.env()["CMUX_NEXT_CONFIG_FILE"]
-    shutil.copyfile(env["CMUX_NEXT_CONFIG_FILE"], config)
-    env["CMUX_NEXT_CONFIG_FILE"] = config
-    env["ACPMUX_HOME"] = kit.acpmux_home(env, side.app())[0]
-    env["ACPMUX_SOCKET"] = kit.acpmux_socket(env, side.app())
-    env["XDG_CONFIG_HOME"] = str(home / ".config")
+        raise
     return env, prepared
 
 
