@@ -11,6 +11,7 @@ import { Icon } from "../icons/Icon";
 import { useNt } from "./strings";
 import { useSizeName } from "./useSizeName";
 import { droppedCell, movedCell } from "./widgetEditingModel";
+import { cssEscape } from "../../../cssEscape";
 
 /// How edit mode offers a resize: Apple's size menu (badge), a corner that steps to the next size
 /// (corner), or the sizes as chips under the tile (chips).
@@ -66,7 +67,7 @@ export function GridWidgetFrame({
       const page = event.currentTarget.ownerDocument;
       requestAnimationFrame(() =>
         focusRoute(
-          page.querySelector<HTMLElement>(`.nt-widget-frame[data-cell="${CSS.escape(id)}"]`),
+          page.querySelector<HTMLElement>(`.nt-widget-frame[data-cell="${cssEscape(id)}"]`),
           "person",
           "the widget the person moved with Option-arrow keeps the keyboard",
         ),

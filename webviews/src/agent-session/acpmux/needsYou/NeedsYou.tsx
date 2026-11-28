@@ -56,6 +56,7 @@ import {
   type NeedsYouMode,
   type NeedsYouPlace,
 } from "./needsYouModel";
+import { cssEscape } from "../../../cssEscape";
 
 export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
 
@@ -284,7 +285,7 @@ export function NeedsYouPanel({
   useLayoutEffect(() => {
     if (!keyed || pressedFor.current === keyed) return;
     pressedFor.current = keyed;
-    const row = panel.current?.querySelector(`[data-item-id="${CSS.escape(keyed.id)}"] .acpmux-needs-you-item`);
+    const row = panel.current?.querySelector(`[data-item-id="${cssEscape(keyed.id)}"] .acpmux-needs-you-item`);
     if (row) answerButton(row, keyed.key)?.click();
   }, [keyed]);
   // One set of row actions for the panel's life, each calling what `actions` holds now.

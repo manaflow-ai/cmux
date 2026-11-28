@@ -10,6 +10,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { AcpmuxRow } from "../model";
 import { noteReplyUnpainted } from "../flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./replyPainted";
+import { cssEscape } from "../../../cssEscape";
 
 export type EndedReplyCheck = {
   rows: readonly AcpmuxRow[];
@@ -52,7 +53,7 @@ export function useEndedReplyCheck({
       const thread = host.current;
       if (!view || !thread || document.visibilityState !== "visible" || !following(follow)) return;
       judged.current = id;
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+      const name = cssEscape(id);
       const node = thread.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
       const box = view.getBoundingClientRect();
       const why = replyUnpainted(node, thread, { top: box.top, bottom: box.bottom - dockSpace });

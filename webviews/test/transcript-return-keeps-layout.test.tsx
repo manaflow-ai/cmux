@@ -13,6 +13,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MeasurableRenderer, NativeRegistry, RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { KeptLayouts, keptHeightFor } from "../src/agent-session/acpmux/conversation/keptLayouts";
 import { teardownDom } from "./support/domTeardown";
+import { installTranscriptScrollHeight } from "./support/transcriptScrollHeight";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,6 +52,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+installTranscriptScrollHeight(dom.window);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 
 const { act } = await import("react");

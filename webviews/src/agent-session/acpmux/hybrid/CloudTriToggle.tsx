@@ -17,6 +17,7 @@ import type {
   HybridStartState,
 } from "./hybridModel";
 import "./cloudToggle.css";
+import { cssEscape } from "../../../cssEscape";
 
 const ORDER = ["auto", "cloud", "local"] as const;
 const NAMES = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
@@ -104,9 +105,9 @@ function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
       </defs>
       {mode === "auto" ? (
         <>
-          <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${CSS.escape(`${clip}a`)})`} />
+          <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${cssEscape(`${clip}a`)})`} />
           <g transform="translate(6 0)">
-            <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+            <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${cssEscape(`${clip}b`)})`} />
           </g>
         </>
       ) : mode === "cloud" ? (
@@ -224,7 +225,7 @@ export function CloudTriToggle({
       : pin === "auto" && lit
         ? t("hybrid.keepRunning")
         : t(NAMES[pin]);
-  const style = { "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties;
+  const style = { "--acpmux-hybrid-paint": `url(#${cssEscape(paint)})` } as React.CSSProperties;
   if (form === "cycle") {
     const next = ORDER[(ORDER.indexOf(pin) + 1) % ORDER.length]!;
     return (
