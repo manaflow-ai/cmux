@@ -48,7 +48,8 @@ summary, ok = {}, True
 print(f"{'arm':<10} {'runs':>4} {'p95 ms (each)':<24} {'median':>7} {'react p95':>10} {'main busy %':>11} {'load/core':>9}")
 for arm in arms:
     rows = []
-    for path in sorted(glob.glob(os.path.join(d, f"{arm}-*.json"))):
+    # ARM-ROUND.json only: a traced run's ARM-ROUND.trace.json.*.json beside it is not a reading.
+    for path in sorted(p for p in glob.glob(os.path.join(d, f"{arm}-*.json")) if ".trace." not in os.path.basename(p)):
         try:
             rows.append(json.load(open(path)))
         except (OSError, ValueError):

@@ -282,6 +282,19 @@ async function run(): Promise<Reading> {
         for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
       }).observe({ type: "longtask", buffered: true });
     });
+    // REPLAY_NO_BACKDROP=1 (measuring only, never a product setting): the page's backdrop-filters off, to read what
+    // the compositor's re-blur of the glass over a streaming transcript costs a frame where it composites in software.
+    if (process.env.REPLAY_NO_BACKDROP === "1")
+      await page.addInitScript(() => {
+        const css = "*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}";
+        const add = () => {
+          const el = document.createElement("style");
+          el.textContent = css;
+          document.documentElement.appendChild(el);
+        };
+        if (document.documentElement) add();
+        else document.addEventListener("DOMContentLoaded", add, { once: true });
+      });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     if (PROFILE || TRACE) {
