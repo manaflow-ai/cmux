@@ -39,6 +39,8 @@ extension ListTerminalCommandsRequest {
 
 /// `delete-terminal-commands`: exactly one of `ids`, `started_since_ms` or
 /// `all`. The daemon deletes the rows (secure delete), not hides them.
+/// Keep this typed selection hand-written: independent generated optional fields
+/// would admit conflicting selectors and lose the existing Date conversion.
 public struct DeleteTerminalCommandsRequest: DaemonRequest {
     public enum Selection: Sendable, Equatable {
         case ids([String])
