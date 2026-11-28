@@ -893,6 +893,15 @@ def new_workspace(app: App, known):
     return current
 
 
+def bench_memory():
+    """scripts/cmux-next/bench_memory.py, imported on use (it loads macOS's libraries at import)."""
+    folder = str(REPO / "scripts" / "cmux-next")
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
+    import bench_memory as bm  # noqa: PLC0415
+    return bm
+
+
 def acpmux_socket(app: App, seconds=90):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -952,6 +961,11 @@ def seed_chat(app: App, opts):
     if not sock or not os.access(cli, os.X_OK):
         return {"error": f"no acpmux socket ({sock}) or CLI"}
     env = dict(os.environ, ACPMUX_SOCKET=sock, HOME=str(app.root / "h"))
+    # The socket counts only beside its daemon's ACPMUX_HOME (a build other than NIGHTLY keeps it under
+    # ~/.acpmux/builds/<key>, not HOME's ~/.acpmux): read it from the daemon, as bench_memory.acpmux_cli_env does.
+    home = bench_memory().acpmux_daemon_home(sock)
+    if home:
+        env["ACPMUX_HOME"] = home
     made = subprocess.run([str(cli), "new", "--json", "-d", "-m", TURNS_AGENT[0], "turn: 0"],
                           capture_output=True, text=True, timeout=180, env=env)
     try:
