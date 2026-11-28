@@ -6,8 +6,6 @@ interface __BaseEnv_WranglerEnv {
 	BILLING_ORIGINS: "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app" | "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com";
 	PUBLIC_BASE_URL: "";
 	MACHINE_ORIGINS: "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-development.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-staging.debussy.workers.dev" | "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev";
-	TURN_SOURCE: "platform-first";
-	PLATFORM_TURN_ORIGIN: "https://cmux-platform-development.debussy.workers.dev" | "https://cmux-platform-production.debussy.workers.dev";
 	SESSION_KEY: string;
 	TICKET_KEY: string;
 	USER_DO: DurableObjectNamespace<import("./src/index").UserDO>;
@@ -23,8 +21,6 @@ declare namespace Cloudflare {
 		BILLING_ORIGINS: "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app";
 		PUBLIC_BASE_URL: "";
 		MACHINE_ORIGINS: "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-development.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-staging.debussy.workers.dev";
-		TURN_SOURCE: "platform-first";
-		PLATFORM_TURN_ORIGIN: "https://cmux-platform-development.debussy.workers.dev";
 		SESSION_KEY: string;
 		TICKET_KEY: string;
 		USER_DO: DurableObjectNamespace<import("./src/index").UserDO>;
@@ -37,7 +33,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "STACK_PROJECT_IDS" | "BILLING_ORIGINS" | "PUBLIC_BASE_URL" | "MACHINE_ORIGINS" | "TURN_SOURCE" | "PLATFORM_TURN_ORIGIN" | "SESSION_KEY" | "TICKET_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "STACK_PROJECT_IDS" | "BILLING_ORIGINS" | "PUBLIC_BASE_URL" | "MACHINE_ORIGINS" | "SESSION_KEY" | "TICKET_KEY">> {}
 }
 declare module "*.txt" {
 	const value: string;
