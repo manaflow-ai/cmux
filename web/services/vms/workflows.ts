@@ -1301,7 +1301,7 @@ function createWaitScope(
     ? new VmCreateFailedError({
       idempotencyKey: idempotencyKey ?? "",
       code: VM_CREATE_WAIT_EXPIRED_FAILURE_CODE,
-      message: `no ${previous.state === "waiting_for_address" ? "private network address" : "start capacity"} freed within ${Math.round(VM_CREATE_WAIT_MAX_MS / 60_000)} minutes of waiting`,
+      message: `no ${previous.state === "waiting_for_address" ? "private network address" : previous.state === "waiting_for_fleet" ? "fleet machine slot" : "start capacity"} freed within ${Math.round(VM_CREATE_WAIT_MAX_MS / 60_000)} minutes of waiting`,
     })
     : null;
   const waitOrFail = <E>(rowId: string, error: E): Effect.Effect<never, E | VmCreateWaitingError> => {
