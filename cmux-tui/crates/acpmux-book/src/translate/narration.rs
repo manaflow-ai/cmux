@@ -116,7 +116,9 @@ fn is_note(note: &str) -> bool {
     };
     // An action prefix alone does not make a progress note: "Let me check; the cache is stale"
     // contains an answer. Ambiguous clauses stay visible.
-    let rest = &note[action..];
+    let Some(rest) = note.get(action..) else {
+        return false;
+    };
     !rest.contains([',', ';', ':', '|'])
         && !rest.split(|c: char| !(c.is_ascii() && is_word(c as u8))).any(|w| any_eq(SAYING, w))
         && !has_finite_verb(rest)
@@ -172,13 +174,14 @@ fn has_finite_verb(rest: &str) -> bool {
             word.chars().filter(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-')).collect()
         })
         .collect();
-    words.iter().enumerate().skip(1).any(|(at, word)| {
+    words.windows(2).any(|pair| {
+        let [previous, word] = pair else { return false };
         any_eq(FINDING_VERBS, word)
             || (word.ends_with("ed")
                 && word.chars().count() >= 4
                 && word.chars().all(char::is_alphabetic)
                 && !word.to_ascii_lowercase().ends_with("eed")
-                && !any_eq(ED_ADJECTIVE_AFTER, &words[at - 1]))
+                && !any_eq(ED_ADJECTIVE_AFTER, previous))
     })
 }
 

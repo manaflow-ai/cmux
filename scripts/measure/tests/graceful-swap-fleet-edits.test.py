@@ -60,5 +60,25 @@ class InPage(unittest.TestCase):
         self.assertEqual(page["frame"]["p95_ms"], 17.0)
 
 
+class Summary(unittest.TestCase):
+    """summary(): a film whose watched region never changed is a missed swap, not a 0 ms one."""
+
+    def test_unchanged_region_is_missed_for_settled_ms(self):
+        fleet = load("gsw_fleet", "graceful-swap-fleet.py")
+        fleet.GS = load("gsw", "graceful-swap.py")
+        out = pathlib.Path(tempfile.mkdtemp())
+        scenario = object.__new__(fleet.Scenario)
+        scenario.out, scenario.results = out, {"latency": {}}
+        # step 8c6948cc's hidden series: two films changed, the rest stood still and read settled_ms 0.
+        changed = {"changed_frames": 1, "first_change_ms": 56, "settled_ms": 56}
+        still = {"changed_frames": 0, "first_change_ms": None, "settled_ms": 0}
+        runs = [{"regions": {"unfocused": dict(changed), "sidebar": {"kept": True}}, "video": {"fps": 9.4}}]
+        runs += [{"regions": {"unfocused": dict(still), "sidebar": {"kept": True}}, "video": {"fps": 9.4}} for _ in range(3)]
+        scenario.summary("hidden", "hidden", "unfocused", ["sidebar"], runs, sample="settled_ms")
+        region = json.loads((out / "latency" / "hidden-hidden.json").read_text())["regions"]["unfocused"]
+        self.assertEqual(region["samples_ms"], [56.0])
+        self.assertEqual((region["n"], region["missed"]), (1, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
