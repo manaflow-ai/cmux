@@ -75,6 +75,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import gh_http  # noqa: E402
 import proof_record  # noqa: E402
 
 STATUS_CONTEXT = "cmux/ui-proof"
@@ -383,8 +384,9 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read() or b"null")
+    # gh_http asks a read again after a refusal that can change; a write is sent once (its rule).
+    _, raw, _ = gh_http.request(req, 20, raise_errors=True)
+    return json.loads(raw or b"null")
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
@@ -458,6 +460,26 @@ def look_failed(reason: str, pr: str | int = "N", again: bool = False) -> tuple[
     return "failure", f"{LOOK_FAILED}: {why}; {then}"[:140]
 
 
+def look_failed_unless_declared(body: str | None, reason: str, pr: str | int = "N",
+                                again: bool = False) -> tuple[str, str]:
+    """A look that could not run, unless the body says `Visual: none (WHY)`: that head needs no look, so the
+    gate's own success stands. cmux#39287 declared none, yet a look queued before the line sat 3 h with no fleet
+    Mac and its failure turned the gate red and stopped the land (2026-11-28)."""
+    if DECLARED_NONE.search(body or ""):
+        return verdict("web", body or "", {}, [], pr)
+    return look_failed(reason, pr, again)
+
+
+def pr_body(repo: str, pr: str | int, tokens: list[str]) -> str | None:
+    """The PR's body over the first token that reads it; None when none does (the failure then posts as before)."""
+    for token in tokens:
+        try:
+            return (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+        except Exception:  # noqa: BLE001 - the next token
+            continue
+    return None
+
+
 def look_reason(env) -> str:
     """Why a result run made no record, from the publish job's step outputs (env names as in the workflow)."""
     reason = " ".join(env.get("REASON", "").split())
@@ -515,6 +537,23 @@ def stale_pending(prs: list[dict], now: dt.datetime, hours: float = STALE_HOURS)
     return out
 
 
+def answered_failures(prs: list[dict]) -> list[dict]:
+    """The open PRs (as stale_pending reads them) whose cmux/ui-proof is a look failure (LOOK_FAILED): a record
+    posted after it answers it, and only a gate rerun reads that record. 2026-11-28, cmux#63752: the sweep posted
+    "no look result within 6 h" at 11:25Z, a fleet look passed and its record landed at 11:37Z, and the gate was
+    never rerun (the record was posted by hand after the look's own post queued); the sweep reread only pendings, so
+    the failure stood and land-judge refused the merge with every other check green."""
+    out = []
+    for pr in prs:
+        ctx = (((pr.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}).get("status") or {}
+        ctx = ctx.get("context") or {}
+        if ctx.get("state") == "FAILURE" and ctx.get("createdAt") and \
+                str(ctx.get("description") or "").startswith(LOOK_FAILED):
+            out.append({"pr": pr["number"], "sha": pr["headRefOid"], "since": ctx["createdAt"],
+                        "description": ctx.get("description") or ""})
+    return out
+
+
 SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after,
@@ -557,25 +596,31 @@ def record_at(repo: str, pr: int, sha: str, token: str, bots: list[str]) -> str:
     """When the newest trusted proof record at SHA was posted on PR (any look suite, "" for none)."""
     comments = proof_record.pr_comments(repo, pr, token)
     when = {c.get("html_url", ""): c.get("created_at") or "" for c in comments}
-    found = [proof_record.find(comments, suite, sha, bots) for suite in proof_record.SUITES]
+    can_write = proof_record.writer_check(repo, [token])
+    found = [proof_record.find(comments, suite, sha, bots, can_write) for suite in proof_record.SUITES]
     return max((when.get(r.get("_comment", ""), "") for r in found if r), default="")
 
 
-def rerun_gate_rest(repo: str, sha: str, tokens: list[str]) -> str:
-    """rerun_gate over REST with TOKENS (the sweep has no gh): rerun the completed ui proof status job at SHA."""
+def rerun_gate_rest(repo: str, sha: str, tokens: list[str], after: str = "") -> str:
+    """rerun_gate over REST with TOKENS (the sweep has no gh): rerun the completed ui proof status job at SHA.
+    AFTER (a record's time): a gate job that completed after it has read that record, so it is not rerun again (a
+    record the gate does not pass keeps the look failure; without this every sweep would rerun it)."""
     def read(token):
         runs = api(f"repos/{repo}/actions/workflows/pr-router.yml/runs?head_sha={sha}&per_page=5", token) or {}
         for run in runs.get("workflow_runs") or []:
             for j in (api(f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100", token) or {}).get("jobs") or []:
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    return j["id"]
+                    return j["id"], j.get("completed_at") or ""
         return None
     try:
-        job = proof_record.with_tokens(read, tokens)
+        got = proof_record.with_tokens(read, tokens)
     except Exception as e:  # noqa: BLE001 - unread: the next sweep asks again
         return f"gate not rerun: jobs unread ({type(e).__name__})"
-    if job is None:
+    if got is None:
         return "gate job has not run yet: it reads the record when it does"
+    job, done = got
+    if after and done and done > after:
+        return f"gate job {job} already read the record (completed {done})"
     for token in tokens:
         try:
             api(f"repos/{repo}/actions/jobs/{job}/rerun", token, "POST", {})
@@ -588,14 +633,15 @@ def rerun_gate_rest(repo: str, sha: str, tokens: list[str]) -> str:
 def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = None, post=None,
           answered=None, rerun=None) -> list[dict]:
     """Every open PR whose cmux/ui-proof waits on a look: a trusted record posted after the pending re-runs the gate
-    (the look answered, the gate never read it); else a pending past HOURS turns the look failure.
+    (the look answered, the gate never read it); else a pending past HOURS turns the look failure. A look failure
+    with a trusted record posted after it re-runs the gate too (answered_failures).
     2026-11-28: cmux#62379 held a passing web-flows record from 22:16Z and sat pending 12 h; the post's own
     rerun_gate had not reached the gate, and nothing asked again."""
     post = post or post_status
     bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
     answered = answered or (lambda pr, sha: proof_record.with_tokens(
         lambda token: record_at(repo, pr, sha, token, bots), tokens))
-    rerun = rerun or (lambda sha: rerun_gate_rest(repo, sha, tokens))
+    rerun = rerun or (lambda sha, after="": rerun_gate_rest(repo, sha, tokens, after))
     now = now or dt.datetime.now(dt.timezone.utc)
     prs = proof_record.with_tokens(lambda token: open_prs(repo, token), tokens)
     out = []
@@ -612,7 +658,99 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
             state, desc = look_failed(f"no look result within {hours:g} h of the pending post", s["pr"])
             s["posted"] = post(state, desc, repo, s["sha"], tokens, os.environ.get("RUN_URL", ""))
             out.append(s)
+    for s in answered_failures(prs):
+        try:
+            at = answered(s["pr"], s["sha"])
+        except Exception as e:  # noqa: BLE001 - unread: the failure stands until the next sweep reads it
+            print(f"#{s['pr']}: records unread ({type(e).__name__})", file=sys.stderr)
+            continue
+        if at and at > s["since"]:
+            s["rerun"] = rerun(s["sha"], at)
+            out.append(s)
     return out
+
+
+# A look carries across base merges alone. The merge train's update-branch (and cmux-bot's hourly base merge) moves a
+# PR's head with no change of its own, and before this every such head was "no look at this head" again: a 2 h look
+# per move (light-class queue p90 ~98 min), and land-judge refused the land at the new head on the old look's status
+# (cmux#46235, 2026-11-28: looked at 0bbdc46b, base-merged to cca4e6ce by the train at 12:48Z and again to 4abda3b6,
+# refused "its status links run 46146803376, which tested d0e92049e172"). A trusted record at an earlier head R counts
+# at HEAD when (1) every first-parent step from HEAD back to R is a merge commit (a push of the PR's own is not), and
+# (2) every file the PR changes at HEAD (the merge commit's diff against the base tip) has the same blob at R and at
+# HEAD. Then HEAD is the base tip outside the PR's files and R's text inside them: what the look saw, on a newer base.
+# Reads are the small Git-data and directory listings (a compare of a base merge 246 commits back is over 2 MB).
+# Anything unread or past the caps carries nothing: the head waits for its own look, as before. land-judge's iOS
+# carry (leo-workspace tools/land_judge/engine.py ios_proven_carry) holds the same two conditions for a SHIP.
+CARRY_MAX_MERGES = 6
+CARRY_MAX_DIRS = 25
+CARRIED = "carried from {sha} (base merges only)"
+_RECORD_SHA = re.compile(r"<!--\s*" + re.escape(proof_record.KIND) + r"\s+\S+\s+([0-9a-f]{40})\s*-->")
+
+
+def _blobs(repo: str, ref: str, files: list[str], token: str, call) -> dict[str, str | None]:
+    """path -> its blob sha at REF (None: absent), read one directory listing per directory."""
+    out: dict[str, str | None] = {}
+    dirs: dict[str, list[str]] = {}
+    for f in files:
+        dirs.setdefault(f.rpartition("/")[0], []).append(f)
+    for d, paths in dirs.items():
+        try:
+            listing = call(f"repos/{repo}/contents/{urllib.parse.quote(d)}?ref={ref}", token) or []
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            listing = []  # the directory is absent at REF: so is every file in it
+        if not isinstance(listing, list):
+            raise ValueError(f"{d or '/'} at {ref[:12]} is not a directory")
+        have = {e.get("path"): e.get("sha") for e in listing}
+        out.update({p: have.get(p) for p in paths})
+    return out
+
+
+def base_merge_carry(repo: str, older: str, head: str, files: list[str], token: str, call=None) -> str:
+    """"" when a look at OLDER carries to HEAD (see above), else why not. FILES: the PR's changed files at HEAD."""
+    call = call or api
+    if not (older and head and files):
+        return "unread: an older head, the head and the PR's files are all needed"
+    at, merges = head, 0
+    while at != older:
+        parents = [p.get("sha") for p in (call(f"repos/{repo}/git/commits/{at}", token) or {}).get("parents") or []]
+        if len(parents) != 2:
+            return f"{at[:12]} is not a merge commit"
+        merges += 1
+        if merges > CARRY_MAX_MERGES:
+            return f"{older[:12]} is not within {CARRY_MAX_MERGES} first-parent merges of {head[:12]}"
+        at = parents[0]
+    if len({f.rpartition("/")[0] for f in files}) > CARRY_MAX_DIRS:
+        return f"the PR's files span more than {CARRY_MAX_DIRS} directories"
+    then, now = _blobs(repo, older, files, token, call), _blobs(repo, head, files, token, call)
+    moved = [f for f in files if then.get(f) != now.get(f)]
+    if moved:
+        return f"the PR's own files differ from {older[:12]}: {', '.join(moved[:3])}"
+    return ""
+
+
+def carried_records(repo: str, sha: str, comments: list[dict], suites, bots: list[str], can_write, files,
+                    token: str, call=None) -> tuple[str, dict[str, dict | None]]:
+    """(older head, its records) for the newest older head whose trusted records carry to SHA, else ("", {})."""
+    older = []
+    for c in reversed(comments):
+        for m in _RECORD_SHA.findall(c.get("body") or ""):
+            if m != sha and m not in older:
+                older.append(m)
+    for r in older:
+        records = {s: proof_record.find(comments, s, r, bots, can_write) for s in suites}
+        if not any(records.values()):
+            continue
+        try:
+            why = base_merge_carry(repo, r, sha, list(files or []), token, call)
+        except Exception as e:  # noqa: BLE001 - unread carries nothing
+            why = f"unread ({type(e).__name__})"
+        print(f"{STATUS_CONTEXT}: look at {r[:12]} " + (f"does not carry: {why}" if why else "carries"),
+              file=sys.stderr)
+        if not why:
+            return r, records
+    return "", {}
 
 
 def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple[str, str]:
@@ -624,9 +762,16 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
     comments = proof_record.pr_comments(repo, pr, token)
-    records = {s: proof_record.find(comments, s, sha, bots) for s in suites_for(need)}
+    can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
+    records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
     state, desc = verdict(need, body, records, ui, pr)
+    if state == "pending" and desc.startswith(NO_LOOK) and files:
+        older, carried = carried_records(repo, sha, comments, suites_for(need), bots, can_write, files, token)
+        if older:
+            c_state, c_desc = verdict(need, body, carried, ui, pr)
+            if c_state == "success":
+                return c_state, c_desc.replace("at this head", CARRIED.format(sha=older[:12]), 1)[:140]
     if state == "pending" and desc.startswith(NO_LOOK):
         try:
             kept = kept_look_failure(current_status(repo, sha, token))
@@ -634,6 +779,31 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
             kept = None
         return kept or (state, desc)
     return state, desc
+
+
+POST_REFUSED = "record built, post refused"
+
+
+def post_record(repo: str, pr: int, body: str, tokens: list[str]) -> tuple[bool, str]:
+    """Comment BODY on PR with each token in turn: (posted, the last refusal's own words). The gate trusts only a
+    record from a repository writer or a listed bot App (proof_record.DEFAULT_BOTS), so the tokens are those Apps'.
+    2026-11-28, cmux#62400: the CI pool's one token (pull_requests: read) was refused ("Resource not accessible by
+    integration") with nothing after it, the step's continue-on-error read it as success, and cmux/ui-proof sat
+    pending on a look that had run."""
+    why = "no token"
+    for token in tokens:
+        try:
+            api(f"repos/{repo}/issues/{pr}/comments", token, "POST", {"body": body})
+            return True, ""
+        except Exception as e:  # noqa: BLE001 - the next token
+            why = f"{type(e).__name__}: {e}"
+            if isinstance(e, urllib.error.HTTPError):
+                try:
+                    why += " " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:  # noqa: BLE001
+                    pass
+            print(f"{STATUS_CONTEXT}: record post refused ({why})", file=sys.stderr)
+    return False, why
 
 
 def rerun_gate(repo: str, sha: str) -> str:
@@ -716,6 +886,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--suite", choices=proof_record.SUITES)
     r.add_argument("--pushed-at", type=float)
     r.add_argument("--post", action="store_true", help="gh pr comment the record, then rerun the gate job")
+    pr_ = sub.add_parser("post-record", help="comment a built record on POST_TOKENS in turn; on refusal post failure")
+    pr_.add_argument("--file", required=True)
+    pr_.add_argument("--pr", required=True, type=int)
     w = sub.add_parser("report")
     w.add_argument("--days", type=int, default=7)
     w.add_argument("--json", action="store_true")
@@ -732,8 +905,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{STATUS_CONTEXT}: {args.state}: {args.description}" + ("" if ok else " (NOT posted)"))
         return 0
     if args.cmd == "look-failed":
-        state, desc = look_failed(args.reason, args.pr, args.again)
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        body = pr_body(os.environ.get("REPO", ""), args.pr, tokens)
+        state, desc = look_failed_unless_declared(body, args.reason, args.pr, args.again)
         repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
         for token in tokens:
             try:
@@ -786,6 +960,27 @@ def main(argv: list[str] | None = None) -> int:
                             str(out / "proof-record.md")], check=True)
             print(rerun_gate(args.repo, args.head), file=sys.stderr)
         return 0 if record["verdict"] == "pass" else 1
+    if args.cmd == "post-record":
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        posters = [t for t in os.environ.get("POST_TOKENS", "").split() if t]
+        ok, why = post_record(repo, args.pr, Path(args.file).read_text(), posters)
+        if ok:
+            print(rerun_gate(repo, sha))
+            return 0
+        desc = f"{POST_REFUSED}: {why}"
+        print(f"::error title=cmux/ui-proof::{desc[:400]}")
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        for token in tokens:
+            try:
+                if settled_success(current_status(repo, sha, token)):
+                    print(f"{STATUS_CONTEXT}: already success at {sha[:12]}; the refused post is not posted as failure")
+                    return 1
+            except Exception:  # noqa: BLE001 - unread: post the failure, a later record overturns it
+                continue
+            break
+        posted = post_status("failure", desc, repo, sha, tokens, os.environ.get("RUN_URL", ""))
+        print(f"{STATUS_CONTEXT}: failure: {desc}" + ("" if posted else " (NOT posted)"))
+        return 1
     if args.cmd == "report":
         got = report(os.environ.get("REPO", "manaflow-ai/cmux"), os.environ.get("GH_TOKEN", ""), args.days)
         if args.json:
