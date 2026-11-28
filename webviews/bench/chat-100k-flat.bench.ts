@@ -1275,7 +1275,12 @@ try {
           await new Promise((resolve) => setTimeout(resolve, Number(process.env.CPU_PROFILE_S) * 1000));
           const { profile } = (await cdp.send("Profiler.stop")) as {
             profile: {
-              nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; parent?: number; children?: number[] }[];
+              nodes: {
+                id: number;
+                callFrame: { functionName: string; url: string; lineNumber: number };
+                parent?: number;
+                children?: number[];
+              }[];
               samples: number[];
               timeDeltas: number[];
             };
@@ -1294,7 +1299,8 @@ try {
           for (const [id, us] of self) {
             bySelf.set(name(id), (bySelf.get(name(id)) ?? 0) + us);
             const stack: string[] = [];
-            for (let at = id as number | undefined; at !== undefined && stack.length < 8; at = parentOf.get(at)) stack.push(name(at));
+            for (let at = id as number | undefined; at !== undefined && stack.length < 8; at = parentOf.get(at))
+              stack.push(name(at));
             const key = stack.join(" < ");
             byStack.set(key, (byStack.get(key) ?? 0) + us);
           }
