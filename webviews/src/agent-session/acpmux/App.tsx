@@ -7,6 +7,7 @@ import { useHeightsSettledFor } from "./conversation/unsettledHeights";
 import { PANE_PAINTED_MARK } from "./firstLoadWatch";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
+  type SetStateAction,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -794,6 +795,7 @@ import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/q
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
 import { letGoHeldWorked, shapeAhead, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { useChatState } from "./pane/useChatState";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -814,6 +816,13 @@ import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
 
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
+/// A chat's open folds as the pane holds them while it shows (`expanded`, `openedGroups`, `viewToggles`).
+type ChatFolds = {
+  expanded: Set<string>;
+  opened: ReadonlySet<string>;
+  viewToggles: ReadonlyMap<TranscriptView, ReadonlySet<string>>;
+};
+
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
   try {
     return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
@@ -1070,7 +1079,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// host hands the page another new chat.
   const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
   /// The Share dialog, opened by the chat menu's Share… (share/ShareControl.tsx).
-  const [shareOpen, setShareOpen] = useState(false);
   const [sandbox] = useState(
     () =>
       new SandboxTab(callNative, (text) => {
@@ -1505,11 +1513,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [shownChats],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
-  const [shareChat, setShareChat] = useState(snapshot.sessionId);
-  if (shareChat !== snapshot.sessionId) {
-    setShareChat(snapshot.sessionId);
-    setShareOpen(false);
-  }
+  const [shareOpen, setShareOpen] = useChatState(snapshot.sessionId, () => false);
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
   const trustRouteSnapshot = useRef(snapshot);
@@ -1706,7 +1710,56 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }).catch(() => undefined);
   }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats): the
+  // chats shown before keep theirs (`keptFolds`) for a switch back, and a chat never shown opens with
+  // the folds its turns were shaped ahead with (`shapeAhead`, `aheadFolds`), so turnViewFrom reuses
+  // them (it reuses turns only under the same folds object). A switch takes the chat's folds in the
+  // render that shows it (useChatState): set there, they made React render the pane twice a switch.
+  const keptFolds = useRef(new Map<string, ChatFolds>());
+  const aheadFolds = useRef(new Map<string, Set<string>>());
+  const foldsChat = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const [chatFolds, setChatFolds] = useChatState<ChatFolds>(
+    foldsChat,
+    (chat) =>
+      (chat === undefined ? undefined : keptFolds.current.get(chat)) ?? {
+        expanded: (chat === undefined ? undefined : aheadFolds.current.get(chat)) ?? new Set(),
+        opened: new Set(),
+        viewToggles: new Map(),
+      },
+  );
+  useLayoutEffect(() => {
+    if (foldsChat === undefined) return;
+    keptFolds.current.set(foldsChat, chatFolds);
+    aheadFolds.current.delete(foldsChat);
+  }, [foldsChat, chatFolds]);
+  const { expanded, opened: openedGroups, viewToggles } = chatFolds;
+  const setExpanded = useCallback(
+    (next: SetStateAction<Set<string>>) =>
+      setChatFolds((folds) => {
+        const expanded = typeof next === "function" ? next(folds.expanded) : next;
+        return expanded === folds.expanded ? folds : { ...folds, expanded };
+      }),
+    [setChatFolds],
+  );
+  /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
+  /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
+  const setViewToggles = useCallback(
+    (next: SetStateAction<ChatFolds["viewToggles"]>) =>
+      setChatFolds((folds) => {
+        const viewToggles = typeof next === "function" ? next(folds.viewToggles) : next;
+        return viewToggles === folds.viewToggles ? folds : { ...folds, viewToggles };
+      }),
+    [setChatFolds],
+  );
+  // The groups opened on their own, each once: a group the person closes stays closed.
+  const setOpenedGroups = useCallback(
+    (next: SetStateAction<ReadonlySet<string>>) =>
+      setChatFolds((folds) => {
+        const opened = typeof next === "function" ? next(folds.opened) : next;
+        return opened === folds.opened ? folds : { ...folds, opened };
+      }),
+    [setChatFolds],
+  );
   /// The rows in the shown transcript's view (VirtualTranscript `inViewNow`), and the folds a turn's
   /// end holds open over them until `expanded` has them (conversation/turnEndHold.ts).
   const transcriptInView = useRef<(() => readonly string[] | null) | undefined>(undefined);
@@ -1740,11 +1793,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldRuns.current = { ...heldRuns.current, asked: true };
     releaseCalls();
   }, []);
-  /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
-  /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
-  const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
-  const [subagentView, setSubagentView] = useState<string>();
+  /// Another chat shows none, from the render that shows it: the subagent id of the chat before
+  /// against the new chat's rows drew an empty child view.
+  const [subagentView, setSubagentView] = useChatState<string | undefined>(foldsChat, () => undefined);
   /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
   /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
@@ -2810,11 +2862,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Each chat folded ahead while the page is idle (direct.ts `warmRows`) is shaped into turns now, so
   // its first open reuses them as a switch back does (settled-page bench, chat_switch). Normal view
   // only: the other views fold by an object built at the open.
-  const aheadFolds = useRef(new Map<string, Set<string>>());
   const shapeAheadFrom = useRef<(warmed: WarmedChat) => void>(() => undefined);
   shapeAheadFrom.current = (warmed) => {
     if (chatView !== "normal" || chatPresentation === "messages" || warmed.sessionId === shownSessionId) return;
-    if (chatFolds.has(warmed.sessionId) || leftChatTurns.current.has(warmed.sessionId)) return;
+    if (keptFolds.current.has(warmed.sessionId) || leftChatTurns.current.has(warmed.sessionId)) return;
     const expanded = new Set<string>();
     shapeAhead(warmed, {
       expanded,
@@ -2905,12 +2956,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the view turnRowsShown shaped, read from its ref
     [turnRowsShown, childRows, chatPresentation, shownSessionId],
   );
-  const [askDismissals, setAskDismissals] = useState(() => ({
-    sessionId: shownSessionId,
-    keys: dismissedAsks(shownSessionId),
+  const [askDismissals, setAskDismissals] = useChatState(shownSessionId, (chat) => ({
+    sessionId: chat,
+    keys: dismissedAsks(chat),
   }));
-  if (askDismissals.sessionId !== shownSessionId)
-    setAskDismissals({ sessionId: shownSessionId, keys: dismissedAsks(shownSessionId) });
   // A card answered from this page leaves in the click's frame, before its prompt settles it
   // (waitingAskStore.ts `givenAnswer`): its answer may wait in the queue behind a running turn.
   const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
@@ -3004,24 +3053,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // (chat.select: the page's list, a branch, a fork) to a chat read cold fades its transcript in;
   // one drawn from a kept tail (direct.ts drawKeptTail) shows on the frame it lands. The first chat
   // the page shows has no chat before it: the host reveals that one (pane.painted).
-  const [opened, setOpened] = useState<{ shown?: string; open: number; cold: boolean }>({
-    shown: shownSessionId,
-    open: 0,
-    cold: false,
-  });
-  if (opened.shown !== shownSessionId)
-    setOpened({
-      shown: shownSessionId,
-      open: opened.open + 1,
-      cold: opened.shown !== undefined && shownSessionId !== undefined && snapshot.drewKeptTail !== true,
-    });
+  const [opened, setOpened] = useChatState<{ shown?: string; open: number; cold: boolean }>(
+    shownSessionId,
+    (chat, left) => ({
+      shown: chat,
+      open: left ? left.value.open + 1 : 0,
+      cold: left?.chat !== undefined && chat !== undefined && snapshot.drewKeptTail !== true,
+    }),
+  );
   // A chat read with nothing in it (a new chat: its first prompt enters as a live row) has nothing
   // to fade in, and a chat whose kept tail drew after the switch's hold gave up (a slow host read
   // under load, a reconnect) is cached all the same: it shows at once. Rows that show before the
   // chat is read (a live event, or a prompt sent, while a slow attach is out) are on screen
   // already: the fade never takes them back to nothing, and what the read adds under them shows
   // as it lands.
-  else if (
+  if (
     opened.cold &&
     ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) ||
       snapshot.drewKeptTail === true ||
@@ -3151,40 +3197,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     useSummaryColumn(shell, artifact !== undefined || backgroundPanel !== undefined || freshView),
     summaryHasContent || childSessions.length > 0,
   );
-  // Another chat closes the subagent view in the render that shows it, not an effect later (which
-  // drew one frame of the old subagent id against the new chat's rows: an empty child view).
-  const [subagentChat, setSubagentChat] = useState(shownSessionId);
-  // The groups opened on their own, each once: a group the person closes stays closed.
-  const [openedGroups, setOpenedGroups] = useState<ReadonlySet<string>>(() => new Set());
-  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
-  // the chats shown before keep theirs here for a switch back.
-  const [chatFolds, setChatFolds] = useState<
-    ReadonlyMap<
-      string,
-      {
-        expanded: Set<string>;
-        opened: ReadonlySet<string>;
-        viewToggles: ReadonlyMap<TranscriptView, ReadonlySet<string>>;
-      }
-    >
-  >(() => new Map());
-  if (subagentChat !== shownSessionId) {
-    setSubagentChat(shownSessionId);
-    setSubagentView(undefined);
-    const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
-    if (subagentChat !== undefined)
-      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
-    // A chat never shown opens with the folds its turns were shaped ahead with (`shapeAhead`), so
-    // turnViewFrom reuses them (it reuses turns only under the same folds object).
-    const ahead = shownSessionId === undefined ? undefined : aheadFolds.current.get(shownSessionId);
-    if (shownSessionId !== undefined) aheadFolds.current.delete(shownSessionId);
-    setExpanded(kept?.expanded ?? ahead ?? new Set());
-    setViewToggles(kept?.viewToggles ?? new Map());
-    setOpenedGroups(kept?.opened ?? new Set());
-  }
   // A page built again after a hidden release opens its chat's folds as they were left (wake `folds`).
   const [wokenFolds, setWokenFolds] = useState<{ session: string; folds: PaneFolds } | undefined>(undefined);
-  if (wokenFolds && shownSessionId !== undefined && subagentChat === shownSessionId) {
+  if (wokenFolds && shownSessionId !== undefined) {
     setWokenFolds(undefined);
     if (wokenFolds.session === shownSessionId) {
       setExpanded(new Set([...wokenFolds.folds.expanded, ...expanded]));
@@ -3200,14 +3215,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
     [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
   );
-  const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
+  const newGroups = liveGroups.filter((id) => !openedGroups.has(id));
   if (newGroups.length > 0) {
     setOpenedGroups(new Set([...openedGroups, ...newGroups]));
     setExpanded((current) => new Set([...current, ...newGroups]));
   }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown, in the render
   // that first shows the chat (not an effect after it), so no frame draws the chat's rows first.
-  if (requestedSubagent && shownSessionId && subagentChat === shownSessionId) {
+  if (requestedSubagent && shownSessionId) {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }
@@ -3252,9 +3267,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const edits = new Set<string>();
     forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
   }, [closedTurn]);
-  const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
-  if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
-    const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
+  // Another chat begins at its own state, in the render that shows it (useChatState).
+  const [workingSeen, setWorkingSeen] = useChatState<{ session?: string; working: boolean }>(shownSessionId, (chat) => ({
+    session: chat,
+    working: snapshot.isWorking,
+  }));
+  if (workingSeen.working !== snapshot.isWorking) {
+    const ended = workingSeen.working && !snapshot.isWorking;
     setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
     const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
     // What the reader opened while it ran closes with it, once this render is done (the store tells
