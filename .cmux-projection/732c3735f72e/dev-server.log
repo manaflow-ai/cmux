@@ -3,26 +3,14 @@ $ bun scripts/pane-protocol-codegen.ts && bun scripts/acpmux-protocol-codegen.ts
 pane protocol: 0 of 4 files written to src/protocol/generated from webviews/src/protocol/ir/pane-protocol.json
 acpmux protocol: 0 of 2 files written to src/agent-session/acpmux/protocol/generated from cmux-tui/crates/acpmux/spec/acpmux-protocol.json
 
-  VITE+ v1.3.0  ready in 927 ms
+  VITE+ v1.3.0  ready in 1055 ms
 
-  ➜  Local:   http://127.0.0.1:4321/
-11:55:26 PM [vite+] (client) [optimizer] scanning dependencies...
-11:55:33 PM [vite+] (client) [optimizer] bundling dependencies...
+  ➜  Local:   http://127.0.0.1:4319/
+3:27:02 AM [vite+] (client) [optimizer] scanning dependencies...
+3:27:10 AM [vite+] (client) [optimizer] bundling dependencies...
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1096 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1607 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1011 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1485 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
 [cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
 [cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
-2:13:57 AM [vite+] (client) page reload /mnt/lane-data/checkouts/cmux/lane--chat-overlap-896/schemas/layout-grid/layout-grid.json
-2:13:57 AM [vite+] dev-server/plugins.ts changed, restarting server...
-2:13:57 AM [vite+] (client) page reload src/agent-session/acpmux/attachments.ts
-2:13:57 AM [vite+] (client) page reload src/agent-session/acpmux/chatSnapshot/swapDiff.ts
-2:13:58 AM [vite+] (client) Re-optimizing dependencies because vite config has changed
-2:13:58 AM [vite+] server restarted.
-2:13:59 AM [vite+] (client) [optimizer] scanning dependencies...
-error: script "dev" exited with code 137

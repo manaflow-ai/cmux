@@ -63,11 +63,16 @@ const clipBottom = (row: Row) => {
   return Number.parseFloat(String(clip?.keyframes[0]!.clipPath ?? "inset(0px 0px 0px 0px)").split(" ")[2]!);
 };
 const view = {
+  requestAnimationFrame: (callback: FrameRequestCallback) => {
+    frameCallbacks.push(callback);
+    return frameCallbacks.length;
+  },
   getComputedStyle: (row: Row) => ({
     getPropertyValue: () => "",
     translate: row.animations ? translate(row) : "none",
   }),
 };
+const frameCallbacks: FrameRequestCallback[] = [];
 const doc = { defaultView: view };
 function row(id: string, top: number, height: number): Row {
   const node = {
@@ -78,6 +83,10 @@ function row(id: string, top: number, height: number): Row {
     isConnected: true,
     animations: [] as FakeAnimation[],
     querySelector: () => null,
+    getBoundingClientRect: () => ({
+      top: drawnTop(node as unknown as Row),
+      bottom: drawnTop(node as unknown as Row) + node.offsetHeight,
+    }),
     animate(keyframes: Keyframe[]) {
       const animation = new FakeAnimation(keyframes);
       node.animations.push(animation);
@@ -88,7 +97,7 @@ function row(id: string, top: number, height: number): Row {
   return node as unknown as Row;
 }
 
-function started(lowerWas = 60, upperHeight = 80) {
+function started(lowerWas = 60, upperHeight = 80, readView?: () => DOMRect | undefined) {
   const anchor = row("anchor", 0, 20);
   const upper = row("upper", 20, 40);
   const lower = row("lower", lowerWas, 30);
@@ -107,13 +116,64 @@ function started(lowerWas = 60, upperHeight = 80) {
     mounted: [{ first: 0, last: rows.length }],
   });
   const glide = createTailGlide();
-  const place = (layout: PlacedRows) => glide.place(thread, true, "anchor", true, undefined, undefined, layout);
+  const place = (layout: PlacedRows) =>
+    glide.place(thread, true, "anchor", true, undefined, undefined, layout, readView);
   place(placed([0, 20, lowerWas], [20, 40, 30]));
   (upper as { offsetHeight: number }).offsetHeight = upperHeight;
   (lower as { offsetTop: number }).offsetTop = 120;
   const layout = placed([0, 20, 120], [20, upperHeight, 30]);
   place(layout);
-  return { upper, lower, rows, glide, layout, place };
+  return { upper, lower, rows, glide, layout, place, thread };
+}
+
+test("growth after placement is clipped before the glide's first painted frame", () => {
+  frameCallbacks.length = 0;
+  const { upper, lower, rows, glide } = started(60, 72, () => ({ top: 0, bottom: 500 }) as DOMRect);
+  try {
+    expect(clipBottom(upper)).toBe(32);
+    // A later layout in this rendering step grows the row after placement read its box.
+    // No virtual placement or explicit refresh comes before the queued first-frame callback.
+    (upper as { offsetHeight: number }).offsetHeight = 96;
+    const pending = frameCallbacks.splice(0);
+    expect(pending).toHaveLength(1);
+    for (const callback of pending) callback(16);
+    expect(clipBottom(upper)).toBe(56);
+    expect(drawnTop(upper) + upper.offsetHeight - clipBottom(upper)).toBeLessThanOrEqual(drawnTop(lower));
+    const animations = rows.flatMap((node) => node.animations.filter(active));
+    const next = frameCallbacks.splice(0);
+    expect(next).toHaveLength(1);
+    for (const callback of next) callback(32);
+    const after = rows.flatMap((node) => node.animations.filter(active));
+    expect(after).toHaveLength(animations.length);
+    for (let index = 0; index < animations.length; index++) expect(after[index]).toBe(animations[index]);
+    expect(frameCallbacks).toHaveLength(0);
+  } finally {
+    glide.stop();
+    frameCallbacks.length = 0;
+  }
+});
+
+for (const mode of ["refresh", "held refresh", "pass without glide", "pass without anchor"] as const) {
+  test(`DOM-only growth updates active clearance during ${mode}`, () => {
+    const { upper, lower, rows, glide, layout, thread } = started();
+    try {
+      if (mode === "held refresh") glide.hold();
+      (upper as { offsetHeight: number }).offsetHeight = 100;
+      if (mode === "refresh" || mode === "held refresh") glide.refresh(thread);
+      else glide.place(thread, mode !== "pass without glide", undefined, true, undefined, undefined, layout);
+      expect(drawnTop(upper) + upper.offsetHeight - clipBottom(upper)).toBeLessThanOrEqual(drawnTop(lower));
+      if (mode === "held refresh") {
+        const animations = rows.flatMap((node) => node.animations.filter(active));
+        expect(animations.length).toBeGreaterThan(0);
+        expect(animations.every((animation) => animation.playState === "paused")).toBe(true);
+      }
+      glide.stop();
+      glide.refresh(thread);
+      expect(rows.flatMap((node) => node.animations.filter(active))).toHaveLength(0);
+    } finally {
+      glide.stop();
+    }
+  });
 }
 
 for (const stage of [

@@ -405,4 +405,103 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
       },
     );
   }
+  for (const variant of ["slide", "dissolve", "dip", "swap", "viscous"] as const)
+    for (const direction of ["up", "down"] as const)
+  test(`F7 ${variant} ${direction}: retained rows refresh stale clips against each other's fold paths`, async () => {
+    const page = await browser.newPage({ viewport: { width: 800, height: 900 } });
+    try {
+      const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+      const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");
+      await page.route(`${origin}/blank.html`, (route) => route.fulfill({ contentType: "text/html", body: blank }));
+      await page.goto(`${origin}/blank.html`);
+      const result = await page.evaluate(
+        async ({ foldUrl, variant, direction }) => {
+          const { captureTurnEnd, playTurnEnd, settleTurnEnd, TURN_END_SNAPSHOT_ATTR } = await import(foldUrl);
+          document.body.style.margin = "0";
+          const thread = document.createElement("main");
+          thread.setAttribute("data-turn-end-fold", variant === "dissolve" || variant === "viscous" ? variant : "fade");
+          thread.setAttribute("data-turn-end-subagent", variant === "dip" || variant === "swap" ? variant : "slide");
+          thread.style.cssText = "position:relative;height:1200px";
+          document.body.append(thread);
+          const draw = (id: string, top: number, height: number) => {
+            const node = document.createElement("div");
+            node.className = "acpmux-row";
+            node.dataset.rowId = id;
+            node.style.cssText = `position:absolute;top:${top}px;height:${height}px;left:0;right:0`;
+            node.textContent = id;
+            thread.append(node);
+            return node;
+          };
+          // Replay the stale captured clip and retained-footer geometry from the full-chat failure.
+          const upper = draw("upper", 346.25, 149);
+          const lower = draw("lower", 383.5, 40);
+          if (variant === "dip" || variant === "swap") lower.classList.add("acpmux-subagents");
+          const priorClip = upper.animate(
+            [
+              { clipPath: "inset(-4096px -4096px 64.75px -4096px)" },
+              { clipPath: "inset(-4096px -4096px 0px -4096px)" },
+            ],
+            { duration: 1000, fill: "both" },
+          );
+          priorClip.pause();
+          priorClip.currentTime = 0;
+          const gone = draw("gone", 700, 20);
+          const rows = ["upper", "lower"].map((id) => ({
+            id,
+            kind: "assistant",
+            version: 1,
+            at: 1,
+          }));
+          const capture = captureTurnEnd(thread, thread, rows, "s", true);
+          priorClip.cancel();
+          gone.remove();
+          upper.style.top = direction === "up" ? "100px" : "600px";
+          lower.style.top = direction === "up" ? "304px" : "804px";
+          upper.style.clipPath = "none";
+          const fold = playTurnEnd(thread, capture, "s", thread);
+          const overlaps: number[] = [];
+          let firstClip = 0;
+          const snapshot = thread.querySelector<HTMLElement>(`[${TURN_END_SNAPSHOT_ATTR}="lower"]`);
+          const timings = [...fold.animations].map((animation) => animation.effect.getTiming());
+          const start = Math.min(...timings.map((timing) => Number(timing.delay)));
+          const end = Math.max(...timings.map((timing) => Number(timing.delay) + Number(timing.duration)));
+          for (let step = 0; step <= 100; step += 1) {
+            for (const animation of fold.animations) {
+              animation.pause();
+              animation.currentTime = start + (end - start) * step / 100;
+            }
+            const a = upper.getBoundingClientRect();
+            const clip = Number.parseFloat(getComputedStyle(upper).clipPath.split(" ")[2] ?? "0") || 0;
+            if (step === 0) firstClip = clip;
+            for (const row of [lower, ...(snapshot ? [snapshot] : [])]) {
+              if (Number(getComputedStyle(row).opacity) <= 0.05) continue;
+              const b = row.getBoundingClientRect();
+              overlaps.push(Math.min(a.bottom - clip, b.bottom) - Math.max(a.top, b.top));
+            }
+          }
+          settleTurnEnd(thread, fold);
+          return {
+            overlaps,
+            firstClip,
+            snapshot: !!snapshot,
+            capturedClip: capture.rows.find((row) => row.id === "upper")?.clip,
+            finalClip: getComputedStyle(upper).clipPath,
+          };
+        },
+        {
+          foldUrl: `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`,
+          variant,
+          direction,
+        },
+      );
+      console.log(`reply-settle-frames F7 ${variant} ${direction} ${JSON.stringify({...result, overlaps: Math.max(...result.overlaps)})}`);
+      if (variant === "swap") expect(result.snapshot).toBe(true);
+      expect(result.capturedClip).toBe(64.75);
+      expect(Math.max(...result.overlaps)).toBeLessThanOrEqual(0);
+      expect(result.firstClip).toBeGreaterThanOrEqual(111.75);
+      expect(result.finalClip).toBe("none");
+    } finally {
+      await page.close();
+    }
+  });
 });

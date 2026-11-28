@@ -1777,6 +1777,20 @@ export function playTurnEnd(
       movers.forEach(({ node }, rank) => viscousDelay.set(node, rank * step));
       holds = Math.max(holds, ...viscousDelay.values());
     }
+    // A captured clip may predate the last streamed growth or a lower row's latest glide.
+    // Reconcile it with retained rows too, not only the departing copies: all slide on this
+    // clock, so ordered visible starts and ordered landing boxes stay clear between them.
+    // Read the nearest lower start in one reverse pass; do not measure after animation writes.
+    const retainedBelow = new Array<number>(nodes.length);
+    let lowerStart = Infinity;
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      retainedBelow[index] = lowerStart;
+      const node = nodes[index]!;
+      const before = was.get(node.dataset.rowId!);
+      if (!before || arrives(node, index)) continue;
+      const from = startTop(node, before.top);
+      if (moving.has(node) || startsInView(node, from, heights[index]!)) lowerStart = Math.min(lowerStart, from);
+    }
     /// `swap`'s snapshot places, written once every row is read (one layout per pass).
     const snapshotPlaces: [HTMLElement, number][] = [];
     nodes.forEach((node, index) => {
@@ -1869,6 +1883,7 @@ export function playTurnEnd(
       const height = heights[index]!;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      clip = Math.max(clip, from + height - retainedBelow[index]!);
       // A row the swap's render grew (the reply's last lines, shown in the commit that
       // ends its stream: revealedMarkdownModel.ts) starts as tall as it drew and opens to its full height on the fold's clock. Grown
       // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
