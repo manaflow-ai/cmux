@@ -248,7 +248,8 @@ public nonisolated struct CloudStartCore: Sendable {
 /// decision is cmux-cloud-start-core `hybrid_gui` (FFI `cloud_hybrid_gui_start`); this only passes
 /// the facts, logs the probe line (`cloud hybrid gui start: here` or `... off <reason>`) and runs
 /// `cmux cloud hybrid-begin SESSION new` once the chat here has its session. Kill switches:
-/// `CMUX_HYBRID_START=0`, `CMUX_GUI_HYBRID_START=0` (read by the FFI).
+/// `CMUX_HYBRID_START=0`, `CMUX_GUI_HYBRID_START=0` (read by the FFI). A send with attachments, with
+/// `CMUX_HYBRID_ATTACH=1`, begins with the CLI's `--turn-end` (the FFI's `turnEnd`), as `cmux chat --on cloud --attach` does.
 public nonisolated struct CloudHybridGUIStart {
     public nonisolated init() {}
     /// What the app knows of its Cloud send (cmux-cloud-start-core `hybrid_gui::Send`).
@@ -258,20 +259,29 @@ public nonisolated struct CloudHybridGUIStart {
         public var harness: String?
         /// This Mac's acpmux `_acpmux/harnesses` answer, JSON; nil: it did not answer.
         public var catalog: Data?
+        /// The send's prompt carries files.
+        public var attachments: Bool
         public init(plan: String?, signedIn: Bool, cloudDisabled: Bool, folder: Bool, repository: Bool, team: Bool,
-                    replacesChat: Bool, environment: Bool, harness: String?, catalog: Data?) {
+                    replacesChat: Bool, environment: Bool, harness: String?, catalog: Data?, attachments: Bool = false) {
             self.plan = plan; self.signedIn = signedIn; self.cloudDisabled = cloudDisabled; self.folder = folder
             self.repository = repository; self.team = team; self.replacesChat = replacesChat
-            self.environment = environment; self.harness = harness; self.catalog = catalog
+            self.environment = environment; self.harness = harness; self.catalog = catalog; self.attachments = attachments
         }
     }
 
-    /// Whether the send runs its first turn here; logs Rust's probe line either way.
-    public static func runsHere(_ send: Send, logger: Logger) -> Bool {
+    /// A send that runs its first turn here: how its `hybrid-begin` starts.
+    public struct Here: Sendable, Equatable {
+        /// The first turn runs here whole and the chat moves once it ends (the CLI's `--turn-end`).
+        public var turnEnd: Bool
+        public init(turnEnd: Bool) { self.turnEnd = turnEnd }
+    }
+
+    /// Whether the send runs its first turn here (nil: not); logs Rust's probe line either way.
+    public static func runsHere(_ send: Send, logger: Logger) -> Here? {
         var request: [String: Any] = [
             "account": ["plan": send.plan as Any, "signedIn": send.signedIn, "cloudDisabled": send.cloudDisabled],
             "folder": send.folder, "repository": send.repository, "team": send.team,
-            "replacesChat": send.replacesChat, "environment": send.environment,
+            "replacesChat": send.replacesChat, "environment": send.environment, "attachments": send.attachments,
         ]
         if let harness = send.harness { request["harness"] = harness }
         if let catalog = send.catalog, let object = try? JSONSerialization.jsonObject(with: catalog) { request["catalog"] = object }
@@ -279,17 +289,22 @@ public nonisolated struct CloudHybridGUIStart {
               let reply = CloudStartCore().callData("cloud_hybrid_gui_start", data),
               let answer = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any] else {
             logger.notice("cloud hybrid gui start: unanswered")
-            return false
+            return nil
         }
         logger.notice("\((answer["probe"] as? String) ?? "cloud hybrid gui start: unanswered", privacy: .public)")
-        return answer["here"] as? Bool == true
+        return answer["here"] as? Bool == true ? Here(turnEnd: answer["turnEnd"] as? Bool == true) : nil
+    }
+
+    /// The CLI words that begin `session`'s machine and move; `here.turnEnd` adds `--turn-end`.
+    public static func beginArguments(session: String, here: Here) -> [String] {
+        ["cloud", "hybrid-begin", session, "new"] + (here.turnEnd ? ["--turn-end"] : [])
     }
 
     /// Begins the machine and the move for `session`, the chat here: the CLI's own detached driver.
-    public static func begin(session: String, cli: URL, logger: Logger) {
+    public static func begin(session: String, here: Here, cli: URL, logger: Logger) {
         // task-owner: fire and forget; the CLI returns once its detached driver is spawned (30 s bound)
         Task(priority: WorkPriority.bestEffort.taskPriority) {
-            let result = try? await ProcessRunner.run(executable: cli, arguments: ["cloud", "hybrid-begin", session, "new"],
+            let result = try? await ProcessRunner.run(executable: cli, arguments: beginArguments(session: session, here: here),
                                                       environment: nil, timeout: .seconds(30), clock: ContinuousClock())
             let said = result.map { String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } ?? "not run"
             logger.notice("cloud hybrid gui start: begun \(session, privacy: .public) status \(result?.status ?? -1) \(said, privacy: .public)")

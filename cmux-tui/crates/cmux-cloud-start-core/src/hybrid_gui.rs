@@ -14,6 +14,11 @@
 //! (every hybrid start) or `CMUX_GUI_HYBRID_START=0` (the app's only), read by the FFI. Probe: the
 //! app logs [`Decision::probe`], one line per Cloud send, `cloud hybrid gui start: here` or
 //! `... off <reason>`.
+//!
+//! A send with attachments runs its first turn here whole when [`ATTACH_ENV`] is on
+//! ([`Decision::turn_end`]): its files are this Mac's uploads, so the app's `hybrid-begin` passes
+//! the CLI's `--turn-end` (`cmux chat --on cloud --attach`'s driver, cmux#64309) and the chat moves
+//! once that turn ends, not between its tool calls.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,6 +32,11 @@ pub const PROBE: &str = "cloud hybrid gui start: ";
 pub const GUI_ENV: &str = "CMUX_GUI_HYBRID_START";
 /// Every hybrid start's kill switch (the CLI's too).
 pub const ENV: &str = "CMUX_HYBRID_START";
+/// The CLI's hybrid `--attach` flag (cmux-tui `feature_flags::HYBRID_ATTACH_ENV`): on (`1`,
+/// `true`, `on`, `yes`), an attached send's first turn runs here whole ([`Decision::turn_end`]).
+pub const ATTACH_ENV: &str = "CMUX_HYBRID_ATTACH";
+/// The CLI driver's word for that (cmux-tui `hybrid_start::TURN_END_FLAG`).
+pub const TURN_END_FLAG: &str = "--turn-end";
 
 /// What the app knows of its Cloud send.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +59,10 @@ pub struct Send {
     pub catalog: Option<Value>,
     /// A kill switch said off (the FFI reads [`ENV`] and [`GUI_ENV`]).
     pub killed: bool,
+    /// The send's prompt carries files (attachments, pastes, uploads).
+    pub attachments: bool,
+    /// [`ATTACH_ENV`] says on (the FFI reads it; [`says_on`]).
+    pub attach_on: bool,
 }
 
 /// Why the app's Cloud send is not hybrid, beyond [`Off`].
@@ -87,12 +101,24 @@ pub struct Decision {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub off: Option<Skip>,
     pub probe: String,
+    /// The first turn runs here whole and the chat moves once it ends: the app's `hybrid-begin`
+    /// passes [`TURN_END_FLAG`]. Only on `here`, for a send with attachments, with
+    /// [`ATTACH_ENV`] on; absent from the answer when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turn_end: bool,
 }
 
 /// Whether a kill switch's value says off.
 pub fn says_off(value: Option<&str>) -> bool {
     value.is_some_and(|value| {
         matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no")
+    })
+}
+
+/// Whether a flag's value says on (`1`, `true`, `on`, `yes`), as the CLI reads [`ATTACH_ENV`].
+pub fn says_on(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
     })
 }
 
@@ -126,7 +152,8 @@ pub fn decide(send: &Send) -> Decision {
             format!("{PROBE}off {reason}")
         }
     };
-    Decision { here: skip.is_none(), off: skip, probe }
+    let here = skip.is_none();
+    Decision { here, off: skip, probe, turn_end: here && send.attachments && send.attach_on }
 }
 
 /// Whether this machine's acpmux can start the chat's agent, from its `_acpmux/harnesses`
@@ -232,6 +259,33 @@ mod tests {
         let mut send = plain();
         send.killed = true;
         assert_eq!(decide(&send).probe, "cloud hybrid gui start: off kill-switch");
+    }
+
+    #[test]
+    fn an_attached_send_runs_its_first_turn_here_whole_only_with_the_attach_flag() {
+        let mut send = plain();
+        assert!(!decide(&send).turn_end, "no files: the chat moves between tool calls");
+        send.attachments = true;
+        assert!(!decide(&send).turn_end, "flag off: as before");
+        send.attach_on = true;
+        let decided = decide(&send);
+        assert!(decided.here && decided.turn_end);
+        assert_eq!(decided.probe, "cloud hybrid gui start: here");
+        send.repository = true;
+        assert!(!decide(&send).turn_end, "not here: no driver to pass it to");
+        let mut files = plain();
+        files.attach_on = true;
+        assert!(!decide(&files).turn_end, "flag on, no files: as before");
+    }
+
+    #[test]
+    fn attach_flag_values() {
+        for on in ["1", "true", "ON", " yes "] {
+            assert!(says_on(Some(on)));
+        }
+        for off in [None, Some("0"), Some("off"), Some(""), Some("2")] {
+            assert!(!says_on(off));
+        }
     }
 
     #[test]

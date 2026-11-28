@@ -69,6 +69,13 @@ fn the_apps_cloud_send_runs_its_first_turn_here_on_a_plain_folder() {
     let mut bare = send.clone();
     bare["catalog"] = Value::Null;
     assert_eq!(call(c"cloud_hybrid_gui_start", &bare).1["off"], "no-local-harness");
+    let mut attached = send.clone();
+    attached["attachments"] = json!(true);
+    attached["attachOn"] = json!(true);
+    assert_eq!(
+        call(c"cloud_hybrid_gui_start", &attached),
+        (OK, json!({"here": true, "probe": "cloud hybrid gui start: here", "turnEnd": true}))
+    );
     let mut killed = send;
     killed["killed"] = json!(true);
     assert_eq!(call(c"cloud_hybrid_gui_start", &killed).1["off"], "kill-switch");
