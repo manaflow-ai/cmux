@@ -45,7 +45,8 @@
 // classic VM code branches on it). The router reads the calling machine's
 // creator (`cloud_vms.user_id`, a primary-key read) and then that user's
 // record, like resolveProPlanStatus. A missing plan or end, an unreadable end,
-// or an end that has passed is no plan (cap 0, today's answer); a read that
+// or an end that has passed is no plan (cap 0, today's answer, or the no-card
+// taste where NO_PLAN_TASTE_ENV is on); a read that
 // fails refuses (fail closed). The answer is cached per team and machine for
 // PLAN_TTL_MS, and never past the pass's own end, so a request costs one Map
 // lookup while cached and at most one Postgres read plus one Stack read per
@@ -195,15 +196,28 @@ export function fallbackModelAllowed(model: string | null): boolean {
     /^claude-3(?:[.-][57])?-(?:sonnet|haiku)-[a-z0-9.-]+$/.test(normalized);
 }
 
+/**
+ * RFD 0052's no-card taste for a team with no plan at all: with this set to
+ * 1 (and the house route on), a team the router reads no plan for is capped
+ * as `next_taste` ($0.50 once, Sonnet tier and below, the shared daily
+ * budget) instead of refused. Nothing writes the taste onto a sign-in record
+ * yet, so without this a fresh account's first reply is always refused (RFD
+ * 0129 1a). Unset, the answer is today's: no plan, cap 0.
+ */
+export const NO_PLAN_TASTE_ENV = "CODEROUTER_CLAUDE_FALLBACK_NO_PLAN_TASTE";
+/** The plan a team with no plan is capped as when NO_PLAN_TASTE_ENV is on. */
+export const NO_PLAN_TASTE_PLAN = "next_taste";
+
 export type ClaudeFallbackConfig =
   | { readonly kind: "off" }
-  | { readonly kind: "on"; readonly accountId: string };
+  | { readonly kind: "on"; readonly accountId: string; readonly noPlanTaste?: true };
 
 /** An unset or malformed id is off: nothing can reach another team's account. */
 export function claudeFallbackConfig(env: Readonly<Record<string, string | undefined>> = process.env): ClaudeFallbackConfig {
   const id = env[FALLBACK_ACCOUNT_ENV]?.trim();
   if (!id || !ACCOUNT_ID.test(id)) return { kind: "off" };
-  return { kind: "on", accountId: id.toLowerCase() };
+  const on = { kind: "on" as const, accountId: id.toLowerCase() };
+  return env[NO_PLAN_TASTE_ENV]?.trim() === "1" ? { ...on, noPlanTaste: true } : on;
 }
 
 export type FallbackRefusal = "included_usage_used_up" | "model_not_included" | "included_daily_budget_reached";
@@ -489,7 +503,7 @@ export async function decideClaudeFallback<Row extends { readonly id: string }>(
   if (await dependencies.teamHasAnyAccount(caller.teamId, signal)) return { kind: "none" };
   const plan = await dependencies.planId(caller, signal);
   if (plan.kind === "unavailable") return { kind: "unavailable" };
-  const planId = plan.planId;
+  const planId = plan.planId ?? (config.noPlanTaste ? NO_PLAN_TASTE_PLAN : null);
   const capCents = fallbackCapCents(planId);
   if (capCents <= 0) return { kind: "none" };
   if (model && !fallbackModelAllowed(model())) return { kind: "refused", reason: "model_not_included" };
