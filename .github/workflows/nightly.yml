@@ -1233,7 +1233,8 @@ jobs:
       target_sha: ${{ inputs.probe_target_sha || github.sha }}
       mode: ${{ inputs.probe_mode }}
 
-  refresh-compilation-cache:
+  # The compilation-cache refreshers (nightly-compilation-cache.yml, out of this file for its size budget).
+  refresh-compilation-caches:
     permissions:
       contents: write
       attestations: write
@@ -1241,257 +1242,16 @@ jobs:
     needs: decide
     # Why: docs/ci/nightly-workflow-notes/2026-11-25-cloud-cache-warmer.md
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
-    # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache-3.md
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 210 || 90 }}
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
-    steps:
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache-2.md
-      - &clear-stale-git-locks-self-hos
-        name: Clear stale git locks (self-hosted reused workspace)
-        shell: bash
-        run: |
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
-
-      - *github-token-for-git
-      - name: Checkout cache ref
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
-          fetch-depth: 0
-          submodules: recursive
-
-      - &select-xcode
-        name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # Why: docs/ci/nightly-workflow-notes.md#note-36
-      - &select-xcode-sdk
-        name: Select the SDK of the selected Xcode
-        shell: bash
-        run: |
-          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
-          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
-          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
-
-      - name: Compute Xcode compilation cache key
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Xcode compilation cache
-        id: compilation-cache-restore
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
-          restore-keys: |
-            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
-
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache-install-compilation-dependencies.md
-      - name: Install compilation dependencies
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        env:
-          # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache-install-compilation-dependencies-2.md
-          GHOSTTYKIT_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          GHOSTTYKIT_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          GHOSTTYKIT_R2_ENDPOINT: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          GHOSTTYKIT_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        run: |
-          ./scripts/install-rust-ci.sh
-          # The Zig install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR), as the helper job.
-          export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
-          ./scripts/install-zig-ci.sh
-          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Build in-tree acpmux for the compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        env:
-          CMUX_NEXT_ACPMUX_ARCHS: arm64
-        run: bash scripts/ci/nightly-steps/refresh-build-in-tree-acpmux.sh
-
-      - name: Cache Swift packages
-        id: swift-packages-restore
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
-
-      - name: Refresh universal nightly compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: bash scripts/ci/nightly-steps/refresh-universal-compilation-cache.sh
-
-      - name: Bound Xcode compilation cache size
-        id: compilation-cache-bound
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: bash scripts/ci/nightly-steps/refresh-bound-compilation-cache.sh
-
-      - name: Save Xcode compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: &cache-r2-key-id ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: &cache-r2-secret ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: &cache-r2-endpoint ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
-
-      - name: Save Swift packages
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: *cache-r2-key-id
-          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
-          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-
-  refresh-test-compilation-cache:
-    permissions:
-      contents: write
-      attestations: write
-      id-token: write
-    needs: decide
-    # Why: docs/ci/nightly-workflow-notes.md#note-30
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
-    # Why: docs/ci/nightly-workflow-notes.md#note-2
-    strategy:
-      fail-fast: false
-      matrix:
-        pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    runs-on: ${{ matrix.pool }}
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      CMUX_SKIP_ZIG_BUILD: "1"
-    steps:
-      - *clear-stale-git-locks-self-hos
-
-      - *github-token-for-git
-      - name: Checkout cache ref
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
-
-      - name: Prepare admission build paths
-        run: bash scripts/ci/nightly-steps/refresh-test-admission-paths.sh
-
-      - *select-xcode
-      - *select-xcode-sdk
-
-      - name: Compute the DerivedData seed fingerprint
-        id: compilation-cache-key
-        run: bash scripts/ci/nightly-steps/refresh-test-seed-fingerprint.sh
-
-      - name: Install compilation dependencies
-        run: |
-          ./scripts/install-rust-ci.sh
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Cache Swift packages
-        id: swift-packages-restore
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
-
-      - name: Resolve Swift packages
-        run: bash scripts/ci/nightly-steps/refresh-test-resolve-swift-packages.sh
-
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-record-deriveddata-seed-input.md
-      - name: Record DerivedData seed inputs
-        id: derived-data-record
-        continue-on-error: true
-        run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-
-      - name: Build the app-host test product
-        run: bash scripts/ci/nightly-steps/refresh-test-build-app-host-product.sh
-
-      - name: Collect resolved Swift packages
-        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
-        run: bash scripts/ci/nightly-steps/refresh-test-collect-swift-packages.sh
-
-      - name: Save Swift packages
-        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: *cache-r2-key-id
-          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
-          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-bound-deriveddata-seed-size.md
-      - name: Bound DerivedData seed size
-        id: derived-data-bound
-        if: steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
-        continue-on-error: true
-        run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-scope-deriveddata-seed-key.md
-      - name: Scope DerivedData seed key
-        id: derived-data-seed-key
-        if: steps.derived-data-bound.outputs.save == 'true'
-        continue-on-error: true
-        env:
-          FINGERPRINT: ${{ steps.compilation-cache-key.outputs.fingerprint }}
-        run: echo "scoped=$(python3 scripts/ci/seed_derived_data.py scope "admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${FINGERPRINT}-")" >> "$GITHUB_OUTPUT"
-
-      - name: Save DerivedData seed
-        if: steps.derived-data-bound.outputs.save == 'true' && steps.derived-data-seed-key.outputs.scoped != ''
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: *cache-r2-key-id
-          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
-          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: r2
-          path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
-          key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
+    uses: ./.github/workflows/nightly-compilation-cache.yml
+    with:
+      head_sha: ${{ needs.decide.outputs.head_sha }}
+      cache_backend: ${{ inputs.cache_backend || 'default' }}
+      # The PR Release-build runner, so its cache is reusable; named here, where the fleet-runner guard reads it.
+      runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-1.md
   resolve-nightly-ghostty-cli-helper:
@@ -2806,9 +2566,9 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: *cache-r2-key-id
-          AWS_SECRET_ACCESS_KEY: *cache-r2-secret
-          CI_CACHE_R2_ENDPOINT: *cache-r2-endpoint
+          AWS_ACCESS_KEY_ID: &cache-r2-key-id ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: &cache-r2-secret ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: &cache-r2-endpoint ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -4104,8 +3864,16 @@ jobs:
           fi
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
-      - *select-xcode
-      - *select-xcode-sdk
+      - &select-xcode
+        name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - &select-xcode-sdk
+        name: Select the SDK of the selected Xcode
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
       # Why: docs/ci/nightly-workflow-notes.md#note-8
       - name: Download prepared app (parallel)
         id: prepared-app-parallel
