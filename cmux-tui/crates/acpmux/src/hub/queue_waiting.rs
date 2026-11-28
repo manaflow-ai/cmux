@@ -83,12 +83,12 @@ impl Waiting {
     fn take(&mut self, i: usize) {
         let Some(e) = self.slots.get_mut(i).and_then(Option::take) else { return };
         for (key, index) in [("turnId", &mut self.by_turn), ("promptId", &mut self.by_prompt)] {
-            if let Some(id) = str_field(&e, key)
-                && let Some(slots) = index.get_mut(id)
-            {
-                slots.retain(|&j| j != i);
-                if slots.is_empty() {
-                    index.remove(id);
+            if let Some(id) = str_field(&e, key) {
+                if let Some(slots) = index.get_mut(id) {
+                    slots.retain(|&j| j != i);
+                    if slots.is_empty() {
+                        index.remove(id);
+                    }
                 }
             }
         }

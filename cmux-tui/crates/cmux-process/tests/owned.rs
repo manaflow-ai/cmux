@@ -11,7 +11,7 @@
 /// One module name for every test here, so a fleet step can select them
 /// (`--arg test --arg owned_child::`).
 mod owned_child {
-    use cmux_process::{Command, GRACE, Stdio};
+    use cmux_process::{Command, GRACE, GroupTether, Stdio};
     use std::io::{BufRead, BufReader};
     use std::time::{Duration, Instant};
 
@@ -20,7 +20,8 @@ mod owned_child {
     const DEATH_LIMIT: Duration = Duration::from_secs(2);
 
     /// Not a test on its own: the parent process of the tests below.
-    /// `owned`: `spawn_owned`; `plain`: a group of its own and nothing else
+    /// `owned`: `spawn_owned`; `tethered`: a group of its own and a
+    /// [`GroupTether`] in it; `plain`: a group of its own and nothing else
     /// (what the call sites did before).
     #[test]
     fn parent_helper() {
@@ -32,6 +33,12 @@ mod owned_child {
             let pid = child.id();
             std::mem::forget(child);
             pid
+        } else if mode == "tethered" {
+            let mut child = command.process_group(0).spawn().unwrap();
+            child.detach("test fixture: the tether, not the handle, must end it");
+            let tether = GroupTether::join(child.id() as i32).unwrap();
+            std::mem::forget(tether);
+            child.id()
         } else {
             let mut child = command.process_group(0).spawn().unwrap();
             // A dropped handle ends its group; the plain fixture's child must
@@ -130,6 +137,49 @@ mod owned_child {
         kill_pids(&[child, grandchild]);
         let took = took.expect("the child or grandchild outlived its parent by 2 s");
         eprintln!("owned, killed after 500 ms: gone in {took:?}");
+    }
+
+    /// A child that leads its own group (signalled by its pid) and its
+    /// grandchild die with the parent through a tether in that group.
+    #[test]
+    fn a_tethered_group_dies_when_the_parent_is_killed() {
+        let (mut parent, child, grandchild) = start_parent("tethered");
+        // SAFETY: getpgid reads the group of a live test process.
+        assert_eq!(unsafe { libc::getpgid(child) }, child, "the child leads its own group");
+        sigkill(&mut parent);
+        let took = gone_within(&[child, grandchild], DEATH_LIMIT);
+        kill_pids(&[child, grandchild]);
+        let took = took.expect("the tethered child or grandchild outlived its parent by 2 s");
+        eprintln!("tethered, killed at once: gone in {took:?}");
+    }
+
+    /// Dropping the tether ends the group it joined, and reaps its watchdog.
+    #[test]
+    fn dropping_a_tether_ends_its_group() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "sleep 300 & echo $!; exec sleep 301"])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let grandchild: i32 = line.trim().parse().unwrap();
+        let tether = GroupTether::join(pid).unwrap();
+        assert_eq!(tether.id(), pid);
+        drop(tether);
+        let _ = child.wait();
+        let gone = gone_within(&[grandchild], Duration::from_secs(1));
+        kill_pids(&[grandchild]);
+        assert!(gone.is_some(), "the grandchild outlived the tether");
+    }
+
+    /// No tether for a group that is not a child's.
+    #[test]
+    fn a_tether_refuses_no_group() {
+        assert!(GroupTether::join(0).is_err());
+        assert!(GroupTether::join(1).is_err());
     }
 
     /// The fixture sees the bug: a child in a plain process group lives on

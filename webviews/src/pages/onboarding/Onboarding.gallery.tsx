@@ -73,6 +73,31 @@ export default componentEntry<OnboardingGalleryProps>({
       note: "Screen 2 of 4: how you work, Agents First checked.",
       props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "work" },
     },
+    // Screen 2's Sending a Prompt row, one arm per chat feel (cmux#56827, Leo: "sent message scrolls to top").
+    "intro-walk-chat-feel-instant": {
+      note: "Sending a Prompt: Instant checked, as cmux ships (both settings unset).",
+      props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "work" },
+    },
+    "intro-walk-chat-feel-pop": {
+      note: "Sending a Prompt: Pop In checked (agentPane.display.sendPop on).",
+      props: {
+        step: "makeItYours",
+        makeItYours: "fresh",
+        introWalk: true,
+        makeScreen: "work",
+        walkValues: { "agentPane.display.sendPop": true },
+      },
+    },
+    "intro-walk-chat-feel-pinned": {
+      note: "Sending a Prompt: Pinned checked (agentPane.display.sendScrollsToTop on): a sent prompt scrolls to the top with room below for the reply.",
+      props: {
+        step: "makeItYours",
+        makeItYours: "fresh",
+        introWalk: true,
+        makeScreen: "work",
+        walkValues: { "agentPane.display.sendScrollsToTop": true },
+      },
+    },
     "intro-walk-trust": {
       note: "Screen 3 of 4: what agents may do, each mode explained, Full Access (as shipped) checked; banners and sound.",
       props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "trust" },

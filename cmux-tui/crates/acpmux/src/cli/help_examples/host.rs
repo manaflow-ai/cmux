@@ -54,6 +54,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine unreachable",
+        &[
+            (
+                "Keep a machine out of the pick after a copy to it failed",
+                "acpmux machine unreachable build-1 --why 'scp: Connection closed'",
+            ),
+            ("Let the pick use it again", "acpmux machine unreachable build-1 --clear"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
@@ -164,6 +174,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[(
             "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux machine consent revoke --screen",
+        )],
+    ),
+    (
+        "machine grantors",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors list",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors rm",
+        &[(
+            "Stop a Mac's Control and Screen grants here at once",
+            "acpmux machine grantors rm mac-0123456789abcdef",
         )],
     ),
     (
@@ -540,5 +571,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux channel open review --text hi --reply",
             ),
         ],
+    ),
+    ("machine vault audit", &[("Audit this machine's vault state", "acpmux machine vault audit")]),
+    (
+        "machine approvals grant",
+        &[("Record a standing pre-grant on this machine", "acpmux machine approvals grant")],
     ),
 ];

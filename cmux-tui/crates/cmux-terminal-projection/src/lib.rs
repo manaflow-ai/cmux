@@ -27,6 +27,7 @@
 pub mod fit_policy;
 pub mod held;
 pub mod project;
+pub mod relayout;
 pub mod style;
 pub mod sync;
 pub mod terminal;
@@ -457,6 +458,19 @@ impl Projection {
     pub fn locate(&self, host_from_bottom: usize, host_column: usize) -> Option<project::Located> {
         let cols = self.viewport()?.0;
         project::locate(&self.term, cols, self.compact, host_from_bottom, host_column)
+    }
+
+    /// The host cell under a phone cell (`phone_from_bottom`: 1 is the
+    /// phone's last re-wrapped row) ([`project::host_cell`]), as host rows
+    /// from the bottom and a host column. None: no viewport, or the model
+    /// does not hold that row.
+    pub fn host_cell(
+        &self,
+        phone_from_bottom: usize,
+        phone_column: usize,
+    ) -> Option<(usize, usize)> {
+        let cols = self.viewport()?.0;
+        project::host_cell(&self.term, cols, self.compact, phone_from_bottom, phone_column)
     }
 
     /// On the alternate screen with rows held: the held rows and the app's

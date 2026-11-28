@@ -37,7 +37,7 @@ own `cmux inference gateway --personal`), team_gateway (the team's gateway), sha
 edge does not reach the gateway service: the team and the owner have no gateway or key on).
 ";
 pub(super) const ADMIN_HELP: &str = "\
-  cmux inference gateway status [--personal] [--json]
+  cmux inference gateway status [--personal] [--token-stdin] [--json]
   cmux inference gateway mode gateway|off|joined [--personal]
                          [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine] [--json]
 ";
@@ -98,6 +98,7 @@ pub(super) fn parse(
             "--team" => team = Some(value()?),
             "--token-file" => token = Some(TokenSource::File(value()?.into())),
             "--token-command" => token = Some(TokenSource::Command(value()?)),
+            "--token-stdin" if inline.is_none() => token = Some(TokenSource::Stdin),
             "--personal" if kind != "route" => personal = true,
             "--machine" if kind == "route" => machine = Some(value()?),
             "--agent" if kind == "route" => agent = Some(value()?),
@@ -110,12 +111,17 @@ pub(super) fn parse(
         }
     }
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
     let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
         Some(api) => Some(secure_origin(&api)?),
-        None if token == TokenSource::App => None,
+        // The held token on stdin is the app's own (`--token-stdin`): its JSON names the API that issued it.
+        None if token == TokenSource::App || token == TokenSource::Stdin => None,
         None => return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into()),
     };
     let verb = match kind {
@@ -421,7 +427,7 @@ pub(super) fn app_route(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Option<(String, String)> {
     let direct = ["--api", "--team", "--token-file", "--token-command"];
-    if env("CMUX_CLOUD_ACCESS_TOKEN").is_some()
+    if super::api_tokens::env_credential(env).is_some()
         || words.iter().any(|w| direct.iter().any(|d| w == d || w.starts_with(&format!("{d}="))))
     {
         return None;

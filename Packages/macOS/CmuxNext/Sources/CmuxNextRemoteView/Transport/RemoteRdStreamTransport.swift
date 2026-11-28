@@ -335,7 +335,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 if case let .welcome(welcome) = control, welcome.caps?.contains(RemoteRdHello.clockCap) == true {
                     _ = try? engine.core.enableClock()
                 }
-                engine.handshake.receive(control)
+                engine.handshake.receive(json)
                 handleUpstream(control)
             case let .datagram(datagram):
                 // Cursor positions to the pane (latest wins); upstream feedback goes to its

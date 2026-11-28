@@ -16,13 +16,13 @@ fn chunks(text: &str) -> Vec<Chunk<'_>> {
         if let Some(previous) = digits
             && previous != is_digit
         {
-            out.push(chunk(&text[start..index], previous));
+            out.push(chunk(text.get(start..index).unwrap_or(""), previous));
             start = index;
         }
         digits = Some(is_digit);
     }
     if let Some(previous) = digits {
-        out.push(chunk(&text[start..], previous));
+        out.push(chunk(text.get(start..).unwrap_or(""), previous));
     }
     out
 }

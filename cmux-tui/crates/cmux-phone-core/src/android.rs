@@ -45,14 +45,15 @@ pub fn adb_devices(output: &str) -> Vec<AdbEntry> {
         .filter_map(|line| {
             let fields: Vec<&str> =
                 line.split([' ', '\t']).filter(|field| !field.is_empty()).collect();
-            if fields.len() < 2 || line.starts_with("List of devices") || line.starts_with('*') {
+            let [serial, state, rest @ ..] = fields.as_slice() else {
+                return None;
+            };
+            if line.starts_with("List of devices") || line.starts_with('*') {
                 return None;
             }
-            let model = fields[2..]
-                .iter()
-                .find_map(|field| field.strip_prefix("model:"))
-                .map(str::to_owned);
-            Some(AdbEntry { serial: fields[0].to_owned(), state: fields[1].to_owned(), model })
+            let model =
+                rest.iter().find_map(|field| field.strip_prefix("model:")).map(str::to_owned);
+            Some(AdbEntry { serial: (*serial).to_owned(), state: (*state).to_owned(), model })
         })
         .collect()
 }
@@ -92,7 +93,10 @@ pub fn wm_size(output: &str) -> Option<(f64, f64)> {
     let dims: Vec<f64> = parts(parts(last, ':').next_back()?, 'x')
         .filter_map(|part| trim_spaces(part).parse().ok())
         .collect();
-    (dims.len() == 2).then(|| (dims[0], dims[1]))
+    match dims.as_slice() {
+        [width, height] => Some((*width, *height)),
+        _ => None,
+    }
 }
 
 /// The screen in dp in the current orientation: `wm size` is the natural

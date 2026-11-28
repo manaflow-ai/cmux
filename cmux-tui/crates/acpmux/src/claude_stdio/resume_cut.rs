@@ -95,7 +95,7 @@ fn classify(line: &str) -> Line {
 /// transcript then ends at a tool result, which Claude Code resumes from. `false` leaves the file
 /// as it was.
 pub fn prepare(path: &Path) -> std::io::Result<bool> {
-    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let mut file = crate::home_fs::OpenOptions::new().read(true).write(true).open(path)?;
     let len = file.metadata()?.len();
     let mut window = TAIL.min(len);
     loop {

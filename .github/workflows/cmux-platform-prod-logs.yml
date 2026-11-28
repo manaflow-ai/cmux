@@ -15,7 +15,7 @@ on:
       service:
         description: "Worker to read"
         type: choice
-        options: [cmux-platform-production, cmux-platform-staging, cmux-vm-production, cmux-vm-staging]
+        options: [cmux-platform-production, cmux-platform-staging, cmux-platform-development, cmux-vm-production, cmux-vm-staging]
         default: cmux-platform-production
       id:
         description: "One exact machine (vm_...) or team (team_...) id, or `window` (the only id for cmux-vm-*) for the whole window's id-free counts by minute, outcome, route, status and msg. Missing or conflicting identities are never kept."
@@ -47,11 +47,11 @@ env:
 jobs:
   logs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: cmux-next-production
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The platform reader imports cmux-api-prod-logs.py's private store writer and projection helpers.
           sparse-checkout: |

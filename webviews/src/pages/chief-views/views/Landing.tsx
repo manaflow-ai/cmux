@@ -2,14 +2,14 @@
 // `ready-to-land`, CI red (the fleet dashboard's run for it failed) and merged today, each with
 // the agents that work on it.
 import { useMemo } from "react";
-import { landingLanes, type PRCard } from "../model";
+import { landingLanes, shownReply, type PRCard } from "../model";
 import { agentsOf, Loaded } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import { PRCardRow } from "./AgentBoard";
 
 export function LandingView({ data, strings, today, placement, onOpenURL }: ChiefViewProps) {
   const agents = agentsOf(data);
-  const fleetPRs = data.fleet.status === "ready" ? data.fleet.reply.prs : undefined;
+  const fleetPRs = shownReply(data.fleet)?.prs;
   const landing = "reply" in data.landing ? data.landing.reply : undefined;
   const lanes = useMemo(() => landingLanes(landing, agents, fleetPRs, today), [landing, agents, fleetPRs, today]);
   const sections: { id: string; title: string; prs: PRCard[] }[] = [

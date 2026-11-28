@@ -13,6 +13,9 @@
 //!   `Claude <n>`, `~/.cmux/accounts/<id>`, a shadow home for Codex) and lists its route only
 //!   once the sign-in succeeded: a cancelled, failed or expired add lists nothing and removes
 //!   only the home it made. GitHub runs gh's own device flow (`agent_login::github`).
+//!   The start answers `pageHosts` too: the hosts its page is still the sign-in's own on
+//!   (`agent_login::parse::page_hosts`). The app that opened the page in a tab closes that tab
+//!   when the sign-in is cancelled, finishes or expires, only while it shows one of them.
 //! - `sign_in.finish {loginId, code?}` waits for it (Claude takes the pasted code);
 //!   `sign_in.cancel {loginId}` stops it.
 //! - `switch {account}`: Codex and Claude make it their family's default (a built-in login:
@@ -268,7 +271,7 @@ fn need<'a>(params: &'a Value, key: &str) -> Result<&'a str, RpcError> {
 async fn accounts(hub: &Hub) -> Result<Vec<Value>, RpcError> {
     let (dir, state) = routes::places(&*hub.config.read().await);
     tokio::task::spawn_blocking(move || {
-        super::accounts::list(dir.as_deref(), &routes::bindings(&state))
+        super::accounts::list(dir.as_deref(), &state, &routes::bindings(&state))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))
@@ -395,7 +398,7 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(e);
         }
     };
-    let started = match login::start_in(&machine(hub), &cli, agent, home.as_deref()).await {
+    let started = match login::start_in(&machine(hub), &cli, agent, home.as_deref(), None).await {
         Ok(s) => s,
         Err(e) => {
             if let Some(add) = &add {
@@ -427,10 +430,13 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     // A GitHub add has no login until gh names it at finish: until then its account is the
     // family (`github`), and finish answers the `github:<login>` it signed in.
     let shown = account.clone().unwrap_or_else(|| agent.name().to_owned());
+    // The hosts the app may still close this sign-in's own tab on once it ended.
+    let page_hosts = login::parse::page_hosts(agent, &started.url);
     let mut reply = json!({
         "account": shown,
         "loginId": started.login_id,
         "url": started.url,
+        "pageHosts": page_hosts,
         "needsCode": started.needs_code,
         "expiresAtMs": started.expires_at_ms,
         "added": added,
@@ -482,7 +488,7 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         p.busy = true;
     }
     let code = params.get("code").and_then(Value::as_str);
-    let done = login::finish(&login_id, code).await;
+    let done = login::finish(&login_id, code, None).await;
     // A finish refused before it waited (no code for Claude): the sign-in still runs.
     if done.is_err() && login::running(&login_id) {
         if let Some(p) = lock_pending().get_mut(&login_id) {
@@ -505,6 +511,8 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(error(e));
         }
     };
+    // Whether git on this machine now uses the GitHub sign-in (GitHub only).
+    let mut git = None;
     let account = match (&p.add, p.agent) {
         (Some(add), _) => {
             let (dir, _) = routes::places(&*hub.config.read().await);
@@ -526,12 +534,23 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             }
         }
         (None, Agent::Github) => match cli(hub, Agent::Github).await {
-            Ok(cli) => github::accounts(&cli)
-                .await
-                .into_iter()
-                .find(|a| a.active)
-                .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
-                .or(p.account.clone()),
+            Ok(cli) => {
+                // git on this machine signs in through gh too, so clone and push work (a
+                // Cloud machine's "Sign in with GitHub"); a failure keeps the gh sign-in.
+                git = Some(match github::setup_git(&cli).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!(error = %e.message, "account sign-in: gh auth setup-git");
+                        false
+                    }
+                });
+                github::accounts(&cli)
+                    .await
+                    .into_iter()
+                    .find(|a| a.active)
+                    .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
+                    .or(p.account.clone())
+            }
             Err(_) => p.account.clone(),
         },
         (None, _) => p.account.clone(),
@@ -547,31 +566,45 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             tracing::warn!(agent = p.agent.name(), error = %e.message, "account sign-in: mark chats");
         }
     }
-    Ok(json!({"signedIn": true, "account": account}))
+    let mut reply = json!({"signedIn": true, "account": account});
+    if let (Some(git), Some(obj)) = (git, reply.as_object_mut()) {
+        obj.insert("git".to_owned(), Value::Bool(git));
+    }
+    Ok(reply)
 }
 
 async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {
     let listed = accounts(hub).await?;
-    match resolve(id, &listed).map_err(error)? {
-        Target::Github { login } => {
+    let (family, bound) = match resolve(id, &listed) {
+        Ok(Target::Github { login }) => {
             github::switch(&cli(hub, Agent::Github).await?, &login).await.map_err(error)?;
-            Ok(json!({"account": id, "default": true}))
+            return Ok(json!({"account": id, "default": true}));
         }
-        Target::Listed { id, family, builtin, .. } => {
-            let row = listed.iter().find(|a| field(a, "id") == Some(id.as_str()));
+        Ok(Target::Listed { family, builtin, .. }) => {
+            let row = listed.iter().find(|a| field(a, "id") == Some(id));
             if row.is_some_and(|r| r.get("enabled").and_then(Value::as_bool) == Some(false)) {
                 return Err(RpcError::invalid_params(format!(
                     "{id} is turned off: turn it on before making it a default"
                 )));
             }
-            let (_, state) = routes::places(&*hub.config.read().await);
-            let scope = format!("family:{family}");
-            let bound = (!builtin).then_some(id.as_str());
-            routes::set_binding(&state, &scope, bound).map_err(|e| crate::hub::route_error(&e))?;
-            super::connections::announce_later(hub);
-            Ok(json!({"account": id, "default": true}))
+            (family, (!builtin).then_some(id))
         }
-    }
+        Err(e) => {
+            let (dir, _) = routes::places(&*hub.config.read().await);
+            if e.reason != reason::UNKNOWN_ACCOUNT
+                || !crate::chatgpt::is_chatgpt_route(dir.as_deref(), id)
+            {
+                return Err(error(e));
+            }
+            // Models owns the ChatGPT login. Switching only selects its route.
+            ("codex".into(), Some(id))
+        }
+    };
+    let scope = format!("family:{family}");
+    routes::set_default_binding(&*hub.config.read().await, &scope, bound)
+        .map_err(|e| crate::hub::route_error(&e))?;
+    super::connections::announce_later(hub);
+    Ok(json!({"account": id, "default": true}))
 }
 
 async fn remove(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {

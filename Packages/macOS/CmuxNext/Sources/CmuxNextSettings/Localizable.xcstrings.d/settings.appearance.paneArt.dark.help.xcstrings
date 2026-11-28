@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.paneArt.dark.help" : {
+      "comment" : "Settings row help for the dark pane art list.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صور خلف اللوحات في المظهر الداكن، صورة لكل لوحة بالتناوب. إذا كانت فارغة، تعرض اللوحات خلفية النافذة كما ضُبطت أعلاه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slike iza okana u tamnom izgledu, po jedna za svako okno redom. Ako je prazno, okna prikazuju pozadinu prozora postavljenu iznad."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Billeder bag ruderne i det mørke udseende, ét pr. rude efter tur. Hvis feltet er tomt, viser ruderne vinduesbaggrunden som angivet ovenfor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilder hinter den Bereichen im dunklen Erscheinungsbild, der Reihe nach eines pro Bereich. Leer: Die Bereiche zeigen den Fensterhintergrund wie oben eingestellt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes detrás de los paneles en la apariencia oscura, una por panel por turnos. Vacío, los paneles muestran el fondo de la ventana según lo configurado arriba."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images derrière les panneaux en apparence sombre, une par panneau à tour de rôle. Vide : les panneaux affichent l'arrière-plan de la fenêtre défini ci-dessus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagini dietro i riquadri nell'aspetto scuro, una per riquadro a turno. Se vuoto, i riquadri mostrano lo sfondo della finestra impostato sopra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク表示でペインの背後に置く画像で、ペインごとに順に 1 枚ずつ使います。空ならペインは上で設定したウインドウの背景を表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបភាពនៅពីក្រោយផ្ទាំងក្នុងរូបរាងងងឹត មួយក្នុងមួយផ្ទាំងតាមលំដាប់។ ពេលទទេ ផ្ទាំងបង្ហាញផ្ទៃខាងក្រោយបង្អួចដូចដែលបានកំណត់ខាងលើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다크 모드에서 패널 뒤에 놓는 그림으로, 패널마다 차례로 하나씩 씁니다. 비워 두면 패널은 위에서 설정한 창 배경을 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilder bak rutene i det mørke utseendet, ett per rute etter tur. Hvis feltet er tomt, viser rutene vindusbakgrunnen som angitt ovenfor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obrazy za panelami w ciemnym wyglądzie, po jednym na panel kolejno. Gdy puste, panele pokazują tło okna ustawione wyżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagens atrás dos painéis na aparência escura, uma por painel em sequência. Se vazio, os painéis mostram o fundo da janela definido acima."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображения за панелями в тёмном оформлении, по одному на панель по очереди. Если пусто, панели показывают фон окна, заданный выше."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพที่อยู่หลังบานหน้าต่างในลักษณะที่ปรากฏแบบมืด แต่ละบานหน้าต่างใช้หนึ่งภาพตามลำดับ หากว่าง บานหน้าต่างจะแสดงพื้นหลังหน้าต่างตามที่ตั้งไว้ด้านบน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koyu görünümde bölmelerin arkasındaki görseller, her bölme için sırayla bir tane. Boşsa bölmeler yukarıda ayarlanan pencere arka planını gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зображення за панелями в темному вигляді, по одному на панель по черзі. Якщо порожньо, панелі показують тло вікна, задане вище."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các ảnh phía sau khung trong giao diện tối, lần lượt mỗi khung một ảnh. Khi để trống, các khung hiển thị hình nền cửa sổ như đã đặt ở trên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外观中窗格背后的图片，依次每个窗格一张。留空时窗格显示上方设置的窗口背景。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外觀中窗格背後的圖片，依序每個窗格一張。留空時窗格顯示上方設定的視窗背景。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

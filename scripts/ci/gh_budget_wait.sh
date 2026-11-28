@@ -36,7 +36,8 @@
 # A request that never reached GitHub (a TLS handshake timeout, a failed dial or DNS lookup:
 # run 44154643146's nightly-loop restart died on one) is tried again the same way, after 15,
 # 30, 60, then 120 s; a failure after the request went out (a reset, a read timeout) is not,
-# since a dispatch may already have run.
+# since a dispatch may already have run. A dispatch GitHub answers with a 5xx "could not create
+# workflow dispatch event" did not run either, so it is tried again the same way.
 # Runs on macOS's bash 3.2.
 
 REAL_GH=gh # --install writes the real gh's path here
@@ -49,6 +50,13 @@ attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
 throttled='rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429'
 # Go's net/http errors for a request that was never sent.
 unsent='net/http: TLS handshake timeout|dial tcp'
+# GitHub's own answer that a dispatch did not run (run 45776501690's wake-nightly-next-tick died on one
+# HTTP 500 after its spare-token move): nothing was dispatched, so trying again cannot run it twice.
+unsent="$unsent|could not create workflow dispatch event: HTTP 5[0-9][0-9]"
+# GitHub could not read the workflow file to start the run (run 45798252585's dispatch-published-in: "HTTP 422:
+# Invalid Argument - failed to parse workflow: failed to fetch workflow: getting blob contents: twirp error
+# resource_exhausted: gitmon refuses to schedule us"): its own storage was throttled, nothing was dispatched.
+unsent="$unsent|could not create workflow dispatch event: HTTP 422: .*twirp error resource_exhausted"
 
 # No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
 # budget spent (fail closed: an earlier step's waits are unknown).
@@ -116,6 +124,9 @@ wait_for_budget() {
     return 1
   }
   log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
+  # Structured wait marker for ci-trace, on stderr. Not when stdout and stderr are one stream: those
+  # callers compare the captured text exactly (see log_wait), so the marker would break them.
+  [ /dev/fd/1 -ef /dev/fd/2 ] || echo "CMUX-WAIT {\"on\":\"github-api-budget\",\"class\":\"quota\",\"bound_s\":${max_total},\"waited_s\":${want}}" >&2
   sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 

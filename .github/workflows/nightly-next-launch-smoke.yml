@@ -77,7 +77,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     # The routing App's read-only key for the placement, in the environment cmux-next's placement
     # uses; a pull request's run takes none (and mints no token).
@@ -104,7 +104,7 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
       hour: ${{ steps.hour.outputs.hour }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -221,7 +221,7 @@ jobs:
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
       DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -326,7 +326,7 @@ jobs:
     concurrency:
       group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
@@ -337,7 +337,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -412,7 +412,7 @@ jobs:
   record:
     needs: [pick, smoke]
     if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions: {}
     steps:

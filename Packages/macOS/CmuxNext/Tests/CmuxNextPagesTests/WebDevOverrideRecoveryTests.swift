@@ -88,6 +88,31 @@ struct WebDevOverrideRecoveryTests {
         do { let result = check.deadline(shown: true); #expect(result == install()) }
     }
 
+    /// Slow is not broken: a document's silence counts from its load, so a page a loaded Mac took
+    /// longer than ``OverlayStartCheck/readyWithin`` to load is not taken for a broken install
+    /// (cmux#50470's layer: "Onboarding did not start: its page code did not answer in 20 s").
+    @Test func silenceCountsFromTheDocumentsLoadNotItsCommit() {
+        var check = OverlayStartCheck()
+        check.committed(install())
+        #expect(!check.loaded)
+        #expect(OverlayStartCheck.loadWithin > OverlayStartCheck.readyWithin * 4)
+        do { let result = check.documentLoaded(); #expect(result) }
+        #expect(check.loaded)
+        // The next document starts unloaded again.
+        check.committed(install())
+        #expect(!check.loaded)
+    }
+
+    @Test func aDocumentThatSpokeBeforeItLoadedArmsNoDeadline() {
+        var check = OverlayStartCheck()
+        check.committed(install())
+        _ = check.spoke()
+        do { let result = check.documentLoaded(); #expect(!result) }
+        var bundled = OverlayStartCheck()
+        bundled.committed(nil)
+        do { let result = bundled.documentLoaded(); #expect(!result) }
+    }
+
     @Test func aBundledDocumentIsNeverJudged() {
         var check = OverlayStartCheck()
         check.committed(nil)

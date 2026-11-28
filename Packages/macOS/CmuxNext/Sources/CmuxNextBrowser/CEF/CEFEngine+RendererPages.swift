@@ -30,6 +30,9 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
 }
 
 extension CEFEngine {
+    /// The most cmux pages the fork puts in one renderer (``CEFSwitches/pagesPerRenderer``).
+    public static var cmuxPagesPerRenderer: Int { CEFSwitches.pagesPerRenderer }
+
     /// Every live Chromium page, by browser id, so a bench can name each renderer process's role
     /// (scripts/cmux-next/bench_power.py, scenario `loaded`). Read on request only: one shim call
     /// per page, no observation and no timer.

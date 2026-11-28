@@ -11,6 +11,18 @@ libSystem and libiconv come from the sysroot (scripts/ci/macos-cross.sh).
   macos_stubs.py generate <stub-dir> <mac-binary>...   write one .tbd per framework
   macos_stubs.py check <stub-dir> <mac-binary>...      exit 1 when a stub lacks an import
   macos_stubs.py install <stub-dir> <sysroot>          place the stubs where the linker looks
+  macos_stubs.py merge <stub-dir> <newer-stub-dir>     add the newer dir's symbols (and stubs) to stub-dir
+  macos_stubs.py sys-crates <stub-dir> <Cargo.lock>    add every extern the locked Apple -sys crates declare
+
+`sys-crates` covers what the Mac binaries do not import yet. The stubs come from
+binaries built before a change, so the first call into a locked binding crate
+(#54956's security_framework::item search, 2026-11-27) failed every Linux link
+of cmux-tui: "undefined symbol: kSecMatchSearchList" and 19 more. For each crate
+in SYS_CRATES at the version cmux-tui/Cargo.lock pins, it adds every name the
+crate's `extern "C"` blocks declare to that framework's stub and records the
+version in sys-crates.txt; tests/test_ci_macos_stubs.py fails when the lock
+pins a version that file does not list. Sources: SYS_CRATES_SRC, then
+~/.cargo/registry/src, then static.crates.io.
 
 MACOS_STUBS_SYSTEM_TBD names the sysroot's libSystem.tbd: routines it exports
 need no framework stub (scripts/ci/macos-cross.sh sets it).
@@ -173,14 +185,125 @@ def cmd_install(stub_dir: Path, sysroot: Path) -> int:
     return 0
 
 
+def cmd_merge(stub_dir: Path, newer: Path) -> int:
+    """Union the newer stubs into stub_dir, so a head built on older stubs links what the base branch added."""
+    for path in sorted(newer.glob("*.tbd")):
+        install, symbols = read_stub(path)
+        dest = stub_dir / path.name
+        if dest.exists():
+            old_install, old = read_stub(dest)
+            if old_install != install:
+                raise SystemExit(f"{dest}: install-name {old_install} differs from {install}")
+            added = symbols - old
+            if not added:
+                continue
+            text = path.read_text()
+            cur = re.search(r"^current-version:\s+(\S+)", text, re.M)
+            compat = re.search(r"^compatibility-version:\s+(\S+)", text, re.M)
+            dest.write_text(render(install, {"current": cur.group(1), "compat": compat.group(1), "symbols": old | symbols}))
+            print(f"merged {dest.name}: +{len(added)} symbols")
+        else:
+            shutil.copyfile(path, dest)
+            print(f"merged {dest.name}: new stub")
+    headers = newer / "include"
+    if headers.is_dir():
+        shutil.copytree(headers, stub_dir / "include", dirs_exist_ok=True)
+    return 0
+
+
+# The binding crates whose `extern "C"` items link one framework each. A name
+# they declare is a symbol of that framework (core-foundation-sys links
+# CoreFoundation in lib.rs, security-framework-sys Security in lib.rs,
+# system-configuration-sys SystemConfiguration from build.rs).
+SYS_CRATES = {
+    "core-foundation-sys": "CoreFoundation",
+    "security-framework-sys": "Security",
+    "system-configuration-sys": "SystemConfiguration",
+}
+SYS_CRATES_FILE = "sys-crates.txt"
+EXTERN_BLOCK = re.compile(r'extern\s+"C"\s*\{')
+EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
+LOCKED = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', re.M)
+
+
+def locked_versions(lock_text: str) -> dict[str, list[str]]:
+    """{crate in SYS_CRATES: sorted versions} that a Cargo.lock pins."""
+    out: dict[str, list[str]] = {}
+    for name, version in LOCKED.findall(lock_text):
+        if name in SYS_CRATES:
+            out.setdefault(name, []).append(version)
+    return {name: sorted(set(versions)) for name, versions in out.items()}
+
+
+def declared_externs(src: Path) -> set[str]:
+    """Every item name (as a Mach-O symbol, `_name`) in a crate's `extern "C"` blocks."""
+    names: set[str] = set()
+    for path in sorted(src.rglob("*.rs")):
+        text = path.read_text(errors="replace")
+        for match in EXTERN_BLOCK.finditer(text):
+            depth, end = 1, match.end()
+            while depth and end < len(text):
+                depth += {"{": 1, "}": -1}.get(text[end], 0)
+                end += 1
+            names |= {f"_{name}" for name in EXTERN_ITEM.findall(text[match.end():end - 1])}
+    return names
+
+
+def crate_source(name: str, version: str, scratch: Path) -> Path:
+    leaf = f"{name}-{version}"
+    roots = [Path(os.environ["SYS_CRATES_SRC"])] if os.environ.get("SYS_CRATES_SRC") else []
+    roots += sorted((Path.home() / ".cargo/registry/src").glob("*"))
+    for root in roots:
+        if (root / leaf / "src").is_dir():
+            return root / leaf
+    import tarfile
+    import urllib.request
+    archive = scratch / f"{leaf}.crate"
+    with urllib.request.urlopen(f"https://static.crates.io/crates/{name}/{leaf}.crate", timeout=60) as response:
+        archive.write_bytes(response.read())
+    with tarfile.open(archive) as tar:
+        tar.extractall(scratch, filter="data")
+    return scratch / leaf
+
+
+def cmd_sys_crates(stub_dir: Path, lock: Path, system: Path | None = None) -> int:
+    import tempfile
+    exported_by_system = tbd_symbols(system)
+    rows = []
+    with tempfile.TemporaryDirectory() as scratch:
+        for name, versions in sorted(locked_versions(lock.read_text()).items()):
+            framework = SYS_CRATES[name]
+            path = stub_dir / f"{framework}.tbd"
+            install, held = read_stub(path)
+            text = path.read_text()
+            cur = re.search(r"^current-version:\s+(\S+)", text, re.M).group(1)
+            compat = re.search(r"^compatibility-version:\s+(\S+)", text, re.M).group(1)
+            for version in versions:
+                declared = declared_externs(crate_source(name, version, Path(scratch)) / "src") - exported_by_system
+                added = declared - held
+                held |= declared
+                rows.append(f"{name} {version} {framework} {len(declared)}")
+                print(f"sys-crates {name} {version}: {len(declared)} declared, +{len(added)} in {path.name}")
+            path.write_text(render(install, {"current": cur, "compat": compat, "symbols": held}))
+    (stub_dir / SYS_CRATES_FILE).write_text(
+        "# crate version framework declared-symbols: the binding crates whose every extern is in the stubs\n"
+        "# (scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs cmux-tui/Cargo.lock)\n"
+        + "".join(f"{row}\n" for row in rows))
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 4 or argv[1] not in {"generate", "check", "install"}:
+    if len(argv) < 4 or argv[1] not in {"generate", "check", "install", "merge", "sys-crates"}:
         print(__doc__, file=sys.stderr)
         return 2
     command, stub_dir = argv[1], Path(argv[2])
     if command == "install":
         return cmd_install(stub_dir, Path(argv[3]))
+    if command == "merge":
+        return cmd_merge(stub_dir, Path(argv[3]))
     system = Path(os.environ["MACOS_STUBS_SYSTEM_TBD"]) if os.environ.get("MACOS_STUBS_SYSTEM_TBD") else None
+    if command == "sys-crates":
+        return cmd_sys_crates(stub_dir, Path(argv[3]), system)
     return (cmd_generate if command == "generate" else cmd_check)(stub_dir, argv[3:], system)
 
 

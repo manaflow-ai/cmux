@@ -18,8 +18,12 @@ public final class DaemonVisitSink: BrowserHistoryPersistence {
     }
 
     public func didRecordVisit(url: URL, title: String?, at date: Date) {
+        didRecordVisit(url: url, title: title, at: date, actor: nil, sessionID: nil)
+    }
+
+    public func didRecordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?) {
         let profile = profile, text = url.absoluteString
-        writes.enqueue(visit: true) { try await $0.recordVisit(profile: profile, url: text, title: title, tab: nil, at: date, key: $1) }
+        writes.enqueue(visit: true) { try await $0.recordVisit(profile: profile, url: text, title: title, tab: nil, actor: actor, sessionID: sessionID, at: date, key: $1) }
     }
 
     public func didUpdateTitle(_ title: String, for url: URL) {

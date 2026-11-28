@@ -43,6 +43,7 @@ extension AgentApprovalBanners {
 
     /// Why Allow or a raise does nothing: this Mac has no registered Cloud install (signed out, or Cloud is off here).
     public nonisolated static var handNotLinked: String {
+        // retry-prompt-ok: sign-in
         String(localized: "hands.install.notLinked",
                defaultValue: "This Mac is not set up for Cloud, so it cannot confirm this. Choose Sign In to cmux, then try again.",
                bundle: .localizedModule)

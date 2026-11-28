@@ -46,8 +46,8 @@ jobs:
     name: evals${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
       # fleet-ab runs the model cases on the fleet when this join is refused.
@@ -59,7 +59,7 @@ jobs:
       # The tailnet join's OIDC token (tailscale/github-action oauth-client-id + audience).
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -172,18 +172,25 @@ jobs:
   # worker reaches the model route directly: scripts/measure/chief-evals.sh builds the eval runner at the
   # previous head and at this push, runs the same cases on both on one worker, and lists the cases this push
   # regressed (good Chief behavior lost) or improved. A report, never a gate. A thin cmux-ci client on the
-  # build-fleet gateway runner (vars.CI_EVAL_STEP_GATEWAY), as cmux-next-ios-keyboard-motion.yml is; with the
-  # variable unset nothing runs.
+  # Linux runner with the checked fleet client. CI_EVAL_STEP_GATEWAY remains the opt-in switch;
+  # with the variable unset nothing runs.
   fleet-ab:
     name: model cases A/B on the fleet
     needs: evals
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 120
     continue-on-error: true
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/fleet-client
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
       - name: Before and after on one worker
         env:
           BEFORE: ${{ github.event.before }}

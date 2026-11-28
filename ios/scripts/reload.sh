@@ -13,9 +13,11 @@ Build, install, and launch the cmux iOS app with an isolated tag.
 
 --review is the end-of-task hand-off (AGENTS.md "Finishing a task"). One
 command builds the same-tag Mac app and the iOS app on the build fleet, installs
-the iOS app on EVERY connected iPhone (not only the configured default) through
-the authenticated install (scripts/verify-iphone-auth.sh must pass), and
-registers a newly connected phone in ~/.config/cmux/iphone-device-ids. It never
+the iOS app on EVERY connected iPhone of this Mac's person (not only the configured
+default) through the authenticated install (scripts/verify-iphone-auth.sh must pass),
+and registers a newly connected USB phone in ~/.config/cmux/iphone-device-ids. A phone
+this Mac does not know that it reaches only over Wi-Fi (a teammate's) is skipped
+(scripts/lib/iphone-review-targets.sh). It never
 boots or installs a simulator on this Mac: the simulator check runs on a fleet
 simulator worker (hq scripts/verify-remote.sh, signed in with the agent
 account), whose screenshot and recording land locally. It ends with a "Review

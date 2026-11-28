@@ -152,9 +152,9 @@ export default agentPaneEntry({
       play: pick("Verbose", '.cv-command[aria-expanded="true"]'),
     },
     "default-verbose": {
-      note: "The setting agentPane.display.transcriptView is Verbose: a chat without a view of its own opens in Verbose.",
+      note: "The setting agentPane.display.detail is Verbose: a chat without a view of its own opens in Verbose.",
       snapshot,
-      display: { "agentPane.display.transcriptView": "verbose" },
+      display: { "agentPane.display.detail": "verbose" },
     },
   },
 });

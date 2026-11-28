@@ -561,6 +561,18 @@ extension ACPMode {
         let folded = String(id.lowercased().filter { !"-_ ".contains($0) })
         return fullAccessMarkers.contains { folded.contains($0) }
     }
+
+    /// The SF Symbol the composer's model pill shows for a mode other than the agent's first, in
+    /// place of its name ("Opus 5.5 Bypass permissions Medium" read as three equal words, issue
+    /// 51331): full access a shield, plan a checklist, edits accepted a pencil, any other mode a
+    /// generic slider. The name stays in the pill's accessibility value and the Mode menu.
+    public static func pillSymbol(_ id: String) -> String {
+        if isFullAccess(id) { return "exclamationmark.shield" }
+        let folded = String(id.lowercased().filter { !"-_ ".contains($0) })
+        if folded.contains("plan") { return "list.bullet.clipboard" }
+        if folded.contains("acceptedits") || folded.contains("autoedit") { return "pencil" }
+        return "slider.horizontal.3"
+    }
 }
 
 /// Agent `session/update` notifications (discriminator `sessionUpdate`).

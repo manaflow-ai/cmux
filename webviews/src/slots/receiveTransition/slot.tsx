@@ -1,3 +1,5 @@
+/** @jsxImportSource ../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // A reply's arrival in the transcript as a theme slot (schemas/theme/slots.json `chat.receiveTransition`):
 // the box an agent's reply draws its words in, under the live line while it streams. MessageRow.tsx
 // owns the reply's Markdown (RevealedMarkdown, its reveal and streaming) and its action row; the slot
