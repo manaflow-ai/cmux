@@ -327,6 +327,8 @@ export type MarkdownPageVariant = VariantBase & {
   readOnly?: boolean;
   /** Gallery-only GitHub `origin` repository used for bare issue references. */
   githubRepository?: string;
+  /** The native omnibar is above the page (it names the file; the toolbar does not). */
+  omnibar?: boolean;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */

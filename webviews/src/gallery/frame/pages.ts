@@ -84,6 +84,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       tableWidths: tableWidths(path),
       readOnly: state.readOnly === true,
       githubRepository: state.githubRepository,
+      omnibar: state.omnibar === true,
       assetBase: "/__gallery/none/",
       libBase: "/__gallery/none/",
       settings,

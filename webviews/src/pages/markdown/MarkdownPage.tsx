@@ -147,6 +147,7 @@ export function MarkdownPage({
       data-status={state.status}
       data-read-only={state.readOnly}
       data-navigating={state.navigating != null || undefined}
+      data-omnibar={state.config?.omnibar || undefined}
     >
       <header className="md-toolbar-host">
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
