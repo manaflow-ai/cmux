@@ -2,11 +2,17 @@
 // module cache across test files, so i18n may first load before any window exists (a file that
 // imports pane components statically, before it installs jsdom), and a file later installs its
 // own window. The pane must still follow that window's languagechange, and only that one's.
+// This file loads i18n through importWithDom, with a document in place, so the first case (i18n loaded
+// and used with no window at all) runs in a process of its own: support/paneLanguageNoWindow.ts.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 // Imported before this file installs a window, as a cached module would have been.
-import { currentLanguage, setPaneLanguage, subscribeLanguage } from "../src/agent-session/acpmux/i18n";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { currentLanguage, setPaneLanguage, subscribeLanguage } = await importWithDom(
+  () => import("../src/agent-session/acpmux/i18n"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator"] as const;
@@ -36,6 +42,27 @@ afterAll(async () => {
     else delete scope[key];
   for (const dom of windows) dom.window.close();
   setPaneLanguage(languageBefore);
+});
+
+test("i18n loads and answers with no window, then follows a window installed after it", async () => {
+  // Plain `bun`, not `bun test`: no preload, so no window or document exists when i18n loads.
+  const child = Bun.spawn([process.execPath, "test/support/paneLanguageNoWindow.ts"], {
+    cwd: `${import.meta.dir}/..`,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect({ code, stderr: code === 0 ? "" : stderr }).toEqual({ code: 0, stderr: "" });
+  expect(JSON.parse(stdout.trim().split("\n").at(-1)!)).toEqual({
+    before: { window: false, document: false },
+    atLoad: "en",
+    after: "ja",
+    changes: 1,
+  });
 });
 
 test("a window installed after i18n loaded drives the pane's language", () => {

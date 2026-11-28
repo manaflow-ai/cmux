@@ -21,12 +21,45 @@ import { TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
-/** Logs which dependency failed (an operation name only, never ids or causes) and answers 503. */
+/**
+ * A fixed word for why a dependency call threw, never its message or any id: Cloudflare marks a Durable Object call that
+ * hit a full input queue `overloaded` and one it may repeat `retryable`; the rest are told by the platform's own phrases.
+ * 2026-11-28: every `limits.rate` 503 read the same ("dependency unavailable"), so a tenant object that was overloaded
+ * could not be told from one that was down.
+ */
+export const failureClass = (error: unknown): string => {
+  const e = (error !== null && typeof error === "object" && "cause" in error ? (error as { cause: unknown }).cause : error) as
+    | { overloaded?: unknown; retryable?: unknown; message?: unknown }
+    | null
+    | undefined;
+  if (e === null || e === undefined || typeof e !== "object") return "unknown";
+  if (e.overloaded === true) return "overloaded";
+  const text = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  for (const [needle, word] of [
+    ["overloaded", "overloaded"],
+    ["exceeded its memory", "memory_limit"],
+    ["exceeded cpu", "cpu_limit"],
+    ["network connection lost", "connection_lost"],
+    ["object reset", "object_reset"],
+    ["timed out", "timeout"],
+    ["not confirmed", "write_unconfirmed"],
+  ] as const)
+    if (text.includes(needle)) return word;
+  return e.retryable === true ? "retryable" : "other";
+};
+
+/** A Durable Object call Cloudflare says may be repeated, and that did not fail for want of capacity. */
+export const isRepeatable = (error: unknown): boolean => {
+  const c = failureClass(error);
+  return c === "retryable" || c === "connection_lost" || c === "object_reset";
+};
+
+/** Logs which dependency failed (an operation name and a fixed cause word, never ids or messages) and answers 503. */
 export const dependencyDown =
   (operation: string) =>
-  (_error: unknown): Effect.Effect<never, ServiceUnavailable> =>
+  (error: unknown): Effect.Effect<never, ServiceUnavailable> =>
     Effect.logWarning("cmux-vm dependency unavailable").pipe(
-      Effect.annotateLogs({ operation }),
+      Effect.annotateLogs({ operation, cause_class: failureClass(error) }),
       Effect.zipRight(Effect.fail(unavailable(operation))),
     );
 
@@ -37,7 +70,8 @@ export const rateLimit = (principal: Principal, rateClass: RateClass) =>
     const limits = yield* TenantLimits;
     const decision = yield* limits
       .rate(principal.tenantId, rateClass, policy.rate(rateClass))
-      .pipe(Effect.catchAll(dependencyDown("limits.rate")));
+      // One repeat of a call the platform says is safe to repeat (a spent token twice costs one request of budget).
+      .pipe(Effect.retry({ times: 1, while: isRepeatable }), Effect.catchAll(dependencyDown("limits.rate")));
     if (!decision.ok) {
       return yield* Effect.fail(
         new QuotaExceeded({
