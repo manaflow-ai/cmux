@@ -113,6 +113,45 @@ class Gate(unittest.TestCase):
                       pr.DEFAULT_BOTS.split(","))
         self.assertIsNotNone(got)
 
+    def test_a_private_member_who_can_push_counts(self):
+        # cmux#62808: a member whose org membership is private reads as CONTRIBUTOR to a workflow's github.token,
+        # so their passing record never counted. Whether they can push is what the gate asks GitHub instead.
+        body = pr.render(RECORD)
+        asked = []
+
+        def can_write(login):
+            asked.append(login)
+            return login == "member"
+
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD))
+        self.assertIsNotNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD,
+                                     (), can_write))
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="outsider")], "ios-flows", HEAD,
+                                  (), can_write))
+        # A bot never passes on a permission read, and a comment with no record costs no read.
+        self.assertIsNone(pr.find([comment(body, assoc="NONE", login="member", kind="Bot")], "ios-flows", HEAD,
+                                  (), can_write))
+        pr.find([comment("no record here", assoc="CONTRIBUTOR", login="chatty")], "ios-flows", HEAD, (), can_write)
+        self.assertEqual(asked, ["member", "outsider"])
+
+    def test_writer_check_reads_the_permission_once_and_fails_closed(self):
+        from unittest import mock
+        answers = {"admin-user": "admin", "writer": "write", "reader": "read"}
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            login = req.full_url.split("/collaborators/")[1].split("/")[0]
+            seen.append(login)
+            if login == "broken":
+                raise pr.urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+            return 200, json.dumps({"permission": answers[login]}).encode(), {}
+
+        with mock.patch.object(pr.gh_http, "request", side_effect=fake):
+            can_write = pr.writer_check("o/r", ["t"])
+            got = {login: can_write(login) for login in ("admin-user", "writer", "reader", "broken", "writer")}
+        self.assertEqual(got, {"admin-user": True, "writer": True, "reader": False, "broken": False})
+        self.assertEqual(seen, ["admin-user", "writer", "reader", "broken"])
+
     def test_newest_record_wins(self):
         failed = copy.deepcopy(RECORD)
         failed["runs"][0]["result"] = "fail"

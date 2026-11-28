@@ -182,6 +182,16 @@ class RenderTests(unittest.TestCase):
     def test_a_command_without_a_capability_declares_none(self) -> None:
         self.assertNotIn("requiredCapability", rendered()["Layout/SwapPaneRequest.generated.swift"])
 
+    def test_legacy_request_can_still_be_sent_without_its_advertised_capability(self) -> None:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["allow_unadvertised_capability"] = "layout-undo-v1"
+        self.assertNotIn("requiredCapability", rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"])
+
+        request["allow_unadvertised_capability"] = "renamed-v2"
+        with self.assertRaisesRegex(BindingError, "must name the command's schema capability"):
+            rendered(bindings=bindings)
+
     def test_required_fields_are_always_encoded_and_optional_ones_only_when_set(self) -> None:
         source = rendered()["Layout/SwapPaneRequest.generated.swift"]
         self.assertIn("        try container.encode(pane, forKey: .pane)\n", source)
@@ -796,6 +806,10 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
         self.assert_refused("which the schema does not have", {"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
 
+    def test_write_only_encode_when_is_refused_for_read_types(self) -> None:
+        self.assert_refused("unknown key", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"encode_when": "pane"}}}})
+
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})
         self.assert_refused("exactly one of type", {"Z": {}})
@@ -819,6 +833,216 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
 
     def test_generating_and_binding_one_schema_type_is_refused(self) -> None:
         self.assert_refused("RowHeight", {"RowHeightRecord": {"type": "RowHeight"}})
+
+
+def spawn_document() -> dict[str, Any]:
+    """A spawning write command: spawn fields to flatten, a size, a flag sent only when true."""
+    document = mutation_document()
+    optional = lambda name: _field({"kind": "scalar", "name": name}, required=False, nullable=True)  # noqa: E731
+    document["commands"]["spawn-pane"] = {
+        "authority": "control",
+        "since": 9,
+        "capability": None,
+        "request": {
+            "kind": "object",
+            "fields": {
+                "pane": _field(ID),
+                "cwd": optional("string"),
+                "cols": optional("uint16"),
+                "rows": optional("uint16"),
+                "label": optional("string"),
+                "before": _field({"kind": "scalar", "name": "boolean"}, required=False, default=False),
+                "origin": optional("string"),
+                "mutation_id": optional("string"),
+            },
+            "additional_properties": False,
+        },
+        "result": {"kind": "ref", "name": "EmptyResult"},
+        "stream": None,
+        "constraints": [],
+    }
+    return document
+
+
+def spawn_bindings(**request: Any) -> dict[str, Any]:
+    bindings = mutation_bindings()
+    bindings["flatten"] = {
+        "SpawnOptions": {"wire": ["cwd", "argv"], "encode": "try {value}.encode(to: encoder)"},
+        "CellSize": {"wire": ["cols", "rows"], "encode": "try {value}.encode(to: encoder)"},
+    }
+    bindings["families"]["Layout"]["requests"]["spawn-pane"] = {
+        "name": "SpawnPaneRequest",
+        "protocol": "TerminalSpawningRequest",
+        "order": ["pane", "options", "size", "before", "mutation"],
+        "mutation": True,
+        "flatten": {
+            "options": {"type": "SpawnOptions", "default": "SpawnOptions()"},
+            "size": {"type": "CellSize", "optional": True},
+        },
+        "fields": {"before": {"encode": "when_true"}},
+        **request,
+    }
+    return bindings
+
+
+class FlattenAndWhenTrueTests(unittest.TestCase):
+    def source(self, **request: Any) -> str:
+        return rendered(spawn_document(), spawn_bindings(**request))["Layout/SpawnPaneRequest.generated.swift"]
+
+    def test_flatten_takes_its_wire_fields_and_encodes_the_value_flat(self) -> None:
+        source = self.source()
+        self.assertIn("public var options: SpawnOptions\n", source)
+        self.assertIn("options: SpawnOptions = SpawnOptions()", source)
+        self.assertIn("        try options.encode(to: encoder)\n", source)
+        for wire in ("cwd", "cols", "rows"):
+            self.assertNotIn(f"case {wire}", source)
+        self.assertIn("case label", source)
+
+    def test_an_optional_flatten_is_written_only_when_set(self) -> None:
+        source = self.source()
+        self.assertIn("public var size: CellSize?", source)
+        self.assertIn("size: CellSize? = nil", source)
+        self.assertIn("        if let size { try size.encode(to: encoder) }\n", source)
+
+    def test_order_places_flattened_and_mutation_properties(self) -> None:
+        self.assertIn(
+            "public init(pane: PaneID, options: SpawnOptions = SpawnOptions(), size: CellSize? = nil,"
+            " before: Bool = false, mutation: MutationIdentity? = nil, label: String? = nil)",
+            self.source(),
+        )
+
+    def test_encode_writes_keyed_fields_then_flattened_values_then_the_mutation(self) -> None:
+        source = self.source()
+        self.assertLess(source.index("forKey: .label"), source.index("try options.encode"))
+        self.assertLess(source.index("if let size"), source.index("MutationFields(identity"))
+
+    def test_when_true_is_a_plain_bool_sent_only_as_true(self) -> None:
+        source = self.source()
+        self.assertIn("public var before: Bool\n", source)
+        self.assertIn("before: Bool = false", source)
+        self.assertIn("        if before { try container.encode(true, forKey: .before) }\n", source)
+
+    def test_encode_when_gates_an_optional_field_on_a_prior_property(self) -> None:
+        source = self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": "before"}})
+        self.assertIn("        if before { try container.encodeIfPresent(label, forKey: .label) }\n", source)
+
+    def test_encode_when_requires_a_non_empty_string(self) -> None:
+        with self.assertRaises(BindingError):
+            self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": ""}})
+
+    def test_encode_when_cannot_gate_required_or_when_true_fields(self) -> None:
+        for fields in (
+            {"pane": {"encode_when": "before"}},
+            {"before": {"encode": "when_true", "encode_when": "label"}},
+        ):
+            with self.subTest(fields), self.assertRaises(BindingError):
+                self.source(fields=fields)
+
+    def test_bad_flatten_and_when_true_bindings_are_refused(self) -> None:
+        cases = {
+            "unregistered type": {"flatten": {"options": {"type": "Nope"}}},
+            "no wire field in the schema": {"flatten": {"options": {"type": "Other"}}},
+            "unknown key": {"flatten": {"options": {"type": "SpawnOptions", "colour": "red"}}},
+            "flatten named mutation": {"flatten": {"mutation": {"type": "SpawnOptions"}}},
+            "when_true on a string": {"fields": {"before": {"encode": "when_true"}, "label": {"encode": "when_true"}}},
+            "when_true with optional": {"fields": {"before": {"encode": "when_true", "optional": True}}},
+        }
+        for label, request in cases.items():
+            bindings = spawn_bindings(**request)
+            bindings["flatten"]["Other"] = {"wire": ["argv"], "encode": "try {value}.encode(to: encoder)"}
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(spawn_document(), bindings)
+
+    def test_request_only_properties_and_original_initializer_shape(self) -> None:
+        source = self.source(
+            extra={"tab": {"type": "SurfaceID?", "default": "nil"}},
+            order=["pane", "tab", "options", "size", "before", "mutation"],
+            initializer={"explicit": ["mutation", "before"], "post_init": ["label"], "labels": {"size": "cell"}},
+        )
+        self.assertIn("public var tab: SurfaceID?", source)
+        self.assertNotIn("case tab", source)
+        self.assertIn("public var label: String?", source)
+        self.assertIn("public init(pane: PaneID, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions(), "
+                      "cell size: CellSize? = nil, before: Bool, mutation: MutationIdentity?)", source)
+        self.assertIn("try container.encodeIfPresent(label, forKey: .label)", source)
+
+    def test_initializer_cannot_hide_a_required_field_or_misspell_a_property(self) -> None:
+        for options in ({"post_init": ["pane"]}, {"explicit": ["unknown"]},
+                        {"post_init": ["label"], "explicit": ["label"]}, {"labels": {"label": "pane"}}):
+            with self.subTest(options), self.assertRaisesRegex(BindingError, "initializer"):
+                self.source(initializer=options)
+
+    def test_special_encodings_require_the_schema_wire_type_and_value(self) -> None:
+        with self.assertRaisesRegex(BindingError, "decimal uint64"):
+            self.source(fields={"label": {"encode": "decimal_uint64"}})
+        with self.assertRaisesRegex(BindingError, "case of the optional schema enum"):
+            self.source(fields={"label": {"encode": {"when_true": "left"}}})
+        document = spawn_document()
+        document["commands"]["spawn-pane"]["request"]["fields"]["label"]["type"] = {"kind": "ref", "name": "PaneDirection"}
+        for case in ("left", "missing"):
+            bindings = spawn_bindings(fields={"label": {"name": "left", "encode": {"when_true": case}}})
+            if case == "missing":
+                with self.assertRaisesRegex(BindingError, "case of the optional schema enum"):
+                    rendered(document, bindings)
+            else:
+                source = rendered(document, bindings)["Layout/SpawnPaneRequest.generated.swift"]
+                self.assertIn("if left { try container.encode(PaneDirection.left, forKey: .left) }", source)
+                self.assertIn('case left = "label"', source)
+
+    def test_a_flatten_may_not_take_a_required_field(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["SpawnOptions"]["wire"].append("pane")
+        with self.assertRaises(BindingError):
+            rendered(spawn_document(), bindings)
+
+    def test_a_registry_entry_needs_wire_names_and_a_value_statement(self) -> None:
+        for entry in ({"wire": [], "encode": "try {value}.encode(to: encoder)"}, {"wire": ["cwd"], "encode": "x"}):
+            bindings = spawn_bindings()
+            bindings["flatten"]["SpawnOptions"] = entry
+            with self.subTest(entry), self.assertRaises(BindingError):
+                rendered(spawn_document(), bindings)
+
+    def test_flatten_values_cannot_share_a_wire_name_with_independent_remaining_fields(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["Other"] = {
+            "wire": ["cols", "height"], "encode": "try {value}.encode(to: encoder)"
+        }
+        bindings["families"]["Layout"]["requests"]["spawn-pane"]["flatten"]["other"] = {"type": "Other"}
+        with self.assertRaisesRegex(BindingError, "overlap.*cols"):
+            rendered(spawn_document(), bindings)
+
+    def test_flatten_overlap_is_rejected_even_when_the_shared_wire_is_absent_from_the_schema(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["Other"] = {
+            "wire": ["argv", "height"], "encode": "try {value}.encode(to: encoder)"
+        }
+        bindings["families"]["Layout"]["requests"]["spawn-pane"]["flatten"]["other"] = {"type": "Other"}
+        with self.assertRaisesRegex(BindingError, "overlap.*argv"):
+            rendered(spawn_document(), bindings)
+
+    def test_flatten_cannot_overwrite_a_mutation_identity_or_cas_guard(self) -> None:
+        for wire in ("origin", "mutation_id", "expected_generation", "expected_revision"):
+            bindings = spawn_bindings()
+            bindings["flatten"]["SpawnOptions"]["wire"].append(wire)
+            with self.subTest(wire), self.assertRaisesRegex(BindingError, f"overlap.*{wire}"):
+                rendered(spawn_document(), bindings)
+
+    def test_omit_rejects_unknown_and_required_fields(self) -> None:
+        for omitted, message in ((["unknown"], "does not have"), (["pane"], "requires")):
+            bindings = spawn_bindings(omit=omitted)
+            with self.subTest(omitted), self.assertRaisesRegex(BindingError, message):
+                rendered(spawn_document(), bindings)
+
+    def test_omit_removes_an_optional_field(self) -> None:
+        source = self.source(omit=["label"])
+        self.assertNotIn("case label", source)
+        self.assertNotIn("label: String?", source)
+
+    def test_omit_rejects_fields_written_by_flatten_and_mutation(self) -> None:
+        for omitted, message in ((["cols"], "flattened value"), (["origin"], "mutation")):
+            bindings = spawn_bindings(omit=omitted)
+            with self.subTest(omitted), self.assertRaisesRegex(BindingError, message):
+                rendered(spawn_document(), bindings)
 
 
 class OutAndCheckTests(unittest.TestCase):
@@ -976,6 +1200,13 @@ class RepositoryBindingsTests(unittest.TestCase):
             for family in bindings.get("families", {}).values()
         ))
         self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
+
+    def test_create_terminal_omits_the_detached_selector_but_keeps_workspace(self) -> None:
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        source = files["Creation/CreateTerminalRequest.generated.swift"]
+        self.assertIn("public var workspace: WorkspaceRef", source)
+        self.assertNotIn("detached", source)
 
     def test_the_repository_passes_its_own_check(self) -> None:
         """No generated type is still declared by hand in CmuxNextDaemon (the build would fail to compile)."""
