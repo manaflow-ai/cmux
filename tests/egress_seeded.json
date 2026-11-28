@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 22,
+ "todo_max": 17,
  "sites": {
   "acpmux::cmux_rd::fetch": {
    "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
@@ -189,13 +189,13 @@
    "none": "a GET of the public app registry pages: no auth or person data in the request"
   },
   "cmux_tui_core::apps::egress": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/apps/egress_seeded_tests.rs::app_credentials_never_reach_the_wire"
   },
   "cmux_tui_core::apps::git_source": {
    "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
   },
   "cmux_tui_core::blob_fetch": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/blob_fetch/seeded_tests.rs::the_store_grant_rides_only_in_authorization"
   },
   "cmux_tui_core::language_packs": {
    "none": "a GET of the pack URL from the signed manifest, no auth, no redirect: the request carries only the pack name"
@@ -210,13 +210,13 @@
    "none": "a receive-only WebSocket: its upgrade GET carries only the person's lease bearer (authorization) and team (x-cmux-team) to the platform origin the watch named, https or loopback, redirects refused (machine_state_push_tests.rs a_redirect_is_refused_not_followed, only_https_or_loopback_platforms_get_a_bearer); it sends no frame, and cmux_egress::capture has no WebSocket path to seed"
   },
   "cmux_vm_pool::http": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-vm-pool/src/http_seeded_tests.rs::the_pool_key_rides_only_in_authorization"
   },
   "cmux_weft::admin": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-weft/src/admin_seeded_tests.rs::the_admin_token_rides_only_in_authorization"
   },
   "cmux_weft::client::relay_pool": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-weft/src/client/relay_pool_seeded_tests.rs::the_ticket_never_rides_in_the_upgrade"
   }
  }
 }
