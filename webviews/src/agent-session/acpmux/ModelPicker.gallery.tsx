@@ -3,7 +3,7 @@ import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import type { UsedLook } from "./quickModelMenuModel";
-import type { Play } from "../../gallery/play";
+import type { Play, PlayContext } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
 import { setModelMenuWidth } from "./modelMenuWidth";
@@ -442,17 +442,26 @@ const openOwnTab: Play = async (ctx) => {
   );
 };
 
+/// The account card opens in the flow above the models (#63232), so the family tabs and the lists
+/// under it move down by its height: an expand the avatar's click means (the card opens, what follows
+/// it is pushed straight down; schemas/layout-motion/contract.json `expand`). The card is not drawn
+/// before the click, so the declaration targets the avatar that opens it: what follows it moves down.
+const declareCardOpens = (ctx: PlayContext) =>
+  ctx.declare("expand", { targets: [{ selector: ".acpmux-cols-profile" }] });
+
 /// The columns' account avatar opens its card, which lists the harness's other accounts.
 const openAccountCard =
   (row: string): Play =>
   async (ctx) => {
     await openColumns(ctx);
+    const opened = declareCardOpens(ctx);
     await ctx.click({ selector: ".acpmux-cols-profile" });
     await ctx.waitFor(() =>
       [...ctx.document.querySelectorAll(".acpmux-cols-card [role=button]")].some((item) =>
         item.textContent?.includes(row),
       ),
     );
+    opened();
   };
 
 /// A chat with no account route here, whose agent signs in on its own (cmux#63167: a chat on SR2):
@@ -471,10 +480,12 @@ const reportedSignIn: ModelPickerProps = {
 
 const openSignInCard: Play = async (ctx) => {
   await openColumns(ctx);
+  const opened = declareCardOpens(ctx);
   await ctx.click({ selector: ".acpmux-cols-profile" });
   await ctx.waitFor(
     () => ctx.document.querySelector(".acpmux-cols-card .acpmux-cols-card-name")?.textContent === "SR2 token",
   );
+  opened();
 };
 
 /// An OpenCode chat as Lawrence's screenshot showed it (2026-10-22: "spacing + needs search"): one
