@@ -525,20 +525,6 @@
           "group": "Agent Chats"
         },
         {
-          "key": "agents.modelRouter.model",
-          "title": "cmux Model Router Model",
-          "help": "The model new cmux model router chats start on.",
-          "kind": "choice",
-          "default": "deepseek/deepseek-v4.1-flash-1017",
-          "group": "Agent Chat",
-          "values": [
-            "deepseek/deepseek-v4.1-flash-1017",
-            "deepseek/deepseek-v4.1-flash",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-v4-pro"
-          ]
-        },
-        {
           "key": "agents.promptCache",
           "title": "Prompt Cache",
           "help": "One hour keeps replies after a pause cheap; its cache writes cost a little more.",
@@ -4133,7 +4119,7 @@
           "title": "Customization notices",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "App Theme"
         },
         {
@@ -5041,14 +5027,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.showAutomaticSessions",
-          "title": "Show Automatic Sessions",
-          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
-        },
-        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5101,7 +5079,7 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {

@@ -73,7 +73,7 @@ public final class AuthCoordinator {
 
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
-    private let userCache: CMUXAuthIdentityStore
+    let userCache: CMUXAuthIdentityStore
     private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
@@ -349,7 +349,7 @@ public final class AuthCoordinator {
             }
             pendingNonce = nonce
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw AuthError(displaySafe: error, backend: config.backendName, redirectURL: config.magicLinkCallbackURL) ?? error
         }
     }
 
@@ -374,7 +374,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
         }
         pendingNonce = nil
     }
@@ -396,7 +396,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
         }
     }
 
@@ -430,7 +430,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
-            throw AuthError(displaySafe: error) ?? error
+            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
         }
     }
 
@@ -522,7 +522,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             lastExternalSignInFailureDetail = AuthError.failureDetail(for: error)
-            throw AuthError(displaySafe: error) ?? error
+            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
         }
     }
 

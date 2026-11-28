@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import CmuxNextTestSupport
 import Testing
 

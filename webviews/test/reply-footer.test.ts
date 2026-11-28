@@ -1,5 +1,8 @@
-// A reply's footer: its buttons, on the prose's left edge, and no time (the Codex app shows none;
-// Lawrence, 2026-11-11 standup); the finished chat's last reply keeps its buttons in sight at rest.
+// A reply's footer: its buttons, on the prose's left edge, then its age; the whole row hidden at rest
+// and shown while the pointer is on the turn, as Claude Code desktop's (Leo, 2026-11-22: "claude
+// hides buttons until you hover over the relevant area of a turn response ... and you hover and you
+// get the timing ... i think we go with claude code here. idk when we decided to always show all
+// buttons always. let's not"). Showing it moves nothing: its line is kept at rest.
 //
 // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 // should always just be there left aligned"; "i should be able to see the copy buttons on your
@@ -9,9 +12,10 @@
 // In gallery entry agent-pane.transcript-row-alignment, light and dark:
 // - `footer` (the pointer on the first turn's footer): every footer's first element is its button
 //   group, and its first glyph's box (the 16px icon box, design/grid.md 5.5) starts on the prose's
-//   left edge, and no footer draws a time;
-// - `finished` (a finished chat, no pointer): the last reply's buttons show at rest; pointed at,
-//   no time shows and the buttons do not move.
+//   left edge, and every footer draws its age after its buttons;
+// - `finished` (a finished chat): at rest every earlier footer's row is hidden and the last one shows
+//   its buttons without its age (Lucas, 2026-11-26); pointed at, the age shows, and neither the
+//   buttons nor any transcript row moves.
 //
 // CMUX_REPLY_FOOTER_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes 2x stills of the
 // last reply and its footer, at rest and pointed at, in each theme.
@@ -134,10 +138,13 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // No footer draws a time (Lawrence, 2026-11-11 standup: the Codex app shows none, "when I
-        // hover, the time shows up on the right, which I don't think is good").
+        // Every footer's age comes after its buttons (Leo, 2026-11-22: "you hover and you get the
+        // timing ["4 minutes ago" next to copy/fork/pin/speaker]").
         expect(measured.length).toBeGreaterThan(1);
-        for (const footer of measured) expect(footer.time).toBeUndefined();
+        for (const footer of measured) {
+          expect(footer.time).toBeDefined();
+          expect(footer.time!.left).toBeGreaterThanOrEqual(footer.lastButtonRight - TOLERANCE);
+        }
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();
@@ -152,7 +159,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       }
     });
 
-    test(`a finished chat's last reply shows its buttons at rest, and pointed at, no time (${theme.name})`, async () => {
+    test(`a reply's row is hidden at rest and shows with its age on hover, moving nothing (${theme.name})`, async () => {
       const page = await open("finished", theme.name);
       try {
         const last = ".acpmux-turnSummary.acpmux-row--final-footer";
@@ -163,37 +170,65 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await still(page, `${theme.file}-rest`);
         expect(rest, "the chat's last footer").toBeDefined();
         expect(rest!.buttons.length).toBeGreaterThan(0);
+        // The chat's last turn keeps its buttons shown at rest (Lucas, 2026-11-26); its age shows on
+        // hover only.
         expect(rest!.actionsOpacity).toBe(1);
-        expect(rest!.time).toBeUndefined();
+        expect(rest!.time).toBeDefined();
+        expect(rest!.time!.opacity).toBe(0);
         expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
-        await page.hover(`${last} .cv-turn-action-group`);
+        // Every transcript row's box at rest: hovering must not move or resize any of them.
+        const boxes = () =>
+          page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>("article.acpmux-row")].map((row) => {
+              const box = row.getBoundingClientRect();
+              return [Math.round(box.top * 2) / 2, Math.round(box.height * 2) / 2];
+            }),
+          );
+        const restBoxes = await boxes();
+        // Pointing at the reply's text (the turn's response area), not the row itself, reveals it.
+        const replies = page.locator(".acpmux-row.acpmux-assistant");
+        await replies.nth((await replies.count()) - 1).hover();
+        await page.waitForFunction(
+          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-time`)!).opacity === "1",
+          last,
+        );
         const [hover] = await footers(page, last);
         console.log(`REPLY_FOOTER ${theme.file} hover ${JSON.stringify(hover)}`);
         await still(page, `${theme.file}-hover`);
-        expect(hover!.time).toBeUndefined();
+        expect(hover!.actionsOpacity).toBe(1);
+        expect(hover!.time?.opacity).toBe(1);
+        expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
-        // "the thing always showing at hte bottom").
+        expect(await boxes(), "no transcript row moves when the row shows").toEqual(restBoxes);
+        // Keyboard focus inside the turn shows the row too, its age included.
         await page.mouse.move(1, 1);
+        // A key earns :focus-visible (src/ui/focusModality.ts), then focus lands in the row.
+        await page.keyboard.press("Shift");
+        await page.locator(`${last} .cv-turn-action-group .cv-iconbtn`).first().focus();
+        const [focused] = await footers(page, last);
+        expect(focused!.actionsOpacity).toBe(1);
+        expect(focused!.time?.opacity).toBe(1);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // Earlier footers are hidden at rest too.
         const earlier = await footers(
           page,
           ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
         );
         expect(earlier.length).toBeGreaterThan(0);
         for (const footer of earlier) {
-          expect(footer.actionsOpacity).toBe(1);
-          expect(footer.time).toBeUndefined();
+          expect(footer.actionsOpacity).toBe(0);
+          expect(footer.time?.opacity ?? 0).toBe(0);
         }
       } finally {
         await page.close();
       }
     });
-    // Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the
-    // turn is done like chatgpt". Whether the last turn ended on a reply (`finished`) or on a run of
-    // commands (`finished-work`), its row shows at rest, one --grid-gap-footer under the turn's last
-    // line, and is its 32 line alone: no blank band between the turn's last line and the buttons.
+    // Whether the last turn ended on a reply (`finished`) or on a run of commands (`finished-work`),
+    // its row (shown at rest, the last turn's, since Lucas, 2026-11-26) sits one --grid-gap-footer under
+    // the turn's last line, and is its 32 line alone: no blank band between the turn's last line and
+    // the buttons.
     for (const variant of ["finished", "finished-work"]) {
-      test(`a finished chat's last turn shows its row at rest, 8 under its last line (${variant}, ${theme.name})`, async () => {
+      test(`a finished chat's last turn keeps its row's line, 8 under its last line (${variant}, ${theme.name})`, async () => {
         const page = await open(variant, theme.name);
         try {
           const last = ".acpmux-turnSummary.acpmux-row--final-footer";

@@ -54,8 +54,23 @@ download() {
   curl "${curl_args[@]}" "$url"
 }
 
+# The machine's GitHub release and archive cache (cmux-git-cache, RFD 0155), when it listens:
+# it answers with GitHub's own bytes or a redirect to GitHub, and any failure here retries GitHub
+# directly. CMUX_TRANSPORT_REWRITE=0 turns it off.
+cmux_cached_url() {
+  case "$1" in https://github.com/*/releases/download/* | https://codeload.github.com/*) ;; *) return 1 ;; esac
+  [ "${CMUX_TRANSPORT_REWRITE:-1}" != 0 ] && [ -r /run/cmux/git-cache/base ] || return 1
+  local proxy
+  proxy="$(cat /run/cmux/git-cache/base)" || return 1
+  case "$proxy" in http://127.0.0.1:[0-9]*) ;; *) return 1 ;; esac
+  printf '%s/%s\n' "$proxy" "${1#https://}"
+}
+
 rm -f "$archive" "$binary"
-if ! download "$release_url"; then
+if cached_url="$(cmux_cached_url "$release_url")" &&
+  download "$cached_url" --proto '=http,https' --retry 0; then
+  echo "actionlint through the machine cache" >&2
+elif rm -f "$archive" && ! download "$release_url"; then
   echo "actionlint release download failed; trying immutable asset API endpoint" >&2
   rm -f "$archive"
   if ! download "$api_url" --header 'Accept: application/octet-stream'; then

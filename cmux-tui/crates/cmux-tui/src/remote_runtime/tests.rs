@@ -11,6 +11,8 @@ mod initial_route_budget;
 #[cfg(unix)]
 mod last_good_route;
 #[cfg(unix)]
+mod ssh_auth_budget;
+#[cfg(unix)]
 mod ssh_forced_command;
 #[cfg(unix)]
 mod warm_standby;

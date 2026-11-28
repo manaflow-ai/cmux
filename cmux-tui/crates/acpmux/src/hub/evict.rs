@@ -20,32 +20,154 @@ use super::*;
 /// The env var that turns eviction on: seconds of no use after which an idle chat leaves memory.
 pub(crate) const EVICT_IDLE_ENV: &str = "ACPMUX_EVICT_IDLE_SECS";
 
+/// The env var that caps the chats in memory: past it the reaper evicts the least recently used
+/// chats that may leave, however recently they were used (0 or unset: no cap).
+pub(crate) const RESIDENT_CAP_ENV: &str = "ACPMUX_RESIDENT_CAP";
+
+/// How often the reaper looks at the resident count while a cap is set: a chat made or read back
+/// anywhere can push the count over it, and no one place sees them all.
+const CAP_LOOK: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How many rehydrate times the tier keeps for `status` (the newest).
+const REHYDRATE_SAMPLES: usize = 4096;
+
 /// How many chats one pass evicts at most, so a pass after a long sleep stays short.
 const EVICT_AT_ONCE: usize = 256;
 
-/// One evicted chat: what the whole-set reads and a list page need without its session.
+/// One evicted chat: what the whole-set reads and a list page need without its session, about
+/// 1 kB. Its whole metadata stays in the store: a chat's is ~11 kB (most of it the cmux guidance
+/// every chat carries), and kept here it cost about what the session it replaced did (dhat,
+/// n=1,000: 27 kB a row against 30 kB a session).
 pub(crate) struct Evicted {
-    pub(super) meta: SessionMeta,
+    pub(super) keys: EvictedKeys,
     /// Its list row (no tools) and full row (with tools), serialized when it left.
-    list: Arc<str>,
-    full: Arc<str>,
+    list: PackedRow,
+    full: PackedRow,
+}
+
+/// What a whole-set read or a create's check matches an evicted chat by: the fields of its
+/// metadata they read, nothing else.
+pub(crate) struct EvictedKeys {
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) status: SessionStatus,
+    pub(super) updated_at: u64,
+    /// Its `session.alias` tag's value.
+    pub(super) alias: Option<String>,
+    pub(super) handle: Option<String>,
+    pub(super) former_names: Vec<String>,
+    pub(super) create_key: Option<String>,
+    pub(super) agent_session_id: Option<String>,
+}
+
+impl EvictedKeys {
+    pub(super) fn of(m: &SessionMeta) -> Self {
+        Self {
+            id: m.id.clone(),
+            name: m.name.clone(),
+            status: m.status,
+            updated_at: m.updated_at,
+            alias: m.tags.get("session.alias").map(|tag| tag.value.clone()),
+            handle: m.handle.clone(),
+            former_names: m.former_names.clone(),
+            create_key: m.create_key.clone(),
+            agent_session_id: m.agent_session_id.clone(),
+        }
+    }
+}
+
+/// A list row's bytes, packed against the tier's shared row ([`Tier::row_dict`]): rows have the
+/// same keys and mostly the same values, so each keeps little more than what differs (a 3.5 kB
+/// row is a few hundred bytes). Unpacked when a list page reads it.
+enum PackedRow {
+    Packed {
+        dict: Arc<RowDict>,
+        len: u32,
+        bytes: Box<[u8]>,
+    },
+    /// Kept as it is when packing failed, or did not make it smaller.
+    Plain(Arc<str>),
+}
+
+/// The zstd level rows are packed at: an eviction packs two rows, a list page unpacks them.
+const ROW_LEVEL: i32 = 3;
+
+/// The shared row, prepared once for packing and for unpacking: a list page unpacks every
+/// evicted row it shows, and loading the raw row into each unpack cost more than the unpack.
+pub(crate) struct RowDict {
+    pack: zstd::dict::EncoderDictionary<'static>,
+    unpack: zstd::dict::DecoderDictionary<'static>,
+}
+
+impl RowDict {
+    fn new(row: &[u8]) -> Self {
+        Self {
+            pack: zstd::dict::EncoderDictionary::copy(row, ROW_LEVEL),
+            unpack: zstd::dict::DecoderDictionary::copy(row),
+        }
+    }
+}
+
+impl PackedRow {
+    fn pack(text: Arc<str>, dict: &Arc<RowDict>) -> Self {
+        let packed = u32::try_from(text.len()).ok().and_then(|len| {
+            let mut packer = zstd::bulk::Compressor::with_prepared_dictionary(&dict.pack).ok()?;
+            let bytes = packer.compress(text.as_bytes()).ok()?;
+            (bytes.len() < text.len()).then_some((len, bytes))
+        });
+        match packed {
+            Some((len, bytes)) => {
+                Self::Packed { dict: dict.clone(), len, bytes: bytes.into_boxed_slice() }
+            }
+            None => Self::Plain(text),
+        }
+    }
+
+    fn text(&self) -> Arc<str> {
+        match self {
+            Self::Plain(text) => text.clone(),
+            Self::Packed { dict, len, bytes } => {
+                let unpacked = zstd::bulk::Decompressor::with_prepared_dictionary(&dict.unpack)
+                    .and_then(|mut d| d.decompress(bytes, *len as usize))
+                    .ok()
+                    .and_then(|raw| String::from_utf8(raw).ok());
+                // It packed bytes that were a string; nothing else can come back.
+                unpacked.map(Into::into).unwrap_or_else(|| "null".into())
+            }
+        }
+    }
+
+    /// Bytes it holds besides the shared row.
+    #[cfg(test)]
+    fn held(&self) -> usize {
+        match self {
+            Self::Plain(text) => text.len(),
+            Self::Packed { bytes, .. } => bytes.len(),
+        }
+    }
 }
 
 impl Evicted {
     pub(super) fn id(&self) -> &str {
-        &self.meta.id
+        &self.keys.id
     }
 
     pub(super) fn updated_at(&self) -> u64 {
-        self.meta.updated_at
+        self.keys.updated_at
     }
 
     pub(super) fn status(&self) -> SessionStatus {
-        self.meta.status
+        self.keys.status
     }
 
     pub(super) fn row_text(&self, with_tools: bool) -> Arc<str> {
-        if with_tools { self.full.clone() } else { self.list.clone() }
+        if with_tools { self.full.text() } else { self.list.text() }
+    }
+
+    /// Bytes its rows hold besides the shared row.
+    #[cfg(test)]
+    pub(super) fn rows_held(&self) -> usize {
+        self.list.held() + self.full.held()
     }
 }
 
@@ -56,8 +178,14 @@ pub(crate) struct Tier {
     after_ns: AtomicU64,
     pub(super) evictions: AtomicU64,
     pub(super) rehydrations: AtomicU64,
+    /// The most chats left in memory ([`RESIDENT_CAP_ENV`]); 0: no cap.
+    cap: std::sync::atomic::AtomicUsize,
+    /// How long the newest rehydrates took, in microseconds (a ring of [`REHYDRATE_SAMPLES`]).
+    rehydrate_us: StdMutex<std::collections::VecDeque<u64>>,
     /// The last pass stopped at [`EVICT_AT_ONCE`]: due chats remain that nothing kept.
     pub(super) more_due: AtomicBool,
+    /// The row every evicted row is packed against ([`PackedRow`]): the first one evicted.
+    row_dict: StdMutex<Option<Arc<RowDict>>>,
 }
 
 impl Default for Tier {
@@ -68,7 +196,15 @@ impl Default for Tier {
             after_ns: AtomicU64::new(secs.unwrap_or(0).saturating_mul(1_000_000_000)),
             evictions: AtomicU64::new(0),
             rehydrations: AtomicU64::new(0),
+            cap: std::sync::atomic::AtomicUsize::new(
+                std::env::var(RESIDENT_CAP_ENV)
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(0),
+            ),
+            rehydrate_us: Default::default(),
             more_due: AtomicBool::new(false),
+            row_dict: StdMutex::new(None),
         }
     }
 }
@@ -93,9 +229,59 @@ impl Tier {
         self.lock().len()
     }
 
+    /// The most chats the reaper leaves in memory, None when no cap is set.
+    pub(super) fn cap(&self) -> Option<usize> {
+        Some(self.cap.load(Ordering::Relaxed)).filter(|c| *c != 0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cap(&self, cap: Option<usize>) {
+        self.cap.store(cap.unwrap_or(0), Ordering::Relaxed);
+    }
+
+    fn note_rehydrate(&self, took: std::time::Duration) {
+        let mut ring = self.rehydrate_us.lock().unwrap_or_else(|e| e.into_inner());
+        if ring.len() == REHYDRATE_SAMPLES {
+            ring.pop_front();
+        }
+        ring.push_back(u64::try_from(took.as_micros()).unwrap_or(u64::MAX));
+    }
+
+    /// (samples, p50, p99) of the newest rehydrate times in microseconds; zeros when none.
+    pub(crate) fn rehydrate_quantiles(&self) -> (usize, u64, u64) {
+        let mut v: Vec<u64> =
+            self.rehydrate_us.lock().unwrap_or_else(|e| e.into_inner()).iter().copied().collect();
+        if v.is_empty() {
+            return (0, 0, 0);
+        }
+        v.sort_unstable();
+        let last = v.len().saturating_sub(1);
+        let at = |q: f64| {
+            let rank = ((last as f64) * q).round() as usize;
+            v.get(rank.min(last)).copied().unwrap_or(0)
+        };
+        (v.len(), at(0.5), at(0.99))
+    }
+
+    /// The shared row rows are packed against, `first` when there is none yet.
+    fn row_dict(&self, first: &str) -> Arc<RowDict> {
+        let mut dict = self.row_dict.lock().unwrap_or_else(|e| e.into_inner());
+        dict.get_or_insert_with(|| Arc::new(RowDict::new(first.as_bytes()))).clone()
+    }
+
+    /// `session`'s row for this tier: its keys and both list rows, packed.
+    fn row_of(&self, meta: &SessionMeta, list: Arc<str>, full: Arc<str>) -> Evicted {
+        let dict = self.row_dict(&list);
+        Evicted {
+            keys: EvictedKeys::of(meta),
+            list: PackedRow::pack(list, &dict),
+            full: PackedRow::pack(full, &dict),
+        }
+    }
+
     /// How many evicted chats are not closed: they count as live, as they did in memory.
     pub(super) fn live_len(&self) -> usize {
-        self.lock().values().filter(|row| row.meta.status != SessionStatus::Closed).count()
+        self.lock().values().filter(|row| row.keys.status != SessionStatus::Closed).count()
     }
 
     pub(super) fn contains(&self, id: &str) -> bool {
@@ -111,19 +297,19 @@ impl Tier {
         self.lock().values().cloned().collect()
     }
 
-    /// Whether any evicted chat's metadata answers `pred`: the whole-set reads' other half.
-    pub(super) fn any_meta(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> bool {
-        self.lock().values().any(|row| pred(&row.meta))
+    /// Whether any evicted chat's keys answer `pred`: the whole-set reads' other half.
+    pub(super) fn any_keys(&self, mut pred: impl FnMut(&EvictedKeys) -> bool) -> bool {
+        self.lock().values().any(|row| pred(&row.keys))
     }
 
     /// Every evicted chat's name: the taken names a new chat's name avoids.
     pub(super) fn names(&self) -> Vec<String> {
-        self.lock().values().map(|row| row.meta.name.clone()).collect()
+        self.lock().values().map(|row| row.keys.name.clone()).collect()
     }
 
-    /// The ids of the evicted chats whose metadata answers `pred`.
-    pub(super) fn ids_where(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> Vec<String> {
-        self.lock().values().filter(|row| pred(&row.meta)).map(|row| row.meta.id.clone()).collect()
+    /// The ids of the evicted chats whose keys answer `pred`.
+    pub(super) fn ids_where(&self, mut pred: impl FnMut(&EvictedKeys) -> bool) -> Vec<String> {
+        self.lock().values().filter(|row| pred(&row.keys)).map(|row| row.keys.id.clone()).collect()
     }
 }
 
@@ -158,6 +344,7 @@ impl Hub {
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if session.is_some() && self.evicted.lock().remove(id).is_some() {
             self.evicted.rehydrations.fetch_add(1, Ordering::Relaxed);
+            self.evicted.note_rehydrate(began.elapsed());
             tracing::debug!(session = %id, took_us = began.elapsed().as_micros() as u64, "rehydrated");
         }
         session
@@ -175,7 +362,7 @@ impl Hub {
             .map(|(_, id)| id);
         let bare = !key.contains('/');
         let ids = self.evicted.ids_where(|m| {
-            let alias = m.tags.get("session.alias").map(|tag| tag.value.as_str());
+            let alias = m.alias.as_deref();
             qualified == Some(m.id.as_str())
                 || m.id.starts_with(key)
                 || m.name.starts_with(key)
@@ -189,9 +376,9 @@ impl Hub {
         }
     }
 
-    /// Brings back every evicted chat whose metadata answers `pred` (a create's id, key, name or
+    /// Brings back every evicted chat whose keys answer `pred` (a create's id, key, name or
     /// adopted session: the checks that pick or refuse it read the map).
-    pub(super) fn rehydrate_where(&self, pred: impl FnMut(&SessionMeta) -> bool) {
+    pub(super) fn rehydrate_where(&self, pred: impl FnMut(&EvictedKeys) -> bool) {
         if self.evicted.len() == 0 {
             return;
         }
@@ -212,7 +399,7 @@ impl Hub {
         now: u64,
         after: u64,
     ) -> Option<&'static str> {
-        let checks: [(&'static str, &dyn Fn() -> bool); 23] = [
+        let checks: [(&'static str, &dyn Fn() -> bool); 24] = [
             ("recently active", &|| {
                 session.last_active.load(Ordering::SeqCst).saturating_add(after) > now
             }),
@@ -228,6 +415,14 @@ impl Hub {
             ("in a turn", &|| session.turn().is_some()),
             ("harness turn", &|| session.harness_turn.load(Ordering::SeqCst)),
             ("queued", &|| session.queued() != 0),
+            // Its inbound loop holds it only weakly between items: an item queued, or a sender
+            // beside its own (an agent, a reader), still has work for it.
+            // A chat that never made its channel has nothing inbound (read, not made, here).
+            ("inbound", &|| {
+                session.inbound.get().is_some_and(|ch| {
+                    ch.tx.strong_count() > 1 || ch.tx.capacity() < ch.tx.max_capacity()
+                })
+            }),
             ("asks in flight", &|| session.asks_in_flight.load(Ordering::SeqCst) != 0),
             ("agent requests", &|| session.agent_requests.load(Ordering::SeqCst) != 0),
             ("permissions pending", &|| !session.pending_permissions().is_empty()),
@@ -258,16 +453,54 @@ impl Hub {
     /// wakeups/s idle in the n=100 bench). Only when the last pass stopped at [`EVICT_AT_ONCE`] do
     /// past deadlines wake it at once.
     pub(super) fn next_evict_deadline(&self) -> Option<std::time::Duration> {
-        let after = self.evicted.after()?;
         let now = std::time::Duration::from_nanos(self.clock_now());
+        // With a cap set, look at the count every [`CAP_LOOK`].
+        let cap_look = self.evicted.cap().map(|_| now + CAP_LOOK);
+        let Some(after) = self.evicted.after() else { return cap_look };
         let retry = if self.evicted.more_due.load(Ordering::Relaxed) { now } else { now + after };
         self.session_handles()
             .iter()
             .filter(|s| s.child.try_lock().is_ok_and(|c| c.is_none()))
             .filter(|s| s.attached.load(Ordering::Relaxed) == 0)
-            .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + after)
+            .map(|s| {
+                let since = s.last_active.load(Ordering::Relaxed);
+                std::time::Duration::from_nanos(since.max(s.evict_tried_at.load(Ordering::Relaxed)))
+                    + after
+            })
             .map(|due| if due > now { due } else { retry })
+            .chain(cap_look)
             .min()
+    }
+
+    /// One pass of the resident cap: while more chats are in memory than the cap, the least
+    /// recently used chat that may leave does, whatever its idle time. A chat `kept_because` keeps
+    /// (a turn, an inbound item, a client attached, ...) is never taken, so the count can stay
+    /// over the cap while those hold. Returns how many left.
+    pub(super) fn evict_over_cap(&self) -> usize {
+        let Some(cap) = self.evicted.cap() else { return 0 };
+        let resident = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let Some(mut over) = resident.checked_sub(cap).filter(|o| *o > 0) else { return 0 };
+        let now = self.clock_now();
+        // After 0: its idle period does not keep a chat, only what `kept_because` finds in it.
+        let mut due: Vec<Arc<Session>> =
+            self.session_handles().into_iter().filter(|s| self.evictable(s, now, 0)).collect();
+        due.sort_by_key(|s| s.last_active.load(Ordering::Relaxed));
+        let mut left = 0;
+        // Each handle moves into `evict` (see `evict_idle_chats`).
+        for s in due {
+            if over == 0 {
+                break;
+            }
+            let id = s.id.clone();
+            match self.evict(s, now, 0) {
+                Ok(()) => {
+                    left += 1;
+                    over -= 1;
+                }
+                Err(why) => tracing::debug!(session = %id, %why, "kept in memory over the cap"),
+            }
+        }
+        left
     }
 
     /// One pass of the idle reaper: every chat due leaves memory (at most [`EVICT_AT_ONCE`]).
@@ -275,15 +508,39 @@ impl Hub {
         let Some(after) = self.evicted.after() else { return 0 };
         let after = u64::try_from(after.as_nanos()).unwrap_or(u64::MAX);
         let now = self.clock_now();
-        let due: Vec<Arc<Session>> = self
+        // A chat this reaper tried within the last idle period and could not evict waits out that
+        // period: else the same kept chats fill every batch, `more_due` stays set and the reaper
+        // runs pass after pass at once (98.8% CPU, 374 wakeups/s idle at n=1,000).
+        let mut due: Vec<Arc<Session>> = self
             .session_handles()
             .into_iter()
+            .filter(|s| s.evict_tried_at.load(Ordering::Relaxed).saturating_add(after) <= now)
             .filter(|s| self.evictable(s, now, after))
-            .take(EVICT_AT_ONCE)
             .collect();
-        self.evicted.more_due.store(due.len() == EVICT_AT_ONCE, Ordering::Relaxed);
-        // Each handle moves into `evict`: a clone kept here would count as a third holder.
-        due.into_iter().map(|s| self.evict(s, now, after)).filter(Result::is_ok).count()
+        // The least recently tried go first (never tried: 0), so more than a batch of kept
+        // chats cannot take every batch from the chats behind them in the map's order.
+        if due.len() > EVICT_AT_ONCE {
+            due.select_nth_unstable_by_key(EVICT_AT_ONCE, |s| {
+                s.evict_tried_at.load(Ordering::Relaxed)
+            });
+            due.truncate(EVICT_AT_ONCE);
+        }
+        let full = due.len() == EVICT_AT_ONCE;
+        // Each handle moves into `evict`: a clone kept here would count as a third holder. Each
+        // is marked tried first; one that leaves takes the mark with it.
+        let evicted = due
+            .into_iter()
+            .map(|s| {
+                s.evict_tried_at.store(now, Ordering::Relaxed);
+                let id = s.id.clone();
+                self.evict(s, now, after)
+                    .inspect_err(|why| tracing::debug!(session = %id, %why, "kept in memory"))
+            })
+            .filter(Result::is_ok)
+            .count();
+        // More are due at once only when this pass was full and every chat in it left.
+        self.evicted.more_due.store(full && evicted == EVICT_AT_ONCE, Ordering::Relaxed);
+        evicted
     }
 
     /// `session` leaves the map for a tier row, when nothing else holds it.
@@ -292,7 +549,7 @@ impl Hub {
         self.meta_barrier(&session).map_err(|e| format!("meta barrier: {}", e.message))?;
         let list = self.own_row_text(&session, false);
         let full = self.own_row_text(&session, true);
-        let row = Arc::new(Evicted { meta: session.meta(), list, full });
+        let row = Arc::new(session.read_meta(|m| self.evicted.row_of(m, list, full)));
         let id = session.id.clone();
         // The other long-lived handles let go first: the chat activity's (rebuilt on its next read).
         self.chat_activity_cache.drop_built();

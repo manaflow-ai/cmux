@@ -44,6 +44,10 @@ NOT_MENUS = {
     # The Chief's live computer screen over the Messages page: a glass card around a screenshot, with no
     # rows; its inset frames the screen and its ✕ sits in the card's corner.
     "CmuxNextHomeEngine/HomeChiefComputerPopup.swift",
+    # The browser profile menu's identity card (a whole item view, not a row): its padding is the plate's interior,
+    # and its plate inset is `MenuMetrics.highlightInset`, which CmuxNextActions cannot import (it does not depend on
+    # CmuxNextDesign); MenuPaletteParityTests holds the two equal.
+    "CmuxNextActions/MenuProfileCardView.swift",
 }
 # The system menu bar's status item (`MenuBarIcon`) is an icon, not a menu.
 NOT_SURFACE = re.compile(r"MenuBar")

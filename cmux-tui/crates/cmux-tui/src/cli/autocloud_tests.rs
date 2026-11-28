@@ -329,3 +329,29 @@ fn autocloud_catalog_labels_every_choice() {
         assert_ne!(status_label(s), "Unknown");
     }
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the bearer rides only in `Authorization` and
+/// the team only in the `team` query. tests/egress_seeded.json names this test for
+/// `cmux_tui::cli::autocloud`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_platform_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDautocloudBearer-5c3a";
+    let team = "SEEDautocloudTeam-e81b";
+    let common = Common {
+        platform: Some(cmux_cloud_environment::PRODUCTION_PLATFORM.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let _ = run(&common, &Verb::Runs { id: "seeded".into(), limit: 1 }, None).await;
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    let ours: Vec<_> = sent.iter().filter(|r| r.target.starts_with("/v1/automations")).collect();
+    assert!(!ours.is_empty(), "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty());
+    assert!(places.iter().all(|p| p.ends_with(": target")), "{places:?}");
+}

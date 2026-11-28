@@ -57,6 +57,9 @@ pub fn restore_within(
     submodules: Duration,
 ) -> Result<Restored, String> {
     let path = path.unwrap_or(&manifest.path).to_path_buf();
+    if manifest.parked {
+        return crate::park::restore(store, manifest, &path);
+    }
     if path.exists() && std::fs::read_dir(&path).map(|mut d| d.next().is_some()).unwrap_or(true) {
         return Err(format!("{} is not empty", path.display()));
     }

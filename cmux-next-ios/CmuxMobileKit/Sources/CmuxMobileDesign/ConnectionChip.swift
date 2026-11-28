@@ -119,7 +119,7 @@ public struct ConnectionChip: View {
                 .opacity(shown ? 1 : 0)
                 .allowsHitTesting(shown)
                 .accessibilityHidden(!shown)
-                .animation(.easeOut(duration: 0.2), value: shown)
+                .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
                 .modifier(QuietSince(quiet: quiet, downSince: downSince))
         }
     }
@@ -202,7 +202,7 @@ public extension ConnectionChip {
                 symbol
                     .opacity(shown ? 1 : 0)
                     .accessibilityHidden(!shown)
-                    .animation(.easeOut(duration: 0.2), value: shown)
+                    .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
                     .modifier(QuietSince(quiet: quiet, downSince: downSince))
             }
         }

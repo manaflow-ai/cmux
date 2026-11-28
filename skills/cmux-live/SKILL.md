@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Try a change to cmux's web UI or daemon live, with no build or relaunch: `cmux app try .` runs a copy of the person's nightly beside it with a checkout's webviews dev server and daemon Rust swapped in, leaving the app they use alone; `cmux live start --rust` covers cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
+description: "Try a cmux webviews/ or daemon change live, no build or relaunch: `cmux app try .` runs a copy of the nightly beside the person's app (`cmux live start --rust` for the daemon). Use for hot reload or before asking for a dev build."
 ---
 
 # cmux live

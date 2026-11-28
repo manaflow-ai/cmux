@@ -134,7 +134,7 @@
           },
           "summary": {
             "key": "settings.app.sendAnonymousTelemetry.summary",
-            "text": "Off until you turn it on. No prompts, files or paths."
+            "text": "Off by default. No prompts, files or paths."
           },
           "kind": "toggle",
           "default": false,

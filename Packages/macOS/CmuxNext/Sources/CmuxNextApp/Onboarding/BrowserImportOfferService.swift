@@ -160,6 +160,12 @@ final class BrowserImportOfferService {
         if state.imported { hide() }
     }
 
+    /// `browser.import_offer` and `debug.browser_import_offer`: where the card stands (``BrowserImportOfferReadout``).
+    func readout() -> JSONValue {
+        let cards = (services?.cache.browsers ?? [:]).compactMapValues { $0.chrome?.cookieImportCardReadout.map { BrowserImportOfferReadout.Card(showing: $0.showing, waitsForFocus: $0.waitsForFocus, seen: $0.seen) } }
+        return BrowserImportOfferReadout.json(state: state, bannerOn: banner?.isOn != false, offered: isOffered, shownThisLaunch: shownThisLaunch, cards: cards, browsers: browsers?.map(\.browser.displayName))
+    }
+
     /// `debug.browser_import_offer reset`: back to a fresh Mac's state, the setting on again.
     func reset() {
         update { $0 = BrowserImportOfferState() }

@@ -5,6 +5,7 @@
  * keys not cleaned yet, and client sessions whose VM was deleted are orphans.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -29,7 +30,7 @@ const OTHER = TenantId.make("team_bravo");
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 21, 0, minute));
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of [ownership, s2, creationReceipts, uncommittedCreations, agentKeys]) await pg.exec(migration);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>

@@ -39,10 +39,19 @@ public nonisolated struct BrowserHistoryEntry: Hashable, Sendable, Codable {
 /// one store per `BrowserProfileID`.
 public protocol BrowserHistoryStore: AnyObject {
     func recordVisit(url: URL, title: String?, at date: Date)
+    /// A visit with its driver (RFD 0125 D5): `actor` is "agent" for an agent-driven tab (nil: the person).
+    func recordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?)
     func updateTitle(_ title: String, for url: URL)
     /// Forgets the page (Shift-Delete on its omnibar row).
     func removeEntry(for url: URL)
     var entries: [BrowserHistoryEntry] { get }
+}
+
+public extension BrowserHistoryStore {
+    func recordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?) {
+        guard actor != "agent" else { return }
+        recordVisit(url: url, title: title, at: date)
+    }
 }
 
 /// History kept in memory. Good for demos, tests, and ephemeral profiles.
@@ -69,7 +78,16 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
     }
 
     public func recordVisit(url: URL, title: String?, at date: Date) {
+        recordVisit(url: url, title: title, at: date, actor: nil, sessionID: nil)
+    }
+
+    public func recordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?) {
         guard Self.isRecordable(url) else { return }
+        // Agent visits are kept (persisted with their actor) but never feed omnibox ranking (RFD 0125 D5).
+        if actor == "agent" {
+            persistence?.didRecordVisit(url: url, title: title, at: date, actor: actor, sessionID: sessionID)
+            return
+        }
         let key = BrowserHistoryRanker.dedupeKey(for: url)
         let typed = pendingTyped.remove(key) == nil ? 0 : 1
         var entry = byKey[key] ?? BrowserHistoryEntry(url: url, title: title, visitCount: 0, lastVisit: date)
@@ -79,7 +97,7 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         entry.url = url
         if let title { entry.title = title }
         byKey[key] = entry
-        persistence?.didRecordVisit(url: url, title: title, at: date)
+        persistence?.didRecordVisit(url: url, title: title, at: date, actor: actor, sessionID: sessionID)
         notify(.upsert([entry.omniboxRow]))
     }
 

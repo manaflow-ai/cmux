@@ -24,7 +24,7 @@ package final class WebAuthSessionBroker {
     }
 
     /// The system asks cmux to run `request`. Only a web start page opens.
-    func begin(_ request: any WebAuthSessionRequest) {
+    package func begin(_ request: any WebAuthSessionRequest) {
         guard pending[request.id] == nil else { return }
         guard let scheme = request.url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return request.cancel() }
         pending[request.id] = Session(request: request, surface: nil)
@@ -47,6 +47,9 @@ package final class WebAuthSessionBroker {
         session.surface?.close()
         return true
     }
+
+    /// Where a stopped navigation that is not the callback goes instead (``WebAuthSessionRequest/redirect(_:)``).
+    func redirect(_ id: UUID, for url: URL) -> URL? { pending[id]?.request.redirect(url) }
 
     /// The person closed the session's tab before its callback.
     func surfaceClosed(_ id: UUID) {

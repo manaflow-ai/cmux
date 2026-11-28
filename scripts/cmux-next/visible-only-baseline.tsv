@@ -28,7 +28,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/FileExplorer/FileExplorerSectionView
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/FileExplorer/FindSectionView.swift	visible-only-reload-data	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift	visible-only-eager-stack-in-scroll	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressurePopover.swift	visible-only-subviews-teardown	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift	visible-only-stack-set-views	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/PromptBarView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHost/BrowserHost/AgentRenderWindows.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift	visible-only-eager-stack-in-scroll	1
@@ -60,10 +59,9 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView.swift	visible-
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/StatesPlayground/SidebarStatesPlaygroundView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Playground/TabBarPlaygroundView.swift	visible-only-subviews-teardown	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentIncomingCard.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/CardViews.swift	visible-only-foreach-unstable-id	3
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/CardViews.swift	visible-only-foreach-unstable-id	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatComposer.swift	visible-only-eager-stack-in-scroll	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatPolishScreens.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/SessionMeterViews.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift	visible-only-foreach-unstable-id	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/WhoElseCard.swift	visible-only-foreach-unstable-id	1

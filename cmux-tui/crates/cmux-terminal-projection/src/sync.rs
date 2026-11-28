@@ -850,7 +850,8 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
         let n = r.small(u64::from(rows) - dst.max(src), "move")?;
         let from = base.ok_or(SyncError::Malformed("move from blank"))?;
         let (d, s, n) = (dst as usize * width, src as usize * width, n as usize * width);
-        state.cells[d..d + n].clone_from_slice(&from.cells[s..s + n]);
+        let to = state.cells.get_mut(d..d + n).ok_or(SyncError::Malformed("move"))?;
+        to.clone_from_slice(from.cells.get(s..s + n).ok_or(SyncError::Malformed("move"))?);
         dst += n as u64 / width as u64;
     }
     // Version 2 counts its spans; version 3's run to the payload's end.

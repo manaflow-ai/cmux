@@ -50,20 +50,21 @@ class ReviewFlagTests(unittest.TestCase):
         self.assertIn('--workspace applies only to --review', result.stderr)
 
 
-def device(udid, name, product, boot='booted', paired='paired', reality='physical'):
+def device(udid, name, product, boot='booted', paired='paired', reality='physical', transport='wired'):
     return {'identifier': udid.lower(), 'hardwareProperties': {'platform': 'iOS', 'reality': reality, 'udid': udid,
-            'productType': product}, 'connectionProperties': {'pairingState': paired, 'transportType': 'wired',
-            'tunnelState': 'connected'}, 'deviceProperties': {'bootState': boot, 'name': name}}
+            'productType': product}, 'connectionProperties': {'pairingState': paired, 'transportType': transport,
+            'tunnelState': 'connected'}, 'deviceProperties': {'bootState': boot, 'name': name,
+            'developerModeStatus': 'enabled'}}
 
 
 class ConnectedPhonesTests(unittest.TestCase):
     """--review installs on every connected phone and registers new ones."""
 
-    def run_helpers(self, devices, body, known=''):
+    def run_helpers(self, devices, body, known='', ignored='', agent='lane-a'):
         text = PHONES_LIB.read_text()
         funcs = ''.join(re.search(r'\n(%s\(\) \{\n.*?\n\})\n' % name, text, re.S).group(1) + '\n'
-                        for name in ('review_phone_result', 'review_connected_phones', 'review_register_phone',
-                                     'review_resolve_phones'))
+                        for name in ('review_phone_result', 'review_phone_audit', 'review_connected_phones', 'review_register_phone',
+                                     'review_phone_listed', 'review_phone_owner', 'review_resolve_phones'))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
@@ -75,9 +76,12 @@ class ConnectedPhonesTests(unittest.TestCase):
             config.mkdir()
             if known:
                 (config / 'iphone-device-ids').write_text(known)
+            if ignored:
+                (config / 'iphone-device-ids-ignored').write_text(ignored)
             script = ('set -u\nREVIEW_PHONES_FILE="$CMUX_CONFIG_DIR/iphone-device-ids"\nREVIEW_TARGETS=()\nREQUESTED_DEVICE_ID="${REQUESTED_DEVICE_ID:-}"\n'
                       'REVIEW_FAILED=0\nREVIEW_PHONE_STATUS=""\n' + funcs + body)
-            env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}", CMUX_CONFIG_DIR=str(config))
+            env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}", CMUX_CONFIG_DIR=str(config),
+                       ACPMUX_SESSION_NAME=agent)
             result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
             files = {f.name: f.read_text() for f in config.iterdir()}
             return result, files
@@ -101,6 +105,47 @@ class ConnectedPhonesTests(unittest.TestCase):
         self.assertIn('00008150-0000FA4E0000D0E1 (default): not connected', result.stdout)
         self.assertIn('00008110-000000000000001E', files['iphone-device-ids'])
         self.assertEqual(files['iphone-device-id'].strip(), '00008140-0000FA4E0000D0E0')
+
+    # Leo, 2026-11-26: "just now leo-prod review wanted to connect to the aziz test phone? why"
+    def test_an_unknown_wifi_phone_is_someone_elses_and_is_skipped(self):
+        devices = [device('00008140-0000FA4E0000D0E0', 'Leo iPhone', 'iPhone17,4', transport='localNetwork'),
+                   device('00008150-0000FA4E0000D0E1', 'Aziz test phone', 'iPhone18,2', transport='localNetwork')]
+        result, files = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=00008140-0000FA4E0000D0E0; REQUESTED_DEVICE_ID=""\n'
+                                         'review_resolve_phones; printf "T:%s\\n" "${REVIEW_TARGETS[@]}"; echo "$REVIEW_PHONE_STATUS"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('T:00008140-0000FA4E0000D0E0\tLeo iPhone', result.stdout)
+        self.assertNotIn('T:00008150', result.stdout)
+        self.assertIn('Aziz test phone (00008150-0000FA4E0000D0E1): skipped, not registered on this Mac', result.stdout)
+        self.assertNotIn('00008150', files.get('iphone-device-ids', ''))
+        # The refusal and the connect are both audited, naming the agent that asked.
+        audit = [line.split('\t') for line in files['iphone-connect-audit.log'].splitlines()]
+        self.assertEqual([(row[2], row[4], row[5], row[6]) for row in audit],
+                         [('lane-a', 'connect', 'owned', '00008140-0000FA4E0000D0E0'),
+                          ('lane-a', 'refused', 'not-this-macs-phone', '00008150-0000FA4E0000D0E1')])
+        self.assertEqual(audit[1][7:], ['Aziz test phone', 'localNetwork'])
+
+    def test_a_known_wifi_phone_and_a_new_usb_phone_still_install(self):
+        devices = [device('00008140-0000FA4E0000D0E0', 'iPhone', 'iPhone17,4', transport='localNetwork'),
+                   device('00008110-000000000000001E', 'Spare', 'iPhone14,2', transport='wired')]
+        result, files = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=""; REQUESTED_DEVICE_ID=""\n'
+                                         'review_resolve_phones; printf "T:%s\\n" "${REVIEW_TARGETS[@]}"',
+                                         known='00008140-0000fa4e0000d0e0\tiPhone\tiPhone17,4\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('T:00008140-0000FA4E0000D0E0', result.stdout)
+        self.assertIn('T:00008110-000000000000001E', result.stdout)
+        self.assertIn('00008110-000000000000001E', files['iphone-device-ids'])
+
+    def test_device_id_picks_an_unknown_wifi_phone_and_ignored_phones_stay_out(self):
+        devices = [device('00008150-0000FA4E0000D0E1', 'Aziz test phone', 'iPhone18,2', transport='localNetwork'),
+                   device('00008110-000000000000001E', 'Spare', 'iPhone14,2', transport='wired')]
+        result, _ = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=""; REQUESTED_DEVICE_ID=00008150-0000FA4E0000D0E1\n'
+                                     'review_resolve_phones; printf "T:%s\\n" "${REVIEW_TARGETS[@]}"; echo "$REVIEW_PHONE_STATUS"',
+                                     known='00008110-000000000000001E\tSpare\tiPhone14,2\n',
+                                     ignored='# registered by mistake\n00008110-000000000000001e\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('T:00008150-0000FA4E0000D0E1', result.stdout)
+        self.assertNotIn('T:00008110', result.stdout)
+        self.assertIn('Spare (00008110-000000000000001E): skipped, listed in iphone-device-ids-ignored', result.stdout)
 
     def test_no_connected_phone_is_a_blocker(self):
         result, _ = self.run_helpers([], 'DEVICE_ID=""; DEFAULT_DEVICE_ID=""\nreview_resolve_phones')

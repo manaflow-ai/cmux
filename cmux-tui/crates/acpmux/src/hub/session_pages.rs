@@ -380,9 +380,26 @@ fn peer<R: PageRow + ?Sized>(session: &R) -> Option<&str> {
 /// Where a row stands in [`byte_page`]'s order: two FNV-1a hashes of its `sessionId` and
 /// `peer` ([`row_key`]'s bytes), the same in every daemon run.
 fn page_key<R: PageRow + ?Sized>(session: &R) -> u128 {
-    let high = fnv(0xcbf2_9ce4_8422_2325, row_key_bytes(session));
-    let low = fnv(0x6c62_272e_07bb_0142, row_key_bytes(session));
+    page_key_of(session_id(session), peer(session))
+}
+
+/// [`page_key`] of the row with session id `id` and peer `peer`: what the list indexes keep each
+/// row under (`list_order.rs`, `remote_rows.rs`), so a byte page reads its own rows in order.
+pub(crate) fn page_key_of(id: &str, peer: Option<&str>) -> u128 {
+    let bytes = || {
+        id.bytes().chain(peer.map(|p| std::iter::once(0).chain(p.bytes())).into_iter().flatten())
+    };
+    let high = fnv(0xcbf2_9ce4_8422_2325, bytes());
+    let low = fnv(0x6c62_272e_07bb_0142, bytes());
     (u128::from(high) << 64) | u128::from(low)
+}
+
+/// The page key after which an `h` cursor of [`byte_page`] starts, with nothing after it (no
+/// `~k` filter); None for any other cursor.
+pub(crate) fn hash_cursor(params: &Value) -> Option<u128> {
+    let text = params.get("cursor")?.as_str()?;
+    let hex = text.strip_prefix('h').filter(|hex| hex.len() == 32)?;
+    u128::from_str_radix(hex, 16).ok()
 }
 
 /// FNV-1a of the session id, then, for a peer's row, a NUL and the peer's name: the same in

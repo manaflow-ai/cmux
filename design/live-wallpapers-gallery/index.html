@@ -37,6 +37,7 @@
     const m = wp.manifest;
     const section = document.createElement("section");
     section.id = wp.id;
+    if (wp.scene) section.dataset.scene = "1";
     section.innerHTML = `<h2>${m.name}</h2><p>${m.description ?? ""}</p><div class="grid"></div>`;
     main.append(section);
     const grid = section.querySelector(".grid");
@@ -49,7 +50,8 @@
         figure.insertAdjacentHTML("beforeend", `<figcaption>${variant.name} · ${theme}</figcaption>`);
         grid.append(figure);
         const vstill = variant.still ?? m.still;
-        const options = { theme, accent: variant.accent, params: variant.params, seed: 0.37, pointer: vstill?.pointer };
+        const options = { theme, variant: variant.name, accent: variant.accent, params: variant.params, seed: 0.37, pointer: vstill?.pointer };
+        figure.dataset.card = `${variant.name}|${theme}`;
         // Every card first shows its still, drawn in a context that is given back at once.
         const img = document.createElement("img");
         img.className = "still";
@@ -98,5 +100,27 @@
     }
   });
   for (const l of live) io.observe(l.img);
+
+  // shoot.mjs: the still (k = "still") or frame k of a scene's precomputed sequence for one card, as a PNG data URL (rows
+  // flipped back to top-down, as the cards show them).
+  window.sceneFrame = (id, card, k) => {
+    const wp = WALLPAPERS.find((w) => w.id === id);
+    const [variant, theme] = card.split("|");
+    const w = new Wallpaper(document.createElement("canvas"), wp, { theme, variant, still: true });
+    w.resize(cardW, cardH);
+    const run = w.sceneRun();
+    const entry = k === "still" ? run.still : run.frames[k % run.frames.length];
+    w.drawScene(entry);
+    const out = document.createElement("canvas");
+    [out.width, out.height] = [w.canvas.width, w.canvas.height];
+    const g = out.getContext("2d");
+    g.scale(1, -1);
+    g.drawImage(w.canvas, 0, -out.height);
+    w.dispose();
+    return { url: out.toDataURL(), count: run.frames.length, t: entry.t };
+  };
+  // shoot.mjs: the card build.mjs gave a frame sequence (SCENE_CARD), if any.
+  window.sceneSequenceCard = (id) =>
+    Object.entries(WALLPAPERS.find((w) => w.id === id)?.scene?.runs ?? {}).find(([, r]) => r.frames.length)?.[0];
   document.body.dataset.ready = "1";
 </script>

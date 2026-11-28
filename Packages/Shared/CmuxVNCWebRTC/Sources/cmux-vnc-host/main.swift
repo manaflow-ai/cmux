@@ -107,7 +107,7 @@ setvbuf(stdout, nil, _IOLBF, 0)
 
 let log: @Sendable (String) -> Void = { line in print("[\(Date().formatted(date: .omitted, time: .standard))] \(line)") }
 if options.capture {
-    let host = ScreenStreamHost(pairing: pairing, backend: { ScreenCaptureBackend(log: log) }, log: log)
+    let host = ScreenStreamHost(pairing: pairing, backend: { ScreenCaptureBackend(log: log, rules: .bundled) }, rules: .bundled, log: log)
     await host.run()
 } else if options.stream {
     let password = ProcessInfo.processInfo.environment["CMUX_VNC_PASSWORD"]

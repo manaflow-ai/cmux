@@ -19,8 +19,10 @@
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
 //! covers once it covers some, one page a chat a round; a chat is read (or tried) at most once each
-//! [`WARM_EVERY`], and its last change, a refusal and a page cut short are read again after it; one round at a
-//! time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
+//! [`WARM_EVERY`] ([`WARM_AGAIN`] once the store holds its copy, unless a kept peer's turn ended
+//! since), and its last change, a refusal
+//! and a page cut short are read again after it; a chat whose copy a bound evicted is not read
+//! ahead again (an open here keeps it again); one round at a time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
 //! chat the peer refuses is passed over). What is kept stays within the copies' own bounds. Rounds
 //! stop with the daemon (`Hub::stop_idle_reaper`), before its last flush. A read ahead is the
 //! first work to give way: its pages fill at most [`WARM_QUEUED_BYTES`] of the store's queue, a
@@ -37,6 +39,11 @@ const WARM_PER_PEER: usize = if cfg!(test) { 2 } else { 24 };
 const WARM_WITHIN_MS: u64 = 86_400_000;
 /// The least time between two reads of one chat; a change inside it is read when it ends.
 const WARM_EVERY: Duration = Duration::from_millis(if cfg!(test) { 200 } else { 30_000 });
+/// The least time between two reads of a chat whose copy the store holds. A read rewrites the
+/// copy's file whole, so a fleet of live chats read each [`WARM_EVERY`] rewrote every copy twice
+/// a minute (cosmic-gray 11-25: 260 rewrites a minute, 3-4 MB/s, from a daemon that wrote
+/// 0.19 MB/s before). The copy paints the chat at once, and the peer's page continues it.
+const WARM_AGAIN: Duration = Duration::from_millis(if cfg!(test) { 2_000 } else { 300_000 });
 /// How long after a peer's first row change its round starts, so a burst of changes (a turn ends,
 /// its title and usage follow) takes one round.
 const WARM_SETTLE: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 2_000 });
@@ -57,6 +64,22 @@ const WARM_KINDS: [&str; 7] = [
 /// `beforeSeq` past every seq, 2^53 - 1 (the largest a client's number holds exactly): the newest
 /// page (the pane's read-ahead asks the same).
 pub(super) const NEWEST: u64 = 9_007_199_254_740_991;
+
+/// What the copies of a peer cover ([`PeerSnapshots::covers`]).
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Covers {
+    /// Each copy kept: its session's generation and last seq.
+    pub kept: HashMap<String, (Option<u64>, u64)>,
+    /// Each copy a bound evicted that is not kept again: its generation.
+    pub evicted: HashMap<String, u64>,
+}
+
+impl Covers {
+    #[cfg(test)]
+    pub(crate) fn kept(kept: HashMap<String, (Option<u64>, u64)>) -> Self {
+        Self { kept, evicted: HashMap::new() }
+    }
+}
 
 /// What the hub keeps of the reads ahead.
 #[derive(Default)]
@@ -157,10 +180,17 @@ pub(super) struct Ask {
 /// (session: its generation and last seq), at `now` (ms since the epoch, and the clock the reads
 /// are timed on): the chats to read now, the chats it plans (for pruning `read_at`), and when a
 /// chat it leaves for [`WARM_EVERY`] is due.
+///
+/// `keeps` is a peer whose copies this daemon keeps ([`keeps_copies`]): every open chat of it is
+/// planned, and [`WARM_PER_PEER`] bounds the reads of a round, not which chats are ever read; more
+/// to read brings the next round after [`WARM_SETTLE`]. Before, its 24 newest-changed chats were
+/// the only ones planned, so of 100 chats on a host that died, 17 had no copy and 3 a partial one,
+/// and moved without their transcript (`scripts/measure/fleet-recovery-bench.py --n 100`, 76%).
 pub(super) fn plan(
     peer: &str,
+    keeps: bool,
     rows: &[Value],
-    covers: &HashMap<String, (Option<u64>, u64)>,
+    covers: &Covers,
     read_at: &HashMap<Key, (u64, Instant)>,
     (now_ms, now): (u64, Instant),
 ) -> (Vec<Ask>, HashSet<String>, Option<Instant>) {
@@ -180,7 +210,9 @@ pub(super) fn plan(
         })
         .collect();
     open.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
-    open.truncate(WARM_PER_PEER);
+    if !keeps {
+        open.truncate(WARM_PER_PEER);
+    }
     let (mut asks, mut planned, mut later) = (Vec::new(), HashSet::new(), None::<Instant>);
     for (row, _) in open {
         let Some(mux) = row.get("sessionId").and_then(Value::as_str) else { continue };
@@ -189,18 +221,41 @@ pub(super) fn plan(
             continue;
         };
         planned.insert(mux.to_owned());
-        let through = covers.get(mux).filter(|(g, _)| *g == Some(generation)).map(|(_, to)| *to);
+        // A chat a bound evicted is not read ahead again: the copies' working set is past what
+        // the store keeps, so reading it again only evicted another, every round, each copy
+        // written whole and removed (cosmic-gray 11-25: 141 of 449 copies created in two minutes
+        // were ones removed in them). An open of it here (`Hub::capture_peer_page`) keeps it
+        // again, and a session recreated since is read as any other.
+        if covers.evicted.get(mux) == Some(&generation) {
+            continue;
+        }
+        let through =
+            covers.kept.get(mux).filter(|(g, _)| *g == Some(generation)).map(|(_, to)| *to);
         // A copy as far as the row: nothing to read. One past it (a peer back on an older disk
         // with the same session) is read again from the newest page, which replaces it
         // (`Store::behind`).
         if through == Some(last) {
             continue;
         }
+        // A copy it holds is brought up to date at most each [`WARM_AGAIN`]: each read rewrites
+        // the copy's file whole. A kept peer's chat between turns is read after [`WARM_EVERY`]:
+        // its copy is what a move from a dead machine starts from, and one up to 5 minutes behind
+        // moved without its last turns (`fleet-recovery-bench.py --n 100`, 11-27: 8 of 100, 92%).
+        // That is one rewrite a turn, not one each interval: a turn still running waits
+        // [`WARM_AGAIN`], and a copy as far as the row is not read at all.
+        let between_turns = row.get("turn").is_none_or(Value::is_null);
+        let every =
+            if through.is_some() && !(keeps && between_turns) { WARM_AGAIN } else { WARM_EVERY };
         if let Some((read, at)) = read_at.get(&(peer.to_owned(), mux.to_owned()))
             && *read == generation
-            && after(*at, WARM_EVERY) > now
+            && after(*at, every) > now
         {
-            let due = after(*at, WARM_EVERY);
+            let due = after(*at, every);
+            later = Some(later.map_or(due, |l| l.min(due)));
+            continue;
+        }
+        if asks.len() == WARM_PER_PEER {
+            let due = after(now, WARM_SETTLE);
             later = Some(later.map_or(due, |l| l.min(due)));
             continue;
         }
@@ -234,7 +289,7 @@ impl PeerSnapshots {
     /// the store is behind: its queue is past what reads ahead may fill ([`WARM_QUEUED_BYTES`])
     /// or it does not answer within [`ANSWER_WITHIN`]. Before, that read as no copy at all, and
     /// the round read every chat whole into a queue already full.
-    pub(crate) fn covers(&self, peer: &str) -> Option<HashMap<String, (Option<u64>, u64)>> {
+    pub(crate) fn covers(&self, peer: &str) -> Option<Covers> {
         let (tx, rx) = mpsc::sync_channel(1);
         let sent = {
             let mut dropped = self.dropped();
@@ -250,22 +305,22 @@ impl PeerSnapshots {
 }
 
 impl Store {
-    /// What each copy of peer `peer` covers, and how far each copy a bound evicted covered
-    /// ([`Store::evicted`]): a chat that has not moved past it is not read again only to be
-    /// evicted again; one that moved is read from there, a page that starts a small copy.
-    pub(super) fn covers(&self, peer: &str) -> HashMap<String, (Option<u64>, u64)> {
-        let evicted = self
-            .evicted
-            .iter()
-            .filter(|(k, _)| k.0 == peer)
-            .map(|(k, (generation, last))| (k.1.clone(), (Some(*generation), *last)));
+    /// What each copy of peer `peer` covers, and the generation of each copy of it a bound
+    /// evicted ([`Store::evicted`]).
+    pub(super) fn covers(&self, peer: &str) -> Covers {
         let kept = self
             .copies
             .iter()
             .filter(|(k, _)| k.0 == peer)
-            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)));
-        // A copy kept wins over an older eviction of the same session.
-        evicted.chain(kept).collect()
+            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)))
+            .collect();
+        let evicted = self
+            .evicted
+            .iter()
+            .filter(|(k, _)| k.0 == peer && !self.copies.contains_key(*k))
+            .map(|(k, generation)| (k.1.clone(), *generation))
+            .collect();
+        Covers { kept, evicted }
     }
 }
 
@@ -345,8 +400,7 @@ impl Hub {
             return Some(after(Instant::now(), WARM_EVERY));
         };
         let rows = self.peer_rows(name);
-        // Planned off the lock (it walks every row): only this peer's reads are copied out, at
-        // most [`WARM_PER_PEER`] once pruned.
+        // Planned off the lock (it walks every row): only this peer's reads are copied out.
         let read_at: HashMap<Key, (u64, Instant)> = warm
             .state()
             .read_at
@@ -355,7 +409,7 @@ impl Hub {
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let (asks, planned, later) =
-            plan(name, &rows, &covers, &read_at, (now_ms(), Instant::now()));
+            plan(name, keeps_copies(peer), &rows, &covers, &read_at, (now_ms(), Instant::now()));
         warm.state().read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.

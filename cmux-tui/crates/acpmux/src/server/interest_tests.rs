@@ -18,6 +18,7 @@ fn event(session: &str, dir: &str, kind: &str) -> HubEvent {
         }),
         remote: None,
         update_line: Default::default(),
+        event_params: Default::default(),
         row: Default::default(),
         list_seq: 0,
         peer_batch: false,
