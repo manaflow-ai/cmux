@@ -117,6 +117,11 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// The host answered the start ok and handed this page over to the Cloud chat (CloudStartChat's in-place
+  /// rehome) or is closing it: the card keeps the person's message painted until the Cloud chat's first frame
+  /// (cloudChatShown), so the tab never blinks to an empty chat between the two (ask-17e4ae3662). `replaced` is
+  /// the empty chat the start replaced, whose own frames never count; `at` is when the answer came.
+  opened?: { replaced?: string; at: number };
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
@@ -707,7 +712,14 @@ function hostFailureText(code: string, hostWords?: string): string | undefined {
 /// try again) retries or runs here, and anything else runs the prompt on this Mac. Empty for a start still on its way,
 /// one the host marked retryable (its own Retry), and the refusals whose card words their own way on (sign in, the
 /// plan, a cap, a folder too big).
-export type CloudStartWayOn = "retry" | "pick-folder" | "no-folder" | "new-cloud-chat" | "run-here" | "dismiss";
+export type CloudStartWayOn =
+  | "retry"
+  | "reload"
+  | "pick-folder"
+  | "no-folder"
+  | "new-cloud-chat"
+  | "run-here"
+  | "dismiss";
 const OWN_RECOVERY = new Set([
   "not_signed_in",
   "cloud_plan_required",
@@ -729,6 +741,7 @@ const RETRY_REFUSALS = new Set(["transport.gesture_required", "cloud_team_switch
 export function cloudStartWayOn(start: CloudStartProgress): readonly CloudStartWayOn[] {
   const code = start.code ?? "";
   if (start.state !== "failed" || start.retryable || OWN_RECOVERY.has(code)) return [];
+  if (code === CLOUD_CHAT_NOT_SHOWN) return ["reload", "dismiss"];
   if (FOLDER_REFUSALS.has(code)) return ["pick-folder", "no-folder"];
   if (code === "unavailable_now") return ["new-cloud-chat"];
   if (RETRY_REFUSALS.has(code)) return ["retry"];
@@ -791,7 +804,77 @@ export function cloudStartStalled(
 
 /// Whether `start` is out with nothing waiting on the person, so silence from the host counts.
 function cloudStartMayStall(start: CloudStartProgress): boolean {
-  return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn;
+  return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn && !start.opened;
+}
+
+/// Start `key` was answered ok: it stays as the card, now opening the chat, until the Cloud chat's first frame
+/// shows (cloudChatShown) or CLOUD_CHAT_SHOW_MS passes (cloudChatNotShown). Before, the ok cleared the card at
+/// once, while the page the host had just rehomed had no session and no rows yet: the tab drew an empty chat,
+/// then swapped to the Cloud chat, and stayed blank for good when that chat never drew (Austin: "it likes blinks
+/// out and then changes the chat… sometimes there is an error and the chat just goes blank").
+export function cloudStartOpened(
+  current: CloudStartProgress | undefined,
+  key: string,
+  replaced: string | undefined,
+  now: number = Date.now(),
+): CloudStartProgress | undefined {
+  if (current?.key !== key) return current;
+  const { stalled: _s, ask: _a, signingIn: _i, ...rest } = current;
+  return {
+    ...rest,
+    state: "starting",
+    step: "opening",
+    opened: { ...(replaced !== undefined ? { replaced } : {}), at: now },
+  };
+}
+
+/// Whether the page now draws the Cloud chat an opened start handed it: a session other than the replaced
+/// empty chat, with at least one row (the person's message comes back as the first). Until then the card shows.
+export function cloudChatShown(
+  snapshot: { sessionId?: string | undefined; rows: readonly unknown[] },
+  start: CloudStartProgress | undefined,
+): boolean {
+  const opened = start?.opened;
+  if (!opened || !snapshot.sessionId) return false;
+  if (opened.replaced !== undefined && snapshot.sessionId === opened.replaced) return false;
+  return snapshot.rows.length > 0;
+}
+
+/// How long an opened start may go without the Cloud chat drawing before the card says so with a way on.
+/// The host answered ok only once the chat opened on the machine, so its first frame is a round trip away;
+/// a minute without it is a chat that is not coming by itself ("loads forever").
+export const CLOUD_CHAT_SHOW_MS = 60_000;
+
+/// The Cloud chat start `key` opened never drew within CLOUD_CHAT_SHOW_MS: failed, named, with Retry (a page
+/// reload, which attaches the chat again; never a second start) and Not now.
+export function cloudChatNotShown(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (!current || current.key !== key || !current.opened || current.state !== "starting") return current;
+  return {
+    ...current,
+    state: "failed",
+    code: CLOUD_CHAT_NOT_SHOWN,
+    message: translate("cloudStart.chatNotShown"),
+  };
+}
+export const CLOUD_CHAT_NOT_SHOWN = "cloud_chat_not_shown";
+
+/// Arms the show timer for an opened start: `fire(key)` once CLOUD_CHAT_SHOW_MS after its answer. Returns the disarm.
+export function watchCloudChatShow(
+  start: CloudStartProgress | undefined,
+  fire: (key: string) => void,
+  ms: number = CLOUD_CHAT_SHOW_MS,
+  schedule: (run: () => void, ms: number) => () => void = (run, after) => {
+    const timer = setTimeout(run, after);
+    return () => clearTimeout(timer);
+  },
+  now: number = Date.now(),
+): () => void {
+  if (!start?.opened || start.state !== "starting") return () => undefined;
+  const key = start.key;
+  return schedule(() => fire(key), Math.max(0, start.opened.at + ms - now));
 }
 
 /// Arms the stall timer for `start` as it is now: `stall(key)` runs once `ms` after the start last moved

@@ -577,6 +577,7 @@ function WayOnActions({
   start: CloudStartProgress;
   handlers: {
     retry?: () => void;
+    reload?: () => void;
     "pick-folder"?: () => void;
     "no-folder"?: () => void;
     "new-cloud-chat"?: () => void;
@@ -595,6 +596,9 @@ function WayOnActions({
     switch (id) {
       case "retry":
         // retry-prompt-ok: the start prompt goes again and starts a billed Cloud machine.
+        return t("retry.action");
+      case "reload":
+        // The Cloud chat opened but never drew here: the page attaches it again; no second start.
         return t("retry.action");
       case "pick-folder":
         return t("cloudStart.pickFolder");
@@ -1082,6 +1086,7 @@ export function CloudStartView({
           runHereLabel={planLabels.runHere}
           handlers={{
             ...(onRetry ? { retry: onRetry } : {}),
+            reload: () => window.location.reload(),
             ...(onPickFolder ? { "pick-folder": onPickFolder } : {}),
             ...(onStartWithoutFolder ? { "no-folder": onStartWithoutFolder } : {}),
             ...(onOpenNewCloudChat ? { "new-cloud-chat": onOpenNewCloudChat } : {}),

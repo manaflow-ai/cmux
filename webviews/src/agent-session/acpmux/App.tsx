@@ -532,7 +532,15 @@ import {
   placeOfRunMode,
   rememberNewChatPlace,
 } from "./lastNewChatPlace";
-import { cloudStartStalled, heldCloudSetup, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
+import {
+  cloudChatNotShown,
+  cloudChatShown,
+  cloudStartStalled,
+  heldCloudSetup,
+  watchCloudChatShow,
+  watchCloudStartStall,
+  type CloudStartProgress,
+} from "./cloudStartProgress";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
 import { connectHeldCloudSend, retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
@@ -4899,7 +4907,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// stalled: the card says so, and the start is still out.
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
-  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// A start the host answered ok (`opened`) keeps showing until the Cloud chat it handed this page draws its first
+  /// row (cloudChatShown): the page is rehomed with no session first, then a session with no rows, and either drew an
+  /// empty chat between the start and the Cloud chat (ask-17e4ae3662).
+  const cloudChatDrawn = cloudChatShown(snapshot, cloudStart);
+  const cloudStartShown =
+    cloudStart !== undefined &&
+    (!snapshot.sessionId || emptyLocalChat || (cloudStart.opened !== undefined && !cloudChatDrawn));
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart, {
@@ -4914,6 +4928,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSendHeld = cloudStarting;
   useEffect(
     () => watchCloudStartStall(cloudStart, (key) => setCloudStart((current) => cloudStartStalled(current, key))),
+    [cloudStart],
+  );
+  // The Cloud chat drew: the card goes, and the chat is what shows. A minute without it: the card names it, with Retry.
+  useEffect(() => {
+    if (cloudChatDrawn) setCloudStart((current) => (current?.opened ? undefined : current));
+  }, [cloudChatDrawn]);
+  useEffect(
+    () => watchCloudChatShow(cloudStart, (key) => setCloudStart((current) => cloudChatNotShown(current, key))),
     [cloudStart],
   );
   /// The same, for dictation's recording (below), whose callbacks are made once.

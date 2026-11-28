@@ -24,6 +24,7 @@ import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "../cloudSta
 import {
   cloudStartBegun,
   cloudStartEnded,
+  cloudStartOpened,
   cloudStartPlanHeld,
   cloudStartSignedIn,
   type CloudStartProgress,
@@ -445,7 +446,11 @@ export function beginCloudSendWith(
       // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
       harnessSwitch.cancel();
     }
-    setCloudStart((current) => cloudStartEnded(current, key, answer));
+    // An ok keeps the card (the person's message, Opening the chat) until the Cloud chat's first frame: the page the
+    // host just rehomed has no rows yet, and clearing here drew an empty chat between the two (ask-17e4ae3662).
+    setCloudStart((current) =>
+      answer.ok ? cloudStartOpened(current, key, request.replacesChat) : cloudStartEnded(current, key, answer),
+    );
     if (!answer.ok && !cloudStartSaid(answer))
       notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
   });
