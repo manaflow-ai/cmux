@@ -143,6 +143,8 @@ struct FakeDaemon {
     asks: Arc<AtomicUsize>,
     remote: Arc<Mutex<Vec<Value>>>,
     workspace_reads: Arc<AtomicUsize>,
+    /// How many more `not_running` asks answer "no socket" (`usize::MAX`: always).
+    missing: Arc<AtomicUsize>,
 }
 
 impl FakeDaemon {
@@ -152,7 +154,14 @@ impl FakeDaemon {
             asks: Arc::default(),
             remote: Arc::default(),
             workspace_reads: Arc::default(),
+            missing: Arc::default(),
         }
+    }
+
+    /// The first `asks` `not_running` asks find no daemon socket.
+    fn missing(self, asks: usize) -> Self {
+        self.missing.store(asks, Ordering::SeqCst);
+        self
     }
 }
 
@@ -170,6 +179,16 @@ impl Daemon for FakeDaemon {
     }
     fn machines(&self) -> Result<Value, DaemonError> {
         Ok(json!({"machines": [{"name": "studio", "reachable": true, "computer_use": "ready"}]}))
+    }
+    fn not_running(&self) -> Option<String> {
+        let left = self.missing.load(Ordering::SeqCst);
+        if left == 0 {
+            return None;
+        }
+        if left != usize::MAX {
+            self.missing.store(left - 1, Ordering::SeqCst);
+        }
+        Some("cmux NIGHTLY is not running on this Mac (no socket at /tmp/x.sock)".into())
     }
     fn workspace_name(&self, id: &str) -> Option<String> {
         self.workspace_reads.fetch_add(1, Ordering::SeqCst);
@@ -566,4 +585,69 @@ fn routable_machines_are_reachable_ready_and_not_the_locked_one() {
     assert!(routable_in(&json!({}), None).is_empty());
     assert_eq!(caller(FakeDaemon::new(Vec::new())).routable_machines(None), ["studio"]);
     assert!(caller(FakeDaemon::new(Vec::new())).routable_machines(Some("studio")).is_empty());
+}
+
+/// No daemon socket at all (cmux19, 2026-11-27: NIGHTLY installed, not open): `status` says the
+/// app is not running at once instead of waiting out the budget, and never "restarts by itself".
+#[test]
+fn status_with_no_daemon_socket_says_the_app_is_not_running_at_once() {
+    let unreachable = Err(DaemonError::Unreachable("No such file or directory".into()));
+    let caller = caller(FakeDaemon::new(vec![unreachable]).missing(usize::MAX))
+        .with_budget(Duration::from_secs(30));
+    let started = std::time::Instant::now();
+    let Outcome::Output(status) = caller.call("status", &json!({}), "c") else { panic!() };
+    assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+    assert!(!status.is_error);
+    assert_eq!(status.body["mode"], "not_running");
+    let reason = status.body["reason"].as_str().unwrap();
+    assert!(reason.contains("cmux NIGHTLY is not running"), "{reason}");
+    assert!(!reason.contains("restarts by itself"), "{reason}");
+}
+
+/// A tool call gives a missing socket the short grace (an app restart), then fails as
+/// `daemon_not_running` with the same words, long before the 30 s budget.
+#[test]
+fn a_call_with_no_daemon_socket_fails_after_the_grace_not_the_budget() {
+    let unreachable = Err(DaemonError::Unreachable("No such file or directory".into()));
+    let caller = caller(FakeDaemon::new(vec![unreachable]).missing(usize::MAX))
+        .with_budget(Duration::from_secs(30));
+    let started = std::time::Instant::now();
+    let Outcome::Failed { code, message } = caller.call("click", &json!({}), "c") else { panic!() };
+    let took = started.elapsed();
+    assert!(
+        took >= NOT_RUNNING_GRACE && took < NOT_RUNNING_GRACE + Duration::from_secs(3),
+        "{took:?}"
+    );
+    assert_eq!(code, DAEMON_NOT_RUNNING);
+    assert!(message.contains("not running"), "{message}");
+    assert!(!message.contains("restarts by itself"), "{message}");
+}
+
+/// A socket that comes back within the grace (the app restarted) is used: the call runs.
+#[test]
+fn a_daemon_socket_back_within_the_grace_runs_the_call() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    let unreachable = Err(DaemonError::Unreachable("No such file or directory".into()));
+    let daemon =
+        FakeDaemon::new(vec![unreachable.clone(), unreachable, Ok(worker.ready())]).missing(2);
+    let caller = caller(daemon).with_budget(Duration::from_secs(30));
+    let Outcome::Output(out) = caller.call("list_windows", &json!({}), "c") else { panic!() };
+    assert_eq!(out.body, json!({"ran": "list_windows"}));
+}
+
+/// A socket that exists but does not answer is a restart in progress: the budget's retry and
+/// its message stay.
+#[test]
+fn a_socket_that_exists_is_retried_for_the_budget_as_before() {
+    let dir = tmp();
+    let socket = dir.path().join("d.sock");
+    std::fs::write(&socket, b"").unwrap();
+    assert_eq!(not_running_message(Some("cmux NIGHTLY"), &[socket.as_path()]), None);
+    let gone = dir.path().join("gone.sock");
+    let why = not_running_message(Some("cmux NIGHTLY"), &[gone.as_path(), socket.as_path()]);
+    assert_eq!(why, None, "one candidate exists");
+    let why = not_running_message(None, &[gone.as_path()]).unwrap();
+    assert!(why.starts_with("the cmux app is not running"), "{why}");
+    assert!(why.contains(&gone.display().to_string()), "{why}");
 }
