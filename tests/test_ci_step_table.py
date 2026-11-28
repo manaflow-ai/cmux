@@ -170,11 +170,45 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
-        # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
+        # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off. The lock
+        # routes the cmux-tui land_gate steps (idle wakeups, the landing-head clippy) too.
+        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "cmux-tui-clippy-landing", "rust-notices",
+                                "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
+
+    def test_a_cmux_tui_rust_change_runs_clippy_on_its_landing_head_only(self) -> None:
+        """11-21..27: 16 of 63 compile-or-lint-slip base-red fixes were the cmux-tui workspace, the compile ones merge
+        races the PR head's clippy (against its own base) could not see: #38502 vs #54423 (fix #58983), #55736 vs
+        #55583 (#56292), #48844 vs #51551 (#52503), #56697 (#56980). The landing head is merged onto the live base."""
+        t = ci_steps.load()
+        name = "cmux-tui-clippy-landing"
+        step = t.steps[name]
+        self.assertTrue(step.land_gate)
+        self.assertEqual(step.tier, "push", "a PR head runs the fleet's clippy-changed; this is the landing head's")
+        self.assertIn("cmux-tui-clippy-changed.py", step.run)
+        self.assertIn("HEAD^1", step.run, "it lints against the base the head was merged onto")
+        self.assertNotIn("--panic-ratchet", step.run, "the PR head's run judges panics; this one stays bounded")
+        for paths, routed in (
+            (["cmux-tui/crates/acpmux/src/hub.rs"], True),
+            (["cmux-tui/crates/acpmux/tests/hub_integration/kept.rs"], True),
+            (["cmux-tui/crates/cmux-terminal-projection/Cargo.toml"], True),
+            (["cmux-tui/Cargo.lock"], True),
+            (["cmux-tui/src/main.rs"], True),
+            (["cmux-tui/bindings/rust/src/lib.rs"], True),
+            (["cmux-tui/crates/acpmux/README.md"], False),
+            (["cmux-tui/crates/cmux-rd-host/src/main.rs"], False),
+            (["cmux-tui/vendor/crossterm/src/lib.rs"], False),
+            (["web/app/page.tsx"], False),
+            (["docs/x.md"], False),
+        ):
+            with self.subTest(paths=paths):
+                self.assertEqual(name in ci_steps.nightly_gate_steps(t, paths), routed)
+                self.assertNotIn(name, ci_steps.route(t, paths, pr_scope=True, tier="pr").get("linux", []))
+        _, _, (jobs, only) = self.landing(["cmux-tui/crates/acpmux/tests/hub_integration/kept.rs"])
+        self.assertEqual(jobs, ["linux"])
+        self.assertIn(name, only)
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
@@ -206,7 +240,13 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                expected = {
+                    "cmux-tui/crates/cmux-terminal-projection/src/lib.rs": [
+                        "persisted-formats", "next-state-roots", "cmux-tui-clippy-landing", "phone-speed-icount"],
+                    "scripts/bench/phone-speed/src/main.rs": ["phone-speed-icount"],
+                    "cmux-tui/Cargo.lock": [
+                        "cmux-next-idle-wakeups", "cmux-tui-clippy-landing", "rust-notices", "phone-speed-icount"],
+                }[path]
                 self.assertEqual(only, expected)
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
