@@ -2656,7 +2656,13 @@ export function rpcFailureReason(reason: unknown): string {
 }
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
+export type PremintExec = Exec & {
+  /** Mint the client session now, before the first exec: the probe starts it when create answers, so the mint runs
+   * beside the wait for running instead of inside the agent's start. Resolves with the mint's ms, or null when it
+   * failed (the first exec then mints again and reports that failure itself). */
+  premint: () => Promise<number | null>;
+};
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): PremintExec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   // Calls that start together (the agent's start and its first-text observer) share one mint.
@@ -2670,7 +2676,20 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
-  return async (command, timeoutMs = 60_000) => {
+  const mintOnce = (): Promise<number> => minting ?? (minting = (async () => {
+    const m0 = performance.now();
+    const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+    const ms = Math.round(performance.now() - m0);
+    if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+      guestRoute = true;
+      return ms;
+    }
+    if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
+    session = r.body.value;
+    journey.secrets.push(session!.token);
+    return ms;
+  })().finally(() => { minting = null; }));
+  const run: Exec = async (command, timeoutMs = 60_000) => {
     const timedGuest = async () => {
       const t0 = performance.now();
       const out = await guestExec(command, timeoutMs);
@@ -2679,20 +2698,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     let mintMs: number | undefined;
     if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
-      const mint = minting ?? (minting = (async () => {
-        const m0 = performance.now();
-        const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
-        const ms = Math.round(performance.now() - m0);
-        if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
-          guestRoute = true;
-          return ms;
-        }
-        if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
-        session = r.body.value;
-        journey.secrets.push(session!.token);
-        return ms;
-      })().finally(() => { minting = null; }));
-      mintMs = await mint;
+      mintMs = await mintOnce();
       if (guestRoute) return timedGuest();
     }
     const s = session!;
@@ -2707,6 +2713,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const route = { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - c0) };
     return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? ""), route };
   };
+  return Object.assign(run, { premint: () => (session || guestRoute ? Promise.resolve(0) : mintOnce().catch(() => null)) });
 }
 
 /**
@@ -6415,12 +6422,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
           return { value: v.machine, detail: `${machine} status ${v.machine.status}${room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : ""}` };
         });
+    // The client-session mint needs only the machine's id: start it now so it runs beside the wait for running, not
+    // inside the agent's start (run 46146598393: start 4275 ms, 875 of it on the guest, the rest the exec route).
+    const direct = cmux ? null : directExec(api, created.id, J);
+    // Not awaited: a first exec that comes before it ends shares this same mint (directExec's minting promise).
+    void direct?.premint().then((ms) => {
+      if (ms !== null) J.firstText.route("premint_client_session", ms);
+    });
     const bound = await J.step("running (status)", async () => {
       const m = await waitRunning(api, created.id, 300_000);
       J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
-    const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
+    const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : direct!);
     machineExec = exec;
     if (wakeEchoN > 0) {
       const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
