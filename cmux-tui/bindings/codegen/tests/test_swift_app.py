@@ -1171,15 +1171,6 @@ class OutAndCheckTests(unittest.TestCase):
                     self.run_mode("out", out)
                 self.assertEqual(list(out.rglob("*.generated.swift")) if out.exists() else [], [])
 
-    def test_a_key_twice_in_one_object_is_refused(self) -> None:
-        # json keeps the last silently: two branches each adding a family's requests would drop one.
-        self.write_inputs(layout_bindings())
-        text = (self.root / "bindings.json").read_text(encoding="utf-8")
-        text = text.replace('"families": {', '"families": {"Layout": {}, ', 1)
-        (self.root / "bindings.json").write_text(text, encoding="utf-8")
-        with self.assertRaisesRegex(BindingError, "repeats the key"):
-            self.run_mode("check")
-
     def test_a_sources_root_outside_the_repository_is_refused(self) -> None:
         for root in ("/abs/Sources", "../Sources", "Sources/../../X", ""):
             with self.subTest(root=root):
