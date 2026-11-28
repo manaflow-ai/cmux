@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/nativeSessionInfoLoader";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 

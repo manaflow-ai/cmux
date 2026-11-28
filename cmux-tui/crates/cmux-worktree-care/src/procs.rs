@@ -9,6 +9,7 @@
 //! (`inventory::Owner`) names a running session stays wherever that
 //! session's folder is.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -174,22 +175,9 @@ pub fn open_tree(folder: &Path) -> Result<Option<u32>, String> {
 
 #[cfg(unix)]
 fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
-    // lsof is in /usr/sbin on macOS, which a daemon's PATH may lack.
-    let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
-    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
-    let path = std::env::join_paths(dirs).map_err(|error| error.to_string())?;
-    let mut command = std::process::Command::new("lsof");
-    command
-        .env("PATH", path)
-        .args(["-w", "-t"])
-        // Preserve recursive checks for PR archives; lone files use lsof's operand form.
-        .args(if folder.is_dir() { [depth] } else { ["--"] })
-        .arg(folder)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let output =
-        crate::git::run_within(command, OPEN_CHECK).map_err(|error| format!("lsof: {error}"))?;
+    // Preserve recursive checks for PR archives; lone files use lsof's operand form.
+    let args: [&str; 3] = ["-w", "-t", if folder.is_dir() { depth } else { "--" }];
+    let output = lsof(&args, folder, OPEN_CHECK)?;
     let own = std::process::id();
     let pid = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -198,16 +186,72 @@ fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
     if pid.is_some() {
         return Ok(pid);
     }
-    // lsof exits 1 both when nothing has the folder open and on an error;
-    // with warnings off (-w), only an error says something.
+    lsof_status(&output).map(|()| None)
+}
+
+/// One bounded `lsof` of `folder` with `args` (the crate's only lsof spawn,
+/// the reviewed keep row in `scripts/cmux-next/process-scan-baseline.tsv`).
+#[cfg(unix)]
+fn lsof(args: &[&str], folder: &Path, limit: Duration) -> Result<std::process::Output, String> {
+    // lsof is in /usr/sbin on macOS, which a daemon's PATH may lack.
+    let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
+    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(dirs).map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new("lsof");
+    command
+        .env("PATH", path)
+        .args(args)
+        .arg(folder)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::git::run_within(command, limit).map_err(|error| format!("lsof: {error}"))
+}
+
+/// lsof exits 1 both when nothing is open and on an error; with warnings off
+/// (-w), only an error says something.
+#[cfg(unix)]
+fn lsof_status(output: &std::process::Output) -> Result<(), String> {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if output.status.success() || (output.status.code() == Some(1) && stderr.is_empty()) {
-        Ok(None)
+        Ok(())
     } else if stderr.is_empty() {
         Err(format!("lsof: {}", output.status))
     } else {
         Err(format!("lsof: {stderr}"))
     }
+}
+
+/// Every file under `root` that a program other than this one has open, in
+/// one bounded `lsof -F pn +D root` (for a family of many small files, where
+/// one check per file would take minutes). A timeout or an error is an error,
+/// so the files stay.
+#[cfg(unix)]
+pub fn open_files_under(root: &Path, limit: Duration) -> Result<HashSet<PathBuf>, String> {
+    let output = lsof(&["-w", "-F", "pn", "+D"], root, limit)?;
+    lsof_status(&output)?;
+    Ok(parse_lsof(&String::from_utf8_lossy(&output.stdout), std::process::id()))
+}
+
+#[cfg(not(unix))]
+pub fn open_files_under(_root: &Path, _limit: Duration) -> Result<HashSet<PathBuf>, String> {
+    Ok(HashSet::new())
+}
+
+/// `lsof -F pn` output: the files of every process but `own`.
+pub(crate) fn parse_lsof(text: &str, own: u32) -> HashSet<PathBuf> {
+    let mut set = HashSet::new();
+    let mut mine = false;
+    for line in text.lines() {
+        if let Some(pid) = line.strip_prefix('p') {
+            mine = pid.trim().parse::<u32>().ok() == Some(own);
+        } else if let Some(name) = line.strip_prefix('n')
+            && !mine
+        {
+            set.insert(PathBuf::from(name));
+        }
+    }
+    set
 }
 
 /// Windows: an open file there makes the removal itself fail.

@@ -44,6 +44,7 @@ GATEWAY_MAC = frozenset({
     "bench-baselines-nightly.yml#record-mac-fleet",
     "chief-evals.yml#fleet-ab",
     "cmux-next-agent-conn-chaos.yml#chaos-fleet",
+    "cmux-next-scale-fixture.yml#measure-fleet",  # #63279: same shape as split-table's measure-fleet
     "cmux-next-sidebar-bench.yml#bench-fleet",
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
@@ -54,6 +55,10 @@ GATEWAY_MAC = frozenset({
     "cmux-next-ios-gestures.yml#gestures",
     "cmux-next-ios-try-ahead.yml#build-ahead",
     "ios-review-gate.yml#gate-products-fleet",
+    # Took the gateway by vars.CI_EVAL_STEP_GATEWAY (its fallback cmux-linux has no route to the controller);
+    # linux-pickers-gone (gateway) froze them to the label.
+    "first-run-setup-check.yml#walk-fleet",
+    "nightly-pr-build.yml#swift-fleet",
 })
 
 MOVED = {

@@ -23,10 +23,10 @@ lists still counts as not clean), and times each direction with cmux-tui's `move
 and leaves the p95 unmeasured: NO.
 
 Gate 4, phone: "read and reply to a kept-running chat from the phone with the Mac powered down."
-The phone reaches a Cloud chat only through the signed-in Mac today (docs/design/cloud-phone-pipe.md
-in cmuxterm-hq, item 1, "phone-direct carrier", not built), so the gate is NO until a check for that
-path exists; PHONE_GATE_CMD names it (a command that exits 0 when a phone-shaped client, with no Mac
-process running, read a Cloud chat and got a reply to a prompt it sent).
+The check is `tests/phone_direct_gate.rs` (`cargo test -p cmux-tui --test it -- --ignored phone_direct_gate::`):
+a phone-shaped client dials the Cloud machine's cmux link straight (`dial::Service::PhoneChat`), with no
+Mac process running, lists and attaches the VM's chat, sends a prompt and reads the reply; a non-owner
+is refused. It prints `GATE phone {json}`. PHONE_GATE_CMD replaces that command when set.
 
 Each gate prints one line `GATE <name> PASS|NO <number> <json>`; `--out DIR` also writes
 DIR/<name>.json and DIR/summary.md. Exit 0 when every gate asked for ran (PASS or NO), 2 when one
@@ -158,13 +158,14 @@ def gate_move(args: argparse.Namespace) -> dict:
 
 def gate_phone(_args: argparse.Namespace) -> dict:
     cmd = os.environ.get("PHONE_GATE_CMD")
-    if not cmd:
-        return {"gate": "phone", "ran": True, "ok": False, "number": "0/1",
-                "why": "phone-direct carrier not built: a phone reaches a Cloud chat only through the Mac "
-                       "(cmuxterm-hq docs/design/cloud-phone-pipe.md item 1; owner gcp-agent-lane-4/cloud-phone-pipe)"}
-    run = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    if cmd:
+        run = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    else:
+        run = cargo_test("phone_direct_gate::", {})
     sys.stderr.write(run.stderr[-20_000:])
+    measured = [json.loads(l.split(" ", 2)[2]) for l in run.stdout.splitlines() if l.startswith("GATE phone {")]
     return {"gate": "phone", "ran": True, "ok": run.returncode == 0, "number": f"{int(run.returncode == 0)}/1",
+            "measured": measured[-1] if measured else None,
             "why": None if run.returncode == 0 else run.stdout[-2000:]}
 
 

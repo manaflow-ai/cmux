@@ -11,6 +11,12 @@
 //!   one (a launcher whose scp or ssh to its pick fails calls it), in [`FILE`] under acpmux's
 //!   home, at most [`MAX_HOSTS`] hosts, read at each placement. The cooldown matches fleet-relay's
 //!   dead-route memory: one failure keeps the host off for ten minutes, then it is tried again.
+//! - a session start placed there was refused by the host within [`COOLDOWN_MS`]
+//!   ([`refused_start`]): on 2026-11-28 a lane host refused every start ("~/chats is not a
+//!   directory"), and `machine pick`, which still saw room for 6, sent every start there. Both
+//!   start paths (`remote_guard/hint.rs` `new_on`, `mesh_control_send.rs` `start_through_hub`)
+//!   record the refusal in the same file, and a later start there that works (a `--machine HOST`
+//!   start still goes there) forgets it.
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
@@ -52,6 +58,43 @@ pub fn row_unreachable(row: &Value, now: u64) -> Option<String> {
     })
 }
 
+/// The `kind` of an entry a refused session start recorded ([`Failures::record_refused`]).
+const REFUSED_KIND: &str = "refused";
+
+/// Why a placed host's refusal of a session start says the host cannot take work now, or
+/// `None` when the refusal is about the start itself. Counted: the host's own faults (its chat
+/// folder, `server/remote_guard/chat_folder.rs`; no harness; an agent that would not start; a
+/// start it never answered) and any refusal with no reason a caller caused. Not counted: the
+/// caller's folder, policy, trust and full-access refusals (`remote.*`, `policy*`, `trust*`),
+/// a refused or oversized request, and a link that is down, which the peer row already says.
+/// A wrong guess costs one host for at most [`COOLDOWN_MS`], and only for the pick.
+pub fn refused_start(error: &crate::rpc::RpcError) -> Option<String> {
+    let reason = error.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
+    let data_says = |field: &str| error.data.as_ref().is_some_and(|d| d.get(field).is_some());
+    let callers = |r: &str| {
+        (r.starts_with("remote.") && r != crate::server::remote_guard::CHAT_FOLDER_REASON)
+            || r.starts_with("policy")
+            || r.starts_with("trust")
+            || (r.starts_with("peer") && r != "peer_start_timeout")
+            || matches!(
+                r,
+                crate::rpc::NO_PEER
+                    | "session_new.not_allowed"
+                    | "session_new.method_not_found"
+                    | "message.too_large"
+                    | "deadline_exceeded"
+            )
+    };
+    if reason.is_some_and(callers) || data_says("fullAccessRefusedBy") {
+        return None;
+    }
+    let message: String = error.message.chars().take(160).collect();
+    Some(match reason {
+        Some(reason) => format!("{reason}: {message}"),
+        None => message,
+    })
+}
+
 /// The failed transfers this machine recorded, by host (canonical name).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Failures(Map<String, Value>);
@@ -83,6 +126,13 @@ impl Failures {
             return None;
         }
         let why = e.get("why").and_then(Value::as_str).unwrap_or("a transfer failed");
+        if e.get("kind").and_then(Value::as_str) == Some(REFUSED_KIND) {
+            return Some(format!(
+                "start refused: {why} {}s ago; tried again in {} min, or at once after a start there works (`acpmux new --machine {host}`; `acpmux machine unreachable {host} --clear` forgets it)",
+                age / 1000,
+                (COOLDOWN_MS - age).div_ceil(60_000)
+            ));
+        }
         Some(format!(
             "unreachable: {why} {}s ago; tried again in {} min (`acpmux machine unreachable {host} --clear` now)",
             age / 1000,
@@ -105,6 +155,20 @@ impl Failures {
                 None => break,
             };
         }
+    }
+
+    /// `host` refused a session start at `now` for `why` ([`refused_start`]): passed over as a
+    /// failed transfer is, and said as a refusal.
+    pub fn record_refused(&mut self, host: &str, why: &str, now: u64) {
+        self.record(host, why, now);
+        if let Some(Value::Object(e)) = self.0.get_mut(&super::canonical(host)) {
+            e.insert("kind".into(), json!(REFUSED_KIND));
+        }
+    }
+
+    /// Whether anything is recorded for `host`, expired or not.
+    pub fn has(&self, host: &str) -> bool {
+        self.0.contains_key(&super::canonical(host))
     }
 
     /// `host` reached again: its failure is forgotten. Whether it had one.
@@ -141,6 +205,31 @@ impl Failures {
         crate::config::write_atomic(&path, &failures.to_bytes())?;
         Ok(result)
     }
+}
+
+/// What a session start this machine sent to `host` came to (`hint::new_on`,
+/// `start_through_hub`): a refusal [`refused_start`] counts keeps the host out of the pick, and
+/// a start that worked forgets what was recorded for it. Written off the caller's task; a start
+/// with nothing to change writes nothing.
+pub fn note_start_outcome(host: &str, error: Option<&crate::rpc::RpcError>) {
+    let why = error.and_then(refused_start);
+    if why.is_none() && (error.is_some() || !Failures::load().has(host)) {
+        return;
+    }
+    let host = host.to_owned();
+    let dir = crate::config::home();
+    let now = crate::store::now_ms();
+    tokio::task::spawn_blocking(move || {
+        let noted = Failures::update(&dir, |f| match &why {
+            Some(why) => f.record_refused(&host, why, now),
+            None => {
+                f.clear(&host);
+            }
+        });
+        if let Err(error) = noted {
+            tracing::warn!(%host, "could not note a start's outcome for machine pick: {error:#}");
+        }
+    });
 }
 
 #[cfg(test)]
@@ -183,6 +272,62 @@ mod tests {
         assert!(f.clear("lane-a"));
         assert_eq!(f.failure("lane-a", 2_000), None);
         assert_eq!(Failures::parse(b"not json"), Failures::default());
+    }
+
+    /// A lane host, 2026-11-28: its chat folder refused every start while `machine pick`
+    /// saw room for 6 and kept sending starts there.
+    #[test]
+    fn a_refused_start_keeps_the_host_out_of_the_pick_until_a_start_works_or_the_cooldown_ends() {
+        use crate::rpc::RpcError;
+        let refused = RpcError::invalid_params(
+            "the Cloud chat folder could not be made: /home/cmux/chats is not a directory",
+        )
+        .with_data(json!({"reason": "session_new.invalid_params"}));
+        let why = refused_start(&refused).unwrap();
+        assert!(why.starts_with("session_new.invalid_params: the Cloud chat folder"), "{why}");
+        let mut f = Failures::default();
+        f.record_refused("Lane-Host", &why, 1_000);
+        let said = f.failure("lane-host", 61_000).unwrap();
+        assert!(said.starts_with("start refused: session_new.invalid_params"), "{said}");
+        assert!(said.contains("60s ago; tried again in 9 min"), "{said}");
+        assert_eq!(Failures::parse(&f.to_bytes()), f, "the kind survives the file");
+        // The bounded mark ends by itself.
+        assert_eq!(f.failure("lane-host", 1_000 + COOLDOWN_MS), None);
+        // A start there that worked forgets it at once.
+        assert!(f.has("lane-host") && f.clear("lane-host"));
+        assert_eq!(f.failure("lane-host", 2_000), None);
+    }
+
+    #[test]
+    fn only_the_hosts_own_refusals_count() {
+        use crate::rpc::RpcError;
+        let with =
+            |reason: &str| RpcError::invalid_params("no").with_data(json!({"reason": reason}));
+        for host_fault in [
+            crate::server::remote_guard::CHAT_FOLDER_REASON,
+            "session_new.internal",
+            "session_new.not_found",
+            "agent.exited",
+            "peer_start_timeout",
+        ] {
+            assert!(refused_start(&with(host_fault)).is_some(), "{host_fault}");
+        }
+        assert!(refused_start(&RpcError::internal("boom")).is_some(), "no reason at all");
+        for callers in [
+            "remote.cwd_not_checkout",
+            "remote.full_access_required",
+            "policy.denied",
+            "trust.pending",
+            "peer.forward_refused",
+            "peer_unreachable",
+            crate::rpc::NO_PEER,
+            "session_new.not_allowed",
+            "message.too_large",
+        ] {
+            assert_eq!(refused_start(&with(callers)), None, "{callers}");
+        }
+        let full = RpcError::invalid_params("no").with_data(json!({"fullAccessRefusedBy": "h"}));
+        assert_eq!(refused_start(&full), None);
     }
 
     #[test]
