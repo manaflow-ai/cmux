@@ -180,6 +180,12 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
+    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
+    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
+    Grantors {
+        #[command(subcommand)]
+        cmd: GrantorsCmd,
+    },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
     /// cmux access token on stdin; a shell or agent is refused.
@@ -395,6 +401,19 @@ pub enum PeerCmd {
         /// Where to listen (a stale socket there is replaced; a served one is left alone).
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
+    },
+    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
+    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
+    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
+    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
+    /// pipes gets a plain pipe, which ends with its circuit.
+    Pipe {
+        /// A machine name in the hub's address book, or its node key.
+        #[arg(value_name = "MACHINE")]
+        machine: String,
+        /// The far machine's loopback port (the one its `remote_daemon` admits).
+        #[arg(long, default_value_t = 22)]
+        port: u16,
     },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
@@ -650,6 +669,17 @@ pub enum ConsentCmd {
         /// Control from this person's other machines signed in to the same account.
         #[arg(long)]
         signed_in_machines: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GrantorsCmd {
+    /// The pinned Macs (id, name, account, key words) and the pending ask.
+    List,
+    /// Stop a Mac's grants here at once, and drop its pending ask.
+    Rm {
+        /// The Mac's grantor id (`mac-` and 16 hex digits).
+        id: String,
     },
 }
 

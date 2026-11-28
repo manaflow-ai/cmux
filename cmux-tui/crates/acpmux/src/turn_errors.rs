@@ -8,15 +8,10 @@
 //! onto, and a 529 overloaded is the provider's, whichever account asks. The session waits and
 //! goes on where it is (subsession-card, 2026-10-26).
 
-/// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s".
+/// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s"
+/// (the shared reading, `cmux_upstream_error::has_status`).
 pub(crate) fn has_status(m: &str, code: &str) -> bool {
-    let bytes = m.as_bytes();
-    m.match_indices(code).any(|(at, _)| {
-        let before = at.checked_sub(1).and_then(|i| bytes.get(i).copied());
-        let after = bytes.get(at + code.len()).copied();
-        !before.is_some_and(|b| b.is_ascii_alphanumeric())
-            && !after.is_some_and(|b| b.is_ascii_alphanumeric())
-    })
+    cmux_upstream_error::has_status(m, code)
 }
 
 /// Does an agent error mean the account cannot serve, not that the prompt
@@ -60,15 +55,8 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
 /// accounts", Codex's "Selected model is at capacity"? Usage limits and sign-in failures are
 /// not (`transient_cause` checks those first).
 pub fn is_capacity_error(message: &str) -> bool {
-    let m = message.to_lowercase();
-    has_status(&m, "503")
-        || has_status(&m, "529")
-        || m.contains("overloaded")
-        || m.contains("at capacity")
-        || (m.contains("no non-exhausted") && m.contains("account"))
-        // The cmux-platform worker gateway's own ceiling (2026-11-23): "502 the gateway is at
-        // its call limit; retry". Capacity, not a dropped connection: it is waited out.
-        || m.contains("at its call limit")
+    // One reading for acpmux and OptChat's Chief turn and compactor (ask-616b73f6bc).
+    cmux_upstream_error::is_capacity(message)
 }
 
 /// An HTTP gateway failure is independent of account credentials.
@@ -146,6 +134,18 @@ pub fn says_connection_dropped(message: &str) -> bool {
         || PHRASES.iter().any(|p| m.contains(p))
         || (m.contains("websocket")
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
+}
+
+/// A provider denied access to the selected model.
+pub(crate) fn model_not_available(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    ["model_not_found", "model not found"].into_iter().any(|phrase| text.contains(phrase))
+        || ["no access", "does not have access", "do not have access"].into_iter().any(|denial| {
+            text.split_once(denial).is_some_and(|(_, tail)| {
+                tail.starts_with(" to model") || tail.starts_with(" to the model")
+            })
+        })
+        || text.contains("model") && text.contains("does not exist or you do not have access")
 }
 
 /// Does an agent error say nobody listened where the model was: the connection was refused
