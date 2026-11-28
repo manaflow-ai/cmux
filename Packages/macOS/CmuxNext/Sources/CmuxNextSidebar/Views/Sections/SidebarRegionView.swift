@@ -431,16 +431,20 @@ final class SidebarRegionView: NSView {
         case .chip: .chip
         default: section.look == .builtIn ? .builtIn : .list
         }
-        // A pinned workspace's row leads as its list row does: its own icon (or its shown tab's), then its title, with
-        // no pin before them (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at the left. immediately
-        // questionable"). Being in Pinned at the top says it is pinned; its hover Unpin undoes it.
-        let info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
+        // Every pinned workspace row leads with its pin (#63247, #64286; earlier #42431, #49583, #56146): pinning showed
+        // no mark once #52050 turned this off, so a pinned row read as any other (Lawrence 2026-11-28: "i dont see pinned
+        // icon for pinned workspaces anymore"). Its close x and regular menu stay (#52050).
+        var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
+        info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
+            && item.ref.kind == LayoutItemRef.workspaceKind
+        // A pinned row leads with its pin whatever its shown tab is (msg 40501): a tab's favicon is not the workspace's icon.
+        if info.leadingPin { info = info.droppingShownTabIcon() }
         if new || info != view.info || style != view.style { listWork.configured() }
         view.configure(info, style: style)
         listWork.laidOut()
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
         view.activatesOnPress = item.ref.activatesOnPress
-        view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
+        view.isMovable = item.isMovable(in: section.id) // Home's and a pinned workspace's press never drags
         place(view, row.frame, new: new)
         if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
         edit(view, id)

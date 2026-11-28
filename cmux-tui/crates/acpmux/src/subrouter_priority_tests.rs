@@ -1,10 +1,37 @@
 use super::*;
 use std::collections::BTreeMap;
 
+const GATEWAY: (&str, &str) = ("ANTHROPIC_BASE_URL", "http://127.0.0.1:4016");
+
 fn run(pairs: &[(&str, &str)]) -> Option<String> {
-    let env: BTreeMap<String, String> =
+    let mut env: BTreeMap<String, String> =
         pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-    custom_headers(|k| env.get(k).cloned())
+    env.entry(GATEWAY.0.to_owned()).or_insert_with(|| GATEWAY.1.to_owned());
+    custom_headers(|k| env.get(k).cloned(), false)
+}
+
+#[test]
+fn a_direct_anthropic_chat_sends_no_priority() {
+    let env = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    };
+    // A plain `claude` on the person's own login: no base URL.
+    let plain = env(&[(ENV, INTERACTIVE)]);
+    assert_eq!(custom_headers(|k| plain.get(k).cloned(), false), None);
+    // Anthropic's own API named by hand is not a gateway either.
+    let direct = env(&[(ENV, BACKGROUND), ("ANTHROPIC_BASE_URL", "https://api.anthropic.com")]);
+    assert_eq!(custom_headers(|k| direct.get(k).cloned(), false), None);
+    // The sr2 launcher with no base URL still reaches its gateway.
+    assert_eq!(
+        custom_headers(|k| plain.get(k).cloned(), true).as_deref(),
+        Some("X-Subrouter-Priority: interactive")
+    );
+    // A gateway base URL gets it.
+    let sr2 = env(&[(ENV, BACKGROUND), ("ANTHROPIC_BASE_URL", "http://sr2-gateway.example:4016/")]);
+    assert_eq!(
+        custom_headers(|k| sr2.get(k).cloned(), false).as_deref(),
+        Some("X-Subrouter-Priority: background")
+    );
 }
 
 #[test]
@@ -75,4 +102,17 @@ fn a_profile_value_wins() {
     let mut env = BTreeMap::from([(ENV.to_owned(), BACKGROUND.to_owned())]);
     set(&mut env, "x-coord", true);
     assert_eq!(env.get(ENV).map(String::as_str), Some(BACKGROUND));
+}
+
+/// A create's `_meta.acpmux.tags.priority` (`asked_tag`): only the two classes the tag names.
+#[test]
+fn a_create_asks_for_its_class_in_its_tags() {
+    let meta =
+        |v: serde_json::Value| asked_tag(Some(&serde_json::json!({"tags": {"priority": v}})));
+    assert_eq!(meta(serde_json::json!("interactive")).as_deref(), Some(INTERACTIVE));
+    assert_eq!(meta(serde_json::json!(" Background ")).as_deref(), Some(BACKGROUND));
+    assert_eq!(meta(serde_json::json!("batch")), None);
+    assert_eq!(meta(serde_json::json!(true)), None);
+    assert_eq!(asked_tag(Some(&serde_json::json!({"tags": {}}))), None);
+    assert_eq!(asked_tag(None), None);
 }

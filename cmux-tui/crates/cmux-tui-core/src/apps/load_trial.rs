@@ -42,6 +42,7 @@ pub(super) fn init_message(
         strings: package.strings(super::locale::current()),
         main,
         main_name: package.main_name(),
+        state: None,
     }
 }
 

@@ -39,6 +39,15 @@ export function codePath(text: string): string | undefined {
   return isPathShape(path) ? path : undefined;
 }
 
+/// An inline code span that is a path from the session's folder with no `./` (`outputs/lab/a.html`,
+/// `.github/workflows/ci.yml`): folders, a name and an extension, no line. `owner/name.js` reads the
+/// same, so it draws as a chip only when the host finds the file (SiblingFileChip), else as code.
+/// Its first folder has no dot inside, so `example.com/a.js` is not one.
+export function relativeCodePath(text: string): string | undefined {
+  const value = text.trim();
+  return /^\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}$/.test(value) ? value : undefined;
+}
+
 /// The one shape every written path has, in prose, code and links alike (D4): `/`, `~/`, `./` or
 /// `../` first; a folder and a name (one name after `./`); and a file extension or a trailing
 /// slash (a folder). `/usr`, `and/or` and `~/notes` stay text.

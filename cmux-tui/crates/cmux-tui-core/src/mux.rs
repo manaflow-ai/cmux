@@ -277,9 +277,9 @@ pub use events::{
 mod notification_types;
 mod notifications;
 pub use notification_types::{
-    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationPost, NotificationPoster, NotificationSource, ResourceNotification,
-    SurfaceNotification,
+    DELIVERY_REASONS, NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY,
+    NotificationDelivery, NotificationDesktopOutcome, NotificationEvent, NotificationPost,
+    NotificationPoster, NotificationSource, ResourceNotification, SurfaceNotification,
 };
 pub(crate) use notifications::NotificationClearScope;
 mod notification_level;

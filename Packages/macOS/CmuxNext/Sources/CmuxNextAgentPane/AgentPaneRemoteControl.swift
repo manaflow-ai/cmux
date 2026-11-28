@@ -24,7 +24,7 @@ public final class AgentPaneRemoteControl {
     /// The switch now, read through Observation (the App reads its settings and the iPhone host);
     /// nil while this Mac cannot serve phones.
     public var state: @MainActor () -> State? = { nil } {
-        didSet { observation?.cancel(); observation = nil; follow(); for view in views.allObjects { send(to: view) } }
+        didSet { observation?.cancel(); observation = nil; follow(); pushToAll() }
     }
     /// Writes the switch as the person's own change (the App's settings write, `by: .user`).
     public var set: (@MainActor (Bool) async throws -> Void)?
@@ -62,6 +62,12 @@ public final class AgentPaneRemoteControl {
         view.deliver([Self.event(state)], scripts: [Self.script(state)])
     }
 
+    /// Owes every page the switch: held per pane to one per turn, and while nobody sees it
+    /// (``AgentPaneShownPushes``), as the value of that moment.
+    private func pushToAll() {
+        for view in views.allObjects { view.shownPushes.push("remoteControl", to: view) { [weak self] in self?.send(to: $0) } }
+    }
+
     private func follow() {
         guard observation == nil else { return }
         // task-owner: app-lifetime (one shared instance); event-driven (Observation on the setting
@@ -72,7 +78,7 @@ public final class AgentPaneRemoteControl {
                 guard let self else { return }
                 if last == .some(now) { continue }
                 // The first value is the one ``event(for:)`` already gave each page.
-                if last != nil { for view in views.allObjects { send(to: view) } }
+                if last != nil { pushToAll() }
                 last = .some(now)
             }
         }

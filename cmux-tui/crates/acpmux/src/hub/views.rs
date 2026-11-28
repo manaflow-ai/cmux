@@ -150,7 +150,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `input`: a permission or question waits for the person, here or in an
 ///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
-/// - `failed`: the last turn failed (also when the agent then exited).
+/// - `failed`: the last turn failed (also when the agent then exited), and no work the session
+///   started since it ended runs (`subagentsWorkingSince` later than `lastTurn.endedAt`).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
@@ -173,27 +174,42 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 ///
 /// Reads only the summary's own fields, so a summary whose `status` changes
 /// afterwards (a peer going unreachable) is re-decided from it.
+/// Work below the turn (`subagentsWorkingSince`) began after the last turn ended, or the last
+/// turn has no end time: that work is newer than the turn.
+fn works_since_last_turn(summary: &Value) -> bool {
+    let Some(since) = summary["subagentsWorkingSince"].as_u64() else { return false };
+    summary["lastTurn"]["endedAt"].as_u64().is_none_or(|ended| since >= ended)
+}
+
 pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
     let answered = last == Some("completed");
+    // A clean turn after it (a background or trigger turn, `background_turn.rs`) shows the chat
+    // works again: its failure no longer reads `failed` or `lost`.
+    let recovered =
+        summary.get("lastTurn").and_then(|last| last.get("recoveredAt")).is_some_and(Value::is_u64);
     let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
         "closed" => None,
         "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
+        _ if crate::session_liveness::sandbox_failed(summary) => Some("failed"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
-        // A sub-session below it waits on the person: its run stalls there until someone answers,
-        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
-        _ if last == Some("failed") => Some("failed"),
-        "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
-        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
-        // (`disconnected`) still works while a sub-session it started runs.
+        // Work the session started after its failed turn ended, or a clean turn after it (a
+        // background or trigger turn, `background_turn.rs` `recoveredAt`), is newer than the
+        // failure: the chat is working again, not erroring (Leo, 2026-11-27: "this isn't leaving
+        // the tab icon even after you're not erroring anymore").
+        _ if last == Some("failed") && !recovered && !works_since_last_turn(summary) => {
+            Some("failed")
+        }
+        "disconnected" | "unreachable" if last.is_some() && !answered && !recovered => Some("lost"),
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
@@ -204,13 +220,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
     "stopReason",
     "errorText",
     "errorSource",
+    "errorCode",
     "detail",
     "errorKind",
     "recovery",
@@ -294,7 +311,7 @@ pub fn lane(summary: &Value) -> Value {
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "failed" => crate::session_liveness::failure_error(summary),
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
@@ -389,6 +406,7 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+    super::session_state::set(summary, crate::store::now_ms());
 }
 
 /// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
@@ -844,6 +862,7 @@ impl Hub {
             }),
             harness_sandbox_failed: m.harness_sandbox.first_at,
             harness_sandbox_failing: m.harness_sandbox.failing,
+            harness_sandbox_error: m.harness_sandbox.error.clone(),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -878,6 +897,7 @@ impl Hub {
             pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
+            residency: serde_json::to_value(self.residency_of(session, m.status)).ok(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
@@ -1091,11 +1111,15 @@ impl Hub {
         // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
         // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
         extras.push(("bgTasksRunning", json!(self.bg_running_count(session))));
+        // Those of them that are re-armable waits (`rearm.rs`, `session-bg-waits-v1`): a move
+        // starts each again at the destination, so rebalance moves a session whose every task
+        // is one.
+        extras.push(("bgWaits", json!(self.bg_waits(session))));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
+        let (overdue, due_at) = super::inbox::deadline_row(session, &m);
         extras.push(("inboxOverdue", json!(overdue)));
         extras.push(("inboxDueAt", json!(due_at)));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
@@ -1126,16 +1150,16 @@ impl Hub {
         extras
             .push(("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build()))));
         extras.push(("hostBuild", json!(host_build)));
-        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        extras.push((
-            "respawnPending",
-            json!(
-                session
-                    .profile_respawn
-                    .load(Ordering::SeqCst)
-                    .then_some(super::profile_respawn::PROFILE_CHANGED)
-            ),
-        ));
+        // A profile change keeps its specific reason; route, credential, gateway, capacity and
+        // stale-host changes expose the generic quiet wait so a long-lived background task is
+        // visible while it safely finishes (`idle.rs`).
+        let profile_pending = session
+            .profile_respawn
+            .load(Ordering::SeqCst)
+            .then_some(super::profile_respawn::PROFILE_CHANGED);
+        let quiet_pending =
+            session.respawn_when_quiet.load(Ordering::SeqCst).then_some("restart when quiet");
+        extras.push(("respawnPending", json!(profile_pending.or(quiet_pending))));
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` in `render_row`.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         RowInputs { summary, extras, notice, with_tools, limits }
@@ -1209,6 +1233,11 @@ impl Hub {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
         v.set("pending", Value::Array(pending));
+        // A moved chat that runs here while its earlier history still arrives
+        // (`transfer_history.rs`): usable now, not yet fully here.
+        if let Some(following) = self.history_following(&session.id) {
+            v.set("historyFollowing", following);
+        }
         v
     }
 
@@ -1294,10 +1323,17 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": build(),
+            // The wire ABI range this build serves (`protocol/range.rs`), and what the last
+            // update of this host's binary did (`update_inventory.rs`): the version inventory
+            // NOW reads per host through the census (`acpmux_lag`).
+            "abiRange": crate::protocol::range::AbiRange::ours().json(),
+            "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
+            "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
-            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
+            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is 0).
             "evicted": evicted,
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
@@ -1319,10 +1355,14 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // How many restarts this pid came through as an exec in place (`daemon/handoff.rs`):
+            // 0 on a normal start. `daemon restart` waits for it to grow.
+            "handoffs": crate::daemon::handoffs(),
             // What kind of device this machine is (`cmux-device-kind`), so the app draws This
             // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
-            "device": cmux_device_kind::this_device().kind.as_str(),
-            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
+            // The kind its person chose, else its hardware's (`cmux-device-kind` shown_kind).
+            "device": cmux_device_kind::shown_kind().as_str(),
+            "deviceSymbol": cmux_device_kind::shown_kind().symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
@@ -1349,6 +1389,9 @@ impl Hub {
             "liveAgents": live,
             // Live agent hosts still on another build than this one (`views/host_build.rs`).
             "hostsOnOtherBuilds": other_build,
+            // The idle policy and what the chats cost now: resident, busy, what a lane cap
+            // counts, hibernated (`residency.rs`, versioned `v`).
+            "residency": self.residency_status(&sessions),
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
@@ -1404,6 +1447,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // How typing wakes of a paused peer's machine ended: sent with their lead, or a
+            // draft never sent (`compose_wake.rs`, RFD 0072's parallel start).
+            "composeWakes": crate::compose_wake::status(),
             // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
             // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
             "fleetHold": self.fleet_hold_shown(),
@@ -1650,6 +1696,7 @@ mod time_breakdown_tests {
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
-#[cfg(test)]
+// Times thread CPU with clock_gettime, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;

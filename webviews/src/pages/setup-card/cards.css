@@ -663,6 +663,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The cmux Classic row's words are its consent (what Import brings and also does, an app still open): they
+   wrap rather than cut off. */
+.hm-setup__row[data-step="classic"] .hm-setup__row-detail {
+  white-space: normal;
+}
 .hm-setup__rows {
   display: flex;
   flex-direction: column;

@@ -111,9 +111,14 @@ References: [R2 streaming writes and checksums](https://developers.cloudflare.co
 [GitHub artifact identity and downloads](https://docs.github.com/en/rest/actions/artifacts),
 [Durable Objects](https://developers.cloudflare.com/durable-objects/api/base/).
 
-## Isolated deployment canary
+## Isolated deployment canary (historical)
 
-The main-only manual `CI artifact transport canary` workflow uses a separately
+The feat-cmux-next workflow copy was retired on 2026-11-27: its fixed artifact
+expired on 2026-09-23, so the verifier rejects it before deployment. The helper
+code and its tests remain; a new trial needs a reviewed, live artifact allowlist.
+The following records the original trial, not an available NEXT dispatch.
+
+The main-only manual `CI artifact transport canary` workflow used a separately
 named Worker, Durable Object namespace and private R2 bucket for each run/attempt. It permits only
 artifact `10610975375` and its exact provider digest, requires a random per-run
 secret header, and fails closed after a twenty-minute lease or artifact expiry.

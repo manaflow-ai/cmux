@@ -24,7 +24,11 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     public let depth: Int
     /// When set, only subfolders whose names start with this are entered.
     public let folderPrefix: String?
+    /// The rule as the C ABI's JSON (what the pane's sources carry).
+    let json: String
     private let handle: RustHandle
+    /// The Rust rule, live while this value is.
+    var pointer: OpaquePointer? { handle.pointer }
 
     /// Makes a rule.
     ///
@@ -45,7 +49,8 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
         var json: [String: Any] = ["kinds": mask, "extraImageExtensions": extraImageExtensions.sorted(),
                                    "namePrefixes": namePrefixes, "depth": self.depth]
         if let folderPrefix { json["folderPrefix"] = folderPrefix }
-        handle = RustHandle(ScreenshotsFFI.bytes(ScreenshotsFFI.json(json)) { cmux_screenshots_rule_new($0, $1) }) {
+        self.json = ScreenshotsFFI.json(json)
+        handle = RustHandle(ScreenshotsFFI.bytes(self.json) { cmux_screenshots_rule_new($0, $1) }) {
             cmux_screenshots_rule_free($0)
         }
     }
@@ -70,10 +75,5 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     func kind(entryKind: UInt32, hidden: Bool, name: String) -> FileGridMediaKind? {
         let system = ScreenshotsFFI.systemKind(ofFileNamed: name)
         return ScreenshotsFFI.kind(ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_item_kind(handle.pointer, entryKind, hidden, $0, $1, system) })
-    }
-
-    /// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-    func enters(entryKind: UInt32, hidden: Bool, name: String, depth: Int) -> Bool {
-        ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_enters(handle.pointer, entryKind, hidden, $0, $1, depth) }
     }
 }

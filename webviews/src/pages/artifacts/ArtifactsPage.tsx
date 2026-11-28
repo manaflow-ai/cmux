@@ -233,7 +233,7 @@ function retriable(failure: ArtifactsFailure | undefined): failure is ArtifactsF
   return !!failure && failure.code !== SIGNED_OUT && failure.code !== "cmux.artifacts.not_found";
 }
 
-function FileBody({ file, strings }: { file: ArtifactFile; strings: Strings }) {
+export function FileBody({ file, strings }: { file: ArtifactFile; strings: Strings }) {
   if (file.tooLarge) return <p className="artifacts-message artifacts-muted">{strings.t("artifacts.file.tooLarge")}</p>;
   const text = textOf(file);
   if (text === undefined)

@@ -6,9 +6,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, tool } from "../src/gallery/fixtures/acpmux";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { sessionSummary } = await importWithDom(() => import("../src/agent-session/acpmux/summary/sessionSummary"));
+const { activity, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;

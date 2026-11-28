@@ -322,6 +322,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        // A row reused while it springs in (FeedCollection.springIn) drops the spring and comes back whole.
+        layer.removeAllAnimations()
+        alpha = 1
+        transform = .identity
         selection.end()
         if made.contains("web") { web.release() }
         resignQuestionOther()

@@ -62,7 +62,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
-import { type QueuedEntry, shownText, heldReason, uniqueById, queueSummary } from "./composerQueueModel";
+import { type QueuedEntry, shownText, heldReason, uniqueById } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { revealControls } from "../../ui/revealCover";
@@ -1082,8 +1082,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       </span>
     );
   };
-  // A row's text (or its edit) and actions. A prompt sent now says "Steering" ahead of its text; a
-  // queued one keeps "Queued" for assistive tech only.
+  // A row's text (or its edit) and actions. A prompt sent now that has not been taken yet is an
+  // ordinary queued row, first in line: there is no "Steering" state (Leo, 2026-11-27: "this just
+  // shouldnt exist tho ... it should just be steered if steered").
   const cells = (entry: QueuedEntry, index: number) => (
     <>
       {!entry.next && (
@@ -1120,11 +1121,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp ui-reveal-text">
             {entry.author && <AuthorChip author={entry.author} inline />}
-            {entry.next && (
-              <span className="acpmux-queued-kind" data-kind="steer">
-                {t("composer.steering")}
-              </span>
-            )}
             {entry.retry ? (
               <>
                 <span className="acpmux-queued-kind" data-kind="retry">
@@ -1206,7 +1202,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
-        title={queueSummary(shown.length, t)}
       >
         {note && (
           <li className="acpmux-queue-paused">

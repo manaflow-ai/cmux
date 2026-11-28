@@ -283,3 +283,45 @@ export function chatFeelWrites(value: WalkChatFeel, opened: WalkValues, current:
 /** The walk's four screens, in order: look bundles first (hq RFD 0057). */
 export type MakeItYoursScreen = "look" | "work" | "trust" | "tune";
 export const MAKE_IT_YOURS_SCREENS: readonly MakeItYoursScreen[] = ["look", "work", "trust", "tune"];
+
+// MARK: Undo and Redo (cmux#56827)
+
+/** The step ops whose clicks the walk's Undo puts back: every row on the four screens. */
+export const UNDOABLE_OPS: ReadonlySet<string> = new Set([
+  "cmux.onboarding.makeItYours.walk",
+  "cmux.onboarding.makeItYours.workStyle",
+  "cmux.onboarding.makeItYours.density",
+  "cmux.onboarding.makeItYours.background",
+  "cmux.onboarding.makeItYours.opacity",
+  "cmux.onboarding.makeItYours.material",
+]);
+
+/** What takes `current` back to `target`, the settings before a click: the work style as its own op
+ * (the host reads the first chat from it), every other path as one walk write. */
+export function restoreWrites(
+  target: WalkValues,
+  current: WalkValues,
+): { workStyle: "gui" | "terminal" | null; writes: WalkWrite[] } {
+  const writes = diff(
+    Object.fromEntries(
+      Object.values(P)
+        .filter((path) => path !== P.template)
+        .map((path) => [path, target[path] ?? null]),
+    ),
+    current,
+  );
+  const workStyle =
+    effective(target, P.template) === effective(current, P.template)
+      ? null
+      : target[P.template] === "terminal"
+        ? "terminal"
+        : "gui";
+  return { workStyle, writes };
+}
+
+/** The walk's history: the settings before each click, and the ones Undo stepped back from. */
+export interface WalkHistory {
+  past: WalkValues[];
+  future: WalkValues[];
+}
+export const EMPTY_HISTORY: WalkHistory = { past: [], future: [] };

@@ -64,7 +64,7 @@ export function TimedLabel({
         <Clock
           text={shown}
           className="cv-worked__label-time"
-          // "<1s" holds the seconds' box, so its first tick to "1s" moves nothing either.
+          // "0s" holds the seconds' box, so its first tick to "1s" moves nothing either.
           size={after.trim() ? clockSizer(formatDuration(time)) : clockSizerAcrossUnits(formatDuration(time))}
         />
       ) : (

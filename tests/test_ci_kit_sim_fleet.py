@@ -39,9 +39,11 @@ FAKE_GH = textwrap.dedent("""\
 """)
 
 FAKE_CLIENT = textwrap.dedent("""\
-    # Fake ci-client.py: `run` prints its step and exits $FAKE_RC; `artifact STEP OUT` writes $FAKE_RESULT to OUT.
+    # Fake ci-client.py: `run` writes its args to $FAKE/run.args, prints its step and exits $FAKE_RC; `artifact STEP OUT` writes $FAKE_RESULT to OUT.
     import os, shutil, sys
     if sys.argv[1] == "run":
+        with open(os.path.join(os.environ["FAKE"], "run.args"), "w") as f:
+            f.write("\\n".join(sys.argv[2:]))
         print("submitted step 0123456789abcdef01234567")
         sys.exit(int(os.environ["FAKE_RC"]))
     if sys.argv[1] == "artifact":
@@ -123,9 +125,11 @@ class Wait(unittest.TestCase):
     def test_a_queued_job_is_waited_on_until_the_bound(self):
         self.fake.answers("artifacts", "")
         self.fake.answers("jobs", "queued")
-        done, out = self.fake.run("wait", BOUND="1", POLL="1")
+        # bash's SECONDS is whole seconds and can tick just after the start, so a bound of 1 s could end after one
+        # read (a flake, 1 run in 3). A bound of 3 s is at least 2 real seconds: a second read always comes first.
+        done, out = self.fake.run("wait", BOUND="3", POLL="1")
         self.assertEqual(out, {"hit": "false"})
-        self.assertIn("none within 1 s", done.stdout)
+        self.assertIn("none within 3 s", done.stdout)
         self.assertGreaterEqual(int((self.fake.dir / "jobs.n").read_text()), 2)
 
     def test_one_failed_read_is_retried(self):
@@ -148,9 +152,32 @@ class Pool(unittest.TestCase):
         self.fake = Fake()
         self.addCleanup(self.fake.tmp.cleanup)
 
-    def pool(self, rc, result):
+    def pool(self, rc, result, **env):
         return self.fake.run("pool", CI_CLIENT=str(self.fake.dir / "ci-client.py"), FAKE_RC=str(rc),
-                             FAKE_RESULT=result, HEAD_SHA="a" * 40, PRODUCTS="1/kit-sim-fleet-products-1-1")
+                             FAKE_RESULT=result, HEAD_SHA="a" * 40, PRODUCTS="1/kit-sim-fleet-products-1-1", **env)
+
+    def skips(self):
+        args = (self.fake.dir / "run.args").read_text().splitlines()
+        return [args[i + 1][len("skip="):] for i, a in enumerate(args) if a == "--arg" and args[i + 1].startswith("skip=")]
+
+    def test_shadow_skips_only_the_bundles_skipped_everywhere(self):
+        done, out = self.pool(0, self.fake.result(3), CMUX_IOS_SIM_LINUX="shadow")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.skips(), ["CmuxMobileInstantPerfTests", "CmuxMobileDesignCoreTests",
+                                        "CmuxMobileRealtimeTests", "CmuxMobileTransportTests"])
+
+    def test_on_skips_the_bundles_that_stay_on_the_mac(self):
+        stays = self.fake.dir / "stays.txt"
+        stays.write_text("CmuxMobileAuthTests\n")
+        done, out = self.pool(0, self.fake.result(3), CMUX_IOS_SIM_LINUX="on", CMUX_IOS_SIM_MAC_BUNDLES=str(stays))
+        self.assertEqual((done.returncode, out["verdict"]), (0, "pass"), done.stderr)
+        self.assertEqual(self.skips()[-1], "CmuxMobileAuthTests")
+
+    def test_on_with_every_bundle_on_the_mac_submits_nothing(self):
+        done, out = self.pool(0, self.fake.result(3), CMUX_IOS_SIM_LINUX="on")
+        self.assertEqual((done.returncode, out["verdict"]), (0, "none"), done.stderr)
+        self.assertFalse((self.fake.dir / "run.args").exists())
+        self.assertIn("stays on the Mac", (self.fake.dir / "summary").read_text())
 
     def test_passed(self):
         done, out = self.pool(0, self.fake.result(3))
@@ -210,6 +237,63 @@ class Reach(unittest.TestCase):
     def test_no_controller_variable_is_a_no(self):
         done, out = self.fake.run("reach", CONTROLLER="")
         self.assertEqual((done.returncode, out), (0, {"reach": "no"}))
+
+
+def capabilities_server(test, body, code=200):
+    class Caps(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(code if self.path == "/v1/capabilities" else 404)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Caps)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    test.addCleanup(server.shutdown)
+    return f"http://127.0.0.1:{server.server_port}"
+
+
+class Supply(unittest.TestCase):
+    """Run 45996304968 (2026-11-27): the Mac packed and uploaded 813 MB (437 s, before its swift test) for a pool
+    run that ended "got no runner". The controller's capabilities say simsdk false then; the Mac skips both. Every
+    other answer is a yes: an unreachable controller or an older one packs as before."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.addCleanup(self.fake.tmp.cleanup)
+
+    def test_simsdk_false_skips(self):
+        done, out = self.fake.run("supply", CONTROLLER=capabilities_server(self, b'{"ci_steps": true, "simsdk": false}'))
+        self.assertEqual((done.returncode, out), (0, {"live": "no"}), done.stderr)
+        self.assertIn("no pack, no upload", done.stdout)
+
+    def test_simsdk_true_packs(self):
+        done, out = self.fake.run("supply", CONTROLLER=capabilities_server(self, b'{"ci_steps": true, "simsdk": true}'))
+        self.assertEqual((done.returncode, out), (0, {"live": "yes"}), done.stderr)
+
+    def test_every_other_answer_fails_open(self):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        for name, controller in {
+            "older controller": capabilities_server(self, b'{"ci_steps": true}'),
+            "not json": capabilities_server(self, b"<html>"),
+            "HTTP 503": capabilities_server(self, b'{"simsdk": false}', code=503),
+            "no route": f"http://127.0.0.1:{port}",
+            "no variable": "",
+        }.items():
+            done, out = self.fake.run("supply", CONTROLLER=controller, REACH_TIMEOUT="1")
+            self.assertEqual((done.returncode, out), (0, {"live": "yes"}), f"{name}: {done.stdout} {done.stderr}")
+
+    def test_the_kit_workflow_skips_pack_and_upload_on_a_no(self):
+        import yaml
+        steps = {s.get("id"): s for s in yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())["jobs"]["kit-tests"]["steps"]}
+        self.assertEqual(steps["sim-supply"]["run"], "bash scripts/ci/kit_sim_fleet.sh supply")
+        self.assertIn("steps.sim-supply.outputs.live != 'no'", steps["sim-pack"]["if"])
+        self.assertIn("steps.sim-pack.outcome == 'success'", steps["sim-upload"]["if"])
+        self.assertIn('"$SUPPLY" == no', steps["sim-products"]["run"])
 
 
 if __name__ == "__main__":

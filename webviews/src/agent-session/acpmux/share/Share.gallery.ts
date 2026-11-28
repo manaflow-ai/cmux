@@ -7,7 +7,7 @@
 import { componentEntry } from "../../../gallery/format";
 import { ANA, JORDAN, MEI, SAM } from "../multiplayer/people.fixtures";
 import type { ShareDemoProps } from "./ShareDemo";
-import type { ChatShare } from "./shareState";
+import type { ChatShare, ShareAccessRequest } from "./shareState";
 
 const link: ChatShare = {
   shareId: "link-1",
@@ -33,6 +33,15 @@ const people: ChatShare = {
   guests: [{ guestId: "g2", name: "Ana Ruiz", account: "ana@example.com", role: "talk", joined: true }],
   invitees: [
     { account: "ana@example.com", role: "talk", state: "invited", joined: true },
+    { account: "@sam", role: "view", state: "invited", joined: false },
+  ],
+};
+const drivePerson: ChatShare = {
+  ...people,
+  shareId: "invite-drive-1",
+  guests: [{ guestId: "g3", name: "Ana Ruiz", account: "ana@example.com", role: "drive", joined: true }],
+  invitees: [
+    { account: "ana@example.com", role: "drive", state: "invited", joined: true },
     { account: "@sam", role: "view", state: "invited", joined: false },
   ],
 };
@@ -82,6 +91,36 @@ const crowd: ChatShare = {
   })),
 };
 
+// Access requests (RFD 0077 D5): signed-in accounts that opened the link without access asked in.
+const ask = (account: string, name: string, requestedAt: number): ShareAccessRequest => ({
+  account,
+  name,
+  avatarUrl: null,
+  requestedAt,
+});
+const oneAsk: ChatShare = { ...people, shareId: "ask-1", requests: [ask("mei@example.com", "Mei Chen", 10)] };
+const threeAsks: ChatShare = {
+  ...people,
+  shareId: "ask-3",
+  requests: [
+    ask("mei@example.com", "Mei Chen", 10),
+    ask("@jordan", "Jordan Lee", 11),
+    ask("riley@example.com", "Riley Park", 12),
+  ],
+};
+const longAsk: ChatShare = {
+  ...people,
+  shareId: "ask-long",
+  requests: [
+    ask(
+      "alexandria.montgomery-fitzgerald@engineering.verylongcompanyname.example.com",
+      "Alexandria Montgomery-Fitzgerald of the Platform Reliability Group",
+      10,
+    ),
+    ask("@sam-the-very-long-handle-name", "", 11),
+  ],
+};
+
 export default componentEntry<ShareDemoProps>({
   id: "agent-pane.share",
   title: "Agent pane: share a chat",
@@ -112,6 +151,34 @@ export default componentEntry<ShareDemoProps>({
     "dialog-shared": {
       note: "Two people invited (one in the chat now) and Anyone with the link, whose row says Can send: signed-in people can send messages, others can view (cmux#38102). Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
       props: { viewing, shares: [people, link], open: true },
+    },
+    "dialog-drive-invite": {
+      note: "Named invite with Can drive selected. Drive is available for this person only and is absent from General access.",
+      props: { viewing: [], shares: [], open: true },
+      play: async (ctx) => {
+        await ctx.type("@ana", { selector: ".share-dialog__field" });
+        await ctx.click({ selector: ".share-dialog__role button" });
+        await ctx.click({ role: "menuitemradio", name: "Can drive" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".share-dialog__status")?.textContent?.includes("your plan"),
+        );
+      },
+    },
+    "dialog-drive-person": {
+      note: "A named person's role menu includes Can drive alongside Viewer and Can send.",
+      props: { viewing, shares: [drivePerson], open: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".share-dialog__person-pick" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
+      },
+    },
+    "dialog-link-no-drive": {
+      note: "Anyone with the link keeps its fixed Can send role. Can drive is not offered in the link section.",
+      props: { viewing: [], shares: [link], open: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".share-dialog__general" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]'));
+      },
     },
     "rows-restricted-back": {
       note: "Shipped: General access and each person are one button the size of their row, edged at rest like a sign-in choice, with the hover and press fills on the whole block; pressing General access offers Restricted, which turns the link back off.",
@@ -165,6 +232,22 @@ export default componentEntry<ShareDemoProps>({
     "dialog-still-reading": {
       note: 'The daemon does not answer the dialog\'s read: no "Try again", it reads again on its own on the shared backoff (autoRetry.ts) and, once that has lasted (at once here), says only "Still reading who has access…" as the quiet status line. A failed share change (an invite, a role, a link) still says "That didn\'t finish. Try again.": that is a write the person chooses.',
       props: { viewing: [], shares: [people], open: true, unread: true },
+    },
+    "requests-one": {
+      note: "One account asked for access (RFD 0077 D5): its row sits above People with access, with a role picker that starts at Can view, Approve and Decline. The people band gives up the row's room, so the dialog keeps its height. Picking Can send puts what it means on the status line; Decline is silent.",
+      props: { viewing, shares: [oneAsk, link], open: true },
+    },
+    "requests-three": {
+      note: "Three requests: the band holds two rows and scrolls to the third, and the heading counts them, so the dialog never grows.",
+      props: { viewing, shares: [threeAsks, link], open: true },
+    },
+    "requests-narrow-long": {
+      note: "At 280 px (pick the narrow width) with a long name and address, and a handle with no name: each request takes two lines, the name and address ellipsize on the first, the role, Approve and an x on the second.",
+      props: { viewing, shares: [longAsk], open: true },
+    },
+    "requests-none": {
+      note: "No requests: no band and no heading; the dialog is as it was.",
+      props: { viewing, shares: [people], open: true },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",

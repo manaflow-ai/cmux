@@ -51,6 +51,10 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+import sys as _step_sys  # noqa: E402
+from pathlib import Path as _StepPath  # noqa: E402
+_step_sys.path.insert(0, str(_StepPath(__file__).resolve().parent))  # tests/cmux_next_step_text.py
+from cmux_next_step_text import inline_steps  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 TOOLCHAIN = "Xcode 26.6\nBuild version 17F113\n25F61\n"
@@ -470,7 +474,7 @@ def shortest_minutes(timeout: int | str) -> int:
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.workflow = yaml.safe_load(inline_steps(WORKFLOW.read_text()))
         cls.job = cls.workflow["jobs"]["cmux-scheme-compile"]
         cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
         cls.order = [s.get("id") or s.get("name") for s in cls.job["steps"]]

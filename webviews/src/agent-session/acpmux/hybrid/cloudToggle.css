@@ -369,3 +369,23 @@ button.acpmux-hybrid-tri__name {
   .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
   .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud { animation: none; }
 }
+
+/* Runs On: each choice with a short hint under its name, the check a trailing mark centred on
+   the row, the names at AppKit's plain leading (15) and the row's end keeping room for the check. */
+.ui-popup.ui-menu.acpmux-menu.acpmux-picker-menu.acpmux-hybrid-pin-menu {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+}
+.ui-popup.ui-menu.acpmux-menu.acpmux-picker-menu.acpmux-hybrid-pin-menu .ui-menu-item {
+  padding-inline-end: calc(
+    var(--cmux-menu-trailing) + var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap) - var(--ui-menu-inset)
+  );
+}
+.ui-popup.ui-menu.acpmux-menu.acpmux-picker-menu.acpmux-hybrid-pin-menu .ui-menu-item .ui-menu-check {
+  inset-block: 0;
+  inset-inline: auto calc(var(--cmux-menu-trailing) - var(--ui-menu-inset));
+  height: auto;
+}
+/* The glyph is a block, so its box is its 12 px and not an inline line with a descender gap. */
+.acpmux-hybrid-pin-menu .ui-menu-check-glyph {
+  display: block;
+}

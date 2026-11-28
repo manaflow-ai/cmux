@@ -86,13 +86,22 @@ export async function classicScript({ outdir: given, outputs, staticOut, entryOu
   const resolveChunks = ({ shim }) => ({
     name: "pane-chunks",
     setup(b) {
+      // KEY as a module specifier from where the importer ends up: pane.js (the outdir) for the entry and the
+      // static chunks it absorbs, the lazy chunk's own folder for a lazy chunk.
+      const specifierFor = (key, importer) => {
+        const from = shim ? path.posix.dirname(path.relative(outdir, importer).split(path.sep).join("/")) : ".";
+        const spec = path.posix.relative(from, key);
+        return spec.startsWith(".") ? spec : `./${spec}`;
+      };
       b.onResolve({ filter: /^\.\.?\// }, (args) => {
         const key = path.relative(outdir, path.resolve(args.resolveDir, args.path)).split(path.sep).join("/");
         if (args.kind === "dynamic-import") {
           // Lazy code stays a runtime import, whatever imports it; a static chunk is never dynamically imported.
           if (staticKeys.has(key))
             throw new Error(`classic pane: ${args.importer} imports the static chunk ${key} with import()`);
-          return { path: `./${key}`, external: true };
+          // From a lazy chunk in chunks/, `./chunks/x.js` resolved to chunks/chunks/x.js: every shiki grammar the
+          // lazy highlighter chunk imports failed to load ("Failed to fetch dynamically imported module").
+          return { path: specifierFor(key, args.importer), external: true };
         }
         if (staticKeys.has(key)) {
           return shim ? { path: key, namespace: "pane-shim" } : { path: path.resolve(outdir, key), namespace: "file" };
@@ -102,9 +111,7 @@ export async function classicScript({ outdir: given, outputs, staticOut, entryOu
           throw new Error(`classic pane: ${args.importer} imports the entry ${key}`);
         }
         // A lazy chunk's import of another lazy chunk: an ES module import, relative to this chunk's folder.
-        const from = path.posix.dirname(path.relative(outdir, args.importer).split(path.sep).join("/"));
-        const spec = path.posix.relative(from, key);
-        return { path: spec.startsWith(".") ? spec : `./${spec}`, external: true };
+        return { path: specifierFor(key, args.importer), external: true };
       });
       b.onLoad({ filter: /.*/, namespace: "pane-shim" }, (args) => ({
         contents: shimSource(args.path, staticKeys.get(args.path)),

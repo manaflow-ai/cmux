@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("ios_internal_yolo", ROOT / "scripts/ci/ios_internal_yolo.py")
@@ -117,6 +118,63 @@ class StackTests(unittest.TestCase):
         self.assertIn("- left out #3: conflicts", text)
         self.assertIn("- left out #5: is from a fork", text)
         self.assertIn("Dispatched to cmux INTERNAL", text)
+
+
+class DispatchTests(unittest.TestCase):
+    """Run 46103940180 (2026-11-28): the stack was pushed, then one rate-limited `gh workflow run` failed the job."""
+
+    RATE_LIMITED = (1, "", "HTTP 403: API rate limit exceeded for installation. (HTTP 403)")
+
+    def gh(self, *answers, reset_in=120):
+        calls, script, clock = [], list(answers), {"t": 1_000_000.0}
+
+        def run(argv, **_kw):
+            calls.append(argv)
+            if argv[:3] == ["gh", "api", "rate_limit"]:
+                body = {"resources": {"core": {"remaining": 0, "reset": clock["t"] + reset_in}}}
+                return subprocess.CompletedProcess(argv, 0, __import__("json").dumps(body), "")
+            code, out, err = script.pop(0) if script else (0, "", "")
+            return subprocess.CompletedProcess(argv, code, out, err)
+
+        def sleep(s):
+            clock["t"] += s
+        return run, sleep, (lambda: clock["t"]), calls
+
+    def test_a_spent_limit_waits_and_dispatches_instead_of_failing(self):
+        run, sleep, clock, calls = self.gh(self.RATE_LIMITED, self.RATE_LIMITED)
+        with unittest.mock.patch.dict(os.environ, {"GH_FALLBACK_TOKEN": ""}):
+            yolo.dispatch_builder("a" * 40, "b" * 40, runner=run, sleep=sleep, clock=clock)
+        posts = [c for c in calls if "POST" in c]
+        self.assertEqual(len(posts), 3)
+        self.assertIn("repos/manaflow-ai/cmux/actions/workflows/ios-internal-nightly.yml/dispatches", posts[-1])
+        self.assertIn("ref=rc/cnx-ios-builder", posts[-1])
+        self.assertIn(f"inputs[sha]={'a' * 40}", posts[-1])
+
+    def test_a_dispatch_that_never_gets_through_stays_red(self):
+        run, sleep, clock, _ = self.gh(*[self.RATE_LIMITED] * 10_000)
+        with unittest.mock.patch.dict(os.environ, {"GH_FALLBACK_TOKEN": ""}):
+            with self.assertRaises(RuntimeError):
+                yolo.dispatch_builder("a" * 40, "", runner=run, sleep=sleep, clock=clock)
+
+    def test_the_yolo_job_passes_a_fallback_token_and_outlasts_the_wait(self):
+        text = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
+        job = text[text.index("\n  yolo:\n"):]
+        self.assertIn("GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}", job)
+        minutes = int(__import__("re").search(r"timeout-minutes: (\d+)", job).group(1))
+        self.assertGreater(minutes, 20)
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_the_yolo_job_can_read_the_release_app_secrets(self):
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text())
+        job = wf["jobs"]["yolo"]
+        mints = [s for s in job["steps"] if "CMUX_FFI_RELEASE_APP_ID" in str(s.get("with", {}))]
+        self.assertTrue(mints, "the yolo job mints the release App token")
+        env = job.get("environment")
+        name = env.get("name") if isinstance(env, dict) else env
+        # The secrets are scoped to ffi-release; outside it the mint gets an empty app id (run 46085910676).
+        self.assertEqual(name, "ffi-release")
 
 
 if __name__ == "__main__":

@@ -8,8 +8,10 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
-for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
+Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") an unowned takeback
+(`Takes back #N:` is absent) is the only pull-request verdict that turns the check red. A structured GitHub
+API quota refusal also stays red and ungraded ([provider quota](#provider-quota-is-not-a-grade)). A high pull
+request with no verdict, or
 with a BLOCK, gets a warning in the job summary and the check stays green. The lander refuses a BLOCK
 at the exact head. Into `feat-cmux-next` no review otherwise gates a merge (Leo, 2026-11-12); a high pull
 request still posts its SHIP receipt before it merges (below).
@@ -186,3 +188,18 @@ BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
 or change request beats an earlier SHIP or approval, a BLOCK wins a tie, and any push needs a new
 receipt. The label counts only while no verdict names the head.
+
+## Provider quota is not a grade
+
+A GitHub 403/429 with `x-ratelimit-remaining: 0` or `retry-after` keeps the check red
+and ungraded. `risk_tier.py` reads the HTTP envelope from `gh api --include`, waits
+at most 90 seconds across the job, then emits `risk-evidence.rate-limited` with a
+JSON endpoint, HTTP status, reset timestamp and `graded: false`. It never reports
+ready after a quota refusal, including a refusal during an optional evidence read.
+
+`base_red_excuse.py` accepts that marker only from the failed `Grade the pull request`
+step of `risk evidence` in main's `risk-tier.yml` `pull_request_target` run, without a runtime takeback warning,
+another error or failed test. It returns the existing
+retryable job-rate-limited outcome, naming when to rerun; it does not excuse the check
+as green or attribute it to the PR. `RiskEvidenceQuotaMarker`, `RiskEvidenceQuotaJobRed` and `GhFailureTests`
+exercise the producer-to-classifier handoff and reject stderr-only imitations.

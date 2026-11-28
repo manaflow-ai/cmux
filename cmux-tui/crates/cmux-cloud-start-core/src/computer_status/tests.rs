@@ -447,6 +447,36 @@ fn a_live_start_and_a_slots_refusal_read_as_their_phases() {
 }
 
 #[test]
+fn a_move_s_monotonic_stamps_read_on_the_page_s_clock() {
+    // The app's uptime clock reads 10_000 when Unix ms reads 1_700_000_000_500: a move that started
+    // 4.2 s ago on uptime started at Unix 1_699_999_996_300, said in whole seconds.
+    let clock = json!({"monoMs": 10_000, "wallMs": 1_700_000_000_500u64});
+    let moving = live_status(json!({
+        "at": "local", "clock": clock,
+        "move": {"direction": "toCloud", "trigger": {"auto": "memory"}, "state": "moving",
+                 "startedMs": 5_800, "elapsedMs": 4_200, "canCancel": true}
+    }));
+    assert_eq!(moving.phase_since_ms, Some(1_699_999_996_000));
+    assert_eq!(moving.why.as_ref().map(|why| why.at_ms), Some(1_699_999_996_000));
+    // The same move read a few ms later (both clocks moved) writes the same status.
+    let later = live_status(json!({
+        "at": "local", "clock": {"monoMs": 10_003, "wallMs": 1_700_000_000_503u64},
+        "move": {"direction": "toCloud", "trigger": {"auto": "memory"}, "state": "moving",
+                 "startedMs": 5_800, "elapsedMs": 4_203, "canCancel": true}
+    }));
+    assert_eq!(later, moving);
+    // A failed move is since it stopped.
+    let failed = live_status(json!({
+        "at": "local", "clock": clock,
+        "move": {"direction": "toCloud", "trigger": "person", "state": "failed",
+                 "startedMs": 1_000, "elapsedMs": 2_000, "reason": "network_dropped"}
+    }));
+    assert_eq!(failed.phase_since_ms, Some(1_699_999_993_000));
+    // A stamp ahead of the clock reading is now.
+    assert_eq!(live::Clock { mono_ms: 5, wall_ms: 9_999 }.wall(50), 9_000);
+}
+
+#[test]
 fn live_facts_need_a_session() {
     assert!(serde_json::from_value::<live::Live>(json!({"session": ""})).is_err());
     assert!(serde_json::from_value::<live::Live>(json!({"at": "local"})).is_err());

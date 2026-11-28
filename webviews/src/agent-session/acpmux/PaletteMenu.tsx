@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useContext } from "react";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -8,7 +8,7 @@ import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { useListKeys } from "../../ui/useListKeys";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 import { KeyHint } from "../../ui/KeyHint";
 import { hintIsKey } from "./composerPickerModel";
 
@@ -16,10 +16,10 @@ import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import {
-  type PaletteReturnLook,
   type PaletteSection,
-  descriptionRestatesName,
   filterPaletteSections,
+  type PaletteReturnLook,
+  descriptionRestatesName,
 } from "./paletteMenuModel";
 import { focusRoute } from "../../ui/focusRoute";
 type Props = {
@@ -136,7 +136,8 @@ export function PaletteMenu({
     if (!open || !rows.length) return;
     scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
   }, [open, rows.length, menuId, selected]);
-  useEffect(() => registerPicker(label, openMenu), [label, openMenu]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, openMenu)), [label, openMenu, parked]);
   const pick = async (index: number) => {
     const row = rows[index];
     if (!row) return;

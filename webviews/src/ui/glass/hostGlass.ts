@@ -158,12 +158,12 @@ const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
 
 /** The page zoom this page renders at now: view points per CSS px, 1 with none to read. The App
  * writes it to `--cmux-ui-scale` on `<html>` (Chromium: `devicePixelRatio` over the backing scale, in
- * the resize that applies a zoom, before it paints; WebKit: the page zoom it set). */
+ * the resize that applies a zoom, before it paints; WebKit: the page zoom it set). Only that inline
+ * value is read: no rule declares `--cmux-ui-scale`, so with none inline the computed value was empty
+ * too, and the computed read restyled whatever was dirty first (at a chat page's start, every element
+ * of its drawn copy, chatSnapshot/paint.ts). */
 export function hostGlassPageZoom(doc: Document): number {
-  const root = doc.documentElement;
-  let text = root.style.getPropertyValue("--cmux-ui-scale");
-  if (!text) text = doc.defaultView?.getComputedStyle(root).getPropertyValue("--cmux-ui-scale") ?? "";
-  const zoom = Number.parseFloat(text);
+  const zoom = Number.parseFloat(doc.documentElement.style.getPropertyValue("--cmux-ui-scale"));
   return Number.isFinite(zoom) && zoom > 0 ? Math.round(zoom * 10_000) / 10_000 : 1;
 }
 const round = (value: number) => Math.round(value * 100) / 100;

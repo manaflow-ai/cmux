@@ -64,6 +64,61 @@ pub fn claude_autocompact_window() -> Option<(&'static str, String)> {
     claude_autocompact_window_in(doc.as_ref()).map(|v| (CLAUDE_AUTOCOMPACT_WINDOW_ENV, v))
 }
 
+/// RFD 0147's spawn-time output caps, a harness-magic feature off unless
+/// `agents.harnessMagic.outputCaps.enabled` is `true` (Leo, 2026-11-26, of the fleet's
+/// harness magic: "only do it for our personal fleet situation"); `ACPMUX_HM_OUTPUT_CAPS`
+/// `0` or `1` overrides it. On, a session's Claude Code starts with a lower inline cap on a Bash
+/// result ([`OUTPUT_CAPS_BASH_SETTING`], in its `--settings`: `agent_launch_choices.rs`) and on
+/// an MCP result ([`OUTPUT_CAPS_MCP_ENV`]). Past either, Claude Code itself saves the whole
+/// output to a file and gives the lane a preview and the path, as it does at its own caps.
+/// A value the launch, the profile, the login or Claude Code's user settings set wins.
+///
+/// Claude Code 2.1.332: `bashOutputMaxChars` (default 30000, clamped to 4000-128000) is the
+/// Bash spill point; `BASH_MAX_OUTPUT_LENGTH` "on its own only sizes the read-back window", so
+/// it is left alone. `MAX_MCP_OUTPUT_TOKENS` defaults to 25000.
+pub const OUTPUT_CAPS_SETTING: &str = "agents.harnessMagic.outputCaps.enabled";
+/// The daemon's switch over [`OUTPUT_CAPS_SETTING`].
+pub const OUTPUT_CAPS_ENV: &str = "ACPMUX_HM_OUTPUT_CAPS";
+/// Claude Code's setting for the characters of a Bash result it keeps inline.
+pub const OUTPUT_CAPS_BASH_SETTING: &str = "bashOutputMaxChars";
+/// Half of Claude Code's 30000: about 4k tokens inline, the rest in the spill file.
+pub const OUTPUT_CAPS_BASH_CHARS: u64 = 15_000;
+/// Claude Code's cap, in tokens, on an MCP tool result.
+pub const OUTPUT_CAPS_MCP_ENV: &str = "MAX_MCP_OUTPUT_TOKENS";
+/// Two fifths of Claude Code's 25000.
+pub const OUTPUT_CAPS_MCP_TOKENS: &str = "10000";
+
+/// Whether the output caps are on, given the settings file (`doc`) and the daemon's
+/// [`OUTPUT_CAPS_ENV`] (`env`).
+pub fn output_caps_in(doc: Option<&serde_json::Value>, env: Option<&str>) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("0" | "false" | "off" | "no") => return false,
+        Some("1" | "true" | "on" | "yes") => return true,
+        _ => {}
+    }
+    doc.and_then(|d| crate::user_settings::value(d, OUTPUT_CAPS_SETTING))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// [`output_caps_in`] now.
+pub fn output_caps() -> bool {
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    output_caps_in(doc.as_ref(), std::env::var(OUTPUT_CAPS_ENV).ok().as_deref())
+}
+
+/// The output-cap env `env` (what the harness would get) leaves unset, when the caps are `on`.
+pub fn output_caps_env(
+    on: bool,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<(&'static str, &'static str)> {
+    (on && !env.contains_key(OUTPUT_CAPS_MCP_ENV))
+        .then_some((OUTPUT_CAPS_MCP_ENV, OUTPUT_CAPS_MCP_TOKENS))
+}
+
 /// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (agent chats get
 /// [`CLAUDE_CHAT_RETRY_ENV`]; Leo 2026-11-24:
 /// "in terminals and guis alike perhaps terminal simply needs to also have the fixes and
@@ -194,6 +249,9 @@ pub fn lift_claude(
         if let Some((key, value)) = claude_autocompact_window()
             && crate::usage_stats::claude_autocompact_unset(&source)
         {
+            cmd.env(key, value);
+        }
+        if let Some((key, value)) = output_caps_env(output_caps(), &source.env) {
             cmd.env(key, value);
         }
     }
@@ -470,99 +528,5 @@ pub(crate) fn sets_codex_key(args: &[String], key: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn words(w: &[&str]) -> Vec<String> {
-        w.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn overrides_after_the_subcommand_move_before_it_in_order() {
-        let args = words(&[
-            "-c",
-            "agents.max_depth=2",
-            "app-server",
-            "--listen",
-            "stdio://",
-            "-c",
-            "model_provider=\"openai_api_key\"",
-            "--config=x=1",
-            "-cy=2",
-            "-c",
-            "developer_instructions=\"rules\"",
-        ]);
-        assert_eq!(
-            hoist_subcommand_config(args),
-            words(&[
-                "-c",
-                "agents.max_depth=2",
-                "-c",
-                "model_provider=\"openai_api_key\"",
-                "--config=x=1",
-                "-cy=2",
-                "-c",
-                "developer_instructions=\"rules\"",
-                "app-server",
-                "--listen",
-                "stdio://",
-            ])
-        );
-        // No subcommand, or another one: as given.
-        let other = words(&["exec", "-c", "a=1"]);
-        assert_eq!(hoist_subcommand_config(other.clone()), other);
-        let none = words(&["-c", "a=1"]);
-        assert_eq!(hoist_subcommand_config(none.clone()), none);
-        // A dangling flag never takes the subcommand as its value.
-        let dangling = words(&["-c", "a=1", "app-server", "-c"]);
-        assert_eq!(hoist_subcommand_config(dangling.clone()), dangling);
-        // A launch with no session (a model probe) is moved too.
-        assert_eq!(
-            launch_args(true, &words(&["app-server", "-c", "model_provider=\"x\""]), None),
-            words(&["-c", "model_provider=\"x\"", "app-server"])
-        );
-        assert_eq!(
-            launch_args(false, &words(&["exec", "-c", "a=1"]), None),
-            words(&["exec", "-c", "a=1"])
-        );
-    }
-
-    #[test]
-    fn a_chat_waits_out_capacity_unless_the_person_chose_its_retries() {
-        let none: Vec<(String, String)> = vec![("PATH".into(), "/bin".into())];
-        let lifted = claude_retry_env(&none);
-        assert!(lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG", "1")), "{lifted:?}");
-        // The default scope: the capacity scope lets the gateway's 503 "no accounts" through.
-        assert!(
-            !lifted.iter().any(|(k, _)| *k == "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE"),
-            "{lifted:?}"
-        );
-        // Bounded, so acpmux's capacity resume and failover still see a sustained outage.
-        assert!(
-            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "300000")),
-            "{lifted:?}"
-        );
-        // A 503 is bounded by the retry count, not the wait budget.
-        assert!(lifted.contains(&("CLAUDE_CODE_MAX_RETRIES", "14")), "{lifted:?}");
-        // A spend or plan limit still fails fast: no usage-limit wait.
-        assert!(
-            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0")),
-            "{lifted:?}"
-        );
-        for choice in CLAUDE_RETRY_CHOICES {
-            let chosen = vec![((*choice).to_owned(), "7".to_owned())];
-            assert!(claude_retry_env(&chosen).is_empty(), "{choice}");
-        }
-    }
-
-    #[test]
-    fn a_launch_has_no_override_after_app_server() {
-        let out = codex_args(
-            words(&["app-server", "-c", "developer_instructions=\"rules\""]),
-            &[toml::Table::new()],
-        );
-        let at = out.iter().position(|a| a == "app-server").unwrap();
-        assert_eq!(at, out.len() - 1, "{out:?}");
-        assert!(out.windows(2).any(|w| w == ["-c", "developer_instructions=\"rules\""]), "{out:?}");
-    }
-}
+#[path = "harness_limits_tests.rs"]
+mod tests;

@@ -31,7 +31,7 @@ enum TerminalLinkOpenControl {
 
     static func methods(services: AppServices) -> [ControlMethod] {
         [
-            .mainActor("browser.open_link") { [weak services] call in
+            .offeringLinkToPhone("browser.open_link", parameters: parameters, daemon: services.daemon) { [weak services] call in
                 let params = call.params
                 if let unknown = params.keys.sorted().first(where: { !parameters.contains($0) }) {
                     throw ControlError.invalidParams("browser.open_link does not take params.\(unknown)")

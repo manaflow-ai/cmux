@@ -1,15 +1,52 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use super::errno::ENOSPC;
 use super::*;
 use crate::lower::ExtendError;
 use crate::manifest::Item;
+use crate::whiteouts::{WHITEOUTS_COMPACT_SLACK, append_entry, whiteouts_due};
 
 fn me() -> Who {
     // SAFETY: getuid and getgid have no preconditions.
     unsafe { Who { uid: libc::getuid(), gid: libc::getgid() } }
+}
+
+#[test]
+fn a_directory_replacement_excludes_a_second_attempt_until_it_finishes() {
+    let gate = MutationGate::new();
+    let replacing = gate.replace_pristine().unwrap();
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+    drop(replacing);
+    let retry = gate.replace_pristine().unwrap();
+    retry.replacement_committed();
+    drop(retry);
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+}
+
+#[test]
+fn sealing_during_a_directory_replacement_has_a_bounded_wait() {
+    let gate = Arc::new(MutationGate::new());
+    let replacing = gate.replace_pristine().unwrap();
+    let (answered, answer) = std::sync::mpsc::channel();
+    let sealing = gate.clone();
+    let sealer = std::thread::spawn(move || {
+        let started = Instant::now();
+        let drained = sealing.seal(Duration::from_millis(20));
+        answered.send((drained, started.elapsed())).unwrap();
+    });
+    let late_gate = gate.clone();
+    let late = std::thread::spawn(move || late_gate.enter().map(|_| ()));
+    let result = answer.recv_timeout(Duration::from_secs(1));
+    // Release even on a failed assertion so the regression cannot strand test threads.
+    drop(replacing);
+    sealer.join().unwrap();
+    let (drained, elapsed) = result.unwrap();
+    assert!(!drained);
+    assert!(elapsed < Duration::from_secs(1), "seal took {elapsed:?}");
+    assert_eq!(late.join().unwrap(), Err(libc::EROFS));
+    assert!(gate.seal(Duration::ZERO));
 }
 
 /// Serves bytes by entry from memory and counts every call.
@@ -18,7 +55,7 @@ pub(crate) struct Fake {
     pub bytes: HashMap<u32, Vec<u8>>,
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
-    pub away: bool,
+    pub away: AtomicBool,
     /// Reads at or past this offset fail (a link that drops in the middle of a big file).
     pub fail_from: Option<u64>,
 }
@@ -26,7 +63,7 @@ pub(crate) struct Fake {
 impl Fetch for Fake {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.away {
+        if self.away.load(Ordering::Relaxed) {
             return Err(FetchError::Away);
         }
         if self.fail_from.is_some_and(|from| offset >= from) {
@@ -44,7 +81,7 @@ impl Fetch for Fake {
         entries
             .iter()
             .map(|entry| {
-                if self.away {
+                if self.away.load(Ordering::Relaxed) {
                     Err(FetchError::Away)
                 } else {
                     self.bytes.get(entry).cloned().ok_or(FetchError::Failed)
@@ -90,7 +127,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
         link: Some("README.md".into()),
     });
     let manifest = Arc::new(Manifest::build(1, items).unwrap());
-    let mut fake = Fake { away, ..Fake::default() };
+    let mut fake = Fake { away: AtomicBool::new(away), ..Fake::default() };
     for (path, bytes) in files {
         fake.bytes.insert(manifest.resolve(path).unwrap(), bytes);
     }
@@ -252,6 +289,18 @@ fn reads_while_the_mac_is_away_make_one_report_naming_them() {
 }
 
 #[test]
+fn a_cached_read_survives_the_mac_going_away() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    fake.away.store(true, Ordering::Relaxed);
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    assert!(overlay.stats().cache_hits >= 1);
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+}
+
+#[test]
 fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.
     let (state, manifest, fake) = setup(false);
@@ -382,9 +431,9 @@ fn whiteouts_are_appended_and_a_torn_last_line_is_ignored() {
     overlay.unlink(src, "b.rs").unwrap();
     let file = state.path().join("whiteouts");
     assert_eq!(fs::read_to_string(&file).unwrap(), "src/a.rs\0src/b.rs\0");
-    // Making one again takes it out: the file is rewritten from what is left.
+    // Making one again takes it out: one tombstone appended, not the file written again.
     overlay.create(src, "a.rs", 0o644, me()).unwrap();
-    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/a.rs\0src/b.rs\0/src/a.rs\0");
     drop(overlay);
     // A crash inside an append left half an entry: it is not a whiteout (it would hide `src`).
     fs::write(&file, "src/b.rs\0sr").unwrap();
@@ -405,6 +454,124 @@ fn whiteouts_are_appended_and_a_torn_last_line_is_ignored() {
     let overlay = open(state.path(), &manifest, &fake);
     assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
     assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0src/c.rs\0");
+}
+
+/// Bytes written to the whiteouts file across `ops`: an append counts its growth, a rewrite (a
+/// new inode, the temp file renamed over it) counts the whole new file.
+fn whiteouts_bytes_written(file: &Path, mut ops: impl FnMut()) -> u64 {
+    use std::os::unix::fs::MetadataExt as _;
+    let seen = |file: &Path| fs::metadata(file).map(|meta| (meta.ino(), meta.len())).ok();
+    let before = seen(file);
+    ops();
+    let after = seen(file);
+    match (before, after) {
+        (Some((ino, len)), Some((now, grown))) if ino == now => grown.saturating_sub(len),
+        (_, Some((_, len))) => len,
+        _ => 0,
+    }
+}
+
+#[test]
+fn deleting_and_remaking_many_lower_files_writes_bytes_linear_in_them() {
+    // A checkout over a projection deletes every file it changes, then makes each again: before,
+    // each remake wrote every whiteout so far again (2,000 files: 26 MB for 52 KB of names).
+    const FILES: usize = 2_000;
+    let paths: Vec<String> = (0..FILES).map(|n| format!("src/f{n:04}.rs")).collect();
+    let items = paths
+        .iter()
+        .map(|path| Item {
+            path: path.clone(),
+            kind: Kind::File,
+            mode: 0o644,
+            size: 1,
+            mtime_ns: 1,
+            link: None,
+        })
+        .collect();
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let fake = Arc::new(Fake::default());
+    let state = tempfile::tempdir().unwrap();
+    let file = state.path().join("whiteouts");
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    let names_bytes: u64 = paths.iter().map(|path| path.len() as u64 + 1).sum();
+    let mut written = 0;
+    for path in &paths {
+        let name = path.rsplit('/').next().unwrap();
+        written += whiteouts_bytes_written(&file, || overlay.unlink(src, name).unwrap());
+    }
+    assert_eq!(written, names_bytes, "each delete is its one entry");
+    for path in &paths {
+        let name = path.rsplit('/').next().unwrap();
+        written += whiteouts_bytes_written(&file, || {
+            overlay.create(src, name, 0o644, me()).unwrap();
+        });
+    }
+    eprintln!("whiteouts bytes written: {written} for {names_bytes} bytes of names");
+    // Deletes, tombstones (a byte longer each) and the compactions the log's growth asks for.
+    assert!(written <= 4 * names_bytes + 2 * FILES as u64, "{written} bytes for {names_bytes}");
+    assert!(overlay.whiteouts().is_empty());
+    assert!(fs::metadata(&file).unwrap().len() < names_bytes, "the log was compacted");
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert!(overlay.whiteouts().is_empty());
+    assert_eq!(names(&overlay, path_ino(&overlay, "src")).len(), FILES);
+}
+
+#[test]
+fn a_tombstone_reads_back_and_a_torn_one_leaves_the_path_deleted() {
+    let (state, manifest, fake) = setup(false);
+    let file = state.path().join("whiteouts");
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "a.rs").unwrap();
+    overlay.unlink(src, "b.rs").unwrap();
+    overlay.create(src, "a.rs", 0o644, me()).unwrap();
+    overlay.unlink(src, "a.rs").unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/a.rs\0src/b.rs\0/src/a.rs\0src/a.rs\0");
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/a.rs", "src/b.rs"]);
+    // A folder made again: its lower names stay hidden, then the tombstone, in one append.
+    let deep = path_ino(&overlay, "src/deep");
+    overlay.unlink(deep, "d.rs").unwrap();
+    let src = path_ino(&overlay, "src");
+    overlay.rmdir(src, "deep").unwrap();
+    overlay.mkdir(src, "deep", 0o755, me()).unwrap();
+    assert!(fs::read_to_string(&file).unwrap().ends_with("src/deep/d.rs\0src/deep\0/src/deep\0"));
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert!(names(&overlay, path_ino(&overlay, "src/deep")).is_empty());
+    assert_eq!(overlay.whiteouts(), ["src/a.rs", "src/b.rs", "src/deep/d.rs"]);
+    drop(overlay);
+    // A crash inside a tombstone's append: no tombstone, the path stays deleted.
+    let mut bytes = fs::read(&file).unwrap();
+    bytes.extend_from_slice(b"/src/b");
+    fs::write(&file, &bytes).unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/a.rs", "src/b.rs", "src/deep/d.rs"]);
+    assert!(fs::read(&file).unwrap().ends_with(b"\0"), "the torn tail is cut at the open");
+}
+
+#[test]
+fn a_log_grown_past_its_live_paths_is_compacted_at_the_open() {
+    let (state, manifest, fake) = setup(false);
+    let file = state.path().join("whiteouts");
+    let mut log = b"src/b.rs\0".to_vec();
+    for _ in 0..WHITEOUTS_COMPACT_SLACK {
+        log.extend_from_slice(b"src/a.rs\0/src/a.rs\0");
+    }
+    fs::write(&file, &log).unwrap();
+    let (live, logged, rewrite) = parse_whiteouts(&log);
+    assert_eq!((live.len(), logged, rewrite), (1, 2 * WHITEOUTS_COMPACT_SLACK + 1, false));
+    assert!(whiteouts_due(logged, live.len()));
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs"]);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\0");
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs"]);
+    assert!(overlay.lookup(path_ino(&overlay, "src"), "a.rs").is_ok());
 }
 
 #[test]
@@ -1011,7 +1178,11 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     drop(overlay);
 
     // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
-    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let away = Arc::new(Fake {
+        away: AtomicBool::new(true),
+        bytes: fake.bytes.clone(),
+        ..Fake::default()
+    });
     let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
     assert_eq!(overlay.pins(), vec!["src".to_owned()]);
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");

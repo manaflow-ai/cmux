@@ -66,6 +66,9 @@ fn dispatch_command(
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        Command::OfferLinkToPhone { terminal_id, url } => {
+            phone_link::offer(mux, client, &terminal_id, &url)
+        }
         cmd @ (Command::TerminalClipboardSubscribe { .. }
         | Command::TerminalClipboardReply { .. }) => {
             clipboard_read::handle(mux, client, cmd, writer)
@@ -113,7 +116,7 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
@@ -137,8 +140,8 @@ fn dispatch_command(
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
-        Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, machine_metadata, revisions)
+        Command::Identify { machine_metadata, revisions, .. } => {
+            identify_reply::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon {
             pid,
@@ -695,6 +698,9 @@ fn dispatch_command(
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
         Command::ListNotifications { limit, stats } => {
             cmd_frontend::list_notifications(mux, limit, stats)
+        }
+        Command::RecordNotificationDelivery { notification, desktop, reason } => {
+            cmd_frontend::record_notification_delivery(mux, notification, desktop, reason)
         }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)

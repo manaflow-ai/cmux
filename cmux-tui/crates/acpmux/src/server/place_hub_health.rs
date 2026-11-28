@@ -1,7 +1,8 @@
 //! Part of `place.rs`. Before a placement weighs the machines only the mesh hub reaches, their
 //! health is read through the hub (`server/mesh_read.rs` `host_health`, kept by
-//! `hub/hub_health.rs`). A machine with no reading yet is waited for up to [`FIRST_WAIT`]; one
-//! with a reading is weighed by it while a fresh one is asked. After a placement, a refresh asks
+//! `hub/hub_health.rs`). A machine with no reading yet, or one older than
+//! `placement::reach::STALE_MS`, is waited for up to [`FIRST_WAIT`]; one with a fresh reading is
+//! weighed by it while a newer one is asked. After a placement, a refresh asks
 //! again each minute for `INTEREST_MS`, then stops.
 //!
 //! Of the machines with no reading, a placement waits on [`SAMPLE`] chosen at random (RFD 0181
@@ -12,7 +13,7 @@
 //! ever missing a reading after that reading was dropped).
 
 use crate::hub::Hub;
-use crate::hub::hub_health::{EVERY_MS, HubHealth};
+use crate::hub::hub_health::{EVERY_MS, HealthHosts, HubHealth};
 use crate::mesh::MeshHub;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -30,51 +31,52 @@ const SAMPLE: usize = 3;
 /// each ask: the book's rows change while a refresh keeps readings fresh.
 pub(super) type Via = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// Read the health of the machines only the hub reaches, as [`refresh_with`] does.
+/// Each pass uses the current address book, including pushes received since the previous pass.
+type Hosts = Arc<dyn Fn(u64) -> HealthHosts + Send + Sync>;
+
+/// Read the health of the machines only the hub reaches.
 pub(super) async fn refresh(hub: &Hub) {
     let Some(mesh) = hub.mesh.get() else { return };
-    let hosts = hub.hub_only_hosts();
-    if hosts.is_empty() {
-        return;
-    }
     let book = hub.hub_ref.get().cloned().unwrap_or_default();
+    let targets = book.clone();
+    let hosts: Hosts = Arc::new(move |now| {
+        targets.upgrade().map(|hub| hub.mesh_health_hosts(now)).unwrap_or_default()
+    });
     let via: Via =
         Arc::new(move |host| book.upgrade().and_then(|hub| hub.mesh_book_session_on(host)));
-    refresh_with(&hub.scope, mesh, hub.hub_health.clone(), hosts, via, FIRST_WAIT).await;
+    refresh_drawn(&hub.scope, mesh, hub.hub_health.clone(), hosts, via, FIRST_WAIT, seed()).await;
 }
 
-/// Ask `hosts` for their health through `mesh` into `cache`: the ones due (`HubHealth::due`),
-/// waiting up to `wait` for those with no reading yet, and keep them fresh in the background
-/// while placements come. Its asks are `scope`'s tasks.
-pub(super) async fn refresh_with(
-    scope: &cmux_scope::Scope,
-    mesh: Arc<dyn MeshHub>,
-    cache: Arc<StdMutex<HubHealth>>,
-    hosts: Vec<String>,
-    via: Via,
-    wait: Duration,
-) {
-    refresh_drawn(scope, mesh, cache, hosts, via, wait, seed()).await;
-}
-
-/// [`refresh_with`] with the draw of the machines it waits on given (`seed`, [`wait_on`]).
+/// Ask for the machines due, waiting only for the sampled ones missing a reading.
 async fn refresh_drawn(
     scope: &cmux_scope::Scope,
     mesh: Arc<dyn MeshHub>,
     cache: Arc<StdMutex<HubHealth>>,
-    hosts: Vec<String>,
+    hosts: Hosts,
     via: Via,
     wait: Duration,
     seed: u64,
 ) {
     let now = crate::store::now_ms();
+    let targets = hosts(now);
     let (due, missing, running) = {
         let mut h = cache.lock().unwrap_or_else(|e| e.into_inner());
-        h.retain(&hosts.iter().cloned().collect::<BTreeSet<_>>());
+        let due = targets.due(&mut h, now);
+        if targets.listed.is_empty() {
+            return;
+        }
         let running = h.interested(now);
-        let due = h.due(&hosts, now);
-        let missing: BTreeSet<String> =
-            due.iter().filter(|host| h.reading(host).is_none()).cloned().collect();
+        // Wait for a sampled machine when it has no usable reading.
+        let missing: BTreeSet<String> = due
+            .iter()
+            .filter(|host| {
+                h.reading(host).is_none_or(|(at, _)| {
+                    now.saturating_sub(at) > crate::placement::reach::STALE_MS
+                        || h.failed_at(host).is_some_and(|failed| failed > at)
+                })
+            })
+            .cloned()
+            .collect();
         (due, missing, running)
     };
     let missing = wait_on(&missing, seed);
@@ -165,17 +167,18 @@ async fn keep_fresh(
     mesh: Arc<dyn MeshHub>,
     cache: Arc<StdMutex<HubHealth>>,
     via: Via,
-    hosts: Vec<String>,
+    hosts: Hosts,
 ) {
     loop {
         tokio::time::sleep(Duration::from_millis(EVERY_MS)).await;
         let now = crate::store::now_ms();
+        let targets = hosts(now);
         let due = {
             let mut h = cache.lock().unwrap_or_else(|e| e.into_inner());
             if !h.wanted(now) {
                 return;
             }
-            h.due(&hosts, now)
+            targets.due(&mut h, now)
         };
         // At most `IN_FLIGHT`, each within `HEALTH_WAIT`.
         let asks = due.into_iter().map(|host| ask(mesh.clone(), cache.clone(), &via, host));

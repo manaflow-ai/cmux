@@ -33,11 +33,19 @@ git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
-POOL = "|| fromJSON(vars.RUNNER_POOLS).linux }}"
+# The Linux pool picker is frozen to its label (cmux#54437: "one label (`runs-on: cmux-linux`) for every own-branch Linux job").
+POOL = "|| 'cmux-linux' }}"
 
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'ubuntu-[0-9.]+' \|\|")
 BLACKSMITH_LINUX = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(-arm)?")
 HOSTED = re.compile(r"ubuntu-(latest|slim|\d)")
+# #54437 froze the pool read to the label it resolved to and marked the line `# frozen-label: RUNNER_POOLS.linux`
+# (Leo's one-label design: the pickers "deleted now, not after a soak"). A frozen line names its size on purpose.
+FROZEN = re.compile(r"#.*\bfrozen-label: RUNNER_POOLS\.linux\b")
+
+
+def from_pool(line: str) -> bool:
+    return line.split(" # ")[0].rstrip().endswith(POOL) or bool(FROZEN.search(line))
 
 
 def runs_on_lines() -> list[str]:
@@ -75,18 +83,21 @@ class FastChecksFailoverTests(unittest.TestCase):
 
     def test_the_label_comes_from_the_linux_pool(self) -> None:
         # The Linux job's label; setup=kernel-free's Mac job (checks-mac) names the owned side-light pool.
-        lines = [line for line in runs_on_lines() if "RUNNER_POOLS" in line]
+        lines = [line for line in runs_on_lines() if "inputs.runner" in line]
         self.assertEqual(len(lines), 1)
-        line = lines[0].rstrip()
-        self.assertTrue(line.endswith(POOL), line.strip())
-        # Past the re-dispatch input, no size is written down.
-        self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
+        line = lines[0]
+        self.assertTrue(from_pool(line), line.strip())
+        # Past the re-dispatch input, no size is written down, unless #54437 froze the pool to it.
+        if not FROZEN.search(line):
+            self.assertNotRegex(line.split(" # ")[0].split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
 
     def test_the_linux_pool_is_selected_from_the_live_pool_variable(self) -> None:
         lines = runs_on_lines()
         self.assertTrue(lines)
-        self.assertTrue(any("fromJSON(vars.RUNNER_POOLS).linux" in line for line in lines))
+        self.assertTrue(any(from_pool(line) for line in lines))
         for line in lines:
+            if FROZEN.search(line):
+                continue
             # The fallback after the broker input is the live pool value, never
             # one hard-coded Blacksmith size.
             self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)

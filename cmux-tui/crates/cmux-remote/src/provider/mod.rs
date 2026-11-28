@@ -54,10 +54,10 @@ pub use machine_pipe::{
     machine_pipe_request,
 };
 pub use relay::{
-    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
-    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
-    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
-    spawn_relay_daemon_registration,
+    BoundCredential, EARLY_CONNECT_NOT_INLINE, RegistrationState, RelayClientConfig,
+    RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming,
+    RelayProvider, RelayTls, register_relay_daemon, register_relay_daemon_with_credentials,
+    register_relay_daemon_with_tls, spawn_relay_daemon_registration,
 };
 pub use ssh::{
     REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SSH_STDERR_MARK,
@@ -329,10 +329,20 @@ pub fn lane_bindings(policy: LanePolicy, capabilities: ProviderCapabilities) -> 
 #[derive(Debug)]
 pub enum ProviderError {
     UnsupportedScheme(String),
-    UnsupportedClientAuth { scheme: String, auth: AuthKind },
+    UnsupportedClientAuth {
+        scheme: String,
+        auth: AuthKind,
+    },
     Configuration(String),
     Link(LinkError),
     Transport(String),
+    /// The relay is full or rate limiting: it answered the WebSocket upgrade 503 or 429. A
+    /// recoverable wait, never a failure; `retry_after` is the relay's `Retry-After`, when it
+    /// sent one. A caller waits it out (with jitter) and tries another relay meanwhile.
+    RelayBusy {
+        status: u16,
+        retry_after: Option<std::time::Duration>,
+    },
 }
 
 impl ProviderError {
@@ -355,6 +365,7 @@ impl ProviderError {
         matches!(
             self,
             Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+                | Self::RelayBusy { .. }
         )
     }
 
@@ -390,6 +401,15 @@ impl fmt::Display for ProviderError {
             }
             Self::Link(error) => error.fmt(formatter),
             Self::Transport(message) => write!(formatter, "transport provider failed: {message}"),
+            Self::RelayBusy { status, retry_after: Some(wait) } => write!(
+                formatter,
+                "relay WebSocket connection failed: HTTP status {status}, relay busy, retry after {} s",
+                wait.as_secs()
+            ),
+            Self::RelayBusy { status, retry_after: None } => write!(
+                formatter,
+                "relay WebSocket connection failed: HTTP status {status}, relay busy"
+            ),
         }
     }
 }

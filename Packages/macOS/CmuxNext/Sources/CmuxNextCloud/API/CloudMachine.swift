@@ -164,6 +164,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var createdBy: String?
     /// The team that owns the machine (the cmux-next record's `team`); nil on a classic record.
     public var team: String?
+    public var environmentId: String?
     public var address: Address?
     public var size: Size?
     /// Server-declared provider operations; nil when the record carried none.
@@ -208,7 +209,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
     /// The crate's JSON names two fields as the classic record does.
     enum CodingKeys: String, CodingKey {
-        case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
+        case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, environmentId, address, size
         case declaredCapabilities = "capabilities"
         case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick, disk
         case lastChangeFailure = "error"

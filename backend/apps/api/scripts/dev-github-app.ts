@@ -111,12 +111,23 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
 /** Whether a request's Host header names this script's own address, the only one the page and GitHub's redirect use. */
 export const isLocalHost = (host: string | undefined): boolean => host === `127.0.0.1:${LOCAL_PORT}`
 
-/** The one-button page: a form that posts the manifest to the org's new-App page. */
+/**
+ * GitHub's "Confirm access" (sudo) page intercepts a manifest POST and, after the passkey, re-GETs
+ * the form without its body: "Unable to load App Manifest, please try again." (Leo, 2026-11-27). So the page
+ * opens the same settings page by GET first, where sudo is asked with nothing to lose, and posts the manifest
+ * when this tab has focus again.
+ */
+export const UNLOCK_THEN_POST_JS = "<script>var f=document.getElementById('f'),armed=false;document.getElementById('c').addEventListener('click',function(){armed=true});function back(){if(armed&&!document.hidden){armed=false;f.submit()}}window.addEventListener('focus',back);document.addEventListener('visibilitychange',back)</script>"
+
+/** The create page: "1. Unlock GitHub" (a GET of the org's new-App page), then the form that posts the manifest there. */
 export const createPage = (state: string) => `<!doctype html><meta charset="utf-8"><title>Create ${APP_NAME}</title>
-<form method="post" action="https://github.com/organizations/${ORG}/settings/apps/new?state=${encodeURIComponent(state)}">
-<input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest()))}">
 <p>Creates the GitHub App <b>${APP_NAME}</b> under ${ORG} for the development Cloud backend.</p>
-<button type="submit">Create ${APP_NAME} on GitHub</button></form>`
+<p><a id="c" target="_blank" href="https://github.com/organizations/${ORG}/settings/apps/new"><button type="button">1. Unlock GitHub</button></a></p>
+<p>If GitHub asks for your passkey, tap it, then come back to this tab: it creates the App by itself. Leave GitHub's empty form in that tab alone.</p>
+<form id="f" method="post" action="https://github.com/organizations/${ORG}/settings/apps/new?state=${encodeURIComponent(state)}">
+<input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest()))}">
+<button type="submit">2. Create ${APP_NAME} on GitHub</button></form>
+${UNLOCK_THEN_POST_JS}`
 
 const create = () => {
   if (existsSync(SECRETS_FILE)) {

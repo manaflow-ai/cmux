@@ -637,6 +637,10 @@ async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
+    // Open the provider's connection now, while the backend socket dials, so the first model call reuses it.
+    // Its owner lives as long as serve(): a gateway that stops first cancels the warm-up.
+    let warming = cmux_scope::Scope::new("inference gateway warm-up");
+    drop(start_warm(&warming, &upstream));
     // One count for the process: a call aborted with its old socket gives its slot back when its task drops.
     let slots = Arc::new(Slots::default());
     let has_login = match upstream.check().await {
@@ -1142,6 +1146,9 @@ fn error_frame(id: &str, code: &str, message: &str) -> Value {
 /// One call: to the provider, and its answer back down the socket as it streams.
 async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<String>) {
     let started = Instant::now();
+    // Wall clock (unix ms) when this gateway took the call: the Cloud probe sets it against the machine's prompt time
+    // to split the machine's prompt-to-first-output into before the call reached here and the provider's wait.
+    let taken_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let machine = call
         .headers
         .iter()
@@ -1218,33 +1225,44 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&call_line(
-        &machine,
-        &call.method,
-        &path,
-        status,
-        started.elapsed().as_millis(),
-        head_ms,
-        first_ms,
-    ));
+    let timing =
+        CallTiming { total_ms: started.elapsed().as_millis(), head_ms, first_ms, taken_at };
+    log(&call_line(&machine, &call.method, &path, status, &timing));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
+}
+
+/// How long a warm-up waits for the provider; it never holds up a call or the start.
+const WARM_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Warms the provider's connection in the background ([`Provider::warm`]); the start does not wait for it.
+/// `None` when `scope` was cancelled first.
+fn start_warm(
+    scope: &cmux_scope::Scope,
+    upstream: &Arc<Provider>,
+) -> tokio::task::JoinHandle<Option<usize>> {
+    let upstream = upstream.clone();
+    scope.spawn_until_cancelled("inference gateway warm-up", async move { upstream.warm().await })
+}
+
+/// An answered call's times: the whole call, the provider's head and first body bytes (ms from `taken_at`), and
+/// `taken_at` itself, the wall clock (unix ms) when the gateway took the call.
+#[derive(Clone, Copy)]
+struct CallTiming {
+    total_ms: u128,
+    head_ms: u128,
+    first_ms: Option<u128>,
+    taken_at: u128,
 }
 
 /// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
 /// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
-/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py).
-fn call_line(
-    machine: &str,
-    method: &str,
-    path: &str,
-    status: u16,
-    total_ms: u128,
-    head_ms: u128,
-    first_ms: Option<u128>,
-) -> String {
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py); `at` is
+/// when the gateway took the call (unix ms), which the probe sets against the machine's prompt time (`turn_ms`).
+fn call_line(machine: &str, method: &str, path: &str, status: u16, timing: &CallTiming) -> String {
+    let CallTiming { total_ms, head_ms, first_ms, taken_at } = *timing;
     let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
     format!(
-        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first})",
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first}, at {taken_at})",
         printable(method)
     )
 }
@@ -1311,6 +1329,41 @@ impl Provider {
                 Ok(true)
             }
         }
+    }
+
+    /// The origins this gateway's model calls go to.
+    fn warm_urls(&self) -> Vec<String> {
+        match &self.upstream {
+            Upstream::Proxy { base, .. } => vec![base.clone()],
+            Upstream::MacLogins(logins) => {
+                vec![logins.claude_base.clone(), CODEX_BACKEND.to_owned()]
+            }
+            Upstream::Codex { .. } => vec![CODEX_BACKEND.to_owned()],
+        }
+    }
+
+    /// Opens a connection (DNS, TCP, TLS on https, and the tailnet path on a tailnet host) to each origin with one
+    /// HEAD and leaves it in the client's pool, so the first model call does not pay for it. Any answer counts; a
+    /// failure is logged and changes nothing (the call dials as before). How many origins answered.
+    async fn warm(&self) -> usize {
+        let mut warmed = 0;
+        for url in self.warm_urls() {
+            let started = Instant::now();
+            let head = self.http.head(&url).timeout(WARM_TIMEOUT).send();
+            match head.await {
+                Ok(response) => {
+                    warmed += 1;
+                    log(&format!(
+                        "warmed {} ({} in {} ms)",
+                        log_path(&url),
+                        response.status().as_u16(),
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(error) => log(&format!("could not warm {}: {error}", log_path(&url))),
+            }
+        }
+        warmed
     }
 
     async fn call(&self, call: &Pending) -> Result<reqwest::Response, CallError> {

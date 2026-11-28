@@ -275,6 +275,33 @@ fn written_prompts_wait_for_their_answers_past_the_hold() {
 }
 
 #[test]
+fn a_completed_upload_gets_a_write_window_even_after_the_original_hold() {
+    let tapped = Instant::now();
+    let prepared = tapped + Duration::from_secs(90);
+    let hold = Duration::from_secs(30);
+    let mut outbox = PromptOutbox::new(hold, 1);
+    outbox.set_link(true, tapped);
+    assert!(outbox.push_prepared("first", "uploaded", false, tapped, prepared));
+    assert!(outbox.expire(prepared).is_empty());
+    assert_eq!(outbox.next_request(prepared).unwrap().id, "first");
+
+    // A duplicate handoff cannot extend a second prompt that then stalls.
+    assert!(outbox.push_prepared("second", "waiting", false, tapped + ms(1), prepared));
+    assert!(!outbox.push_prepared(
+        "second",
+        "duplicate",
+        false,
+        tapped + ms(1),
+        prepared + ms(29_999)
+    ));
+    assert!(outbox.expire(prepared + ms(29_999)).is_empty());
+    assert_eq!(
+        outbox.expire(prepared + hold),
+        vec![done("second", PromptOutcome::NotSent, "waiting")]
+    );
+}
+
+#[test]
 fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and_a_held_one_from_its_hold()
  {
     let t0 = Instant::now();

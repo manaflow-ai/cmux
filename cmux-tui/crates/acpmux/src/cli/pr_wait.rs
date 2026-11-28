@@ -22,6 +22,15 @@
 //! Exit: 0 green (or merged); 1 a failing check, a check cancelled with no newer run, closed
 //! unmerged, or gh failing poll after poll (the message and `--json`'s detail say which:
 //! `failed`, `cancelled`, `closed`); 3 timeout; 4 the head moved off `--sha`.
+//!
+//! A pull request this machine's land queue (`cmux-gh land`) already holds, waited on with no
+//! `--until`, is waited on through that queue's row instead (`land_row`, `follow_land_row`): the
+//! land tells the session that asked for it when it merges or stops, so a wait that ended on green
+//! checks a few minutes before that merge woke the same session twice for one landing, and the
+//! land's merge notice went out beside it. `cmux-gh wait pr R#N --until merged` waits on the row
+//! with a local read and is the waiter the land's merge notice stays quiet for. Exit 0 merged, 1
+//! the land stopped (its reason and next step printed), 3 timeout. `--until checks` typed keeps
+//! the checks wait.
 
 use super::errors::{AppError, Code};
 use crate::acpmux_mcp::pr::{self, Target};
@@ -70,12 +79,43 @@ pub struct PrWaitArgs {
     /// The head you pushed (`git rev-parse HEAD`): exit 4 when the PR's head moved off it.
     #[arg(long)]
     pub sha: Option<String>,
-    /// What to wait for.
-    #[arg(long, value_enum, default_value = "checks")]
-    pub until: Until,
-    /// Give up after this many seconds (exit 3).
-    #[arg(long, default_value_t = 3600)]
+    /// What to wait for (default: checks; the merge or the land's stop when this machine's land
+    /// queue holds the pull request).
+    #[arg(long, value_enum)]
+    pub until: Option<Until>,
+    /// Give up after this long (exit 3): seconds (`3600`), or a duration (`90s`, `45m`,
+    /// `2h`, `1h30m`).
+    #[arg(long, default_value_t = 3600, value_parser = timeout_secs)]
     pub timeout: u64,
+}
+
+/// `--timeout`'s value in seconds: a bare number of seconds, or a duration of `s`, `m`, `h` and
+/// `d` parts (`1h30m`).
+pub(crate) fn timeout_secs(text: &str) -> std::result::Result<u64, String> {
+    let text = text.trim();
+    if let Ok(secs) = text.parse::<u64>() {
+        return Ok(secs);
+    }
+    let bad = || format!("invalid --timeout {text:?}: use seconds (3600) or a duration (45m, 2h)");
+    let (mut total, mut number) = (0u64, None::<u64>);
+    for c in text.chars() {
+        if let Some(d) = c.to_digit(10) {
+            number = Some(number.unwrap_or(0).checked_mul(10).ok_or_else(bad)? + u64::from(d));
+            continue;
+        }
+        let unit = match c.to_ascii_lowercase() {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            'd' => 86_400,
+            _ => return Err(bad()),
+        };
+        total = total.saturating_add(number.take().ok_or_else(bad)?.saturating_mul(unit));
+    }
+    if number.is_some() || total == 0 && text.is_empty() {
+        return Err(bad());
+    }
+    Ok(total)
 }
 
 /// What every waiter of one key reads: the newest answer and when the next poll may run.
@@ -195,6 +235,109 @@ fn now_s() -> u64 {
 pub(crate) struct Ctx {
     pub dir: PathBuf,
     pub gh: std::ffi::OsString,
+    /// The land queue's client (`glaeda-gh`), or None to never look for a land row.
+    pub land: Option<std::ffi::OsString>,
+}
+
+/// One bound for the land queue's local status read and for starting its wait.
+const LAND_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+/// Land row states that are over or worked on another machine: nothing to follow here.
+const LAND_ROW_ENDED: [&str; 4] = ["merged", "stopped", "cancelled", "forwarded"];
+
+/// The state of this machine's active land row for `repo#number`, when the land queue holds one
+/// (pinned to `sha`'s head when given), else None. A local read (`land status --json` reads the
+/// queue's files, no GitHub call); a missing client, an error or no row is None.
+pub(crate) fn land_row(ctx: &Ctx, repo: &str, number: &str, sha: Option<&str>) -> Option<String> {
+    let land = ctx.land.as_ref()?;
+    let target = format!("{repo}#{number}");
+    // Its output goes to an unnamed file, so a client that hangs never holds this read open.
+    let mut file = tempfile::tempfile().ok()?;
+    let mut child = cmux_process::Command::new(land)
+        .args(["land", "status", target.as_str(), "--json"])
+        .stdin(cmux_process::Stdio::null())
+        .stdout(file.try_clone().ok()?)
+        .stderr(cmux_process::Stdio::null())
+        .spawn()
+        .ok()?;
+    if !child.wait_timeout(LAND_STATUS_TIMEOUT).ok()??.success() {
+        return None;
+    }
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let mut out = Vec::new();
+    file.take(OUTPUT_MAX).read_to_end(&mut out).ok()?;
+    let doc: Value = serde_json::from_slice(&out).ok()?;
+    let key = format!("pr:{target}");
+    let want = sha.map(str::to_ascii_lowercase).unwrap_or_default();
+    doc.get("entries")?.as_array()?.iter().find_map(|e| {
+        let s = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+        let state = s("state");
+        let pinned = want.is_empty()
+            || [s("head"), s("pinSha")].iter().any(|h| !h.is_empty() && h.starts_with(&want));
+        (s("key") == key.to_ascii_lowercase()
+            && !state.is_empty()
+            && !LAND_ROW_ENDED.contains(&state.as_str())
+            && pinned)
+            .then_some(state)
+    })
+}
+
+/// Wait on the land row through the land queue's own wait: Some(result) once it ended, None when
+/// that wait could not run (no daemon, a refusal), so the caller waits on the checks as before.
+fn follow_land_row(
+    ctx: &Ctx,
+    args: &PrWaitArgs,
+    repo: &str,
+    number: &str,
+    state: &str,
+    json_out: bool,
+) -> Option<Result<()>> {
+    let land = ctx.land.as_ref()?;
+    let target = format!("{repo}#{number}");
+    eprintln!(
+        "pr-wait: {target} is a {state} row in this machine's land queue, which tells this session \
+         when it merges or stops: waiting on that row until merged (pass --until checks to wait on \
+         the checks alone)"
+    );
+    let timeout = args.timeout.to_string();
+    let mut cmd = cmux_process::Command::new(land);
+    cmd.args(["wait", "pr", target.as_str(), "--until", "merged", "--timeout", timeout.as_str()]);
+    if let Some(sha) = &args.sha {
+        cmd.args(["--sha", sha.as_str()]);
+    }
+    if json_out {
+        cmd.arg("--json");
+    }
+    let mut child = cmd.stdin(cmux_process::Stdio::null()).spawn().ok()?;
+    // The land wait keeps its own deadline (--timeout); this bound only stops a hung client.
+    let bound = Duration::from_secs(args.timeout.saturating_mul(4).max(60)) + LAND_STATUS_TIMEOUT;
+    let status = child.wait_timeout(bound).ok()?;
+    let Some(code) = status.and_then(|s| s.code()) else {
+        return Some(Err(AppError::timeout(format!(
+            "the land wait on {target} did not end in {}s",
+            bound.as_secs()
+        ))
+        .into()));
+    };
+    Some(match code {
+        0 => Ok(()),
+        1 => Err(AppError::new(
+            Code::Runtime,
+            "land_stopped",
+            format!("the land of {target} stopped or the PR closed: see above"),
+        )
+        .into()),
+        2 => Err(AppError::timeout(format!(
+            "timed out after {}s waiting on {target}'s land row",
+            args.timeout
+        ))
+        .into()),
+        _ => {
+            eprintln!(
+                "pr-wait: the land wait ended with exit {code}: waiting on the checks instead"
+            );
+            return None;
+        }
+    })
 }
 
 /// Where the shared state lives: `ACPMUX_PR_WAIT_DIR`, else the user cache folder's
@@ -326,6 +469,18 @@ fn wait_blocking(ctx: &Ctx, args: &PrWaitArgs, json_out: bool) -> Result<()> {
     let key = key(&repo, &target.selector);
     let state_path = dir.join(format!("{key}.json"));
     let lock_path = dir.join(format!("{key}.lock"));
+    let until = match args.until {
+        Some(until) => until,
+        None => {
+            if let Some(state) = land_row(ctx, &repo, &target.selector, args.sha.as_deref())
+                && let Some(result) =
+                    follow_land_row(ctx, args, &repo, &target.selector, &state, json_out)
+            {
+                return result;
+            }
+            Until::Checks
+        }
+    };
     let started = now_s();
     let deadline = Instant::now() + Duration::from_secs(args.timeout);
     let mut last_summary = String::new();
@@ -337,8 +492,7 @@ fn wait_blocking(ctx: &Ctx, args: &PrWaitArgs, json_out: bool) -> Result<()> {
         if let Some(answer) =
             shared.pr.as_ref().filter(|_| shared.at >= started.saturating_sub(interval(0)))
         {
-            match judge(answer, args.until, args.sha.as_deref(), shared.at.saturating_sub(started))
-            {
+            match judge(answer, until, args.sha.as_deref(), shared.at.saturating_sub(started)) {
                 Some(Outcome::Done { code: 0, summary, structured }) => {
                     if json_out {
                         crate::cli::output::print_json(&structured);
@@ -432,7 +586,9 @@ fn wait_blocking(ctx: &Ctx, args: &PrWaitArgs, json_out: bool) -> Result<()> {
 
 pub async fn run(args: PrWaitArgs, json_out: bool) -> Result<()> {
     tokio::task::spawn_blocking(move || {
-        wait_blocking(&Ctx { dir: state_dir()?, gh: "gh".into() }, &args, json_out)
+        let land = std::env::var_os("ACPMUX_PR_WAIT_LAND").unwrap_or_else(|| "glaeda-gh".into());
+        let land = (!land.is_empty()).then_some(land);
+        wait_blocking(&Ctx { dir: state_dir()?, gh: "gh".into(), land }, &args, json_out)
     })
     .await?
 }

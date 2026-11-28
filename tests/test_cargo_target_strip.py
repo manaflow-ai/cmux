@@ -111,6 +111,18 @@ class StripTest(unittest.TestCase):
             self.assertTrue((profile / "deps" / "libhttp-0a1b2c.rlib").exists())
             self.assertFalse((profile / "deps" / "http-9f8e7d").exists())
 
+    def test_every_workflow_strips_with_cargo_metadata(self) -> None:
+        # A hand-built --workspace-crates list that folds in target names deletes the third-party http and
+        # digest (tests/http.rs, tests/digest.rs), so every restore of that R2 entry rebuilt 27 crates.
+        root = Path(__file__).resolve().parents[1] / ".github"
+        offenders = [
+            f"{path.relative_to(root.parent)}:{n}"
+            for path in sorted(root.rglob("*.yml"))
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if "cargo_target_strip.py" in line and "python3" in line and "--cargo-metadata" not in line
+        ]
+        self.assertEqual(offenders, [], "call cargo_target_strip.py with --cargo-metadata")
+
     def test_missing_target_is_no_error(self) -> None:
         self.assertEqual(strip.main(["/nonexistent/target", "--workspace-crates", "x"]), 0)
 

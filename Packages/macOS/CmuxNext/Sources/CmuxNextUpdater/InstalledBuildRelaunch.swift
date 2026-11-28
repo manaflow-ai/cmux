@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -7,9 +8,11 @@ import Foundation
 /// Started only by the person's click.
 enum InstalledBuildRelaunch {
     /// Starts the helper and quits through the normal quit path (``NSApplication/terminate(_:)``), which keeps every session.
+    /// From a run-loop callout: `relaunchKeepSessions` calls this inside a main-actor Task (a `DemandTimer` fire),
+    /// and a terminate there never quit (the quit's reply needs the main queue that Task holds).
     @MainActor static func relaunch(bundle: URL) -> Bool {
         guard start(bundle: bundle) else { return false }
-        NSApp.terminate(nil)
+        NSApplication.terminateFromRunLoop()
         return true
     }
 
@@ -33,7 +36,7 @@ enum InstalledBuildRelaunch {
 
     /// Starts the helper; false when it could not start (the app then stays).
     static func start(bundle: URL) -> Bool {
-        // main-actor-ok: one spawn of /bin/sh on the person's Restart click, right before the app quits.
+        // main-actor-ok: one spawn of /bin/sh on the person's Restart click; the app quits next, so nothing is left to stall.
         let process = Process()
         let args = arguments(bundle: bundle, pid: getpid())
         process.executableURL = URL(fileURLWithPath: args[0])

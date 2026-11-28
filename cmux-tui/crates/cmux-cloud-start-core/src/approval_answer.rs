@@ -10,7 +10,10 @@
 //! its flag off answers `approval.one_call_off`) gets the three calls, with the checks the app made before, here.
 //!
 //! The app makes the calls; this decides each one. [`next`] is stateless: the app sends every reply body so far in
-//! `steps`, in order, and gets the next call or the outcome (op `cloud_approval_next`).
+//! `steps`, in order, and gets the next call or the outcome. The app's op (`cloud_approval_next`) is
+//! [`next_remembered`]: a team whose backend answered `approval.one_call_off` goes straight to the three calls for
+//! [`ONE_CALL_OFF_MS`], so each later approval skips the refused round trip (production has the flag off; about
+//! 200 ms per approval). A backend that answers the one call is never remembered: it keeps the one call.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -180,6 +183,62 @@ pub fn next(r: &Request) -> Next {
         });
     }
     legacy(r, steps.get(1..).unwrap_or_default())
+}
+
+/// How long a team's `approval.one_call_off` is remembered: long enough that each approval of an app session skips
+/// the refused call, short enough that a backend that turns the one call on is asked it again within minutes.
+pub const ONE_CALL_OFF_MS: u64 = 10 * 60_000;
+/// The most approvals whose path (the three calls first) is remembered at once.
+const REMEMBERED_REQUESTS: usize = 64;
+
+/// What [`next_remembered`] keeps between calls: each team whose backend refused the one call (until when, ms), and
+/// each request answered through the three calls from the start, so its later steps are read as theirs even after
+/// the team's entry ends.
+#[derive(Debug, Default)]
+pub struct Memo {
+    off: Vec<(String, u64)>,
+    three_calls: std::collections::VecDeque<String>,
+}
+
+impl Memo {
+    /// [`next`], skipping the one call for a team whose backend refused it within [`ONE_CALL_OFF_MS`] of `now_ms`.
+    pub fn next(&mut self, r: &Request, now_ms: u64) -> Next {
+        if r.steps.is_empty() {
+            // A new answer of this request decides its path again.
+            self.three_calls.retain(|q| q != &r.request);
+            self.off.retain(|(_, until)| *until > now_ms);
+            if !r.team.is_empty() && self.off.iter().any(|(team, _)| team == &r.team) {
+                if self.three_calls.len() >= REMEMBERED_REQUESTS {
+                    self.three_calls.pop_front();
+                }
+                self.three_calls.push_back(r.request.clone());
+                return legacy(r, &[]);
+            }
+            return next(r);
+        }
+        if self.three_calls.contains(&r.request) {
+            return legacy(r, &r.steps);
+        }
+        if r.steps.len() == 1
+            && !r.team.is_empty()
+            && refusal(&r.steps[0]).as_deref() == Some("approval.one_call_off")
+        {
+            self.off.retain(|(team, _)| team != &r.team);
+            self.off.push((r.team.clone(), now_ms.saturating_add(ONE_CALL_OFF_MS)));
+        }
+        next(r)
+    }
+}
+
+static MEMO: std::sync::Mutex<Memo> =
+    std::sync::Mutex::new(Memo { off: Vec::new(), three_calls: std::collections::VecDeque::new() });
+
+/// [`Memo::next`] on the process's memo, at the wall clock (op `cloud_approval_next`).
+pub fn next_remembered(r: &Request) -> Next {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next(r, now_ms)
 }
 
 /// The three calls the app made before the one call: approval.get, feed.list (open, then closed), feed.answer.

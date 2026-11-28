@@ -118,6 +118,11 @@ case "$file" in
     # A red file that still ran to its end: bun prints its closing tally after the failure.
     echo "(fail) old base assertion"; echo " 1 pass"; echo " 1 fail"; echo "Ran 2 tests across 1 file. [3.00ms]"
     exit 1 ;;
+  *engine-skip*)
+    # A browser file whose engine did not launch: every test skips and bun exits 0 (probeEngineOrSkip).
+    printf 'b: skipping, webkit did not launch here (Executable does not exist)\\n(skip) b\\n\\n 0 pass\\n 1 skip\\n 0 fail\\n'
+    exit 0 ;;
+  *ran-one*) printf '(pass) real\\n\\n 1 pass\\n 0 fail\\nRan 1 tests across 1 file.\\n'; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -145,7 +150,7 @@ def path_without_timeout(temp):
 
 class PerFileRunner(unittest.TestCase):
     def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
-                   uname=None):
+                   uname=None, no_bun=False):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -158,8 +163,9 @@ class PerFileRunner(unittest.TestCase):
         subprocess.run(["git", "-C", str(temp), "add", "-A"], check=True)
         bin_dir = temp / "bin"
         bin_dir.mkdir()
-        (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
-        (bin_dir / "bun").chmod(0o755)
+        if not no_bun:
+            (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
+            (bin_dir / "bun").chmod(0o755)
         if uname is not None:
             # The host the runner believes it is on (`uname -s`), whatever runs this test.
             (bin_dir / "uname").write_text(f"#!/usr/bin/env bash\necho {uname}\n", encoding="utf-8")
@@ -181,7 +187,7 @@ class PerFileRunner(unittest.TestCase):
         if getattr(self, "web_hook", None):
             self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
-        system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
+        system_path = path_without_timeout(temp) if without_timeout or no_bun else os.environ["PATH"]
         base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
@@ -211,6 +217,21 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"FAIL[^\n]*src/pages/fail\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertIn("(fail) a broken test", output)
+
+    def test_a_runner_without_bun_fails_before_any_file_and_records_no_verdicts(self):
+        # Hetzner pool slots whose setup-bun failed EACCES ran every file without bun and wrote 628-1,032
+        # file-level reds a shard into the base history (batch 46040477174 shard 4, tick 46023562151 shards 6-7).
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        verdicts = temp / "results.json"
+        files = ["test/a.test.ts", "src/b.test.tsx"]
+        result, elapsed, calls = self.run_runner(files, no_bun=True, extra_env={"CMUX_WEB_TEST_RESULTS": str(verdicts)})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 3, output)
+        self.assertIn("::error::", output)
+        self.assertIn("no bun on PATH", output)
+        self.assertEqual(calls, [], output)
+        self.assertFalse(verdicts.exists(), output)
+        self.assertLess(elapsed, 10, output)
 
     def test_a_host_without_timeout_still_runs_and_limits_each_file(self):
         files = ["test/a.test.ts", "test/hang.test.tsx", "src/b.test.tsx"]
@@ -430,7 +451,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(len(calls), len(files) + 2, output)
         self.assertEqual(output.count("(CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"), 3, output)
         self.assertIn("5 failed or timed out (2 retried alone, 0 passed alone)", output)
-        line = ("alone retries skipped: 3, since the first 2 alone retries all failed again (not contention; "
+        line = ("alone retries skipped: 3, since the last 2 alone retries in a row all failed again (not contention; "
                 "react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)")
         self.assertIn(line, output)
         self.assertIn(line, step_summary.read_text(encoding="utf-8"))
@@ -475,17 +496,17 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
         # The first unsettled file to finish its first run goes alone and fails again; the breaker stops the other.
         self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
-        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the first 1 alone "
+        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the last 1 alone "
                                  r"retries all failed again")
-        self.assertIn("alone retries skipped: 1, since the first 1 alone retries all failed again", output)
-        # A pooled pass (contention) keeps every unsettled file's alone retry.
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
+        # A pooled pass is not an alone retry: it no longer keeps the breaker off (11-26 logs: 13 alone retries ran after
+        # the last pass, 1 of 13 passed). The streak of failed alone retries is what trips it.
         result, _, calls = self.run_runner(["test/x-fail.test.ts", "test/y-contended.test.ts"] + unsettled,
                                            extra_env=env)
         output = result.stdout + result.stderr
         self.assertIn("  test/y-contended.test.ts (first run: TIMEOUT; passed beside other retries)", output)
-        for file in unsettled:
-            self.assertEqual(calls.count(f"./{file}"), 3, output)
-        self.assertNotIn("alone retries skipped", output)
+        self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
 
     def test_ci_turns_the_retry_breaker_on_for_pull_request_shards_only(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -1090,6 +1111,30 @@ class PerFileRunner(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
 
+    def test_a_browser_file_that_ran_no_test_is_named_and_fails_the_browser_lane(self):
+        """A browser file whose engine does not launch skips every test and exits 0, and the runner read it as
+        PASS and kept its log out of the summary: a fleet step with CMUX_BROWSER_TESTS=1 printed 30 PASS files
+        and "0 failed" while no browser test ran (2026-11-28; cmuxterm-hq docs/handbook/green-that-judged-nothing.md).
+        The runner names each file that ran no test with its skip line, and fails a run that asked for the
+        browser lane when an engine did not launch, unless CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps the skip."""
+        files = ["test/ran-one.test.ts", "test/engine-skip.test.ts"]
+        contents = {"test/engine-skip.test.ts": 'requireBrowserLane("b", () => {});\n'}
+        reason = "b: skipping, webkit did not launch here (Executable does not exist)"
+        # GITHUB_ACTIONS=true only keeps the runner from installing engines for CMUX_BROWSER_TESTS=1 here.
+        lane = {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}
+        for env, code in (({}, 0), (lane, 1), ({**lane, "CMUX_BROWSER_SKIP_UNLAUNCHABLE": "1"}, 0)):
+            with self.subTest(env=env):
+                result, _, calls = self.run_runner(files, contents=contents, extra_env=env, uname="Linux")
+                output = result.stdout + result.stderr
+                self.assertEqual(calls, sorted(f"./{name}" for name in files), output)
+                self.assertEqual(result.returncode, code, output)
+                self.assertIn(f"PASS test/engine-skip.test.ts (ran no test: {reason})", output)
+                self.assertIn("ran no test (every test skipped; a pass that judged nothing): 1 of 2 files", output)
+                self.assertIn(f"  RAN NONE test/engine-skip.test.ts: {reason}", output)
+                self.assertNotIn("RAN NONE test/ran-one", output)
+                failed = "browser lane asked for (CMUX_BROWSER_TESTS=1) but an engine did not launch"
+                self.assertEqual(failed in output, code == 1, output)
+
     def test_a_mac_never_installs_engines_and_runs_the_lane_without_its_browser_files(self):
         """No Playwright on Macs (Lawrence, 2026-11-02): a Mac outside GitHub Actions installs no engine,
         even with CMUX_BROWSER_TESTS=1 (the fleet's step cache held 4.6 GB of them on 10 Macs). It says
@@ -1162,6 +1207,49 @@ class ShardHelper(unittest.TestCase):
         (temp / "lines").write_text("12 test/a.test.ts\n3 test/b.test.ts\n40 test/a.test.ts\nnot a line\n")
         self.run_helper("record", str(temp / "lines"), str(temp / "out.json"))
         self.assertEqual(json.loads((temp / "out.json").read_text()), {"test/a.test.ts": 12, "test/b.test.ts": 3})
+
+    def test_record_skips_a_failed_first_run(self):
+        """A file that fails at once took 0 s; recording that halved its weight each run (772 files at 0 s on 11-27)."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "lines").write_text("0 FAIL test/broken.test.ts\n9 PASS test/broken.test.ts\n"
+                                    "7 PASS test/a.test.ts\n120 TIMEOUT test/hang.test.ts\n5 test/old.test.ts\n")
+        self.run_helper("record", str(temp / "lines"), str(temp / "out.json"))
+        self.assertEqual(json.loads((temp / "out.json").read_text()),
+                         {"test/a.test.ts": 7, "test/hang.test.ts": 120, "test/old.test.ts": 5})
+
+    def test_zero_second_files_spread_over_the_shards(self):
+        """A 0 s file grew no shard, so all of them went to one (run 45937345076: 1452 files on shard 2)."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/z{index:02}.test.ts" for index in range(40)]
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes(b"")
+        (temp / "d.json").write_text(json.dumps({name: 0 for name in files}))
+        counts = []
+        for shard in (1, 2, 3, 4):
+            out = self.run_helper("assign", str(temp / "files"), str(temp / "serial"), str(temp / "d.json"),
+                                  str(shard), "4", "1,1,1").stdout
+            counts.append(len([item for item in out.split("\0") if item]))
+        self.assertEqual(counts, [10, 10, 10, 10])
+
+    def test_dev_server_files_recorded_at_a_second_weigh_as_their_plausible_siblings(self):
+        """406 of 481 dev-server files held 1 s or less on 11-27 (the rest: median 19 s). At 1 s each the
+        split thought them free beside a long plain file and left that shard none; at their siblings'
+        20 s they cost as much there as anywhere."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        plain = [f"test/p{index}.test.ts" for index in range(4)]
+        dev = [f"test/dev{index:02}.test.ts" for index in range(24)]
+        durations = dict(zip(plain, (60, 30, 30, 30)))
+        durations.update({name: (20 if index < 3 else 1) for index, name in enumerate(dev)})
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in plain + dev))
+        (temp / "serial").write_bytes(b"".join(name.encode() + b"\0" for name in dev))
+        (temp / "d.json").write_text(json.dumps(durations))
+        counts = []
+        for shard in (1, 2, 3, 4):
+            out = self.run_helper("assign", str(temp / "files"), str(temp / "serial"), str(temp / "d.json"),
+                                  str(shard), "4", "1,1,1").stdout
+            counts.append(len([item for item in out.split("\0") if "/dev" in item]))
+        self.assertEqual(sum(counts), 24)
+        self.assertGreaterEqual(min(counts), 4, counts)  # it was [0, 8, 8, 8]
 
     def test_the_split_weighs_dev_server_and_alone_files_by_how_few_run_at_once(self):
         """Seventeen dev-server files of 8 s on one config: one warms alone (8 s), sixteen share the

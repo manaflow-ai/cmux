@@ -647,7 +647,7 @@ fn fixture_actions() -> Value {
             "arguments": [{"name": "confirm", "title": "Confirm", "kind": "bool", "required": false}],
         },
         {
-            "id": "accounts.connect", "title": "Connect Account", "cli_name": "accounts connect",
+            "id": "accounts.reauthenticate", "title": "Re-authenticate Provider", "cli_name": "accounts reauth",
             "PLAN": {"cli": "offered", "mcp": "credentials"}, "targets": [],
             "arguments": [{"name": "provider", "title": "Provider", "kind": "enum", "required": true,
                            "choices": [{"value": "codex", "title": "Codex"}]}],
@@ -735,7 +735,7 @@ fn cli_actions_become_tools_with_the_cli_request_and_an_mcp_origin() {
     assert_eq!(names, ["app_workspace_rename", "app_new_window", "app_workspace_close"]);
     // The app decides (surfaces.mcp); an app that does not say is refused.
     assert_eq!(excluded.len(), 2);
-    assert!(excluded[0].name.starts_with("accounts.connect"));
+    assert!(excluded[0].name.starts_with("accounts.reauthenticate"));
     assert!(excluded[0].reason.contains("credentials"));
     assert!(excluded[1].name.starts_with("oldApp"));
     assert!(!names.iter().any(|name| name.contains("sidebar")), "GUI-only actions stay out");
@@ -1460,6 +1460,8 @@ fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
     let receipt = &result["structuredContent"];
     assert_eq!(receipt["action"], "workspace.select");
     assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["result"]["app_shown"], true, "{receipt}");
+    assert!(receipt["result"].get("app_not_shown").is_none(), "{receipt}");
     assert_eq!(receipt["state"]["workspaces"][0]["id"], WORKSPACE);
     assert_eq!(receipt["state"]["windows"][0]["id"], "win_a");
     assert_eq!(receipt["state"]["sources"]["daemon"]["available"], true);
@@ -1570,6 +1572,32 @@ fn agents_action_tools_refuse_invalid_arguments_before_reaching_an_owner() {
         assert_eq!(result["structuredContent"]["state"], "not_run", "{name} {arguments}");
         assert!(server.backend.sent.borrow().is_empty(), "{name} {arguments} reached an owner");
     }
+}
+
+#[test]
+fn agents_workspace_select_says_when_no_window_shows_it() {
+    // The daemon focused the workspace but the app has no such workspace (cloud.open-desktop's
+    // workspace filed in the background, #58421): still a success, and the result says so.
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({
+                "id": WORKSPACE,
+                "workspaces": [{"id": WORKSPACE, "focused": true}],
+            })),
+            action_answers: BTreeMap::from([(
+                "goToWorkspace".to_owned(),
+                Err(json!({"code": "not_found", "message": "no such workspace"})),
+            )]),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "agents_workspace_select", json!({"workspace": WORKSPACE}));
+    assert_eq!(result["isError"], false, "{result}");
+    let receipt = &result["structuredContent"];
+    assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["result"]["app_shown"], false, "{receipt}");
+    assert_eq!(receipt["result"]["app_not_shown"], "not_found", "{receipt}");
 }
 
 #[test]

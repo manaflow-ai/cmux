@@ -8,7 +8,8 @@ import Foundation
 /// account. Compiled out of every shipping configuration.
 ///
 /// `CMUX_MOBILE_BILLING_DEMO` picks the state: `free` (Free, Go/Pro/Max
-/// offers), `pro` (an App Store Pro subscriber), `stripe` (pays on the web: no
+/// offers), `next` (Free, the cmux NEXT Plus/Pro/Max monthly offers), `pro` (an
+/// App Store Pro subscriber), `stripe` (pays on the web: no
 /// purchase buttons), `stripe-past-due` (the same, with its latest renewal
 /// failed), `team` (team billing), `unavailable` (the server sells
 /// nothing to this bundle, today's state for cmux NEXT), `testflight` (production's
@@ -52,8 +53,12 @@ private actor DemoBillingServer: BillingAPI {
 
     func accountToken() async throws -> BillingAccount {
         let sellsNothing = ["unavailable", "testflight", "testflight-free"].contains(state)
-        let products = sellsNothing ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
-            BillingPeriod.allCases.map { period in
+        // `next`: the cmux NEXT products App Store Connect sells (monthly only), for the
+        // subscriptions' App Review screenshot (AppStoreReview/subscriptions/review-plans.png).
+        let plans: [BillingPlanID] = state == "next" ? [.nextPlus, .nextPro, .nextMax] : [.go, .pro, .max]
+        let periods: [BillingPeriod] = state == "next" ? [.monthly] : BillingPeriod.allCases
+        let products = sellsNothing ? [] : plans.flatMap { plan in
+            periods.map { period in
                 BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
                                         planID: plan, billingPeriod: period)
             }
@@ -83,6 +88,9 @@ private struct DemoStoreKit: StoreKitClient {
     /// Server list prices: monthly, and yearly at 9.6× (`appleUsdListPrice`).
     private static let prices: [String: (name: String, monthly: String, yearly: String)] = [
         "go": ("Go", "14.99", "143.90"), "pro": ("Pro", "74.99", "719.90"), "max": ("Max", "299.99", "2879.90"),
+        // scripts/ci/ios_asc_ops.py NEXT_PRODUCTS (the App Store price book).
+        "next_plus": ("Plus", "29.99", "287.90"), "next_pro": ("Pro", "74.99", "719.90"),
+        "next_max": ("Max", "299.99", "2879.90"),
     ]
 
     func products(for ids: [String]) async throws -> [StoreProduct] {

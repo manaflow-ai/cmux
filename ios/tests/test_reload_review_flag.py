@@ -60,10 +60,10 @@ def device(udid, name, product, boot='booted', paired='paired', reality='physica
 class ConnectedPhonesTests(unittest.TestCase):
     """--review installs on every connected phone and registers new ones."""
 
-    def run_helpers(self, devices, body, known='', ignored=''):
+    def run_helpers(self, devices, body, known='', ignored='', agent='lane-a'):
         text = PHONES_LIB.read_text()
         funcs = ''.join(re.search(r'\n(%s\(\) \{\n.*?\n\})\n' % name, text, re.S).group(1) + '\n'
-                        for name in ('review_phone_result', 'review_connected_phones', 'review_register_phone',
+                        for name in ('review_phone_result', 'review_phone_audit', 'review_connected_phones', 'review_register_phone',
                                      'review_phone_listed', 'review_phone_owner', 'review_resolve_phones'))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -80,7 +80,8 @@ class ConnectedPhonesTests(unittest.TestCase):
                 (config / 'iphone-device-ids-ignored').write_text(ignored)
             script = ('set -u\nREVIEW_PHONES_FILE="$CMUX_CONFIG_DIR/iphone-device-ids"\nREVIEW_TARGETS=()\nREQUESTED_DEVICE_ID="${REQUESTED_DEVICE_ID:-}"\n'
                       'REVIEW_FAILED=0\nREVIEW_PHONE_STATUS=""\n' + funcs + body)
-            env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}", CMUX_CONFIG_DIR=str(config))
+            env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}", CMUX_CONFIG_DIR=str(config),
+                       ACPMUX_SESSION_NAME=agent)
             result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
             files = {f.name: f.read_text() for f in config.iterdir()}
             return result, files
@@ -116,6 +117,12 @@ class ConnectedPhonesTests(unittest.TestCase):
         self.assertNotIn('T:00008150', result.stdout)
         self.assertIn('Aziz test phone (00008150-0000FA4E0000D0E1): skipped, not registered on this Mac', result.stdout)
         self.assertNotIn('00008150', files.get('iphone-device-ids', ''))
+        # The refusal and the connect are both audited, naming the agent that asked.
+        audit = [line.split('\t') for line in files['iphone-connect-audit.log'].splitlines()]
+        self.assertEqual([(row[2], row[4], row[5], row[6]) for row in audit],
+                         [('lane-a', 'connect', 'owned', '00008140-0000FA4E0000D0E0'),
+                          ('lane-a', 'refused', 'not-this-macs-phone', '00008150-0000FA4E0000D0E1')])
+        self.assertEqual(audit[1][7:], ['Aziz test phone', 'localNetwork'])
 
     def test_a_known_wifi_phone_and_a_new_usb_phone_still_install(self):
         devices = [device('00008140-0000FA4E0000D0E0', 'iPhone', 'iPhone17,4', transport='localNetwork'),

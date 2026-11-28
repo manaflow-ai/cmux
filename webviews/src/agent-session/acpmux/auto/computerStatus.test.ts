@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { translate } from "../i18n";
 import {
+  computerStatusOf,
   elapsedSeconds,
   sizeRow,
   sleepRow,
   statusChipText,
   statusLine,
+  statusTicks,
   whyRow,
   type ComputerStatus,
 } from "./computerStatus";
@@ -114,4 +116,41 @@ test("the Why row is one sentence per reason", () => {
   expect(why("person_moved")).toBe("You moved it to Cloud at t7.");
   expect(why("slots_full")).toBe("Staying on This Mac since t7: all your Cloud slots are busy.");
   expect(why("spend_cap")).toBe("Paused at t7: you reached your overage limit.");
+});
+
+test("place.status reads as Rust sends it, and a half-written one is none", () => {
+  const sent = {
+    session_id: "s1",
+    home: "this_mac",
+    phase: "moving",
+    phase_since_ms: 1_700_000_000_000,
+    move: { direction: "to_cloud", cancellable: true },
+    size: { mode: "auto" },
+    sleep: { mode: "auto" },
+    why: { at_ms: 1_700_000_000_000, reason: "mac_memory_pressure" },
+  };
+  expect(computerStatusOf(sent)).toEqual(sent as ComputerStatus);
+  expect(statusTicks(computerStatusOf(sent)!)).toBe(true);
+  // A phase this page has no words for (Rust's `paused`), a missing session or home: no status, no line.
+  expect(computerStatusOf({ ...sent, phase: "paused" })).toBeUndefined();
+  expect(computerStatusOf({ ...sent, session_id: "" })).toBeUndefined();
+  expect(computerStatusOf({ ...sent, home: "mars" })).toBeUndefined();
+  expect(computerStatusOf("moving")).toBeUndefined();
+  // Rows the app left out read as Auto; a stray failure or reason word is dropped.
+  const loose = computerStatusOf({
+    session_id: "s1",
+    home: "cloud",
+    phase: "move_failed",
+    move: { direction: "to_mac", cancellable: false, failure: "gremlins" },
+    why: { at_ms: 5, reason: "gremlins" },
+  });
+  expect(loose).toEqual({
+    session_id: "s1",
+    home: "cloud",
+    phase: "move_failed",
+    move: { direction: "to_mac", cancellable: false },
+    size: { mode: "auto" },
+    sleep: { mode: "auto" },
+  });
+  expect(statusTicks(loose!)).toBe(false);
 });

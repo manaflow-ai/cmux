@@ -2,6 +2,7 @@
 // no "Checking…" between, and a fresh answer that says the same renders the pane no second time
 // before the chat's first frame paints (settled page, Leo 2026-11-21).
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -28,8 +29,9 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
+  await settleReact();
   root = undefined;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -46,6 +48,8 @@ type Seen = { sessionId: string; state: string; pending: boolean };
 // The render's effects run as its act ends, so the wait for the read is an act of its own.
 const show = async (node: ReactNode) => {
   await act(async () => root!.render(node));
+  // fixed-wait: the read is scheduled by afterNextPaint's timer and answers on a promise; no DOM or
+  // event marks it, so the test waits past that timer as the page would.
   await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
 };
 

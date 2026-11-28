@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fail when iPhone app copy claims a Mac is asleep.
 
-Usage: check-ios-presence-claims.py [ROOT ...]   (default: cmux-next-ios/ Packages/iOS/)
+Usage: check-ios-presence-claims.py [ROOT ...]
+       (default: cmux-next-ios/ Packages/iOS/ and the phone's Rust crates under cmux-tui/crates/)
 
 The phone can't know a Mac sleeps. The cmux service only knows that no Mac has cmux
 connected, which also happens when cmux quit, is restarting or the Mac has no network.
@@ -10,7 +11,10 @@ Aziz, 2026-11-25: "it says mac is asleep incorrect" (cmux#57792). So phone copy 
 subject ("display is asleep", Chief's "Computer is asleep", whose state is real).
 
 The whole tree is scanned, not just added lines: the regression was a string that
-was already there. A line that truly knows (a state the service reports) can carry
+was already there. Every screen's copy is in scope: Swift sources, the string catalogs
+(.xcstrings, .strings) a screen reads its words from, and the Rust crates that now
+decide Mac reachability for the phone (cmux#58534). Aziz, 2026-11-26, about several
+screens: "despite my mac being connected". A line that truly knows (a state the service reports) can carry
 `presence-ok: <why>` on it or on one of the two lines above it.
 """
 
@@ -20,8 +24,18 @@ import re
 import sys
 from pathlib import Path
 
-ROOTS = ("cmux-next-ios/", "Packages/iOS/")
-SKIP_PARTS = ("/Tests/", "/UITests/", "Tests.swift", "/.build/", "Mock", "Preview", "Gallery")
+ROOTS = (
+    "cmux-next-ios/",
+    "Packages/iOS/",
+    "cmux-tui/crates/cmux-mobile-core/",
+    "cmux-tui/crates/cmux-mobile-host-core/",
+    "cmux-tui/crates/cmux-mobile-ffi/",
+)
+SUFFIXES = (".swift", ".xcstrings", ".strings", ".rs")
+SKIP_PARTS = (
+    "/Tests/", "/UITests/", "Tests.swift", "/tests/", "_tests.rs", "/.build/", "/target/",
+    "Mock", "Preview", "Gallery",
+)
 
 STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 # "<Mac|Macs|\(name)> is/are asleep" (also 's / ’s). Other subjects pass.
@@ -33,7 +47,7 @@ COMMENT = re.compile(r"^\s*(//|///|\*|/\*)")
 
 
 def in_scope(path: str) -> bool:
-    return path.endswith(".swift") and not any(p in path for p in SKIP_PARTS)
+    return path.endswith(SUFFIXES) and not any(p in path for p in SKIP_PARTS)
 
 
 def findings_for(path: str, lines: list[str]) -> list[tuple[str, int, str]]:
@@ -52,7 +66,7 @@ def findings_for(path: str, lines: list[str]) -> list[tuple[str, int, str]]:
 def scan(roots: list[str]) -> list[tuple[str, int, str]]:
     found = []
     for root in roots:
-        for p in sorted(Path(root).rglob("*.swift")):
+        for p in sorted(q for q in Path(root).rglob("*") if q.is_file()):
             rel = p.as_posix()
             if in_scope(rel):
                 found += findings_for(rel, p.read_text(encoding="utf-8", errors="replace").splitlines())

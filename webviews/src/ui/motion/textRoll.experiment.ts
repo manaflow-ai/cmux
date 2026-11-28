@@ -15,6 +15,7 @@ export const textRollLook = defineExperiment({
     "A one-line label changing in place (the activity line, Working for, a subagent's row, the hat). Look at whether the words ever meet a hard edge and whether the change reads as one quick step.",
   arms: {
     roll: {
+      // motion-allow: an arm label naming its step for the reviewer, not a duration anything plays
       label: "28% fade, 180 ms",
       description: "The house move step; the cell's top and bottom 28% fade while the words cross.",
     },

@@ -239,6 +239,17 @@ impl<T> Pool<T> {
         if key.origin == Origin::Remote {
             return Wanted::default();
         }
+        // A spare never takes a reserved home chat's slot (`reserved.rs`): the reserved entry is
+        // this harness's warm agent in that folder already, on the key a home chat with no pick
+        // asks for. A personal spare moved into the reserved folder on another model replaced it,
+        // so the first home chat started cold (prod journey 45975681836, 11-27: warm-home answered
+        // "another key holds its slot (ready), differing in model"). The spare starts nothing; a
+        // chat that asks for its model starts cold as it would with no spare at all.
+        if role == Role::Spare
+            && self.entries.iter().any(|e| e.reserved && e.key != key && e.key.same_slot(&key))
+        {
+            return Wanted::default();
+        }
         let mut evicted = Vec::new();
         // A new key for an occupied slot: the old entry is discarded.
         let mut i = 0;

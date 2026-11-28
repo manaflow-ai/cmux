@@ -125,3 +125,10 @@ fn key_refuses_an_empty_family() {
     assert!(err.starts_with("Some(2)") && err.contains("no file matches"), "{err}");
     let _ = std::fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn desktop_reference_stores() {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/desktop_goldens.py");
+    let status = Command::new("python3").arg(script).env("CMUX_SHOTDIFF", bin()).status().unwrap();
+    assert!(status.success());
+}

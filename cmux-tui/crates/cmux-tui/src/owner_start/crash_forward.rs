@@ -11,6 +11,9 @@
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
 //! and right after each alert, and so does the interactive client's
 //! `client-hangs.jsonl` (`ui_watchdog`), at client start and right after each hang.
+//! The acpmux daemon's `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log, RFD 0157) goes too, at
+//! owner start, tagged `process=acpmux` as the app tags it (`RustPanicSource.acpmux`); every
+//! owner on the machine reads that one log, so a file lock beside its offset lets one send.
 //!
 //! It sends nothing until the person opts in (`app.sendAnonymousTelemetry: true` in cmux.json;
 //! unset is off). It also sends nothing when: the binary is inside the cmux app (the app sends
@@ -118,11 +121,70 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
     Consent::Send
 }
 
+/// Which process wrote a panic log: the tags, fingerprint and message its events carry, the
+/// same as the app's `RustPanicSource` for that process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Source {
+    pub(super) process: &'static str,
+    pub(super) crash_source: &'static str,
+    pub(super) fingerprint: &'static str,
+    pub(super) label: &'static str,
+    /// The tag a line's `version` goes in.
+    pub(super) version_tag: &'static str,
+    /// Whether a line's `version` is this build's release (the owner's is; acpmux writes its
+    /// crate version, so its release is this binary's).
+    pub(super) line_version_is_release: bool,
+}
+
+impl Source {
+    /// The owner (`owner-panics-<session>.jsonl`), its memory log and the client's hang log.
+    pub(super) const OWNER: Source = Source {
+        process: "cmux-tui",
+        crash_source: "owner_panic_log",
+        fingerprint: "owner-panic",
+        label: "cmux-tui owner panic",
+        version_tag: "tui_version",
+        line_version_is_release: true,
+    };
+    /// The acpmux daemon (`$ACPMUX_HOME/panics.jsonl`).
+    pub(super) const ACPMUX: Source = Source {
+        process: "acpmux",
+        crash_source: "acpmux_panic_log",
+        fingerprint: "acpmux-panic",
+        label: "acpmux daemon panic",
+        version_tag: "acpmux_version",
+        line_version_is_release: false,
+    };
+
+    /// The source of `log`, by its file name (acpmux's is `panics.jsonl`).
+    pub(super) fn of(log: &Path) -> Source {
+        if log.file_name().and_then(|name| name.to_str()) == Some(ACPMUX_PANIC_LOG) {
+            Source::ACPMUX
+        } else {
+            Source::OWNER
+        }
+    }
+}
+
+/// The acpmux daemon's panic log file name (`acpmux::config::panic_log_path`).
+const ACPMUX_PANIC_LOG: &str = "panics.jsonl";
+
+/// The acpmux daemon's panic log: in the home `cmux acp` uses (`ACPMUX_HOME`, else this build's
+/// home), else acpmux's own default (`~/.acpmux`). Read without `cmux acp`'s one-time adoption
+/// of a pre-isolation home, so forwarding moves nothing.
+pub(super) fn acpmux_panic_log() -> PathBuf {
+    #[cfg(unix)]
+    if let Some(home) = crate::acp::key_lock_home() {
+        return home.join(ACPMUX_PANIC_LOG);
+    }
+    acpmux::config::panic_log_path()
+}
+
 /// The Sentry event for one panic line; None for a test line or a line that is not a panic.
 /// The message, location and backtrace go through `crash_scrub` (docs/privacy.md, Telemetry):
 /// `home` becomes `~`, and secrets, emails and other user names are redacted, so none of them
 /// leaves the machine.
-pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
+pub(super) fn event_for(line: &str, source: &Source, home: Option<&str>) -> Option<Value> {
     let record: Value = serde_json::from_str(line).ok()?;
     if record.get("test").and_then(Value::as_bool) == Some(true) {
         return None;
@@ -132,11 +194,11 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
     let mut tags = serde_json::Map::new();
-    tags.insert("process".into(), json!("cmux-tui"));
-    tags.insert("crash_source".into(), json!("owner_panic_log"));
+    tags.insert("process".into(), json!(source.process));
+    tags.insert("crash_source".into(), json!(source.crash_source));
     for (field, tag) in [
         ("thread", "thread"),
-        ("version", "tui_version"),
+        ("version", source.version_tag),
         ("build_identity", "tui_build"),
         ("os", "tui_os"),
         ("arch", "tui_arch"),
@@ -145,7 +207,9 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
             tags.insert(tag.into(), json!(value));
         }
     }
-    let version = text("version").unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
+    let version = text("version")
+        .filter(|_| source.line_version_is_release)
+        .unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
     let at_ms = record.get("at_ms").and_then(Value::as_u64).unwrap_or_default();
     if record.get("kind").and_then(Value::as_str) == Some("client-hang") {
         // A UI-loop hang of the interactive client (ui_watchdog): a warning, one issue per
@@ -212,16 +276,16 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
         "timestamp": at_ms as f64 / 1000.0,
         "platform": "native",
         "level": "error",
-        "logger": "cmux-tui",
+        "logger": source.process,
         "release": format!("cmux-tui@{version}"),
         "exception": {"values": [{
             "type": "RustPanic",
             "value": message,
             "mechanism": {"type": "rust_panic", "handled": false},
         }]},
-        "message": {"formatted": format!("cmux-tui owner panic at {location}: {message}")},
+        "message": {"formatted": format!("{} at {location}: {message}", source.label)},
         // Same panic site, same issue, whatever the message text holds (as the app does).
-        "fingerprint": ["owner-panic", location],
+        "fingerprint": [source.fingerprint, location],
         "tags": tags,
         "extra": {
             "location": location,
@@ -262,13 +326,14 @@ pub(super) fn forward_new(
     if offset > bytes.len() {
         offset = 0;
     }
+    let source = Source::of(log);
     let mut sent = 0;
     let mut failure = None;
     while sent < max {
         let rest = &bytes[offset..];
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else { break };
         let line = String::from_utf8_lossy(&rest[..end]);
-        if let Some(event) = event_for(&line, home) {
+        if let Some(event) = event_for(&line, &source, home) {
             if let Err(error) = send(&envelope(&event)) {
                 failure = Some(error);
                 break;
@@ -319,10 +384,39 @@ pub(super) struct Forwarder {
 }
 
 impl Forwarder {
-    /// Sends `log`'s unsent lines (see ``forward_new``).
+    /// Sends `log`'s unsent lines (see ``forward_new``). Another process sending the same log
+    /// (every owner reads acpmux's) holds `<log>.sent.lock`; then this sends nothing.
     pub(super) fn forward(&self, log: &Path) -> Result<usize, String> {
         let _sending = self.sending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(_lock) = try_lock_beside(log)? else { return Ok(0) };
         send_all(log, &self.dsn, self.home.as_deref())
+    }
+}
+
+/// An exclusive lock on `<log>.sent.lock`, held while the returned file lives; None when another
+/// process holds it. No directory (no log yet): nothing to lock, nothing to send.
+pub(super) fn try_lock_beside(log: &Path) -> Result<Option<std::fs::File>, String> {
+    let mut name = state_path(log).file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    let path = log.with_file_name(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("lock {}: {error}", path.display())),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => {
+            Err(format!("lock {}: {error}", path.display()))
+        }
     }
 }
 

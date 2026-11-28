@@ -1458,6 +1458,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "restore_progress"?: boolean;
   "revisions"?: boolean;
 }
 
@@ -2040,6 +2041,14 @@ export interface NotifyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface OfferLinkToPhoneRequest extends CmuxRequestBase {
+  cmd: "offer-link-to-phone";
+  "terminal_id": string;
+  "url": string;
+}
+export type OfferLinkToPhoneResult = T.PhoneLinkOfferResult;
+
+/** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
   "page"?: (string) | null;
@@ -2182,6 +2191,17 @@ export interface ReattachViewRequest extends CmuxRequestBase {
   "counts"?: (boolean) | null;
   "surface": T.Id;
 }
+
+/** Protocol v12; authority: control. */
+export interface RecordNotificationDeliveryRequest extends CmuxRequestBase {
+  cmd: "record-notification-delivery";
+  /** shown or suppressed. */
+  "desktop": string;
+  "notification": bigint;
+  /** Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest. */
+  "reason"?: (string) | null;
+}
+export type RecordNotificationDeliveryResult = T.JsonValue;
 
 /** Protocol v10; authority: local-admin. */
 export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
@@ -2497,6 +2517,7 @@ export type SendKeyResult = T.EmptyResult;
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
+  "restore_progress"?: boolean;
 }
 
 /** Protocol v12; authority: frontend. */
@@ -3391,6 +3412,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | OfferLinkToPhoneRequest
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -3407,6 +3429,7 @@ export type CmuxRequest =
   | ReadScreenRequest
   | ReadScrollbackRequest
   | ReattachViewRequest
+  | RecordNotificationDeliveryRequest
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
@@ -5031,6 +5054,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "offer-link-to-phone": {
+    request: OfferLinkToPhoneRequest;
+    result: OfferLinkToPhoneResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
   "page-credential": {
     request: PageCredentialRequest;
     result: PageCredentialResult;
@@ -5157,6 +5188,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "sizing-view-detach-v1";
+    stream: null;
+  };
+  "record-notification-delivery": {
+    request: RecordNotificationDeliveryRequest;
+    result: RecordNotificationDeliveryResult;
+    authority: "control";
+    since: 12;
+    capability: "notification-ack-v1";
     stream: null;
   };
   "register-browser-provider": {

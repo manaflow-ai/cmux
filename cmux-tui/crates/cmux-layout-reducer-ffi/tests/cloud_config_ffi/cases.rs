@@ -40,6 +40,7 @@ fn the_configuration_is_made_from_the_runtime_selection() {
     assert_eq!(body["storage"]["keychainService"], "com.cmuxterm.app.debug.next.auth.dev-1");
     assert_eq!(body["storage"]["defaultsKeySuffix"], "dev-1");
     assert_eq!(body["namespacedLegacyStore"], Value::Null);
+    assert_eq!(body["sharedSession"], Value::Null);
     let (_, names) = call(
         c"cloud_config_storage_names",
         &json!({"bundleId": "com.cmuxterm.app.cloud-unavailable"}),
@@ -58,6 +59,49 @@ fn the_configuration_is_made_from_the_runtime_selection() {
             .unwrap()
             .starts_with("https://cmux.com/handler/native-sign-in?after_auth_return_to=")
     );
+}
+
+#[test]
+fn a_team_signed_production_channel_names_the_shared_session_item() {
+    let selection = json!({"name": "prod", "apiOrigin": "https://api.invalid", "authWebOrigin": "https://web.invalid",
+        "stackOrigin": "https://stack.invalid", "stackProjectId": "p", "stackClientKey": "k",
+        "bundleId": "com.cmuxterm.app.nightly", "authNamespace": "prod", "legacyStorage": true});
+    let (code, body) = call(
+        c"cloud_config_from_selection",
+        &json!({"selection": selection, "bundled": {}, "process": {}, "isDebugBuild": false}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body["sharedSession"],
+        json!({"keychainService": "com.cmuxterm.app.shared.auth.p",
+               "accessGroup": "7WLXT3NR37.com.cmuxterm.app.shared"})
+    );
+}
+
+#[test]
+fn the_shared_session_store_answers_its_next_effects() {
+    let (code, launch) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": {}, "event": {"event": "settle", "ownRefresh": null}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(launch["effects"], json!([{"kind": "read_shared"}]));
+    let (_, imported) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": launch["state"], "event": {"event": "shared_read", "pair": {"access": "a", "refresh": "r"}}}),
+    );
+    assert_eq!(imported["state"]["usesImported"], true);
+    assert_eq!(
+        imported["effects"],
+        json!([{"kind": "seed_imported", "access": "a", "refresh": "r"}])
+    );
+    let (_, shared) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": imported["state"], "event": {"event": "is_shared", "refresh": "r"}}),
+    );
+    assert_eq!(shared["shared"], true);
+    let (code, _) = call(c"cloud_auth_shared_session_next", &json!({"event": {"event": "nope"}}));
+    assert_eq!(code, ERR_INVALID);
 }
 
 #[test]

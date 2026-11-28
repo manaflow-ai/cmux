@@ -19,7 +19,8 @@ public final class VNCDemoServer: @unchecked Sendable {
         public var password: String?
         /// Animation steps per second (0 stops the bouncing tile).
         public var framesPerSecond: Int
-        /// Checks a password client's answer (cmux-vnc's DES); a password server needs them.
+        /// The server's protocol (cmux-vnc's `vnc_demo_*` ops, its DES among them); without them
+        /// every viewer is dropped.
         public var rules: VNCRules
 
         public init(width: Int = 1280, height: Int = 800, name: String = "cmux VNC demo", password: String? = nil,
@@ -137,30 +138,22 @@ final class ResumeGuard: @unchecked Sendable {
     }
 }
 
-/// One viewer: the handshake and message state machine, its pending damage
-/// and whether it has an update request outstanding. Confined to the queue.
+/// One viewer: its socket, pending damage and zlib stream. The protocol (the handshake, the
+/// client messages, when an update goes out and its rectangles' bytes) is cmux-vnc's
+/// `vnc_demo_*` ops, asked through the configuration's ``VNCRules``; the connection keeps the
+/// state they hand back. Without rules (or an answer) the viewer is dropped. Confined to the queue.
 // crash-allow: confined to the server queue; the connection's handlers run on it and the server calls in only from it.
 final class DemoConnection: @unchecked Sendable {
     // @unchecked: confined to the server queue.
-    private enum Phase {
-        case version, security, auth, clientInit, normal
-    }
-
     private let connection: NWConnection
     private let scene: DemoScene
     private let configuration: VNCDemoServer.Configuration
     private let queue: DispatchQueue
-    private var phase = Phase.version
-    private var input: [UInt8] = []
-    private var challenge: [UInt8] = []
-    private var encodings: Set<Int32> = []
+    private var state = DemoRules.State()
+    private var input = Data()
     /// Damage since the last update: separate rectangles, so distant changes
     /// (the status window and the moving tile) are not sent as one big union.
     private var pending: [CGRect] = []
-    private var requested = false
-    private var cursorSent = false
-    private var buttons: UInt8 = 0
-    private var shift = false
     private var deflater: Deflater?
     var onClose: (() -> Void)?
     var onSceneChange: ((CGRect) -> Void)?
@@ -172,6 +165,8 @@ final class DemoConnection: @unchecked Sendable {
         self.queue = queue
     }
 
+    private var rules: DemoRules { DemoRules(rules: configuration.rules) }
+
     func start() {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -180,7 +175,7 @@ final class DemoConnection: @unchecked Sendable {
             }
         }
         connection.start(queue: queue)
-        send(Array("RFB 003.008\n".utf8))
+        send(Data("RFB 003.008\n".utf8))
         receive()
     }
 
@@ -215,263 +210,147 @@ final class DemoConnection: @unchecked Sendable {
     private func receive() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, complete, error in
             guard let self else { return }
-            if let data { input.append(contentsOf: data) }
+            if let data { input.append(data) }
             process()
             if complete || error != nil { connection.cancel(); return }
             receive()
         }
     }
 
-    private func send(_ bytes: [UInt8]) {
-        connection.send(content: Data(bytes), completion: .idempotent)
+    private func send(_ bytes: Data) {
+        connection.send(content: bytes, completion: .idempotent)
     }
 
     // MARK: Client messages
 
-    private func take(_ count: Int) -> [UInt8]? {
-        guard input.count >= count else { return nil }
-        defer { input.removeFirst(count) }
-        return Array(input[0 ..< count])
-    }
-
-    private func peekU16(_ offset: Int) -> Int { Int(input[offset]) << 8 | Int(input[offset + 1]) }
-    private func peekU32(_ offset: Int) -> Int {
-        Int(input[offset]) << 24 | Int(input[offset + 1]) << 16 | Int(input[offset + 2]) << 8 | Int(input[offset + 3])
-    }
-
     private func process() {
-        while true {
-            switch phase {
-            case .version:
-                guard take(12) != nil else { return }
-                send(configuration.password == nil ? [1, 1] : [1, 2])
-                phase = .security
-            case .security:
-                guard let chosen = take(1)?.first else { return }
-                if chosen == 2, configuration.password != nil {
-                    challenge = (0 ..< 16).map { _ in UInt8.random(in: 0 ... 255) }
-                    send(challenge)
-                    phase = .auth
-                } else if chosen == 1, configuration.password == nil {
-                    send([0, 0, 0, 0])
-                    phase = .clientInit
-                } else {
-                    fail("unsupported security type")
-                    return
-                }
-            case .auth:
-                guard let response = take(16) else { return }
-                let expected = VNCPasswordResponse(password: configuration.password ?? "", challenge: challenge, rules: configuration.rules).bytes
-                guard response == expected else {
-                    fail("Authentication failed")
-                    return
-                }
-                send([0, 0, 0, 0])
-                phase = .clientInit
-            case .clientInit:
-                guard take(1) != nil else { return }
-                var bytes = DemoBytes()
-                bytes.u16(scene.width)
-                bytes.u16(scene.height)
-                bytes.append(RFBPixelFormat.bgrx.encoded)
-                let name = Array(configuration.name.utf8)
-                bytes.u32(name.count)
-                bytes.append(name)
-                send(bytes.data)
-                phase = .normal
-            case .normal:
-                guard let type = input.first else { return }
-                switch type {
-                case 0:
-                    guard take(20) != nil else { return }
-                case 2:
-                    guard input.count >= 4 else { return }
-                    let count = peekU16(2)
-                    guard let bytes = take(4 + count * 4) else { return }
-                    encodings = Set((0 ..< count).map { index in
-                        let o = 4 + index * 4
-                        return Int32(bitPattern: UInt32(bytes[o]) << 24 | UInt32(bytes[o + 1]) << 16 | UInt32(bytes[o + 2]) << 8 | UInt32(bytes[o + 3]))
-                    })
-                case 3:
-                    guard let bytes = take(10) else { return }
-                    if bytes[1] == 0 { pending = [CGRect(x: 0, y: 0, width: scene.width, height: scene.height)] }
-                    requested = true
-                    flush()
-                case 4:
-                    guard let bytes = take(8) else { return }
-                    let keysym = UInt32(bytes[4]) << 24 | UInt32(bytes[5]) << 16 | UInt32(bytes[6]) << 8 | UInt32(bytes[7])
-                    if keysym == 0xFFE1 || keysym == 0xFFE2 { shift = bytes[1] != 0 }
-                    onSceneChange?(scene.key(keysym, down: bytes[1] != 0, shift: shift))
-                case 5:
-                    guard let bytes = take(6) else { return }
-                    buttons = bytes[1]
-                    let x = Int(bytes[2]) << 8 | Int(bytes[3]), y = Int(bytes[4]) << 8 | Int(bytes[5])
-                    onSceneChange?(scene.pointer(x: x, y: y, leftDown: buttons & 1 != 0))
-                case 6:
-                    guard input.count >= 8 else { return }
-                    guard take(8 + peekU32(4)) != nil else { return }
-                default:
-                    fail("unknown message \(type)")
-                    return
-                }
+        guard !input.isEmpty else { return }
+        let config = DemoRules.Config(width: scene.width, height: scene.height, name: configuration.name,
+                                      password: configuration.password)
+        guard let step = rules.receive(state, input: input, config: config) else {
+            connection.cancel()
+            return
+        }
+        state = step.connection
+        input.removeFirst(min(step.consumed, input.count))
+        if !step.reply.isEmpty { send(step.reply) }
+        for event in step.events {
+            switch event.type {
+            case "fullUpdate":
+                pending = [CGRect(x: 0, y: 0, width: scene.width, height: scene.height)]
+            case "key":
+                onSceneChange?(scene.key(event.keysym ?? 0, down: event.down ?? false, shift: event.shift ?? false))
+            case "pointer":
+                onSceneChange?(scene.pointer(x: event.x ?? 0, y: event.y ?? 0, leftDown: event.leftDown ?? false))
+            default:
+                break
             }
         }
-    }
-
-    private func fail(_ reason: String) {
-        var bytes = DemoBytes()
-        bytes.u32(1)
-        let text = Array(reason.utf8)
-        bytes.u32(text.count)
-        bytes.append(text)
-        // Close once the reason is on the wire.
-        connection.send(content: Data(bytes.data), completion: .contentProcessed { [connection] _ in connection.cancel() })
+        if let failure = step.failure {
+            // Close once the reason is on the wire.
+            connection.send(content: failure, completion: .contentProcessed { [connection] _ in connection.cancel() })
+            return
+        }
+        if step.flush { flush() }
     }
 
     // MARK: Updates
 
     private func flush() {
-        guard phase == .normal, requested else { return }
-        let wantsCursor = encodings.contains(RFBEncoding.cursor.rawValue) && !cursorSent
-        guard wantsCursor || !pending.isEmpty else { return }
-        requested = false
         let damage = pending
+        guard let answer = rules.flush(state, damagePending: !damage.isEmpty, damageCount: damage.count) else { return }
+        state = answer.connection
+        guard answer.send else { return }
         pending = []
-        var rects: [[UInt8]] = []
-        if wantsCursor {
-            cursorSent = true
-            rects.append(DemoCursor().rectangle())
-        }
+        var bytes = answer.head
         for rect in damage {
-            rects.append(encode(x: Int(rect.minX), y: Int(rect.minY), width: Int(rect.width), height: Int(rect.height)))
-        }
-        var bytes = DemoBytes()
-        bytes.append([0, 0])
-        bytes.u16(rects.count)
-        for rect in rects { bytes.append(rect) }
-        send(bytes.data)
-    }
-
-    private func encode(x: Int, y: Int, width: Int, height: Int) -> [UInt8] {
-        var bytes = DemoBytes()
-        bytes.u16(x)
-        bytes.u16(y)
-        bytes.u16(width)
-        bytes.u16(height)
-        let pixels = scene.pixels
-        if encodings.contains(RFBEncoding.zrle.rawValue) {
-            bytes.s32(RFBEncoding.zrle.rawValue)
-            let raw = ZRLEEncoder(pixels: pixels, stride: scene.width).encode(x: x, y: y, width: width, height: height)
-            let stream = deflater ?? Deflater()
-            deflater = stream
-            let compressed = stream.deflate(raw)
-            bytes.u32(compressed.count)
-            bytes.append(compressed)
-        } else {
-            bytes.s32(RFBEncoding.raw.rawValue)
-            for row in y ..< y + height {
-                for col in x ..< x + width {
-                    let pixel = pixels[row * scene.width + col]
-                    bytes.append([UInt8(pixel & 0xFF), UInt8((pixel >> 8) & 0xFF), UInt8((pixel >> 16) & 0xFF), 0])
-                }
+            let x = Int(rect.minX), y = Int(rect.minY), width = Int(rect.width), height = Int(rect.height)
+            guard let encoded = rules.rect(state, x: x, y: y, width: width, height: height,
+                                           pixels: pixels(x: x, y: y, width: width, height: height)) else {
+                connection.cancel()
+                return
+            }
+            bytes.append(encoded.header)
+            if encoded.zrle {
+                let stream = deflater ?? Deflater()
+                deflater = stream
+                let compressed = stream.deflate(Array(encoded.payload))
+                bytes.append(contentsOf: withUnsafeBytes(of: UInt32(compressed.count).bigEndian, Array.init))
+                bytes.append(contentsOf: compressed)
+            } else {
+                bytes.append(encoded.payload)
             }
         }
-        return bytes.data
+        send(bytes)
+    }
+
+    /// The rectangle's BGRX pixels, row after row, little-endian (as the scene stores them).
+    private func pixels(x: Int, y: Int, width: Int, height: Int) -> Data {
+        let all = scene.pixels
+        var data = Data(capacity: width * height * 4)
+        for row in y ..< y + height {
+            let start = row * scene.width + x
+            data.append(UnsafeBufferPointer(rebasing: all[start ..< start + width]))
+        }
+        return data
     }
 }
 
-struct DemoBytes {
-    var data: [UInt8] = []
-    mutating func append(_ bytes: [UInt8]) { data.append(contentsOf: bytes) }
-    mutating func u16(_ value: Int) { data.append(contentsOf: [UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)]) }
-    mutating func u32(_ value: Int) {
-        data.append(contentsOf: [UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF), UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)])
-    }
-    mutating func s32(_ value: Int32) { u32(Int(UInt32(bitPattern: value))) }
-}
+/// cmux-vnc's `vnc_demo_*` ops (cmux-tui/crates/cmux-vnc/src/demo.rs and json.rs, with their tests).
+struct DemoRules {
+    let rules: VNCRules
 
-/// ZRLE tiles before compression: solid tiles, plain RLE when it is smaller,
-/// raw otherwise (exercises three of the client's tile decoders).
-struct ZRLEEncoder {
-    let pixels: UnsafeBufferPointer<UInt32>
-    let stride: Int
-
-    func encode(x: Int, y: Int, width: Int, height: Int) -> [UInt8] {
-        var out: [UInt8] = []
-        for tileY in Swift.stride(from: y, to: y + height, by: 64) {
-            let h = min(64, y + height - tileY)
-            for tileX in Swift.stride(from: x, to: x + width, by: 64) {
-                let w = min(64, x + width - tileX)
-                var tile: [UInt32] = []
-                tile.reserveCapacity(w * h)
-                for row in tileY ..< tileY + h {
-                    for col in tileX ..< tileX + w { tile.append(pixels[row * stride + col]) }
-                }
-                encodeTile(tile, into: &out)
-            }
-        }
-        return out
+    /// One viewer's protocol state, handed back by every op (demo.rs `Connection`).
+    struct State: Codable {
+        var phase = "version"
+        var challenge: [UInt8] = []
+        var encodings: [Int32] = []
+        var requested = false
+        var cursorSent = false
+        var buttons: UInt8 = 0
+        var shift = false
     }
 
-    private func cpixel(_ pixel: UInt32, into out: inout [UInt8]) {
-        out.append(contentsOf: [UInt8(pixel & 0xFF), UInt8((pixel >> 8) & 0xFF), UInt8((pixel >> 16) & 0xFF)])
+    struct Config: Encodable {
+        var width: Int, height: Int, name: String, password: String?
     }
 
-    private func encodeTile(_ tile: [UInt32], into out: inout [UInt8]) {
-        if tile.allSatisfy({ $0 == tile[0] }) {
-            out.append(1)
-            cpixel(tile[0], into: &out)
-            return
-        }
-        var runs: [(UInt32, Int)] = []
-        for pixel in tile {
-            if let last = runs.last, last.0 == pixel { runs[runs.count - 1].1 += 1 } else { runs.append((pixel, 1)) }
-        }
-        let rleSize = runs.reduce(0) { $0 + 3 + ($1.1 - 1) / 255 + 1 }
-        if rleSize < tile.count * 3 {
-            out.append(128)
-            for (pixel, length) in runs {
-                cpixel(pixel, into: &out)
-                var remaining = length - 1
-                while remaining >= 255 {
-                    out.append(255)
-                    remaining -= 255
-                }
-                out.append(UInt8(remaining))
-            }
-            return
-        }
-        out.append(0)
-        for pixel in tile { cpixel(pixel, into: &out) }
+    struct Event: Decodable {
+        var type: String
+        var keysym: UInt32?, down: Bool?, shift: Bool?
+        var x: Int?, y: Int?, leftDown: Bool?
     }
-}
 
-/// A small arrow cursor as a Cursor pseudo-encoding rectangle.
-struct DemoCursor {
-    func rectangle() -> [UInt8] {
-        let w = 12, h = 18
-        var colours: [UInt8] = []
-        var mask: [UInt8] = []
-        for row in 0 ..< h {
-            var maskRow = [UInt8](repeating: 0, count: (w + 7) / 8)
-            for col in 0 ..< w {
-                let inside = col <= row && col < w && row < h - 4 || (row >= h - 4 && col >= 3 && col <= 6)
-                let edge = col == 0 || col == row || row == h - 5 && col > 6
-                let colour: UInt8 = inside && !edge ? 255 : 0
-                colours.append(contentsOf: [colour, colour, colour, 0])
-                if inside || edge { maskRow[col / 8] |= 0x80 >> UInt8(col % 8) }
-            }
-            mask.append(contentsOf: maskRow)
-        }
-        var bytes = DemoBytes()
-        bytes.u16(0)
-        bytes.u16(0)
-        bytes.u16(w)
-        bytes.u16(h)
-        bytes.s32(RFBEncoding.cursor.rawValue)
-        bytes.append(colours)
-        bytes.append(mask)
-        return bytes.data
+    struct Step: Decodable {
+        var connection: State, consumed: Int, reply: Data, events: [Event], flush: Bool, failure: Data?
+    }
+
+    struct Flush: Decodable {
+        var connection: State, send: Bool, head: Data
+    }
+
+    struct Rect: Decodable {
+        var header: Data, zrle: Bool, payload: Data
+    }
+
+    /// Reads the whole client messages `input` holds.
+    func receive(_ state: State, input: Data, config: Config) -> Step? {
+        struct Request: Encodable { var connection: State, input: Data, config: Config }
+        return rules.ask("vnc_demo_receive", Request(connection: state, input: input, config: config), as: Step.self)
+    }
+
+    /// Whether an update goes now, and its header (with the cursor shape first when it is due).
+    func flush(_ state: State, damagePending: Bool, damageCount: Int) -> Flush? {
+        struct Request: Encodable { var connection: State, damagePending: Bool, damageCount: Int }
+        return rules.ask("vnc_demo_flush", Request(connection: state, damagePending: damagePending, damageCount: damageCount),
+                         as: Flush.self)
+    }
+
+    /// One damaged rectangle: its header and, for ZRLE, the tiles to deflate.
+    func rect(_ state: State, x: Int, y: Int, width: Int, height: Int, pixels: Data) -> Rect? {
+        struct Request: Encodable { var connection: State, x: Int, y: Int, width: Int, height: Int, pixels: Data }
+        return rules.ask("vnc_demo_rect", Request(connection: state, x: x, y: y, width: width, height: height, pixels: pixels),
+                         as: Rect.self)
     }
 }
 #endif

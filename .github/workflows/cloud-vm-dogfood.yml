@@ -123,42 +123,16 @@ jobs:
       # fetch outran the job's 10 minutes on pool runners (runs 45596156615, 45596705573): ancestry against
       # main is asked of GitHub below.
       - name: Checkout the trusted CI helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           sparse-checkout: scripts/ci
           persist-credentials: false
 
-      # github.token is one actor for every workflow in the repo, and its "API rate limit exceeded for
-      # installation" 403 failed this step twice on 2026-11-26 (runs 45789408337, 45791953357), skipping the
-      # journey. The cmux-bot App is its own actor (scripts/ci/gh_app_token.sh, as nightly.yml does with the
-      # release App), with github.token as the fallback and a bounded back-off. Not the release App: its
-      # CMUX_RELEASE_APP_* secrets live only in the release and nightly environments, so in this job (no
-      # environment) the mint got an empty app-id and the step hit the same 403 (run 45814163539). cmux-bot's
-      # app id is a repository variable and its key a repository secret (pr-router.yml mints it the same way).
-      # The attestation gh goes on PATH first, so the wrapper wraps it rather than the pool VM's apt gh 2.45.
-      - name: Put a gh with the attestation command on PATH
-        run: source scripts/ci/ensure-gh-attestation.sh
-
-      - name: Mint the cmux-bot App token for this job's gh calls
-        id: gh-app-token
-        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: read
-
-      - name: Send this job's gh calls as the cmux-bot App, github.token as the fallback
-        env:
-          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
-          GH_FALLBACK_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/gh_app_token.sh --install
+      # No App token here (#58215/#58463 minted one): this job runs the publicly installed binary, so it holds no
+      # secret (tests/test_supplychain_security.py). Its gh calls ride github.token through
+      # gh_waiting_out_rate_limit's bounded back-off (ensure-gh-attestation.sh), which waits out the shared 403.
 
       - name: Verify the public-installed cmux-tui binary
         env:
@@ -217,7 +191,7 @@ jobs:
     environment: ${{ inputs.paused_reads && inputs.target == 'staging' && 'cmux-next-vm-image-dev' || format('cmux-vm-{0}', inputs.target) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           persist-credentials: false
@@ -288,35 +262,12 @@ jobs:
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 120)"
           echo "$line" | sudo tee -a /etc/hosts
 
-      - name: Scenarios
-        if: ${{ inputs.scenarios != '' }}
+      # One secret step (tests/test_supplychain_security.py): the AutoCloud scenarios (#56824) and the journey
+      # are either/or on inputs.scenarios, so they share this step and its keys.
+      - name: Journey
         env:
           SCENARIOS: ${{ inputs.scenarios }}
           CHROMIUM_MINUTES: ${{ inputs.chromium_minutes }}
-          CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
-          CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
-          CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/dogfood"
-          [[ "$SCENARIOS" =~ ^[a-z,]+$ ]] || { echo "::error::scenarios takes case names and commas"; exit 1; }
-          [[ "$CHROMIUM_MINUTES" =~ ^[0-9]+$ ]] || { echo "::error::chromium_minutes takes a number"; exit 1; }
-          args=(--result-file "$RUNNER_TEMP/dogfood/scenarios.json" --chromium-minutes "$CHROMIUM_MINUTES")
-          if [ "$SCENARIOS" != "all" ]; then args+=(--cases "$SCENARIOS"); fi
-          bun scripts/cmux-next/cloud-scenarios.ts "${args[@]}"
-          {
-            echo "### AutoCloud scenarios ($CMUX_VM_DOGFOOD_URL)"
-            echo
-            echo "| Case | Result | What happened | Time to scale (s) | \$ |"
-            echo "| --- | --- | --- | ---: | ---: |"
-            jq -r '.rows[] | "| \(.case) | \(if .ok then "green" else "red" end) | \(.what) | \(.timeToScaleS // "") | \(.usd) |"' "$RUNNER_TEMP/dogfood/scenarios.json"
-            echo
-            jq -r '.rows[] | select(.gaps | length > 0) | "- \(.case): \(.gaps | join("; "))"' "$RUNNER_TEMP/dogfood/scenarios.json"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Journey
-        if: ${{ inputs.scenarios == '' }}
-        env:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}
           EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
@@ -331,6 +282,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood"
+          if [ -n "$SCENARIOS" ]; then
+            [[ "$SCENARIOS" =~ ^[a-z,]+$ ]] || { echo "::error::scenarios takes case names and commas"; exit 1; }
+            [[ "$CHROMIUM_MINUTES" =~ ^[0-9]+$ ]] || { echo "::error::chromium_minutes takes a number"; exit 1; }
+            args=(--result-file "$RUNNER_TEMP/dogfood/scenarios.json" --chromium-minutes "$CHROMIUM_MINUTES")
+            if [ "$SCENARIOS" != "all" ]; then args+=(--cases "$SCENARIOS"); fi
+            bun scripts/cmux-next/cloud-scenarios.ts "${args[@]}"
+            {
+              echo "### AutoCloud scenarios ($CMUX_VM_DOGFOOD_URL)"
+              echo
+              echo "| Case | Result | What happened | Time to scale (s) | \$ |"
+              echo "| --- | --- | --- | ---: | ---: |"
+              jq -r '.rows[] | "| \(.case) | \(if .ok then "green" else "red" end) | \(.what) | \(.timeToScaleS // "") | \(.usd) |"' "$RUNNER_TEMP/dogfood/scenarios.json"
+              echo
+              jq -r '.rows[] | select(.gaps | length > 0) | "- \(.case): \(.gaps | join("; "))"' "$RUNNER_TEMP/dogfood/scenarios.json"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SESSION_AUTH" = "true" ]; then args+=(--auth session); fi
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi

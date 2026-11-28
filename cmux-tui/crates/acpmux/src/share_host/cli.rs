@@ -307,6 +307,78 @@ async fn set_shared(_shared: bool) -> Result<()> {
     anyhow::bail!("the share host runs on macOS")
 }
 
+/// What turning this machine's sharing off through the share host's own device found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OffHere {
+    /// No share-host device here (not joined, a copied or revoked join, no device made yet): the
+    /// caller keeps its own path (cmux Remote's worker or the app).
+    NoHost,
+    /// The hub turned this device's sharing off; its answer.
+    Off(Value),
+    /// This machine is joined but its switch could not be turned off: one line saying why and
+    /// what to do.
+    Failed(String),
+}
+
+/// `cmux remote-host share off` on a joined machine (cmuxterm-hq
+/// docs/design/remote-screen-share-zero-touch.md, Z4: the join turns sharing on, and the switch
+/// stays the off switch on that Mac and in `cmux remote-host share off`). The daemon's share host
+/// serves the shares with the app closed, so the off switch must reach the same device: `PUT
+/// /v1/devices/:id/mac-screen {"shared": false}` with the machine credential, no app needed. A
+/// machine with no share host here answers [`OffHere::NoHost`]. Blocking.
+pub fn share_off_here() -> OffHere {
+    #[cfg(unix)]
+    {
+        let home = crate::config::home();
+        off_outcome(
+            cfg!(target_os = "linux"),
+            super::joined().map(|_| ()),
+            || super::machine_hub(&home, false),
+            |hub| hub.set_shared(false).map_err(|e| e.to_string()),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        OffHere::NoHost
+    }
+}
+
+/// [`share_off_here`]'s decision, with the join, the hub and the hub call passed in.
+#[cfg(unix)]
+pub(crate) fn off_outcome<H>(
+    linux: bool,
+    joined: Result<(), super::NotRunning>,
+    hub: impl FnOnce() -> Result<H, super::NotRunning>,
+    turn_off: impl FnOnce(&H) -> Result<Value, String>,
+) -> OffHere {
+    if joined.is_err() {
+        return OffHere::NoHost;
+    }
+    if linux {
+        // cmux-rd holds a joined Linux machine's device (`share_host/linux.rs`), not this daemon.
+        return OffHere::Failed(
+            "this Linux machine's switch is cmux-rd's; run here: cmux-rd linux-host share off"
+                .into(),
+        );
+    }
+    let hub = match hub() {
+        Ok(hub) => hub,
+        // The daemon has not registered this Mac's device yet: nothing it serves to turn off.
+        Err(why) if why.code == "not_registered" => return OffHere::NoHost,
+        Err(why) => {
+            return OffHere::Failed(format!(
+                "could not read this Mac's share-host device ({why}); turn Allow Mac Screen off in cmux on this Mac"
+            ));
+        }
+    };
+    match turn_off(&hub) {
+        Ok(answer) => OffHere::Off(answer),
+        Err(e) => OffHere::Failed(format!(
+            "the device hub did not turn sharing off ({e}); check this Mac's network and run it again, or turn Allow Mac Screen off in cmux on this Mac"
+        )),
+    }
+}
+
 #[cfg(unix)]
 async fn session() -> Result<()> {
     tokio::task::spawn_blocking(super::session::run).await?

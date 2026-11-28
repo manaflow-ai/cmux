@@ -10,7 +10,7 @@ person's own app is never asked anything). Everything goes through the copy's ow
 `cmux ext shot --json`, `cmux settings set`, and the daemon ops through `cmux-tui raw command` (the same binary
 under the name that has the `raw` scope; a direct socket line when that name refuses). The Mac app's control
 socket is used only for what the CLI has no verb for (an action run, `apps.views`, `snapshot.get`), found by
-the copy's pid. No clicks.
+the copy's pid. Default rows do not click; the opt-in agent_prompts row uses Computer Use.
 
 A row is one function `row_<name>(ctx) -> dict` in ROWS. It installs or scaffolds a sample (an extension's
 manifest written to the copy's own customize folder installs it with no consent card: the customize app is
@@ -23,16 +23,19 @@ Prints `EXT_ROWS_NIGHTLY {json}` (the receipt) and writes OUT/receipt.json. Exit
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
 import pwd
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +58,7 @@ def load(name: str, path: Path):
 # call with its JSON answer, the scene in an `ext shot --json` answer.
 reload_nightly = load("ext_reload_nightly", ROOT / "scripts/measure/ext-reload-nightly.py")
 cli_json, scene_of, control_socket = reload_nightly.cli_json, reload_nightly.scene_of, reload_nightly.control_socket
+capture_marker = load("ext_rows_capture", ROOT / "scripts/measure/ext-rows-capture.py").capture_marker
 
 
 @dataclass
@@ -68,6 +72,7 @@ class Ctx:
     raw_cli: Path | None = None
     version_seq: int = 0
     mcp_config: Path | None = None
+    cu_host: str | None = None
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
@@ -303,8 +308,8 @@ def row_composer(ctx: Ctx) -> dict:
             "composer_list_ok": listed.get("ok"), "mentions_ok": mentions.get("ok")}
 
 
-def row_chat_widget(ctx: Ctx) -> dict:
-    """Chat-widget routing (#43030, the daemon op only; the transcript does not draw it yet): a tool call whose
+def row_chat_widget_routes(ctx: Ctx) -> dict:
+    """Chat-widget routing (#43030): a tool call whose
     name matches a `cmux.chat.widget/1` app routes to it (`apps.chat_widgets.route`); another does not."""
     install = install_customize(ctx, {
         "name": "Rows chat widget", "description": "A card for rowsprobe tools.", "runtime": {"main": "main.js"},
@@ -326,27 +331,58 @@ def row_chat_widget(ctx: Ctx) -> dict:
             "install": install, "route_tool": tool, "route_other": other, "route_app": by_app}
 
 
+def row_chat_widget(ctx: Ctx) -> dict:
+    """Require both routing and a completed tool's widget drawn in the NIGHTLY copy."""
+    routing = row_chat_widget_routes(ctx)
+    fixture = load("ext_rows_chat_widget", ROOT / "scripts/measure/ext-rows-chat-widget.py")
+    drawing = fixture.row_chat_widget_drawn(ctx, sys.modules[__name__])
+    return {"checks": {**{f"route_{key}": value for key, value in routing["checks"].items()},
+                       **drawing["checks"], "drawing_checks_present": bool(drawing["checks"])},
+            "routing": routing, "drawing": drawing}
+
+
+row_chat_widget.needs_app = True
+
+
 def row_newtab(ctx: Ctx) -> dict:
     """The New Tab page (#42998): with `tabs.newTabApp` naming a `cmux.newtab/1` app (`cmux settings set`), a
     new tab mounts it: the window's `apps.views` holds a cmux.newtab/1 view with its words, and the render
-    export ran (`apps-logs`)."""
+    export ran (`apps-logs`). A saved change to its script then shows in that open page, with no new tab and
+    no relaunch (`save_changed_page`)."""
     word = f"{ctx.token} new tab"
     install = install_customize(ctx, {
         "name": "Rows new tab", "description": "A New Tab page.", "runtime": {"main": "main.js"},
         "implements": {"cmux.newtab/1": {"export": "renderNewTab", "title": "Rows new tab", "symbol": "house"}}},
-        {"main.js": ("function renderNewTab() {\n"
-                     f"  console.log({json.dumps(word)} + ' rendered')\n"
-                     f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
-                     "globalThis.__cmuxAppExports = { renderNewTab }\n")})
+        {"main.js": newtab_script(word)})
     setting = ctx.ext(["settings", "set", "tabs.newTabApp", CUSTOMIZE_APP], timeout=30)
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
     shown = wait_for(lambda: [v for v in views(ctx, "cmux.newtab/1")
                               if any(word in t for t in v.get("texts") or [])], wait=20)
     logged = logs_with(ctx, word, wait=5)
+    # The hot-reload half: one saved change to the page's script, and the New Tab page already open shows it,
+    # with no new tab opened and the copy the same process (no relaunch).
+    saved_word, pid_before = f"{ctx.token} saved tab", app_pid(ctx)
+    resave = install_customize(ctx, {
+        "name": "Rows new tab", "description": "A New Tab page.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.newtab/1": {"export": "renderNewTab", "title": "Rows new tab", "symbol": "house"}}},
+        {"main.js": newtab_script(saved_word)})
+    changed = wait_for(lambda: [v for v in views(ctx, "cmux.newtab/1")
+                                if any(saved_word in t for t in v.get("texts") or [])], wait=20)
+    same_copy = app_pid(ctx) == pid_before
     return {"checks": {"installed": install["installed"], "setting_set": setting.get("exit") == 0,
-                       "new_tab_shows_page": bool(shown) or bool(logged)},
+                       "new_tab_shows_page": bool(shown) or bool(logged),
+                       "save_changed_page": bool(shown) and resave["installed"] and bool(changed) and same_copy},
             "install": install, "settings_set": setting, "open": opened,
-            "views": shown or views(ctx), "log_lines": logged}
+            "views": shown or views(ctx), "log_lines": logged,
+            "save_change": {"install": resave, "word": saved_word, "views": changed, "same_copy": same_copy,
+                            "pid": pid_before}}
+
+
+def newtab_script(word: str) -> str:
+    return ("function renderNewTab() {\n"
+            f"  console.log({json.dumps(word)} + ' rendered')\n"
+            f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
+            "globalThis.__cmuxAppExports = { renderNewTab }\n")
 
 
 row_newtab.needs_app = True
@@ -388,8 +424,11 @@ row_sidebar_list.needs_app = True
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
-    html = (f"<!doctype html><html><head><title>{ctx.token} web pane</title></head>"
-            f"<body><h1>{ctx.token} web pane</h1></body></html>\n")
+    # Only page content contains this marker: a tab title or install log cannot
+    # satisfy the drawing check when the page itself is blank or fails to load.
+    marker = f"WEB PANE {ctx.token}"
+    html = ("<!doctype html><html><head><title>Rows web pane</title></head>"
+            f"<body><h1>{marker}</h1></body></html>\n")
     install = install_customize(ctx, {
         "name": "Rows web pane", "description": "A web pane.", "runtime": {"web": {"root": "web"}},
         "implements": {"cmux.pane/1": {"web": "web/index.html", "title": "Rows web pane", "symbol": "globe"}},
@@ -400,14 +439,14 @@ def row_web_pane(ctx: Ctx) -> dict:
     tab = f"app:{CUSTOMIZE_APP}"
     snapshot = wait_for(lambda: (s := ctx.rpc("snapshot.get", {}, timeout=15)) and tab in json.dumps(s) and s,
                         wait=15)
+    drawn = capture_marker(ctx, "web-pane", marker) if snapshot else {"drawn": False}
     return {"checks": {"installed": install["installed"],
                        "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
                                               if isinstance(p, dict)),
                        "open_answered": isinstance(opened, dict) and "error" not in opened,
-                       "page_tab_open": bool(snapshot)},
+                       "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
             "install": install, "web_pages": pages, "open": opened,
-            "page_tab": find_tab(snapshot, tab) if snapshot else None,
-            "note": "the page's own load is not observable from outside the app in a release build"}
+            "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
 
 
 row_web_pane.needs_app = True
@@ -457,23 +496,117 @@ def row_ext_new(ctx: Ctx) -> dict:
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
             **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
         keep_in_work(ctx, folder)
-    return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
-            "kinds": kinds, "per_kind": per_kind}
+    checks = {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)}
+    out = {"kinds": kinds, "per_kind": per_kind}
+    # The hot-reload half: one saved change to a scaffold, and the next `ext shot` scene shows it while the
+    # same copy runs. A headless daemon draws no scene, so with no Mac app the check is skipped, not passed.
+    kind = "section" if "section" in per_kind else next((k for k in per_kind if k != "command"), None)
+    if not ctx.control:
+        out["skipped_checks"] = {"save_changed_shot": "needs the Mac app: a headless daemon draws no scene"}
+    elif kind:
+        saved = save_change_shot(ctx, scaffold_folder_path(ctx, f"new-{kind}"), kind)
+        checks["save_changed_shot"] = saved["changed"]
+        out["save_change"] = saved
+    return {"checks": checks, **out}
+
+
+def scaffold_folder_path(ctx: Ctx, name: str) -> Path:
+    """Where `scaffold_folder(ctx, name)` put a scaffold (not emptied)."""
+    return ctx.fresh / name
+
+
+def app_pid(ctx: Ctx) -> str | None:
+    """The side copy's pid from its pid file (none with --cli): the same pid after a save means no relaunch."""
+    try:
+        return ctx.pid_file.read_text().strip() if ctx.pid_file else None
+    except OSError:
+        return None
+
+
+def save_change_shot(ctx: Ctx, folder: Path, kind: str) -> dict:
+    """`ext shot` of a scaffold, one saved edit (its first `title: "..."` words, in src/main.ts and the built
+    dist/main.js alike, so the packer's rebuild and the committed build agree), then `ext shot` again. Changed
+    when the second scene holds the new words, differs from the first, and the copy is the same process (its
+    pid file and control socket unchanged): no relaunch."""
+    word = f"Saved {ctx.token}"
+    pid_before, control_before = app_pid(ctx), ctx.control
+    first = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"save-{kind}-before.png")])
+    built = folder / "dist/main.js"
+    found = re.search(r'title: "([^"{}$]+)"', built.read_text()) if built.is_file() else None
+    edited = []
+    if found:
+        for rel in ("src/main.ts", "dist/main.js"):
+            path = folder / rel
+            if path.is_file() and found.group(1) in (text := path.read_text()):
+                path.write_text(text.replace(found.group(1), word, 1))
+                edited.append(rel)
+    second = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"save-{kind}-after.png")])
+    before, after = scene_of(first) or [], scene_of(second) or []
+    same_copy = app_pid(ctx) == pid_before and ctx.control == control_before
+    return {"changed": bool(edited) and bool(after) and after != before and word in json.dumps(after)
+            and same_copy,
+            "kind": kind, "replaced": found.group(1) if found else None, "with": word, "edited": edited,
+            "same_copy": same_copy, "pid": pid_before, "shot_exits": [first.get("exit"), second.get("exit")],
+            "scene_before": before[:20], "scene_after": after[:20]}
 
 SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
 
 
+def daemon_pids(daemon_socket: str) -> list[int]:
+    """The pids holding the daemon's socket open (`lsof`), the daemon's own."""
+    try:
+        out = subprocess.run(["lsof", "-t", "--", daemon_socket], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return sorted({int(p) for p in out.split() if p.strip().isdigit()} - {os.getpid()})
+
+
 def side_relaunch(ctx: Ctx, between=None) -> dict:
     """Stops the side copy (the app, its daemon and helpers), runs `between()` while nothing of it runs, launches
-    it again and attaches ctx to the new control and daemon sockets."""
+    it again and attaches ctx to the new control and daemon sockets. The daemon reads its state once, so a
+    daemon that outlives the stop keeps what it read: a9a8865c's `side-instance.sh stop` exited 1 and the
+    relaunched copy listed the old empty widget layout. A stop that fails is run again, a daemon of this copy
+    still on its socket after that is ended (TERM, then KILL), and the answer says whether the daemon after the
+    launch is a new process."""
     name, side_root = ctx.pid_file.parent.name, ctx.pid_file.parent.parent
     env = os.environ | {"CMUX_SIDE_ROOT": str(side_root)}
-    stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+    before = daemon_pids(ctx.daemon) if ctx.daemon else []
+    stops = []
+    for _ in range(2):
+        stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+        stops.append({"exit": stop.returncode, "out": (stop.stdout + stop.stderr)[-400:]})
+        if stop.returncode == 0:
+            break
+    survivors = [pid for pid in before if pid_alive(pid)]
+    for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
+        for pid in survivors:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        deadline = time.time() + wait
+        while time.time() < deadline and any(pid_alive(pid) for pid in survivors):
+            time.sleep(0.2)
+        survivors = [pid for pid in survivors if pid_alive(pid)]
+        if not survivors:
+            break
     done = between() if between else None
     launch = subprocess.run([str(SIDE), "launch", name], capture_output=True, text=True, env=env, timeout=180)
     ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file, ctx.control)
-    return {"stop": stop.returncode, "between": done, "launch": launch.returncode,
-            "launch_err": launch.stderr[-400:]}
+    after = daemon_pids(ctx.daemon) if ctx.daemon else []
+    return {"stop": stops[-1]["exit"], "stops": stops, "daemon_before": before, "daemon_after": after,
+            "daemon_survived": survivors, "daemon_restarted": bool(after) and not set(after) & set(before),
+            "between": done, "launch": launch.returncode, "launch_err": launch.stderr[-400:]}
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def support_roots() -> list[Path]:
@@ -697,6 +830,8 @@ def row_newtab_widget(ctx: Ctx) -> dict:
     relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder (open_state_dirs, "
                                                                   "socket_session_dirs, apps_state_dirs)"}
     placed = store_op(ctx, "apps.widgets.list", {"place": "newtab"})
+    on_disk = {str(d): (d / "apps-widgets-layout.json").read_text()[:400]
+               if (d / "apps-widgets-layout.json").is_file() else None for d in dirs}
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
     drawn = logs_with(ctx, f"{word} newtab {NEWTAB_TILE}", wait=30)
     return {"checks": {"scaffolded": made.get("exit") == 0, "built": True, "installed": install["installed"],
@@ -707,6 +842,7 @@ def row_newtab_widget(ctx: Ctx) -> dict:
                        "newtab_draws_it": bool(drawn)},
             "new": {k: made.get(k) for k in ("exit", "json")}, "shot_exit": shot.get("exit"), "main": main_rel,
             "export": export, "install": install, "dirs": [str(d) for d in dirs], "relaunch": relaunch,
+            "layout_on_disk": on_disk,
             "placed": placed, "open": opened, "log_lines": drawn, "any_render": logs_with(ctx, word, wait=2)}
 
 
@@ -958,12 +1094,13 @@ def row_settings(ctx: Ctx) -> dict:
 
 
 def row_git_install(ctx: Ctx) -> dict:
-    """Installs from a source (#42068 `cmux ext add SOURCE`, #44897 git references), with no network: a local
+    """Installs from a source (#42068 `cmux ext add SOURCE`, #44897 git references). With no network: a local
     folder (an `ext new` scaffold, itself a git repo) loads through `ext add` in the copy's daemon without
     installing, and only https repository references are taken. `ext add file://...` is refused, as are
     `catalog.get` (the consent card's fetch) of a `file://` URL, an `http://` URL ("only https repositories
-    install") and an https URL on a host that is not a public name; none of them fetches. A pinned https
-    install and `apps.update`'s `apps.update.needs_consent` need the network and a fetched app: not here."""
+    install") and an https URL on a host that is not a public name; none of them fetches. One pinned https
+    github.com link is fetched, loaded and listed (`github_url_installed`, the network). `apps.update`'s
+    `apps.update.needs_consent` needs an installed fetched app: not here."""
     folder = scaffold_folder(ctx, "git-src")
     made = ctx.ext(["ext", "new", f"rows-git{ctx.token[-4:]}", "--kind", "section", "--dir", str(folder),
                     "--json"], timeout=60)
@@ -981,7 +1118,9 @@ def row_git_install(ctx: Ctx) -> dict:
         return reply.get("ok") is not True and text in json.dumps(reply.get("error"))
 
     keep_in_work(ctx, folder)
-    return {"checks": {"scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
+    github = github_install(ctx)
+    return {"checks": {"github_url_installed": github["installed"],
+                       "scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
                        "folder_added": added.get("exit") == 0 and answer.get("ok") is not False
                        and bool(answer.get("app")),
                        "file_url_add_refused": by_file.get("exit") not in (0, None),
@@ -989,7 +1128,31 @@ def row_git_install(ctx: Ctx) -> dict:
                        "http_refused_https_only": said(stages["http"], "only https"),
                        "private_host_refused": said(stages["private_host"], "public host")},
             "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "add": added, "add_file_url": by_file,
-            "catalog_get": stages}
+            "catalog_get": stages, "github": github}
+
+
+# A public manaflow-ai example repository (its built script committed, so it loads with no build), pinned.
+GITHUB_PINNED_COMMIT = "045033d72611844e7d5fc421140cea4be4cf7a50"
+
+
+def github_install(ctx: Ctx) -> dict:
+    """`cmux ext add https://github.com/OWNER/REPO/tree/COMMIT` (the network): the daemon fetches that commit
+    and loads it, and `ext list --json` lists it with that link as where it came from. `--no-install` leaves
+    out the consent card, which only the person answers; the extension is loaded and listed either way.
+    Removed again after (`ext remove`)."""
+    link = f"https://github.com/manaflow-ai/focus-timer/tree/{GITHUB_PINNED_COMMIT}"
+    added = ctx.ext(["ext", "add", link, "--json", "--no-install"], timeout=180)
+    answer = added.get("json") if isinstance(added.get("json"), dict) else {}
+    listed = ctx.ext(["ext", "list", "--json"], timeout=60)
+    rows = [r for r in ((listed.get("json") or {}).get("extensions") or []) if isinstance(r, dict)]
+    row = next((r for r in rows if GITHUB_PINNED_COMMIT in json.dumps(r.get("from"))), None)
+    app = (row or {}).get("app") or answer.get("app")
+    removed = ctx.ext(["ext", "remove", app], timeout=60) if isinstance(app, str) and app.startswith("local/") \
+        else None
+    loaded = added.get("exit") == 0 and answer.get("ok") is True \
+        and (answer.get("from") or {}).get("commit") == GITHUB_PINNED_COMMIT
+    return {"installed": loaded and bool(row), "loaded": loaded, "listed": row, "link": link, "add": added,
+            "list_exit": listed.get("exit"), "removed": removed and removed.get("exit")}
 
 
 def row_toolbar(ctx: Ctx) -> dict:
@@ -1301,11 +1464,146 @@ def row_typed_sdk(ctx: Ctx) -> dict:
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget and newtab_widget relaunch the copy, so they
 # run last.
+def row_agent_prompts(ctx: Ctx) -> dict:
+    """The documented palette and /review examples, selected in the published app's GUI."""
+    probe = load("ext_rows_agent_prompts", ROOT / "scripts/measure/ext-rows-agent-prompts.py")
+    return probe.run(ctx, sys.modules[__name__])
+
+
+SERVER_SAMPLE = ROOT / "samples/apps/hello-python"
+
+
+def server_copy(ctx: Ctx) -> Path:
+    """The Hello Python sample's server.py, serving the customize app (its APP and FAMILY lines retargeted)."""
+    text = (SERVER_SAMPLE / "server.py").read_text()
+    text = text.replace('APP = "manaflow-ai/hello-python"', f"APP = {json.dumps(CUSTOMIZE_APP)}")
+    text = text.replace('FAMILY = "manaflow_ai.hello_python"', 'FAMILY = "local.customize"')
+    path = ctx.work / "servers/server.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def start_server(ctx: Ctx, script: Path, credential: str) -> tuple[subprocess.Popen, str]:
+    """server.py with `credential` in CMUX_APP_CREDENTIAL (never argv), and its first stderr line."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "CMUX_APP_CREDENTIAL": credential}
+    proc = subprocess.Popen([sys.executable, "-I", str(script), "--socket", ctx.daemon], env=env,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    said: list[str] = []
+    reader = threading.Thread(target=lambda: said.append(proc.stderr.readline()), daemon=True)
+    reader.start()
+    reader.join(20)
+    return proc, (said[0].strip() if said else "")
+
+
+def apps_run(ctx: Ctx, op_name: str, args: dict) -> dict:
+    """`cmux-tui apps run local/customize OP --args JSON`, as {exit, json, stderr}."""
+    argv = [str(ctx.raw_cli or ctx.cli), "--socket", ctx.daemon, "apps", "run", CUSTOMIZE_APP, op_name,
+            "--args", json.dumps(args)]
+    try:
+        run = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"exit": None, "json": None, "stderr": str(error)}
+    return {"exit": run.returncode, "json": last_json(run.stdout), "stderr": run.stderr.strip()[-600:]}
+
+
+def stop(proc: subprocess.Popen | None) -> int | None:
+    """A refused server exits by itself (give it a moment); a serving one is stopped."""
+    if proc is None:
+        return None
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(3)
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(5)
+    return proc.returncode
+
+
+def row_servers(ctx: Ctx) -> dict:
+    """Any-language servers (#49223): the Hello Python sample's server (samples/apps/hello-python, `server.kind
+    external`), retargeted to the customize app. With no server connected `apps run` answers at once
+    (`apps.server_unavailable`); a server with no credential or a made-up one is refused
+    (`apps.server_credential`); a CLI connection cannot approve a credential (only the person does, origin
+    user from the verified cmux app). The served leg (approve a credential, start server.py with it, `apps run`
+    answers from Python) needs the person's approval: when this run cannot get one the row is `unproven`
+    (neither passed nor failed), never a pass."""
+    hello, status = "local.customize.hello", "local.customize.status"
+
+    def operation(name: str, docs: str, properties: dict) -> dict:
+        return {"name": name, "owner": f"app:{CUSTOMIZE_APP}", "class": "read", "risk": "read",
+                "idempotency": "forbidden", "focuses": False,
+                "input": {"type": "object", "additionalProperties": False, "properties": properties,
+                          "required": []},
+                "docs": docs, "since": "local.customize/1"}
+
+    catalog = {"family": "local.customize", "owner": f"app:{CUSTOMIZE_APP}", "operations": [
+        operation(hello, "Greets you from the Python server.",
+                  {"name": {"type": "string", "minLength": 1, "maxLength": 100}}),
+        operation(status, "How many ops the Python server answered.", {})]}
+    install = install_customize(ctx, {
+        "name": "Rows server", "description": "An external server in Python.", "catalog": "catalog.json",
+        "server": {"kind": "external", "instances": "user", "hosts": ["local"]},
+        "scopes": {"server:execute": "Answer this app's commands from a Python process you start.",
+                   "local.customize:read": "Run this app's greeting and status commands."}},
+        {"catalog.json": json.dumps(catalog, indent=2)})
+    script = server_copy(ctx)
+    listed = store_op(ctx, "apps.settings.list")
+    servers = (listed.get("data") or {}).get("servers") if isinstance(listed.get("data"), dict) else None
+    entry = next((s for s in servers or [] if s.get("app") == CUSTOMIZE_APP), None)
+    approved_at_install = "server:execute" in ((install.get("record") or {}).get("grants") or [])
+
+    unavailable = apps_run(ctx, hello, {})
+    refused = {}
+    for label, credential in (("none", ""), ("made_up", "cmuxsrv1_madeup")):
+        proc, said = start_server(ctx, script, credential)
+        refused[label] = {"said": said, "exit": stop(proc)}
+    cli_approve = op(ctx, {"cmd": "apps-server-credential", "app": CUSTOMIZE_APP})
+    asked_user = op(ctx, {"cmd": "apps-server-credential", "origin": "user", "app": CUSTOMIZE_APP})
+    credential = ((asked_user.get("data") or {}) if asked_user.get("ok") else {}).get("credential")
+
+    def refused_with(reply: dict, *codes: str) -> bool:
+        return reply.get("ok") is not True and any(c in json.dumps(reply.get("error")) for c in codes)
+
+    not_served = "server_unavailable" in unavailable["stderr"] or "server_unapproved" in unavailable["stderr"]
+    checks = {"installed": install["installed"],
+              "unavailable_without_server": unavailable["exit"] not in (0, None) and not_served,
+              "no_credential_refused": "apps.server_credential" in refused["none"]["said"],
+              "made_up_credential_refused": "apps.server_credential" in refused["made_up"]["said"],
+              "cli_cannot_approve": refused_with(cli_approve, "apps.gesture_required", "origin")}
+    if servers is not None:  # the daemon lists external servers for Settings > Extensions (cmux#63365)
+        checks["listed_in_settings"] = bool(entry) and entry.get("kind") == "external"
+    result = {"install": install, "approved_at_install": approved_at_install, "settings_entry": entry,
+              "settings_lists_servers": servers is not None, "unavailable": unavailable, "refused": refused,
+              "cli_approve": cli_approve, "user_approve": {k: v for k, v in asked_user.items() if k != "data"}}
+    if not credential:
+        result["unproven"] = ("served leg needs the person's approval: server:execute granted "
+                              f"({approved_at_install}) and a credential approved in the cmux app (origin user, "
+                              "Settings > Extensions); this run could not get one")
+        result["checks"] = checks
+        return result
+    proc, said = start_server(ctx, script, credential)
+    try:
+        greeted = apps_run(ctx, hello, {"name": "Leo"})
+        counted = apps_run(ctx, status, {})
+    finally:
+        exit_code = stop(proc)
+    checks |= {"served_with_credential": "serving" in said,
+               "hello_answered": ((greeted["json"] or {}).get("value") or {}).get("text") == "Hello, Leo, from Python",
+               "status_answered": ((counted["json"] or {}).get("value") or {}).get("served") == 2}
+    result |= {"checks": checks, "served": {"said": said, "exit": exit_code}, "hello": greeted, "status": counted}
+    return result
+
+
 ROWS = {
+    "agent_prompts": (row_agent_prompts, "#56371 #60996"),
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
-    "chat_widget": (row_chat_widget, "#43030"),
+    "chat_widget": (row_chat_widget, "#43030 #43040"),
     "background_events": (row_background_events, "#43018 #49223"),
     "status": (row_status, "#47317"),
     "menus": (row_menus, "#43006"),
@@ -1326,6 +1624,7 @@ ROWS = {
     "share": (row_share, "#42068 #52747"),
     "layout_swap": (row_layout_swap, "#43027"),
     "typed_sdk": (row_typed_sdk, "#42797 #52685"),
+    "servers": (row_servers, "#49223 #63365"),
 }
 
 
@@ -1342,6 +1641,8 @@ def run_rows(ctx: Ctx, names: list[str]) -> dict:
         except Exception as error:  # a row's failure is its own; the rest still run
             result = {"checks": {"ran": False}, "error": f"{type(error).__name__}: {error}"}
         result["ok"] = bool(result.get("checks")) and all(result["checks"].values())
+        if result["ok"] and result.get("unproven"):
+            result["ok"] = None  # what it could check held; the row's claim is not proven: never a pass
         rows[name] = {"ok": result.pop("ok"), "prs": prs, "ms": round((time.monotonic() - started) * 1000), **result}
         print(f"EXT_ROWS_NIGHTLY row {name} ok={rows[name]['ok']} {json.dumps(rows[name]['checks'])}", flush=True)
     return rows
@@ -1380,10 +1681,12 @@ def main() -> int:
     parser.add_argument("--daemon-socket")
     parser.add_argument("--bundle", help="with --cli: the NIGHTLY bundle the binary came from, for the receipt")
     parser.add_argument("--control-socket")
+    parser.add_argument("--cu-host", choices=["nightly"], help="preflight the installed fleet NIGHTLY host")
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--rows", default=",".join(ROWS))
+    # Input-driving GUI checks are explicit opt-ins; preserve the default read-only rows.
+    parser.add_argument("--rows", default=",".join(n for n in ROWS if n != "agent_prompts"))
     args = parser.parse_args()
     names = [n for n in args.rows.split(",") if n]
     unknown = [n for n in names if n not in ROWS]
@@ -1407,7 +1710,7 @@ def main() -> int:
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
     receipt |= {"daemon_socket": daemon, "control_socket": control}
     ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control,
-              mcp_config=args.mcp_config,
+              mcp_config=args.mcp_config, cu_host=args.cu_host,
               app=Path(args.app) if args.app else None, pid_file=Path(args.pid_file) if args.pid_file else None)
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
@@ -1420,6 +1723,7 @@ def main() -> int:
     receipt["ok"] = bool(ran) and all(r["ok"] for r in ran)
     receipt["passed"] = sorted(n for n, r in receipt["rows"].items() if r["ok"])
     receipt["failed"] = sorted(n for n, r in receipt["rows"].items() if r["ok"] is False)
+    receipt["unproven"] = sorted(n for n, r in receipt["rows"].items() if r["ok"] is None and r.get("unproven"))
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2))
     print("EXT_ROWS_NIGHTLY " + json.dumps(receipt), flush=True)
     return 0 if receipt["ok"] else 1

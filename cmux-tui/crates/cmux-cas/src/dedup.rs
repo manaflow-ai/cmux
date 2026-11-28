@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::io::Read as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError, mpsc};
 
@@ -42,7 +41,8 @@ pub struct Report {
     pub skipped: u64,
     pub logical: u64,
     /// Disk blocks the files use today, a hardlinked inode counted once.
-    pub allocated: u64,
+    /// `None` (JSON null) where allocation metadata is unavailable; never apparent bytes.
+    pub allocated: Option<u64>,
     pub chunks: u64,
     pub distinct_chunks: u64,
     /// The distinct chunks' bytes: what a chunk store keeps.
@@ -121,6 +121,18 @@ fn add(total: &mut u64, n: u64) {
     *total = total.saturating_add(n);
 }
 
+/// File identity and actual allocation; unsupported platforms must not substitute length.
+#[cfg(unix)]
+fn allocation(meta: &std::fs::Metadata) -> Option<((u64, u64), u64)> {
+    use std::os::unix::fs::MetadataExt as _;
+    Some(((meta.dev(), meta.ino()), meta.blocks().saturating_mul(512)))
+}
+
+#[cfg(not(unix))]
+fn allocation(_meta: &std::fs::Metadata) -> Option<((u64, u64), u64)> {
+    None
+}
+
 fn walk(root: &Path, out: &mut dyn FnMut(PathBuf, std::fs::Metadata)) {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -194,8 +206,11 @@ fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &O
     let size = meta.len();
     add(&mut st.totals.files, 1);
     add(&mut st.totals.logical, size);
-    if st.inodes.insert((meta.dev(), meta.ino()), ()).is_none() {
-        add(&mut st.totals.allocated, meta.blocks().saturating_mul(512));
+    if let Some((identity, allocated)) = allocation(meta)
+        && st.inodes.insert(identity, ()).is_none()
+        && let Some(total) = &mut st.totals.allocated
+    {
+        add(total, allocated);
     }
     if let Entry::Vacant(e) = st.files.entry(whole) {
         e.insert(size);
@@ -256,6 +271,7 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
     let roots = roots.get(..64).unwrap_or(roots);
     let started = std::time::Instant::now();
     let state = Mutex::new(State {
+        totals: Report { allocated: cfg!(unix).then_some(0), ..Report::default() },
         per_root: roots.iter().map(|(l, _)| Root { label: l.clone(), ..Root::default() }).collect(),
         ..State::default()
     });

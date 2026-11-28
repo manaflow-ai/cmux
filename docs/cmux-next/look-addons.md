@@ -70,10 +70,12 @@ or changes what moves, so the transcript still never shifts.
 | `--cmux-motion-large` | 240ms | a sheet, a drawer, the chat switch |
 | `--cmux-motion-settle` | 180ms | a fold or Show more growing or shrinking |
 | `--cmux-motion-send` | 0ms | a sent prompt's room, bubble and the thread's rise |
+| `--cmux-motion-stream` | the host's fade-in (120ms) | a streamed reply's newest words fading in |
 | `--cmux-ease-out` | `cubic-bezier(0, 0, 0.58, 1)` | anything entering |
 | `--cmux-ease-spring` | a `linear()` spring | a selection that travels |
 | `--cmux-ease-settle` | `cubic-bezier(0.16, 1, 0.3, 1)` | a fold settling into its height |
 | `--cmux-ease-send` | `cubic-bezier(0.16, 1, 0.3, 1)` | a sent prompt's motion |
+| `--cmux-ease-stream` | the host's ease-out | the curve those words fade in on |
 
 A duration is 0 to 600ms (`150ms`, `0.15s`) or another motion token (`var(--cmux-motion-large)`). An
 easing is `cubic-bezier(x1, y1, x2, y2)` with x1 and x2 within 0 to 1, `linear`, `linear(...)` or
@@ -85,6 +87,9 @@ another easing token. `!important` is refused. `check:look-addons` holds every l
   --cmux-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 ```
+
+The stream tokens follow `ui.animationSpeed` while unset. A look's value is its own, and the chat's
+minimal motion under load still takes it to 0, so a slow fade never trails a fast stream.
 
 The person's settings still win. With animations off (`ui.animations.*`) or Reduce Motion, cmux puts
 its own values back on the root, above a look's `:root`, and the chat's off and reduced rules apply as

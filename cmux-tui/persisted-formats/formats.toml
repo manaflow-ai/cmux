@@ -61,6 +61,16 @@ name = "acpmux/plan#STATE_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-manifest"
+about = "a chat's snapshot manifest in the Cloud: what the next holder (maybe a newer build) needs besides the events"
+policy = "migrate"
+floor = 1
+fixtures = "auto-session-manifest"
+test = "cmux_next_persisted_auto_session_manifest"
+
+[[format]]
 file = "crates/cmux-chat-index/src/index.rs"
 const = "CACHE_VERSION"
 name = "chat-index-cache"
@@ -245,11 +255,3 @@ file = "crates/cmux-tui/src/provider_notice_identity.rs"
 const = "STATE_VERSION"
 name = "cmux-tui/provider_notice_identity#STATE_VERSION"
 policy = "unreviewed"
-
-[[format]]
-file = "crates/cmux-auto-session/src/consts.rs"
-const = "MANIFEST_VERSION"
-name = "auto-session-snapshot-manifest"
-about = "an Auto move's snapshot manifest (the chat's chunk lists), uploaded to the store for the receiving machine"
-policy = "rebuild"
-why = "the sender builds it fresh from the live chat on every move; a manifest of another version is refused (chunks.rs validate) and the chat stays on its machine until the next move sends a new one"

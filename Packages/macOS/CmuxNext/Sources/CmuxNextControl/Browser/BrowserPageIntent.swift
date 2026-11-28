@@ -35,3 +35,20 @@ public enum BrowserPageIntent: Sendable, Hashable {
         return .reads
     }
 }
+
+/// The agent session a browser call runs for, as the engine sees it while the call runs (``agentSession``): the
+/// visits an agent's page loads record it (RFD 0125 D5: "an agent and its session"), so `cmux://history` and a
+/// session's web trail (D11) can name which agent went where.
+extension BrowserPageIntent {
+    /// The `caller.agent_session` of the browser call running in this task, else the agent session of the chat
+    /// the caller's terminal shows; nil outside one, or for a caller with no session (a script, a Chief turn).
+    @TaskLocal public static var agentSession: String?
+
+    /// `call`'s agent session.
+    static func agentSession(of call: ControlCall) -> String? {
+        guard let caller = try? ControlCaller(call.request.params) else { return nil }
+        if let session = caller.agentSession { return session }
+        guard caller.terminalID != nil, let location = ControlCallerLocation.resolve(caller, in: call.snapshot.topology) else { return nil }
+        return location.tab.agentSessionID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+}

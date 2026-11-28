@@ -437,6 +437,104 @@ fn format_mark(c: char) -> bool {
     )
 }
 
+/// Where a prompt acpmux accepted for a chat waits, when its queue still holds it
+/// (`_acpmux/queue_get` found it), from the chat's `_acpmux/info`: `{state: "queued",
+/// waits_for, reason, queued}`, with the agent still starting, a turn running, or a failed turn's
+/// hold that waits for a resume. None when it is not in the queue: it went in.
+pub(super) fn waiting_in_chat(info: &Value, in_queue: bool) -> Option<Map<String, Value>> {
+    if !in_queue {
+        return None;
+    }
+    let flag = |key: &str| info.get(key).and_then(Value::as_bool) == Some(true);
+    let (waits_for, reason) = if flag("queuePaused") {
+        (
+            "resume",
+            "the chat's last turn failed, so its queue is paused: the message waits there until \
+             the chat is resumed (Resume in the cmux app)",
+        )
+    } else if flag("starting") {
+        (
+            "agent_start",
+            "the chat's agent is still starting: the message waits in its queue and goes in \
+             once the agent is ready",
+        )
+    } else if info.get("turn").is_some_and(|turn| !turn.is_null()) {
+        (
+            "turn_end",
+            "the chat is running a turn: the message waits in its queue and goes in when that \
+             turn ends",
+        )
+    } else {
+        ("queue", "the message waits in the chat's queue behind earlier prompts")
+    };
+    let mut out = Map::new();
+    out.insert("state".into(), json!("queued"));
+    out.insert("waits_for".into(), json!(waits_for));
+    out.insert("reason".into(), json!(reason));
+    if let Some(queued) = info.get("queued").and_then(Value::as_u64) {
+        out.insert("queued".into(), json!(queued));
+    }
+    Some(out)
+}
+
+/// The most bytes of a failed turn's reason a transcript item carries.
+const TURN_ERROR_MAX: usize = 4096;
+
+/// What acpmux's `turn_result` for a failed turn says of why (`hub/turns.rs` `finish_turn`):
+/// `error` (its text: `errorText`, `error`, or an error object's `message`, the dead agent's
+/// stderr tail included), and the code, kind, recovery, detail and source beside it, each masked.
+/// Empty for a turn that did not fail and said nothing.
+pub(super) fn turn_failure(msg: &Value) -> Map<String, Value> {
+    let mut out = Map::new();
+    let text = |value: &Value| -> Option<String> {
+        match value {
+            Value::String(text) => Some(text.trim().to_owned()),
+            Value::Object(object) => object
+                .get("message")
+                .or_else(|| object.get("text"))
+                .and_then(Value::as_str)
+                .map(|text| text.trim().to_owned()),
+            _ => None,
+        }
+        .filter(|text| !text.is_empty())
+    };
+    let error = ["errorText", "error"].into_iter().find_map(|key| msg.get(key).and_then(text));
+    if let Some(error) = error {
+        let mut error = acpmux::secret_scan::mask(&error);
+        if error.len() > TURN_ERROR_MAX {
+            let mut cut = TURN_ERROR_MAX;
+            while !error.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            error.truncate(cut);
+            error.push('…');
+        }
+        out.insert("error".into(), json!(error));
+    }
+    for (from, to) in [
+        ("errorCode", "error_code"),
+        ("code", "code"),
+        ("errorKind", "error_kind"),
+        ("errorSource", "error_source"),
+        ("recovery", "recovery"),
+        ("detail", "detail"),
+    ] {
+        match msg.get(from) {
+            Some(Value::String(value)) if !value.is_empty() => {
+                out.insert(to.into(), json!(acpmux::secret_scan::mask(value)));
+            }
+            Some(value @ (Value::Number(_) | Value::Bool(_))) => {
+                out.insert(to.into(), value.clone());
+            }
+            _ => {}
+        }
+    }
+    if let Some(stalled) = msg.get("stalledMs").and_then(Value::as_u64) {
+        out.insert("stalled_ms".into(), json!(stalled));
+    }
+    out
+}
+
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
 /// interrupts itself.
 pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
@@ -461,6 +559,7 @@ fn send(
 ) -> Result<Value, CallFailure> {
     let found = scoped_chat(global, target)?;
     refuse_own_chat(&found.id, target)?;
+    let socket = found.socket().map(Path::to_path_buf);
     let chat = found.id;
     let key = match idempotency_key {
         Some(key) => key.to_owned(),
@@ -522,6 +621,21 @@ fn send(
     // and the tool report it as an error (`delivery_failed`).
     if sent.failed {
         result.set("state", json!("failed"));
+    }
+    // acpmux took it, but took is not in: a chat still starting its agent, running a turn or
+    // holding its queue after a failed turn keeps it in its queue, out of the transcript. The
+    // receipt says where it waits and why, never a bare `delivered` (a mid-start send on
+    // a Mac, 2026-11-25, said delivered and never showed).
+    if result["state"] == "delivered"
+        && let Some(prompt_id) = sent.message["id"].as_str()
+        && let Ok(in_queue) = acp::in_queue(&chat, prompt_id, socket.as_deref())
+        && in_queue
+        && let Ok((_, info)) = acp::lookup(&chat, socket.as_deref())
+        && let Some(waiting) = waiting_in_chat(&info, in_queue)
+    {
+        for (key, value) in waiting {
+            result.set(&key, value);
+        }
     }
     if !sent.problems.is_empty() {
         result.set("problems", json!(sent.problems));
@@ -775,6 +889,9 @@ impl Transcript {
                     let status = msg["status"].as_str().unwrap_or("completed");
                     let mut extra = Map::new();
                     extra.insert("status".into(), json!(status));
+                    // Why a turn failed travels with its end, masked: `chat send --wait`'s
+                    // `chat.turn_failed` and every reader of the item say it.
+                    extra.extend(turn_failure(msg));
                     self.push(seq, "turn_end", String::new(), extra);
                 }
                 _ => {}
@@ -1004,6 +1121,35 @@ pub(in crate::cli) mod acp {
                 work(client).await
             })
             .map_err(|error| format!("{error:#}"))
+    }
+
+    /// Whether `session`'s queue still holds prompt `prompt_id` (`_acpmux/queue_get` finds it);
+    /// false once it went in or left. An acpmux that cannot say answers an error.
+    pub(in crate::cli) fn in_queue(
+        session: &str,
+        prompt_id: &str,
+        socket: Option<&Path>,
+    ) -> Result<bool, String> {
+        read_on(socket, async |client| {
+            match client
+                .request(
+                    acpmux::rpc::method::MUX_QUEUE_GET,
+                    json!({"sessionId": session, "promptId": prompt_id}),
+                )
+                .await
+            {
+                Ok(found) => Ok(found.get("promptId").is_some_and(|id| id == prompt_id)),
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    // Not queued: it ran, or never was (`hub/queue_approve.rs` `not_waiting`).
+                    if error.contains("queue.not_found") || error.contains("no prompt waits") {
+                        Ok(false)
+                    } else {
+                        Err(anyhow::anyhow!(error))
+                    }
+                }
+            }
+        })
     }
 
     /// The id and `_acpmux/info` of the session `key` names.

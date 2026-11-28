@@ -125,9 +125,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
-        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(ACPMUX_JOIN))
-        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(ACPMUX_JOIN))
+        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)
@@ -167,7 +167,13 @@ class WorkflowStructureTests(unittest.TestCase):
                 status = 1 if script == failing else 0
                 stub.write_text(f'#!/bin/bash\necho "{script} $*" >> "$RUNNER_TEMP/calls"\nexit {status}\n')
                 stub.chmod(0o755)
-            env = {**os.environ, "RUNNER_TEMP": str(work / "temp")}
+            # The step seeds its job's CEF cache from the host root cef-cache-root.sh prints, then hands the
+            # job root on through GITHUB_ENV: the real script, an empty home and no fleet cache.
+            root_script = work / "scripts/cmux-next/cef-cache-root.sh"
+            root_script.write_bytes((ROOT / "scripts/cmux-next/cef-cache-root.sh").read_bytes())
+            root_script.chmod(0o755)
+            env = {**os.environ, "RUNNER_TEMP": str(work / "temp"), "GITHUB_ENV": str(work / "github_env"),
+                   "HOME": str(work / "home"), "CMUX_CEF_FLEET_CACHE_PARENT": str(work / "no-fleet-cache")}
             (work / "temp").mkdir()
             started = subprocess.run(["bash", "-e", "-c", self.step(CEF)["run"]], cwd=work, env=env,
                                      capture_output=True, text=True)

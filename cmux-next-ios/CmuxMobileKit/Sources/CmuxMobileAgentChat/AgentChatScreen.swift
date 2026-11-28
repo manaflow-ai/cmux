@@ -131,6 +131,8 @@ public final class AgentChatSurface {
     /// here; nil when it ran (or opened its screen), else the refusal to show (the draft stays).
     func run(_ command: CmuxSlashCommand, args: String, store: AgentChatStore) async -> String? {
         let canFork = tabActions != nil
+        // A terminal's Chat face: its session runs in the terminal, which neither forks nor hands off from here.
+        if store.terminalRoute != nil, command != .status { return AgentChatStore.terminalCommandNotice }
         switch command {
         case .status:
             showStatus = true
@@ -892,6 +894,7 @@ public struct AgentChatBottomStack: View {
                     .padding(16)
                     .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
+                    .chatReadyMarkOnShow()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
@@ -903,6 +906,7 @@ public struct AgentChatBottomStack: View {
                     .padding(12)
                     .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
+                    .chatReadyMarkOnShow()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
                     let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
@@ -911,7 +915,10 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
+                                 // A terminal's Chat face forks and hands off nothing: its session runs in the terminal.
+                                 cmuxCommands: CmuxSlashCommand.allCases.filter {
+                                     store.terminalRoute == nil ? ($0 != .fork || surface.tabActions != nil) : $0 == .status
+                                 },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
                                  },
@@ -935,6 +942,8 @@ public struct AgentChatBottomStack: View {
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
                         .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
                         .releasesNewChatEntrance($composerSettled) { [store] in store.newChatEntrance.composer = true }
+                        // Collapsed or open: the capsule a chat with turns opens on builds no text field.
+                        .chatReadyMarkOnShow()
                         .transition(.opacity)
                 }
             }

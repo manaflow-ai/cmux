@@ -167,7 +167,9 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("for attempt");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("sleep 5");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
+    // The fallback is bounded by a stall (30 s with no bytes), not by a total a slow link overruns (roll 45961450781).
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 300s apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("timeout 60s");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
     expect(payload).toBeDefined();
@@ -217,6 +219,39 @@ describe("cmux VM image apt index", () => {
     await expect(bake.fetchAptBatch(never, vm, "apt-ubuntu-download-3-of-5", "fetch")).rejects.toThrow("step apt-ubuntu-download-3-of-5-try-3 failed");
     expect(never.calls).toHaveLength(bake.APT_FETCH_ATTEMPTS);
     expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
+  });
+
+  // Image roll 46099659860 (2026-11-28): the npm prefill (13-16 s on a usual bake) hit status 124 at 293 s on a slow
+  // builder and failed the roll. It now runs again, and a run again keeps the tarballs the cache already verified.
+  test("the npm prefill that fails is run again, keeping its cache, up to NPM_PREFILL_ATTEMPTS times", async () => {
+    const vm = {} as Parameters<typeof bake.prefillNpmCache>[1];
+    const fakeLog = (failures: number) => {
+      const calls: Array<{ label: string; command: string; timeoutMs?: number }> = [];
+      const lines: string[] = [];
+      return {
+        calls,
+        lines,
+        log: (line: string) => void lines.push(line),
+        step: async (_vm: unknown, label: string, command: string, timeoutMs?: number) => {
+          calls.push({ label, command, timeoutMs });
+          if (calls.length <= failures) throw new Error(`step ${label} failed`);
+          return "npm-cache-mb 171";
+        },
+      };
+    };
+    const once = fakeLog(1);
+    await bake.prefillNpmCache(once, vm);
+    expect(once.calls.map((c) => c.label)).toEqual(["npm-cache-prefill", "npm-cache-prefill-try-2"]);
+    expect(once.calls[0].command).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
+    expect(once.calls[1].command).toContain("rm -rf /tmp/cmux-npm-prefill && ");
+    expect(once.calls[1].command).not.toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
+    expect(once.calls[1].command).toContain("-gt 300");
+    expect(once.calls.every((c) => c.timeoutMs === 290_000)).toBe(true);
+    expect(once.lines.join("\n")).toContain("npm-cache-prefill failed (try 1 of 3)");
+
+    const never = fakeLog(99);
+    await expect(bake.prefillNpmCache(never, vm)).rejects.toThrow("step npm-cache-prefill-try-3 failed");
+    expect(never.calls).toHaveLength(3);
   });
 
   // Image rolls 45109809346 and 45113664312 (2026-11-23): GitHub release downloads ran at about 100 KB/s, and
@@ -510,7 +545,7 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
-    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
@@ -540,6 +575,34 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).toContain('[ ! -s "$health" ]');
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
+  });
+
+  test("acpmux-login-env warms the login shell, retries the restart, and names the daemon's log on failure (roll 46173290720)", async () => {
+    const cmd = bake.acpmuxLoginEnvRefreshCommand();
+    const restart = cmd.indexOf("systemctl --user restart acpmux.service");
+    // The first login shell's one-time work runs before acpmux's own 3 s read, as acpmux runs it.
+    expect(cmd.indexOf('"$login_shell" -l -i -c true')).toBeGreaterThanOrEqual(0);
+    expect(cmd.indexOf('"$login_shell" -l -i -c true')).toBeLessThan(restart);
+    // Each try removes the cache, restarts, and waits by wall time; a later try is a fresh read.
+    expect(cmd).toContain(`while [ "$try" -lt ${bake.ACPMUX_LOGIN_READ_TRIES} ]`);
+    expect(bake.ACPMUX_LOGIN_READ_TRIES).toBeGreaterThan(1);
+    expect(cmd).toContain("t0=$(date +%s)");
+    expect(cmd).toContain('journalctl _SYSTEMD_USER_UNIT=acpmux.service');
+    // The exec outlasts the warm shell and every try's restart and wait.
+    expect(bake.acpmuxLoginEnvRefreshStepMs()).toBeGreaterThan((60 + bake.ACPMUX_LOGIN_READ_TRIES * (90 + 30)) * 1000);
+    expect(source()).toContain('L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand(), acpmuxLoginEnvRefreshStepMs())');
+    const result = await runChild("bash", ["-n"], { input: cmd, timeout: 20_000 });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
+  test("acpmux-probes-quiet is bounded by wall time and its exec outlasts the bound (roll 46067232978)", () => {
+    const cmd = bake.acpmuxProbesQuietCommand();
+    expect(cmd).toContain("t0=$(date +%s)");
+    expect(cmd).toContain("timeout 10 find /proc");
+    expect(cmd).not.toMatch(/i=\$\(\(i \+ 1\)\)/);
+    expect(bake.acpmuxProbesQuietStepMs()).toBeGreaterThan(120_000 + 2 * 5 * 11_000 + 30_000);
+    expect(source()).toContain('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
   });
 
   test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {

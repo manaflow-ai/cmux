@@ -54,6 +54,7 @@ class MintStep(unittest.TestCase):
                 self.assertNotIn("curl", script)
 
     def test_the_warm_checkout_reads_only_the_minted_token(self) -> None:
+        self.assertEqual(step("build-nightly-app", WARM_STEP)["env"]["FETCH_TOKEN"], "${{ github.token }}")
         env = step("nightly-next-one", WARM_STEP)["env"]
         # The release App's token; the job's own only where no step minted one, never anonymous.
         self.assertEqual(env["FETCH_TOKEN"], "${{ steps.warm-fetch-token.outputs.token || github.token }}")

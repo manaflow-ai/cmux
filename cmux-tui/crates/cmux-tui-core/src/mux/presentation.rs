@@ -222,7 +222,7 @@ pub(crate) fn tab_delta(
 ) -> Option<TreeDelta> {
     let pane = state.pane_of(surface)?;
     let (workspace, screen) = state.screen_of(pane)?;
-    let entity = crate::server::tree_entity_json(state, decorations, kind, surface)?;
+    let entity = crate::tree_wire::tree_entity_json(state, decorations, kind, surface)?;
     let index = state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface);
     Some(TreeDelta {
         kind,
@@ -818,7 +818,7 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let decorations = self.tree_decorations_in_state(&state);
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &decorations,
                 TreeDeltaKind::WorkspaceMoved,
@@ -944,7 +944,7 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let decorations = self.tree_decorations_in_state(&state);
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &decorations,
                 TreeDeltaKind::WorkspaceChanged,

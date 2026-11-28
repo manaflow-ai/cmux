@@ -19,7 +19,38 @@ cd "$root/cmux-tui"
 # Match the cmux-tui-artifacts job environment so the extracted gate stays identical to CI.
 export CARGO_INCREMENTAL=0 CMUX_GHOSTTY_SRC="" GHOSTTY_ZIG_SOURCE=ghostty-next
 unset CMUX_ZIG ZIG
+# The acpmux lib test rustc alone peaked at 19.8 GiB (max RSS, `cargo test -p acpmux --no-run -j1`, run 46182122708),
+# past this job's memory.max of 14 GiB, so it was SIGKILLed at every job count (runs 46173475162, 46179078616: jobs
+# 3, 2, then 1). It is already opt-level 0. Without line tables and with 16 codegen units in place of 256 the same
+# build peaked at 11.4 GiB (run 46185372934). Only this gate's build changes; Cargo.toml's dev profile is untouched,
+# and a caller's own value wins.
+export CARGO_PROFILE_DEV_PACKAGE_ACPMUX_DEBUG="${CARGO_PROFILE_DEV_PACKAGE_ACPMUX_DEBUG:-0}"
+export CARGO_PROFILE_DEV_PACKAGE_ACPMUX_CODEGEN_UNITS="${CARGO_PROFILE_DEV_PACKAGE_ACPMUX_CODEGEN_UNITS:-16}"
 log_dir="${RUNNER_TEMP:-$(mktemp -d)}"
+# Bound cargo's parallel rustc by memory, the rule scripts/ci/cargo-groups.sh uses: one job per
+# CARGO_GROUPS_GIB_PER_GROUP (4) GiB of the lesser of the cgroup's memory.max and MemAvailable, at least 1, at most
+# the cores. Unbounded, every core ran a test-profile rustc (the acpmux and cmux-tui-core lib tests) in a 14 GiB pool
+# slot and the kernel SIGKILLed them (cmux-tui artifacts run 46151055767, job 140997699588). An explicit
+# CARGO_BUILD_JOBS wins; no cap and plenty of memory keeps every core.
+if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+  budget=""
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup 2>/dev/null || true)
+  p="/sys/fs/cgroup${rel%/}"
+  while [[ -n "$rel" ]]; do
+    v=$(cat "$p/memory.max" 2>/dev/null || true)
+    if [[ "$v" =~ ^[0-9]+$ ]] && { [[ -z "$budget" ]] || ((v / 1073741824 < budget)); }; then budget=$((v / 1073741824)); fi
+    [[ "$p" == /sys/fs/cgroup ]] && break
+    p="${p%/*}"; [[ "$p" == /sys/fs/cgroup* ]] || break
+  done
+  avail=$(awk '$1 == "MemAvailable:" { print int($2 / 1048576); exit }' /proc/meminfo 2>/dev/null || true)
+  if [[ -n "$avail" ]] && { [[ -z "$budget" ]] || ((avail < budget)); }; then budget=$avail; fi
+  if [[ -n "$budget" ]]; then
+    jobs=$((budget / ${CARGO_GROUPS_GIB_PER_GROUP:-4})); ((jobs >= 1)) || jobs=1; ((jobs <= cores)) || jobs=$cores
+    export CARGO_BUILD_JOBS=$jobs
+    echo "cmux_next tests: ${budget} GiB of memory holds CARGO_BUILD_JOBS=$jobs of $cores cores"
+  fi
+fi
 log="$log_dir/cmux-next-tests.txt"
 
 # Only the members whose sources name cmux_next_ (the filter matches the
@@ -27,6 +58,31 @@ log="$log_dir/cmux-next-tests.txt"
 # every other member. Falls back to --workspace.
 read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 echo "cmux_next_ test members: ${members[*]}"
+# One job per 6 GiB of a memory-capped runner (scripts/ci/cargo-mem-jobs.sh; -j4 in 14 GiB was still SIGKILLed): a `cmux-linux` pool slot shows 8
+# threads under memory.max 14 GiB, and the test compile at -j8 had the kernel SIGKILL the cmux-tui-core, acpmux
+# and cmux-tui rustc on all three attempts (job 140997699588, run 46151055767, 2026-11-28), so no tree got its
+# daemon-tests marker and the feat-cmux-next channel stayed at 02b3b98c from 03:41Z. A caller's CARGO_BUILD_JOBS wins.
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash ../scripts/ci/cargo-mem-jobs.sh || true)}"
+if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
+# What held the memory when the kernel SIGKILLed a rustc: this cgroup's peak, its anon, file and shmem split, and
+# its OOM kills. Run 46173475162 (2026-11-28) had the acpmux lib test rustc SIGKILLed at CARGO_BUILD_JOBS=1 under
+# memory.max 14 GiB, where cargo-mem-jobs.sh measures a lone acpmux rustc past 4 GiB: one rustc, or something
+# beside it (a tmpfs, a leftover process), holds the rest, and the log could not say which.
+cgroup_memory_report() {
+  local rel dir k
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup 2>/dev/null) || return 0
+  dir="/sys/fs/cgroup${rel%/}"
+  [[ -r "$dir/memory.current" ]] || return 0
+  printf 'cmux_next_ daemon tests memory (%s):' "$dir" >&2
+  for k in memory.max memory.peak memory.current; do
+    [[ -r "$dir/$k" ]] && printf ' %s=%s' "${k#memory.}" "$(cat "$dir/$k")" >&2
+  done
+  [[ -r "$dir/memory.stat" ]] && awk '$1 ~ /^(anon|file|shmem|kernel)$/ { printf " %s=%s", $1, $2 }' "$dir/memory.stat" >&2
+  [[ -r "$dir/memory.events" ]] && awk '$1 == "oom_kill" { printf " oom_kill=%s", $2 }' "$dir/memory.events" >&2
+  echo >&2
+  ps -eo rss=,comm= --sort=-rss 2>/dev/null | head -5 | awk '{ printf "  rss %d MiB %s\n", $1 / 1024, $2 }' >&2 || true
+}
+
 status=1
 for attempt in 1 2 3; do
   rm -f "$log"
@@ -39,6 +95,13 @@ for attempt in 1 2 3; do
   if [[ "$status" -ne 0 ]] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then
     exit "$status"
   fi
+  # A rustc error[E...] is the source, not the runner: every attempt fails it the same way, so it is never
+  # retried. Job 141050286394 (run 46168107258, 2026-11-28) recompiled an E0063 twice at fewer jobs and hit
+  # the step's 65-minute limit: the red came an hour late and no tree got its marker meanwhile.
+  if [[ "$status" -ne 0 ]] && grep -qE '^error\[E[0-9]+\]' "$log"; then
+    echo "::error::cmux_next_ daemon tests: the code does not compile (the rustc error above); not retried" >&2
+    exit "$status"
+  fi
   if [[ "$status" -eq 0 ]]; then
     if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
       break
@@ -47,6 +110,13 @@ for attempt in 1 2 3; do
     exit 1
   fi
   if [[ "$attempt" -lt 3 ]]; then
+    # A rustc the kernel SIGKILLed (no error[...] line) fails the same way at the same -j: halve the jobs.
+    if grep -q 'signal: 9, SIGKILL' "$log"; then
+      cgroup_memory_report
+      jobs="${CARGO_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+      export CARGO_BUILD_JOBS=$(((jobs + 1) / 2))
+      echo "cmux_next_ daemon tests: a rustc was SIGKILLed (out of memory); attempt $((attempt + 1)) runs CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" >&2
+    fi
     echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
     sleep $((attempt * 10))
   fi

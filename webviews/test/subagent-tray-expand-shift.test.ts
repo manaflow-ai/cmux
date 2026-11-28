@@ -86,7 +86,7 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       return frames;
     });
 
-  test("opening the tray at the latest row draws the rows up only for the live line, and folding it moves none", async () => {
+  test("opening the tray at the latest row draws the rows up only for the live line, and folding it brings them back to rest", async () => {
     const port = (server.httpServer!.address() as { port: number }).port;
     const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
     try {
@@ -116,9 +116,52 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       const rose = -opened.at(-1)!.moved;
       expect(rose).toBeLessThan(-Math.min(...opened.map((frame) => frame.tray)) - 20);
 
+      // Folding gives back the room the open drew the rows up by: they come down on the fold's own
+      // frames, never back up, and rest where they did before it opened, with no blank room left
+      // under the last row (Leo, ask-31a1e4b192, 2026-11-27: "this isn't great").
       const folded = await toggle(page);
       expect(await head.getAttribute("aria-expanded")).toBe("false");
-      for (const frame of folded) expect(Math.abs(frame.moved)).toBeLessThanOrEqual(0.5);
+      for (const frame of folded) expect(frame.moved).toBeGreaterThanOrEqual(-0.5);
+      for (let index = 1; index < folded.length; index++)
+        expect(folded[index]!.moved).toBeGreaterThanOrEqual(folded[index - 1]!.moved - 0.5);
+      expect(Math.abs(folded.at(-1)!.moved - rose)).toBeLessThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Leo (ask-31a1e4b192, 2026-11-27, a clip of the hat opened from its tucked tab and folded again:
+  // "this isn't great"): a list the room had already taken (the wheel past the end here, the tucked
+  // tab's open in the app) folded and left its height as blank room under the last row, the
+  // transcript's end gone from view over the hat's one line until a row grew.
+  test("folding a list the room took brings the latest row back to rest on the hat", async () => {
+    const port = (server.httpServer!.address() as { port: number }).port;
+    const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await foldAtLatest(page);
+      const gap = () =>
+        page.evaluate(() => {
+          const last = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].at(-1)!.getBoundingClientRect();
+          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
+          return tray.top - last.bottom;
+        });
+      const rest = await gap();
+      await toggle(page);
+      const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + 40);
+      for (let turn = 0; turn < 6; turn++) await page.mouse.wheel(0, 240);
+      await page.waitForFunction(() => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
+      });
+      const folded = await toggle(page);
+      expect(await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")).toBe("false");
+      // The rows come down with the fold, never back up, and land where they rested before it opened.
+      for (let index = 1; index < folded.length; index++)
+        expect(folded[index]!.moved).toBeGreaterThanOrEqual(folded[index - 1]!.moved - 0.5);
+      expect(Math.abs((await gap()) - rest)).toBeLessThanOrEqual(1);
     } finally {
       await page.close();
     }

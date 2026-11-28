@@ -709,6 +709,36 @@ fn staged_commit(quarantine: &Path, entries: &Path) -> anyhow::Result<Option<Str
     Ok(Some(String::from_utf8_lossy(&commit).trim().to_string()))
 }
 
+/// Where [`keep`] keeps the machine's commits for the workspace `name`: outside `refs/heads`, so no
+/// branch, checkout or `git branch` shows it.
+pub(super) fn kept_ref(name: &str) -> String {
+    format!("refs/cmux/bring-back/{name}")
+}
+
+/// Keeps the machine's commit `head` (in `quarantine`, the pull's quarantine repository) in the
+/// working copy at `folder` as [`kept_ref`]: fetched with every object checked, replacing what an
+/// earlier pull kept there. A pull that can't move the branch (both sides committed, a rewritten
+/// history) loses none of the machine's commits; nothing else here changes.
+pub(super) fn keep(
+    folder: &Path,
+    quarantine: &Path,
+    head: &str,
+    name: &str,
+) -> anyhow::Result<String> {
+    let kept = kept_ref(name);
+    set_ref(quarantine, "refs/cmux-sync/kept", head)?;
+    checked(
+        local(folder)
+            .args(["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true"])
+            .args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head"])
+            .args(["--no-recurse-submodules", "--no-auto-gc"])
+            .arg(quarantine)
+            .arg(format!("+refs/cmux-sync/kept:{kept}")),
+    )
+    .context("cannot keep the machine's commits")?;
+    Ok(kept)
+}
+
 fn set_ref(quarantine: &Path, name: &str, id: &str) -> anyhow::Result<()> {
     checked(quarantine_git(quarantine).args(["update-ref", name, id]))?;
     Ok(())

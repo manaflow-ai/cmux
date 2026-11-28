@@ -401,3 +401,74 @@ fn pool_auth_endpoint_env_and_pins_change_the_key() {
         );
     }
 }
+
+/// The image launcher runs an agent on the team's route unless `/etc/cmux/vm-kind` reads `owner`,
+/// and a cloned machine boots with `team` there until the sync says `owner`: a session warmed
+/// before the flip must not serve a chat after it (run 45952559474's stub chat got the team
+/// route's "No cmux inference gateway is online").
+#[test]
+fn pool_auth_machine_kind_changes_the_key() {
+    for family in ["claude", "codex", "gemini", "grok"] {
+        let files = LoginFiles::new(&format!("kind-{family}"));
+        let root = files.0.join("root");
+        let kind = root.join(KIND_FILE);
+        std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+        let cache = AuthCache::default();
+        let at = |cache: &AuthCache| cache.fingerprint_in(family, &|_| None, &files.0, &root);
+        let unread = at(&cache);
+        std::fs::write(&kind, "team\n").unwrap();
+        let team = at(&cache);
+        assert_ne!(unread, team, "{family}: a kind appearing must count");
+        std::fs::write(&kind, "owner\n").unwrap();
+        let owner = at(&cache);
+        assert_ne!(
+            team, owner,
+            "{family}: a session warmed on a team machine must not match owner"
+        );
+        std::fs::write(&kind, "owner").unwrap();
+        assert_eq!(owner, at(&cache), "{family}: whitespace is no new kind");
+        assert_eq!(owner.1, team.1, "{family}: a kind names no account");
+    }
+}
+
+/// cloud-journey-prod's Codex stub leg (run 45907662413): a pooled Codex warmed on the image's
+/// `cmux` provider was served after `config.toml` pointed Codex at the stub, and its turn failed on
+/// "Missing environment variable: `OPENAI_API_KEY`.". A provider switch must not match; a model
+/// pick or an unrelated setting keeps the session.
+#[test]
+fn pool_auth_codex_config_provider_change_changes_the_key_not_the_account() {
+    let files = LoginFiles::new("codex-config");
+    let cache = AuthCache::default();
+    let write = |text: &str| {
+        let path = files.0.join(".codex/config.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    files.write(".codex/auth.json", json!({"tokens": {"account_id": "acct-a"}}));
+    write(
+        "model_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n",
+    );
+    let team = files.fingerprint(&cache, "codex");
+    write(
+        "model = \"gpt-5\"\nmodel_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n[history]\npersistence = \"none\"\n",
+    );
+    assert_eq!(team, files.fingerprint(&cache, "codex"), "a model pick keeps the pooled session");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:1/v1\"\nrequires_openai_auth = true\n",
+    );
+    let stub = files.fingerprint(&cache, "codex");
+    assert_ne!(team.0, stub.0, "a Codex warmed on another provider must not match");
+    assert_eq!(team.1, stub.1, "the provider is a route, not the account");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n",
+    );
+    assert_ne!(
+        stub,
+        files.fingerprint(&cache, "codex"),
+        "a moved provider endpoint must not match"
+    );
+    write(
+        "profile = \"p\"\nmodel_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n[profiles.p]\nmodel_provider = \"openai\"\n",
+    );
+    assert_ne!(stub, files.fingerprint(&cache, "codex"), "a profile's provider must not match");
+}

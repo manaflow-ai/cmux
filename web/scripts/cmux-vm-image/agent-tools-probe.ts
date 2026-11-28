@@ -176,7 +176,13 @@ export function agentStepPlan(options: Pick<ProbeOptions, "modelRoute" | "vmId">
   return { run: false, status: "UNVERIFIED", reason: "no model route: a raw clone has no coderouter edge and the probe takes no credential; the tools acpmux attaches are checked without a model" };
 }
 
-/** A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`. */
+/**
+ * A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`.
+ * acpmux starts claude more than once at a time (the session, and live_models/claude.rs's `-p` model list
+ * beside it), so each launch is built in its own file and appended with one write: in roll 45906244147 the
+ * printf-per-line appends of the session and a model-list launch interleaved, the session's record lost
+ * its MCP_CONFIG_LINE to the next record, and the probe read no servers at all.
+ */
 export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
@@ -384,6 +390,33 @@ async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: str
   }
 }
 
+/**
+ * How often prepare asks a clone's daemon for the probe workspace. Roll 46100096471: a fresh clone's first daemon
+ * request ran past the CLI's 30 s bound (live answered in 0.65 s), as in rolls 45914140136 (42 s) and 45916909960;
+ * the request is `show || create`, so a second ask is safe and finds the workspace the first one may have made.
+ */
+export const DAEMON_TERMINAL_TRIES = 2;
+
+/**
+ * What a clone's machine was doing while its daemon left the workspace ask unanswered, read without the daemon's
+ * socket (which is what is stuck). Rolls 46100096471 and 46107492079: `daemon status` said only "running but busy"
+ * for 67 s on the candidate while the live image answered in under 2 s, so neither run said whether the daemon was
+ * on CPU, waiting on disk (a clone pages its snapshot in), short of memory, or blocked; this says which.
+ */
+export function stallEvidenceCommand(): string {
+  return [
+    `echo "uptime: $(cut -d' ' -f1 /proc/uptime)s load: $(cut -d' ' -f1-3 /proc/loadavg)"`,
+    `for r in cpu io memory; do echo "psi-$r: $(head -1 /proc/pressure/$r 2>/dev/null || echo none)"; done`,
+    `echo "top:"; ps -eo pid,pcpu,rss,stat,etimes,comm --sort=-pcpu | head -6`,
+    `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1); if [ -n "$pid" ]; then echo "daemon $pid threads: $(ps -L -o stat= -o wchan:20= -p "$pid" | sort | uniq -c | sort -rn | head -5 | tr -s ' ' | tr '\\n' ';')"; else echo "daemon: no cmux-tui server process"; fi`,
+  ].join("; ");
+}
+
+/** The probe workspace, shown if it exists, else created: safe to run again. */
+export function workspaceEnsureCommand(cli: string): string {
+  return `${cli} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${cli} workspace create --name ${WORKSPACE} >/dev/null && echo ok`;
+}
+
 /** Static checks, the probe folder, the loopback pages and the probe workspace. */
 async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boolean> {
   const s = kv((await run(vm, staticCheckCommand())).stdout);
@@ -410,22 +443,41 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
   const started = Date.now();
-  const ws = await run(vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null && echo ok`, 60_000, DEVBOX_WORK_USER);
+  let ws = await run(vm, workspaceEnsureCommand(C), 60_000, DEVBOX_WORK_USER);
+  for (let attempt = 2; ws.code !== 0 && attempt <= DAEMON_TERMINAL_TRIES; attempt++) {
+    console.log(`daemon-terminal: try ${attempt - 1} of ${DAEMON_TERMINAL_TRIES} failed after ${Date.now() - started} ms (${(ws.stdout.trim() || ws.stderr.slice(-200)).replace(/\s+/g, " ")}); asking again`);
+    ws = await run(vm, workspaceEnsureCommand(C), 60_000, DEVBOX_WORK_USER);
+  }
   result.timings.daemonTerminalMs = Date.now() - started;
   // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
   // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
   const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
-  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
+  const evidence = ws.code === 0 ? "" : (await run(vm, stallEvidenceCommand(), 30_000).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"}; machine: ${evidence.slice(-900) || "none"})`}`);
   return ws.code === 0;
 }
 
-/** One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown. */
-function recordSteps(name: string, env: string): string[] {
+/** How often recordSteps starts a session whose launch was not recorded (a slow clone's first daemon). */
+export const RECORD_TRIES = 2;
+
+/**
+ * One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown, into
+ * `launches`. A try that recorded no session launch (no `--plugin-dir`) is made again, once: in roll
+ * 45914140136 the first step's session on a slow clone (its daemon terminal took 42 s, about 1 s live) was
+ * never launched within its bounds, while the next step's was. What acpmux said each try is kept.
+ */
+export function recordSteps(name: string, env: string, launches: string): string[] {
+  const out = (step: string) => `${PROBE_DIR}/${name}-${step}.txt`;
   return [
     `export ${env}`,
-    `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/${name}-new.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } > ${PROBE_DIR}/${name}-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/${name}-shutdown.txt 2>&1`,
+    `rm -f ${out("new")} ${out("send")} ${out("shutdown")}`,
+    `for try in $(seq 1 ${RECORD_TRIES}); do`,
+    `  for f in ${out("new")} ${out("send")} ${out("shutdown")}; do echo "try $try" >> "$f"; done`,
+    `  { ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } >> ${out("new")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } >> ${out("send")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } >> ${out("shutdown")} 2>&1`,
+    `  grep -qx -- --plugin-dir ${launches} 2>/dev/null && break`,
+    "done",
   ];
 }
 
@@ -439,10 +491,11 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0`,
     // First the launch a person's chat gets (the gateway on), kept apart; then the same with the gateway off
     // (ACPMUX_MCP_GATEWAY=0), whose stdio servers the probe starts and calls itself.
-    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`),
-    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`),
+    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`, GATEWAY_LAUNCHES),
+    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`, LAUNCHES),
   ].join("\n");
-  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
+  // Each try is bounded by its two 60 s timeouts plus `acp new`: two steps of RECORD_TRIES tries.
+  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180 * RECORD_TRIES);
   let text = "";
   try {
     text = await readGuest(vm, LAUNCHES);

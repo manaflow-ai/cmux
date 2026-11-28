@@ -1158,6 +1158,34 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* The setups shelf (experiments.setupShelf): one row per setup, its name and line, then Try, or
+   Revert and Keep while it is on trial. The action slot keeps its width so a row never reflows. */
+.onb-setups-detail {
+  margin: 0 0 var(--ds-space-2);
+}
+.onb-setups-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb-setups-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.onb-setups-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  min-width: 9.5rem;
+}
 /* The chosen run location's one sentence, under its two segments; it wraps rather than truncates. */
 .onb-make-run-in-detail {
   display: grid;
@@ -1699,4 +1727,38 @@ img.onb-make-tile-image {
   .onb-make-segment {
     transition: none;
   }
+}
+
+/* [taste] Label fit, gallery variants only (data-onb-labels is set by the gallery fixture, never by the shipped
+   page): the segment and chip names that the nowrap + ellipsis above cut short. */
+[data-onb-labels="wrap"] :is(.onb-make-segment, .onb-make-chip) {
+  height: auto;
+  min-height: var(--ds-control-compact);
+  padding-block: var(--grid-half-step);
+  white-space: normal;
+  text-align: center;
+}
+[data-onb-labels="wrap"] :is(.onb-make-segment, .onb-make-chip) > span {
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+[data-onb-labels="tight"] :is(.onb-make-segment, .onb-make-chip) {
+  padding-inline: var(--grid-half-step);
+  font-size: calc(var(--text-caption) * 0.9);
+}
+[data-onb-labels="tight"] :is(.onb-make-segments, .onb-make-chips) {
+  padding: var(--grid-half-step);
+}
+[data-onb-labels="fit"] :is(.onb-make-segment, .onb-make-chip) {
+  height: auto;
+  min-height: var(--ds-control-compact);
+  padding-inline: var(--grid-half-step);
+  font-size: calc(var(--text-caption) * 0.9);
+  white-space: normal;
+  text-align: center;
+}
+[data-onb-labels="fit"] :is(.onb-make-segment, .onb-make-chip) > span {
+  overflow: visible;
+  text-overflow: clip;
 }

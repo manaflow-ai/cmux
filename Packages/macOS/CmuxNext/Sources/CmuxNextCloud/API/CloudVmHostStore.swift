@@ -39,7 +39,7 @@ public final class CloudVmHostStore {
         self.now = now
     }
 
-    public convenience init(api: CloudAPIClient, vmHost: CloudVmHost = CloudVmHost()) {
+    public convenience init(api: CloudDaemon, vmHost: CloudVmHost = CloudVmHost()) {
         self.init(vmHost: vmHost, exec: { id, command in try await api.exec(id, command: command, timeoutMs: vmHost.timeoutMs) })
     }
 

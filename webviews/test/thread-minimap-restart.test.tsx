@@ -9,6 +9,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { withRail } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -139,16 +140,18 @@ test("the rail's rows on the next open are the index's, not the summary's count"
   // 30 turns by the summary; the index names 25 prompts, 20 older than the 10 held.
   const held = span(20, 30);
   const draw = (root: ReturnType<typeof createRoot>, props: { promptCount?: number; earlier?: unknown }) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(held, new Set())}
-          sessionId={sessionId}
-          canLoadOlder
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-          {...(props as object)}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(held, new Set())}
+            sessionId={sessionId}
+            canLoadOlder
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            {...(props as object)}
+          />,
+        ),
       ),
     );
   let root = createRoot(document.getElementById("root")!);
@@ -180,14 +183,16 @@ test("a rail mounting with its chat paints at once; one appearing in a drawn cha
   resetPromptCountSeedsForTests();
   const document = dom.window.document;
   const draw = (root: ReturnType<typeof createRoot>, rows: AcpmuxRow[], sessionId: string) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId={sessionId}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
     );
   const rail = () => document.querySelector<HTMLElement>(".acpmux-minimap__rail");

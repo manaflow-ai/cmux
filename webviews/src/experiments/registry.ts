@@ -37,6 +37,7 @@ import { compactingLine } from "../agent-session/acpmux/conversation/compactingL
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
 import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
+import { chatRenderPipeline } from "../agent-session/acpmux/chatRenderPipeline.experiment";
 import { compoundMotion } from "../agent-session/acpmux/conversation/compoundMotion.experiment";
 import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
@@ -73,6 +74,7 @@ import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCar
 import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
 import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
+import { cloudLastSeenLook } from "../agent-session/acpmux/cloudLastSeen.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
@@ -88,6 +90,7 @@ import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experime
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
 import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
+import { hatLineLook } from "../agent-session/acpmux/subagents/hatLine.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
@@ -131,6 +134,7 @@ import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDat
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
+import { teamDirectory } from "../agent-session/acpmux/teamDirectory/teamDirectory.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { transcriptScrollPacer } from "../agent-session/acpmux/transcriptScrollPacer.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
@@ -197,6 +201,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   settingsAskCard,
   capacityWaitLook,
   pausedMachineResume,
+  cloudLastSeenLook,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
@@ -223,6 +228,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTimes,
   liveTurnClock,
   runScroll,
+  chatRenderPipeline,
   compoundMotion,
   thumbMotion,
   oneRowPerCall,
@@ -238,6 +244,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatOpenLook,
   subagentForkChipsLook,
   hatHeaderLook,
+  hatLineLook,
   goalHatPlace,
   customizeBarPlace,
   hatDoneLook,
@@ -283,6 +290,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fieldGrowthMotion,
   composerDockMotion,
   teamAudit,
+  teamDirectory,
   jumpPairLook,
   transcriptScrollPacer,
   shortcutKeycaps,

@@ -3,7 +3,7 @@
 # put a depth-1 `.git` archive (or the increment since it) into the repo archive store, from the
 # fleet's `wt` mirrors. Run by cmux-repo-archive-publish.timer; one JSON line per branch.
 #
-# Off until configured: with no store (CMUX_REPO_ARCHIVE_STORE, or `store` in
+# Turned on by install-store.sh (bucket, keys, timer, one read-back). Off until configured: with no store (CMUX_REPO_ARCHIVE_STORE, or `store` in
 # /etc/cmux/repo-archive.json) it says so and exits 0. Its environment file
 # (~/.config/cmux-repo-archive-publish.env) names:
 #   CMUX_REPO_ARCHIVE_STORE   a folder, file:// URL, or bucket URL (https://ACCOUNT.r2.cloudflarestorage.com/BUCKET)

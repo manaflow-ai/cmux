@@ -32,9 +32,3 @@ export function uniqueById<T extends { id: string }>(entries: readonly T[]): T[]
   const seen = new Set<string>();
   return entries.filter((entry) => !seen.has(entry.id) && seen.add(entry.id));
 }
-
-/// The queue's one-line summary: how many wait and that they go in order and can still be edited
-/// or removed. It names what the list holds, never a bare count.
-export function queueSummary(count: number, t: Translate): string {
-  return t("composer.queueSummary", { n: count });
-}

@@ -31,7 +31,7 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames] [--phases] [--probe FILE]
 // With --frames, a Chromium trace splits each key's keydown-to-paint by what it waited on (keyFrameTrace.ts;
 // `KEY-FRAMES` lines): the key's own task, work queued before its frame, the display tick, the frame's callbacks and rendering.
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
@@ -95,6 +95,13 @@ const TRACE = argv.includes("--trace");
 /// work between it and its frame, the wait for the display tick, the frame callbacks ahead of the key's, that frame's
 /// rendering, and a breakdown of every main-thread task in the window (keyFrameTrace.ts; `KEY-FRAMES` lines).
 const FRAMES = argv.includes("--frames");
+/// With --phases: each key's time by phase (keydown, the engine's default action, the editor's input, to its frame)
+/// from the page's own event timestamps, the WebKit run (keyPhases.ts; `KEY-PHASES` lines).
+const PHASES = argv.includes("--phases");
+/// With --probe FILE: a script the page runs before its own code, for a question no flag answers yet; after the keys,
+/// whatever its `window.__probe()` returns prints as one `PROBE` JSON line. The pane builds unminified, so the
+/// probe's stacks and function names read as source.
+const PROBE = flag("--probe");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -248,7 +255,7 @@ const releases: (() => unknown)[] = [];
 // arm's build maps over the first's: profile one tree at a time).
 const serveOptions = {
   dev: DEV,
-  unminified: PROFILE || TRACE || FRAMES,
+  unminified: PROFILE || TRACE || FRAMES || PROBE !== undefined,
   sourcemap: PROFILE || TRACE || FRAMES,
   built: PROFILE || TRACE || FRAMES ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
 };
@@ -301,6 +308,10 @@ async function measure(
   const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    // The shipped chat sheds motion under sustained load (frameBudget.ts); its WebDriver opt-out exists so
+    // unrelated suites see stable motion. This bench measures typing under that load, so run what ships,
+    // as send-pop-frames / send-paint-probe / send-motion-pass do.
+    await page.addInitScript(() => Object.assign(window, { cmuxFrameBudget: "on" }));
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
@@ -338,6 +349,8 @@ async function measure(
             stream: STREAM,
             toolLines: TOOL_LINES,
             typing: typing || undefined,
+            phases: PHASES,
+            probe: PROBE && path.resolve(PROBE),
           })),
         };
       } finally {
@@ -557,6 +570,14 @@ async function measure(
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
+      // Key to its painted frame (perf.ts's post-paint mark, what the perf watch's composer.key_paint judges), the
+      // frames the keys dropped against the measured frame interval, and the longest prompt a key landed in.
+      to_paint_p50: typing.to_paint?.p50_ms,
+      to_paint_p95: typing.to_paint?.p95_ms,
+      to_paint_p99: typing.to_paint?.p99_ms,
+      dropped_frames: typing.dropped_frames,
+      frame_interval_ms: typing.frame_interval_ms,
+      prompt_chars: typing.max_chars,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,

@@ -61,6 +61,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 import pr_status  # noqa: E402
 
 LEGACY_MARKER = "<!-- cmux-red-checks -->"
@@ -170,8 +171,9 @@ class GitHub:
                                      headers={"Authorization": f"Bearer {self.token}",
                                               "Accept": "application/vnd.github+json",
                                               "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read() or b"null")
+        # A read is asked again on a passing refusal (gh_http); a write is sent once.
+        _, body, _ = gh_http.request(req, 30, raise_errors=True)
+        return json.loads(body or b"null")
 
     def pages(self, path, key=None):
         out, page = [], 1

@@ -80,6 +80,7 @@ public final class IPhoneHostService {
         var browserHosts: (any MobileHostBrowserHosting)?
         /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
         var surfaceHosts: (any MobileHostSurfaceHosting)?
+        var siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)?
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
@@ -119,9 +120,9 @@ public final class IPhoneHostService {
                        deviceName: String, daemonSocket: String, chief: ChiefPlacement?) -> MobileHostLaunch {
         var launch = MobileHostLaunch(
             executable: executable, baseURL: dependencies.baseURL, teamID: account.teamID, userID: account.userID,
-            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket,
-            stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-            stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket, stateDirectory: dependencies.stateDirectory,
+            fileRoots: dependencies.fileRoots(), stackProjectID: dependencies.stackProjectID,
+            agentTabHost: dependencies.agentTabHost(), acpmuxHome: dependencies.acpmuxEnvironment?.home.path)
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
@@ -178,6 +179,11 @@ public final class IPhoneHostService {
     /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// Called only by the person's hand-off setting; off until that setting is wired.
+    public func setSiteDataHandoff(enabled: Bool) async {
+        await supervisor.setSiteDataHandoff(enabled: enabled)
+    }
+
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
@@ -208,6 +214,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
+    /// Follows the person's site-data hand-off setting; cancelled when the app stops.
+    @ObservationIgnored var followingSiteDataHandoff: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     /// Counts the starts ``reconcile()`` makes: a start lets the Mac sleep only while no newer one has
@@ -229,6 +237,9 @@ public final class IPhoneHostService {
     @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
     /// The spacing of tries while cmux-tui's socket is not there yet (1 s doubling to 30 s), on the same clock.
     @ObservationIgnored private var daemonBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    /// Waits between starts that failed past the daemon socket (a device id or identity read, say):
+    /// 1 s doubling to 60 s, reset once a hostd starts.
+    @ObservationIgnored var startBackoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     /// The account and team those refusals were counted for: another one starts from zero.
     @ObservationIgnored private var identityRefusalsKey: String?
     /// Device ids renewed in this launch because the service said another account owns them, by
@@ -574,6 +585,7 @@ public final class IPhoneHostService {
         running = nil
         following?.cancel()
         followingAccount?.cancel()
+        followingSiteDataHandoff?.cancel()
         applying?.cancel()
         identityRetry?.cancel()
         pairingWatch?.cancel()
@@ -626,9 +638,9 @@ public final class IPhoneHostService {
     /// Starts hostd again after cmux-tui's socket was not there for `key`, after the next
     /// ``daemonBackoff`` wait. Shares the identity retry's slot, so turning connections off or
     /// signing out ends it the same way; it never counts as a refused Keychain read.
-    private func retryStart(for key: String?) {
+    private func retryStart(for key: String?, delay given: Duration? = nil) {
         identityRetry?.cancel()
-        let delay = daemonBackoff.next()
+        let delay = given ?? daemonBackoff.next()
         // task-owner: stored in `identityRetry`; stop() and the next reconcile cancel it
         identityRetry = Task { [weak self, clock = identityRetryClock] in
             var wait = Backoff(initial: delay, maximum: delay, jitter: 0)
@@ -742,7 +754,8 @@ public final class IPhoneHostService {
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
-                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks, siteData: dependencies.siteData))
+                self?.startBackoff.reset()
             } catch let refusal as CMUXBuildSpaceError {
                 // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
                 guard !Task.isCancelled, self?.running == key else { return }
@@ -768,8 +781,15 @@ public final class IPhoneHostService {
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))
-                // A later account or toggle change tries again.
-                if self?.running == key { self?.running = nil }
+                // Try again on the backoff, never only on a later account or toggle change: a start
+                // that gives up leaves the Mac with no hostd until a relaunch, and every phone fails
+                // to reach it (2026-11-25: a relaunched NIGHTLY ran 14:06 to 14:51Z with none). A
+                // cancelled start (stop, or a newer reconcile) owns what happens next.
+                guard self?.running == key else { return }
+                self?.running = nil
+                guard !Task.isCancelled, !(error is CancellationError), self?.reconcileGeneration == generation else { return }
+                guard let self else { return }
+                self.retryStart(for: key, delay: self.startBackoff.next())
             }
         }
     }

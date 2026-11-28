@@ -79,6 +79,9 @@ public enum LinkState: Equatable, Sendable {
 /// (Rust cmux-mobile-link over WebRTC or WireGuard) and `MockMacLink`.
 public protocol MacLink: AnyObject, Sendable {
     var transport: TransportKind { get }
+    /// The Rust core's `LinkHandle` under this link (as AnyObject: this file
+    /// builds without the FFI), nil for any other link.
+    var ffiLinkHandle: AnyObject? { get }
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
@@ -149,6 +152,9 @@ public struct TunnelKeys: Sendable, Equatable {
 }
 
 extension MacLink {
+    /// The Rust link under this one, for engines that take it whole (the
+    /// attachment uploads); nil for a link that is not the Rust core's.
+    public var ffiLinkHandle: AnyObject? { nil }
     public func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
         let object = try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))
         guard let args = object as? [String: String] else {
@@ -197,10 +203,27 @@ public extension ParkableMacLink {
     var resumeHedge: Duration? { nil }
 }
 
+/// A single outgoing message. Its deadline observes accepted chunks from this write and,
+/// while it waits for an earlier serialized writer, that writer. Cancellation stops the send.
+public struct LinkWrite: Sendable {
+    public let send: @Sendable () async throws -> Void
+    public let takeProgress: (@Sendable () -> Bool)?
+    public let cancel: @Sendable () -> Void
+
+    public init(send: @escaping @Sendable () async throws -> Void,
+                takeProgress: (@Sendable () -> Bool)? = nil,
+                cancel: @escaping @Sendable () -> Void = {}) {
+        self.send = send
+        self.takeProgress = takeProgress
+        self.cancel = cancel
+    }
+}
+
 /// One multiplexed channel inside a link.
 public protocol LinkChannel: AnyObject, Sendable {
     var id: UInt32 { get }
     func send(_ data: Data) async throws
+    func observedWrite(_ data: Data) -> LinkWrite
     /// The next message, or nil once the channel is closed.
     func receive() async throws -> Data?
     func close(code: String, reason: String) async
@@ -213,6 +236,7 @@ public protocol LinkChannel: AnyObject, Sendable {
 }
 
 public extension LinkChannel {
+    func observedWrite(_ data: Data) -> LinkWrite { LinkWrite(send: { try await self.send(data) }) }
     var closedBy: LinkError? { nil }
     var sentBytes: UInt64? { nil }
 }

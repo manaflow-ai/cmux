@@ -262,6 +262,9 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           "agent message",
         ])
           expect(kinds.has(kind), `measured a ${kind}`).toBe(true);
+        // Another agent's line is no longer between two replies: it opens its own turn under that
+        // turn's "Working for" head (66beef47be6, #49052), so only its left edge is measured here
+        // (transcript-continuation-spacing.test.ts measures the gap over that turn).
         // Another agent's message is a message row (#37653): it opens its own section after the live
         // turn's "Working for" line, so it is never a status row between two replies. Its icon and
         // words are checked with the iconed rows above.

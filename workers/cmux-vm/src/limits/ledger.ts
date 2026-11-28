@@ -10,13 +10,14 @@
 import { SnapshotCapture, SnapshotKeyFence, snapshotCapture, type SnapshotCaptureCommand, type SnapshotCaptureResult } from "./snapshot-capture.ts";
 import { pendingCreations } from "./pending-creations.ts";
 import { Schema } from "effect";
+import { PROVIDER_CREATE_BUDGET_MS } from "./create-admission.ts";
 import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
-import { Reservation, type LedgerStorage } from "./storage.ts";
+import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
-import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
+import { admitAgentSlot, bindAgentCreation, describeAgentSlots, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -124,6 +125,33 @@ const isGeneratedRecord = Schema.is(GeneratedRecord);
 const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
   ? { ...value, progress: value.progress.value }
   : checked(isRecord, value);
+/**
+ * Whether the creation under `key` provably sent nothing to the provider: its intent is still `creating` with a
+ * dispatch that never left `ready` (only beginCreateSend moves it to `sent`) or that the provider rejected. A legacy
+ * intent with no dispatch receipt, a send whose outcome is unknown, and a missing record all answer false.
+ */
+export const creationNeverSent = async (storage: LedgerStorage, key: string): Promise<boolean> => {
+  const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+  return p?.phase === "creating" && (p.dispatch?.state === "ready" || p.dispatch?.state === "rejected");
+};
+/**
+ * Whether beginCreateSend would let a send for `vmId` under this record begin now: the read-only half of that gate. A
+ * create checks it before it takes a provider create slot (upstream/live-create.ts), so a retry whose send the gate
+ * would refuse (a send still in flight or of unknown outcome, a cancelled or finished creation) answers at once and
+ * holds no slot. beginCreateSend still decides, inside its transaction.
+ */
+export const createSendOpen = (record: IdempotencyRecord | null | undefined, vmId: string, nowMs: number | undefined): boolean => {
+  const p = record?.progress;
+  return p !== undefined && p.phase === "creating" && p.vmId === vmId && p.cancelRequested !== true && p.dispatch !== undefined && sendResendable(p.dispatch, nowMs);
+};
+/** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
+export const readIdempotencyRecord = readRecord;
+/** A held create's idempotency state, as an agent key's cap refusal names it: its phase and its dispatch receipt. */
+export const describeCreationState = async (storage: LedgerStorage, key: string): Promise<string> => {
+  const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+  if (p === undefined) return "no record";
+  return p.phase === "creating" || p.phase === "cancelled" ? `${p.phase}, dispatch ${p.dispatch?.state ?? "none"}` : p.phase;
+};
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -144,7 +172,7 @@ const isCoverage = Schema.is(Coverage);
  */
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) =>
   v !== null && typeof v === "object" && !Array.isArray(v)
-    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
     : v);
 const sameValue = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
 
@@ -154,11 +182,14 @@ const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | 
 /** Idempotency records live for a day, as clients retry within minutes to hours. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 /**
- * A pending claim whose request died is released after this long. It exceeds
- * the longest create or fork (snapshot, create and grow, 120 s upstream timeout
- * each), so a live request never loses its claim to a retry.
+ * A pending claim whose request died (isolate recycled, connection cut, deploy)
+ * is released this long after its last heartbeat, so a same-key resend can take
+ * it over instead of getting "still running" for the old 10 minutes. A live
+ * request renews it every IDEMPOTENCY_HEARTBEAT_MS (and on each `advance`), so
+ * it never loses its claim however long the create or fork runs.
  */
-export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
+export const IDEMPOTENCY_LEASE_MS = 90 * 1000;
+export const IDEMPOTENCY_HEARTBEAT_MS = 20 * 1000;
 /** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 /**
@@ -171,13 +202,17 @@ export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
  * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
  * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
  * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
- * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
- * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
- * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
- * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
- * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ * It is the provider create budget (PROVIDER_CREATE_BUDGET_MS, the send's timeout, background polls included) plus
+ * 30 s, so no two of this key's sends are open at once, and it sits well inside the platform's 5-minute create retry
+ * window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the whole CREATE_SEND_GRACE_MS: one
+ * provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504, 2026-11-26: 1 timed-out send,
+ * then 7 refused retries and cloud.provider.unavailable). It was a fixed 150 s, sized for the old 120 s send timeout;
+ * once sends were cut at 45 s, a cut create's retries were refused for 105 s more than any send could still be open
+ * (production 2026-11-28 17:25-17:55Z: 35 sends cut at 45 s, then 111 retries refused at the send fence and
+ * create_overdue). Settling a cancellation as "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer
+ * backs that one.
  */
-export const CREATE_RESEND_AFTER_MS = 150 * 1000;
+export const CREATE_RESEND_AFTER_MS = PROVIDER_CREATE_BUDGET_MS + 30_000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
 const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
   dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
@@ -201,7 +236,8 @@ export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent, heldBoundMs); }
+  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>> { return describeAgentSlots(this.storage, agent, ownedVmIds, nowMs, describeCreationState); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
@@ -244,7 +280,7 @@ export class TenantLedger {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
+      if (!createSendOpen(record, vmId, nowMs) || p.phase !== "creating") return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
@@ -362,11 +398,13 @@ export class TenantLedger {
   private async admit(storage: LedgerStorage, kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string, retained: boolean): Promise<boolean> {
     const live = await storage.list({ prefix: "reserve:" });
     let inFlight = 0;
+    const expired: string[] = [];
     for (const [key, value] of live) {
       const reservation = checked(isReservation, value);
-      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
+      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) expired.push(key);
       else if (reservation.kind === kind && key !== `reserve:${reservationId}`) inFlight += 1;
     }
+    await deleteMany(storage, expired);
     if (liveCount + inFlight >= limit) return false;
     await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS, ...(retained ? { retained: true } : {}) });
     return true;
@@ -461,6 +499,17 @@ export class TenantLedger {
         expiresMs: progress.phase === "done" || progress.phase === "snapshotDone" ? Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) : record.expiresMs,
         leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
       });
+    });
+  }
+
+  /** Heartbeat of the request holding `key`: extends a live, unfinished claim. A lapsed claim is not revived. */
+  async renew(key: string, nowMs: number): Promise<void> {
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `idem:${key}`;
+      const record = readRecord(await storage.get(storageKey));
+      if (record === undefined || record.leaseUntilMs <= nowMs) return;
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone" || record.progress.phase === "cancelled") return;
+      await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
     });
   }
 
@@ -561,9 +610,11 @@ export class TenantLedger {
         if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
       }
     }
+    // One storage call per 128 intents, not one per slot: a CI principal's sweep reads every retained slot's intent.
+    const records = await getMany(this.storage, [...keys].map((key) => `idem:${key}`));
     const found: RetainedCreationSlot[] = [];
     for (const key of keys) {
-      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      const p = readRecord(records.get(`idem:${key}`))?.progress;
       if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
       const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
       if (!Number.isFinite(startedMs)) continue;
@@ -610,6 +661,12 @@ export function memoryLedgerStorage(): LedgerStorage {
   const view = (read: (key: string) => unknown, write: (key: string, value: unknown) => void, remove: (key: string) => boolean, entries: () => Map<string, unknown>, atomic: LedgerStorage["transaction"]): LedgerStorage => ({
     transaction: atomic,
     get: async (key) => structuredClone(read(key)),
+    getMany: async (keys) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) { const value = read(key); if (value !== undefined) out.set(key, structuredClone(value)); }
+      return out;
+    },
+    deleteMany: async (keys) => keys.filter((key) => remove(key)).length,
     put: async (key, value) => {
       write(key, structuredClone(value));
     },

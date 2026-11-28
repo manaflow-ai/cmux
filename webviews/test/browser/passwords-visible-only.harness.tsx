@@ -21,7 +21,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Changes the `index`th login's username (keeping its place) and has the page read the lists again. */
-    benchChangeOne(index: number): void | Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

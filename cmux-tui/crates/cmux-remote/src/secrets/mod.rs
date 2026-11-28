@@ -256,6 +256,54 @@ impl MachineSecrets {
         Ok(count)
     }
 
+    /// `git-host-tokens-v1`: write the person's own token for `host` to
+    /// `~/.config/cmux/git-hosts/<host>` (0600), or remove it when `item` is
+    /// `None`. The item must be sealed for this machine with purpose
+    /// `git-host` and named `host`. Answers whether a token is there now.
+    pub fn replace_git_host_token(
+        &self,
+        host: &str,
+        item: Option<&SealedSecret>,
+    ) -> Result<bool, RpcError> {
+        let result = self.git_host_inner(host, item);
+        let shown = if files::is_git_host(host) { host } else { "(not a host)" };
+        match &result {
+            Ok(true) => self.log(&format!("secrets-v1: wrote the git host token for {shown}")),
+            Ok(false) => self.log(&format!("secrets-v1: removed the git host token for {shown}")),
+            Err(error) => {
+                self.log(&format!("secrets-v1: git host token for {shown} refused ({error})"));
+            }
+        }
+        result
+    }
+
+    fn git_host_inner(&self, host: &str, item: Option<&SealedSecret>) -> Result<bool, RpcError> {
+        let Some(path) = files::git_host_path(&self.home, host) else {
+            return Err(refused("bad-name", "git-host"));
+        };
+        let (lock, mut replay, now) = self.begin(host)?;
+        let Some(item) = item else {
+            return files::remove_git_host_token(&lock, &self.home, host)
+                .map(|_| false)
+                .map_err(|_| refused("write", host));
+        };
+        if item.name != host {
+            return Err(refused("bad-name", &item.name));
+        }
+        let opened = self.open(&replay, now, Purpose::GitHost, item)?;
+        let token = std::str::from_utf8(&opened.value)
+            .ok()
+            .filter(|token| files::is_git_host_token(token))
+            .map(|token| Zeroizing::new(format!("{token}\n")))
+            .ok_or_else(|| refused("bad-value", host))?;
+        let taken = [(item.nonce.clone(), opened.issued_at)];
+        Self::take(&mut replay, now, &taken, host, || {
+            files::write_allowed_for(&lock, &self.home, Some(host), &path, token.as_bytes())
+                .map_err(|_| refused("write", host))
+        })?;
+        Ok(true)
+    }
+
     /// The names the machine's config declares; `None` while it has not
     /// finished an apply.
     fn declared_names(&self) -> Option<HashSet<String>> {

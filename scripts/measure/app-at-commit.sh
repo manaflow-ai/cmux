@@ -77,15 +77,24 @@ measure_app_at_commit() {
     done
   ) >/dev/null 2>&1 &
   progress=$!
-  (cd "$tree" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
-    --derived-data "$root/.build/DerivedData/cmux-measure-at" "$@") 2>&1 | tee "$tree.reload.log" >&2 || status=$?
+  # CMUX_STRINGS_BEST_EFFORT=1: a bench measures speed, so a translation the commit lacks warns instead of failing
+  # the strict gen-strings in its webviews build (a bench of #58024 died there on a branch-wide l10n red, 2026-11-27).
+  (cd "$tree" && CMUX_DEV_BACKEND_MODE=local CMUX_STRINGS_BEST_EFFORT=1 ./scripts/reload.sh --tag "$tag" \
+    --derived-data "$root/.build/DerivedData/cmux-measure-at" "$@") 2>&1 | tee "$tree.reload.log" >&2 \
+    && status="${PIPESTATUS[0]}" || status="${PIPESTATUS[0]}" # reload.sh's status, not tee's (no pipefail here)
   kill "$progress" 2>/dev/null || true
   wait "$progress" 2>/dev/null || true
-  [[ "$status" == 0 ]] || return "$status"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tree.reload.log" | tail -n 1)"
-  if [[ -z "$app" || ! -d "$app" ]]; then
-    echo "app-at-commit: the tagged reload at $full printed no app path" >&2
-    grep -E "error:|BUILD FAILED" "$tree.reload.log" | head -n 60 >&2 || true
+  if [[ "$status" != 0 || -z "$app" || ! -d "$app" ]]; then
+    # Say why: the error lines, or the log's last lines when none says error (a step that exits non-zero quietly).
+    if [[ "$status" != 0 ]]; then
+      echo "app-at-commit: the tagged reload at $full failed (status $status)" >&2
+    else
+      echo "app-at-commit: the tagged reload at $full printed no app path" >&2
+    fi
+    grep -E "error:|BUILD FAILED" "$tree.reload.log" | head -n 60 >&2 \
+      || { echo "app-at-commit: no error line; the reload log's last lines:" >&2; tail -n 30 "$tree.reload.log" >&2; }
+    [[ "$status" != 0 ]] && return "$status"
     return 1
   fi
   echo "app-at-commit: app of $full: $app" >&2

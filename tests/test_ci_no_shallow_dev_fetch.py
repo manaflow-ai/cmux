@@ -62,6 +62,7 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
+    "scripts/measure/warm-tree.sh": "fetches into its own `git init --bare` scratch repository ($gitsrc)",
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "images/cmux-vm/image-roll-record.sh": "fetches only into its own `git init` temp directory of the record branch",
@@ -89,6 +90,9 @@ OWN_REPOSITORY = {
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
     "scripts/cmux-next/swift-logic-pr-status.py":
         "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
+    "scripts/ci/ci_receipt.py": "the compare read fetches only into a `git init --bare` temporary repository it just made",
+    "scripts/ci/cmux-next-steps/dev-landing-place-place-the-compile.sh":
+        "fetches only into the `git init --bare` $GAP_REPO it just made",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }

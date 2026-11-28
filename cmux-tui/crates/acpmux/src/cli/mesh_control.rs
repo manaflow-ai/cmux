@@ -95,7 +95,7 @@ fn request(command: SessionCmd) -> Result<Value> {
         SessionCmd::Resume { session, mesh, .. } if mesh.mesh => {
             ("resume", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
         }
-        SessionCmd::Stop { session, purge, mesh, condition, close } if mesh.mesh => {
+        SessionCmd::Stop { session, purge, mesh, condition, close, .. } if mesh.mesh => {
             if purge {
                 bail!("mesh stop keeps the stored session; --purge is unsupported");
             }
@@ -123,10 +123,51 @@ fn request(command: SessionCmd) -> Result<Value> {
     Ok(json!({"op": op, "to": to, "params": params, "idempotencyKey": key}))
 }
 
+/// The key a name target was given as: `HOST/NAME` split back together, or the bare name.
+fn name_key(to: &Value) -> Option<String> {
+    let name = to["name"].as_str()?;
+    Some(match to["host"].as_str() {
+        Some(host) => format!("{host}/{name}"),
+        None => name.to_owned(),
+    })
+}
+
+/// The recipient for a session this daemon resolved to `routed` (`resolve::control_route`'s id,
+/// `PEER/ID` or `ID`): the exact session id, which the hub routes without guessing a host.
+fn pinned_to(routed: &str) -> Value {
+    json!({"sessionId": routed.rsplit('/').next().unwrap_or(routed)})
+}
+
+/// A stop or resume by name goes as the session's exact id when this daemon can resolve it. The
+/// hub reads `A/B` as host A, name B, so a session whose own name has a slash
+/// (`coord/review` on a machine named otherwise), or a bare name several machines
+/// hold (`claude-17`), was enqueued for the wrong machine or none, refused there, and the CLI had
+/// said `queued` (shadow-leo: "close sessions that are well and truly done"). A name several
+/// sessions answer is refused here with its choices; one this daemon does not know goes as before.
+async fn pin_target(client: &crate::client::Client, request: &mut Value) -> Result<()> {
+    if !matches!(request["op"].as_str(), Some("stop" | "resume")) {
+        return Ok(());
+    }
+    let Some(key) = name_key(&request["to"]) else { return Ok(()) };
+    match crate::cli::resolve::control_route(client, &key).await {
+        Ok((routed, _)) => request["to"] = pinned_to(&routed),
+        Err(e) => {
+            let unknown = e
+                .downcast_ref::<crate::cli::errors::AppError>()
+                .is_some_and(|a| matches!(a.code, crate::cli::errors::Code::NoSession));
+            if !unknown {
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
-    let request = request(command)?;
+    let mut request = request(command)?;
     // The daemon keeps its token. The CLI uses only its normal local socket.
     let client = crate::daemon::connect(true).await?;
+    pin_target(&client, &mut request).await?;
     let reply = match client.request(method::MUX_MESH_CONTROL, request.clone()).await {
         Ok(reply) => reply,
         Err(error) => {

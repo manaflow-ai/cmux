@@ -42,6 +42,23 @@ fn work_is_kept_under_a_ref_outside_heads_and_pushed() {
 }
 
 #[test]
+fn a_repository_with_no_origin_and_no_commit_is_a_plain_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    run(dir.path(), &["init", "-q"]);
+    std::fs::write(dir.path().join("notes.txt"), "work\n").unwrap();
+    assert_eq!(save_blocking(dir.path(), "sess-1"), Saved::Skipped);
+    // No ref and no objects were written for it.
+    assert_eq!(run(dir.path(), &["for-each-ref"]), "");
+    assert_eq!(run(dir.path(), &["count-objects"]), "0 objects, 0 kilobytes");
+    // With an origin, an unborn repository's work is still saved (the push has a place to go).
+    let remote = dir.path().join("remote.git");
+    run(dir.path(), &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    run(dir.path(), &["remote", "add", "origin", remote.to_str().unwrap()]);
+    std::fs::write(dir.path().join(".gitignore"), "remote.git/\n").unwrap();
+    assert!(matches!(save_blocking(dir.path(), "sess-1"), Saved::Written { pushed: true, .. }));
+}
+
+#[test]
 fn a_folder_without_git_or_a_plain_id_is_skipped() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(save_blocking(dir.path(), "sess-1"), Saved::Skipped);

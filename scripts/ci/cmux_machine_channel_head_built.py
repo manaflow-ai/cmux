@@ -37,6 +37,9 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
+
 TARGETS = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
 ROUTER = "pr-router.yml"
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,8 +57,9 @@ def github_api(repo: str, token: str) -> Api:
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return json.load(r)
+            # Asked again on a passing refusal (gh_http); a 401/404 or permission 403 raises at once.
+            _, body, _ = gh_http.request(req, 20, raise_errors=True)
+            return json.loads(body)
         except urllib.error.HTTPError as exc:
             body = exc.read(300).decode("utf-8", "replace").replace("\n", " ")
             raise RuntimeError(f"{path}: HTTP {exc.code}: {body}") from exc

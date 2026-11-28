@@ -69,6 +69,8 @@
 //! cmux-background-ready, include/cmux_background_ready.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
+//! `updater` is the macOS app updater's decisions, as JSON ops (the install
+//! gate over Sparkle's flow first; include/cmux_updater.h).
 
 /// cbindgen:ignore
 pub mod files_lister;
@@ -88,6 +90,8 @@ pub mod sign_clone_sweep;
 pub mod system_calendar;
 pub mod terminal_selection;
 /// cbindgen:ignore
+pub mod updater;
+/// cbindgen:ignore
 /// Live wallpapers: its own header (include/cmux_wallpaper_ffi.h, cbindgen-wallpaper.toml),
 /// so it stays out of cmux_motion_ffi.h.
 pub mod wallpaper;
@@ -101,6 +105,7 @@ pub use cmux_chat_markdown::ffi as chat_markdown;
 pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
+pub use cmux_design_core::ffi as design;
 pub use cmux_health_core::ffi as health;
 pub use cmux_keymap::ffi as keymap;
 pub use cmux_launch_image::ffi as launch_image;

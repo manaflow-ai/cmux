@@ -2096,6 +2096,8 @@ pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore_progress: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
 }
 
@@ -2965,6 +2967,16 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OfferLinkToPhoneRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type OfferLinkToPhoneResult = T::PhoneLinkOfferResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3150,6 +3162,20 @@ pub struct ReattachViewRequest {
     pub counts: Optional<bool>,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordNotificationDeliveryRequest {
+    /// shown or suppressed.
+    pub desktop: String,
+    pub notification: u64,
+    /// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type RecordNotificationDeliveryResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3583,6 +3609,8 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore_progress: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -5277,6 +5305,9 @@ impl CmuxClient {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
         }
+        if request.restore_progress.is_some() {
+            self.require_protocol_field("identify", 12)?;
+        }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
         }
@@ -5705,6 +5736,10 @@ impl CmuxClient {
         self.execute(&NOTIFY_METADATA, &request)
     }
 
+    pub fn offer_link_to_phone(&mut self, request: OfferLinkToPhoneRequest) -> Result<OfferLinkToPhoneResult> {
+        self.execute(&OFFER_LINK_TO_PHONE_METADATA, &request)
+    }
+
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
         self.execute(&PAGE_CREDENTIAL_METADATA, &request)
     }
@@ -5770,6 +5805,10 @@ impl CmuxClient {
 
     pub fn reattach_view(&mut self, request: ReattachViewRequest) -> Result<T::ReattachViewResult> {
         self.execute(&REATTACH_VIEW_METADATA, &request)
+    }
+
+    pub fn record_notification_delivery(&mut self, request: RecordNotificationDeliveryRequest) -> Result<RecordNotificationDeliveryResult> {
+        self.execute(&RECORD_NOTIFICATION_DELIVERY_METADATA, &request)
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
@@ -5973,6 +6012,9 @@ impl CmuxClient {
     }
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
+        if request.restore_progress.is_some() {
+            self.require_protocol_field("server-stats", 12)?;
+        }
         self.execute(&SERVER_STATS_METADATA, &request)
     }
 

@@ -28,8 +28,12 @@ run_at() {
   local log="$root/.build/mac-screen-120fps-$label.log" status=0
   mkdir -p "$root/.build"
   echo "MAC-SCREEN-120FPS-RUN $label rev=$(git -C "$checkout" rev-parse HEAD)"
-  CMUX_VNC_120FPS=1 swift test --package-path "$checkout/Packages/Shared/CmuxVNCWebRTC" \
-    --filter HighFrameRateStreamTests >"$log" 2>&1 || status=$?
+  # The encoding is cmux-rd-screen's (op screen_quality_encoding): the test asks the built dylib.
+  local target="$checkout/cmux-tui/target"
+  [[ -z "${CARGO_TARGET_DIR:-}" ]] || target="$CARGO_TARGET_DIR"
+  (cd "$checkout/cmux-tui" && CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}" cargo build --release -p cmux-rd-screen-ffi) >"$log" 2>&1 || status=$?
+  CMUX_RD_SCREEN_DYLIB="$target/release/libcmux_rd_screen_ffi.dylib" CMUX_VNC_120FPS=1 swift test --package-path "$checkout/Packages/Shared/CmuxVNCWebRTC" \
+    --filter HighFrameRateStreamTests >>"$log" 2>&1 || status=$?
   grep -E "MAC-SCREEN-120FPS|host: (frame rate|capturing|video:)|✘|passed after|failed after|error:" "$log" || true
   # No result line (a build failure, or a commit without the test, whose filter matches nothing): a failure.
   if ! grep -q "MAC-SCREEN-120FPS quality=" "$log"; then

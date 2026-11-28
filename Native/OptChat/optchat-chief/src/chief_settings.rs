@@ -447,10 +447,10 @@ mod trusted_agent_tests {
     use super::*;
 
     #[test]
-    fn coordinator_sessions_are_trusted_by_default_and_others_are_not() {
+    fn no_session_is_trusted_by_default() {
         let s = ChiefSettings::default();
-        assert!(s.trusts_agent("claude-sr2-coord"));
-        assert!(s.trusts_agent("big-red/claude-sr2-coord"));
+        assert!(!s.trusts_agent("claude-sr2-coord"));
+        assert!(!s.trusts_agent("peer/claude-sr2-coord"));
         assert!(!s.trusts_agent("lane-a"));
         assert!(!s.trusts_agent("coord-lane"));
         assert!(!s.trusts_agent(""));

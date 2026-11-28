@@ -93,19 +93,8 @@ public struct FeedLocalItem: Decodable, Sendable, Hashable, Identifiable {
     public var isUnread: Bool { readAtMs == nil }
 }
 
-/// `feed-local-list {state?, terminal_id?, unread?}`: local items, oldest first.
-public struct FeedLocalListRequest: DaemonRequest {
+extension FeedLocalListRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var items: [FeedLocalItem]
-    }
-    public static let command = "feed-local-list"
-    public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
-    public var state: FeedLocalItem.State?
-    public var terminalId: String?
-    public var unread: Bool?
-    public init(state: FeedLocalItem.State? = nil, terminalId: String? = nil, unread: Bool? = nil) {
-        self.state = state
-        self.terminalId = terminalId
-        self.unread = unread
     }
 }

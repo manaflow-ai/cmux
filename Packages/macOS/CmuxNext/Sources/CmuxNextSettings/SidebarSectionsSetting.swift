@@ -63,6 +63,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: minimalDefault, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
+        result.relativeTimestamps = flag(root, relativeTimestampsPath, fallback: relativeTimestampsDefault, &diagnostics)
         result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
         result.showAgentSessions = flag(root, showAgentSessionsPath, fallback: showAgentSessionsDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)

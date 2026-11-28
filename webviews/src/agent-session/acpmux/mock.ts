@@ -20,7 +20,6 @@ import {
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 import { dataUrlImageSize } from "./conversation/imageEntries";
-import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -62,10 +61,17 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** The pause before each step of an unscripted turn (mockTurn), 350 ms when unset. A gallery play that
+   *  only needs finished turns behind its scene sets it low, so its setup turns cost no seconds of play. */
+  cmuxAcpmuxMockStepMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
   /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
   cmuxAcpmuxMockListShape?: "fleet";
+  /** The benches that list many sessions (sim-ladder, update-one, render-counts, session-scale-*, chat-fast-scroll):
+   *  page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions` from `nextCursor`), as acpmux
+   *  does (list_reply.rs), so each page holds the first page, as the app's do. */
+  cmuxAcpmuxMockPaged?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -333,8 +339,6 @@ export class MockAcpmuxSocket {
   /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
   private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
   private stashSerial = 0;
-  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
-  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -399,6 +403,24 @@ export class MockAcpmuxSocket {
       this.readyState = 1;
       this.onopen?.();
     });
+  }
+
+  /// The list, or with `cmuxAcpmuxMockPaged` one page of it as acpmux answers one: at most `limit` rows, newest
+  /// first, from `cursor`, with `nextCursor` while more remain; with no `limit`, the rest. Unpaged (the default),
+  /// the whole list with no cursor: a daemon that ignores `limit`.
+  private listPage(params: Record<string, unknown>): { sessions: Record<string, any>[]; nextCursor?: string } {
+    if (!(globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged) return { sessions: this.sessions };
+    const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
+    const from = cursor?.startsWith("mock:") ? Number(cursor.slice(5)) : 0;
+    const start = Number.isInteger(from) && from > 0 ? from : 0;
+    const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : undefined;
+    const ordered = [...this.sessions].sort(
+      (a, b) =>
+        (typeof b.updatedAt === "number" ? b.updatedAt : 0) - (typeof a.updatedAt === "number" ? a.updatedAt : 0),
+    );
+    const end = limit === undefined ? ordered.length : Math.min(ordered.length, start + limit);
+    const sessions = ordered.slice(start, end);
+    return end < ordered.length ? { sessions, nextCursor: `mock:${end}` } : { sessions };
   }
 
   /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
@@ -816,7 +838,10 @@ export class MockAcpmuxSocket {
       // until a watch turns it on again; it answers no list (server/list_reply.rs `watch`).
       case "_acpmux/watch":
         this.watching = params.enabled !== false;
-        return this.watching ? { sessions: this.sessions } : {};
+        return this.watching ? this.listPage(params) : {};
+      // The pages after the first (`nextCursor`), as acpmux answers them (list_reply.rs).
+      case "_acpmux/sessions":
+        return (globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged ? this.listPage(params) : {};
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1025,30 +1050,6 @@ export class MockAcpmuxSocket {
         this.stash.set(to, [...moving, ...kept].slice(0, 5));
         this.stash.delete(from);
         return { moved: moving.length, ids: source.map((entry) => entry.id) };
-      }
-      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
-      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
-      case "_acpmux/agent_home": {
-        this.agentHome ??= sampleAgentHome(Date.now(), 2);
-        return this.agentHome;
-      }
-      case "_acpmux/agent_home_resolve": {
-        this.agentHome ??= sampleAgentHome(Date.now(), 2);
-        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
-        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
-        const accepted = ids(params.accept).filter((id) => held.has(id));
-        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
-        const refused = [...ids(params.accept), ...ids(params.drop)]
-          .filter((id) => !held.has(id))
-          .map((id) => ({ id, reason: "unknown proposal" }));
-        const settled = new Set([...accepted, ...dropped]);
-        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
-        this.agentHome = {
-          ...this.agentHome,
-          revision,
-          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
-        };
-        return { accepted, dropped, refused, revision };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
@@ -1468,7 +1469,10 @@ export class MockAcpmuxSocket {
     if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) {
+        const { cmuxAcpmuxMockStepMs: stepMs } = globalThis as MockAuthGlobals;
+        await this.delay(typeof stepMs === "number" ? stepMs : 350);
+      }
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }

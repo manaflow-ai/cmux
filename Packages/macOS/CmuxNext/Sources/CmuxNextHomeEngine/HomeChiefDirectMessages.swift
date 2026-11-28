@@ -47,7 +47,9 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
     }
 
     /// The one idempotency key of the person's direct message with `chief`.
-    public static func key(for chief: String) -> String { "home-chief-dm-" + chief }
+    public static func key(for chief: String) -> String {
+        dockRule("dock.chief_dm_key", ["chief": chief], fallback: "home-chief-dm-" + chief)
+    }
 
     /// The `conversation-create` request of the person's direct message with `chief`, titled `name`.
     ///
@@ -61,19 +63,6 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
         return CreateConversationRequest(idempotencyKey: key(for: chief), title: name, participants: [me, participant])
     }
 
-    /// Each Chief record's id and display name, in the owner's order, from a `chief.profile.list` result.
-    static func records(_ listed: JSONValue) -> [(id: String, name: String)] {
-        guard case .object(let reply) = listed else { return [] }
-        var object = reply
-        if case .object(let value)? = reply["value"] { object = value }
-        guard case .array(let chiefs)? = object["chiefs"] else { return [] }
-        return chiefs.compactMap { chief in
-            guard case .object(let record) = chief, case .string(let id)? = record["id"], !id.isEmpty else { return nil }
-            guard case .string(let name)? = record["display_name"], !name.isEmpty else { return (id, id) }
-            return (id, name)
-        }
-    }
-
     /// Opens the direct message of each of the owner's Chiefs that `listed` (the Chiefs in a local
     /// conversation) does not hold. The default Chief is skipped: Home keeps its conversation.
     ///
@@ -82,11 +71,23 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
     public func open(missingFrom listed: Set<String>) async -> [String: ConversationID] {
         guard let all = try? await list() else { return [:] }
         var opened: [String: ConversationID] = [:]
-        for record in Self.records(all) where record.id != HomeChiefName.muxID && !listed.contains(record.id) {
+        // The owner's Chiefs but the default one (Home keeps its conversation) and those listed.
+        let missing: [Record] = dockRule("dock.chief_dm_missing", MissingRequest(all: all, listed: listed.sorted()), fallback: [])
+        for record in missing {
             if let id = try? await open(Self.request(me: me, chief: record.id, name: record.name)) {
                 opened[record.id] = ConversationID(id)
             }
         }
         return opened
+    }
+
+    private struct MissingRequest: Encodable {
+        var all: JSONValue
+        var listed: [String]
+    }
+
+    private struct Record: Decodable {
+        var id: String
+        var name: String
     }
 }

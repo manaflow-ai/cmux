@@ -81,6 +81,24 @@ grep -q "app-at-commit: still building slowtag .*compiling slowly" "$root/slow.o
 if grep -q "still building" "$root/slow.err"; then echo "app-at-commit: progress went to the caller's stderr" >&2; exit 1; fi
 (( elapsed < 8 )) || { echo "app-at-commit: returned ${elapsed}s after a 3s build" >&2; exit 1; }
 
+# A build that fails quietly returns its status and says why: with no error line, the log's last lines go to stderr.
+# A bench passes CMUX_STRINGS_BEST_EFFORT=1, so a missing translation does not fail the build (2026-11-27).
+cat >"$repo/scripts/reload.sh" <<EOF
+#!/usr/bin/env bash
+echo "strings best effort=\${CMUX_STRINGS_BEST_EFFORT:-unset}"
+echo "settings: 80 strings missing"
+exit 4
+EOF
+git -C "$repo" add scripts/reload.sh
+git -C "$repo" commit -q -m quiet
+quiet="$(git -C "$repo" rev-parse HEAD)"
+rc=0
+(cd "$repo" && source "$lib" && measure_app_at_commit "$quiet" quiettag "$root/scratch/quiet" 2>"$root/quiet.err" >/dev/null) || rc=$?
+[[ "$rc" == 4 ]] || { echo "app-at-commit: a reload that exits 4 returned $rc" >&2; exit 1; }
+grep -q "failed (status 4)" "$root/quiet.err" || { echo "app-at-commit: no failure line: $(cat "$root/quiet.err")" >&2; exit 1; }
+grep -q "the reload log's last lines" "$root/quiet.err" || { echo "app-at-commit: no log tail on a quiet failure" >&2; exit 1; }
+grep -q "strings best effort=1" "$root/quiet.err" || { echo "app-at-commit: reload.sh ran without CMUX_STRINGS_BEST_EFFORT=1" >&2; exit 1; }
+
 # A commit nobody can fetch fails, and builds nothing.
 if (cd "$repo" && CMUX_MEASURE_FETCH_URL="$repo" && export CMUX_MEASURE_FETCH_URL && source "$lib" && measure_app_at_commit 0123456789012345678901234567890123456789 t "$root/scratch/none" 2>/dev/null); then
   echo "app-at-commit: an unknown commit did not fail" >&2; exit 1

@@ -532,7 +532,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "sidebar",
             "search",
@@ -639,7 +639,7 @@
           },
           "help": {
             "key": "settings.sidebar.workspacesAsTabs.help",
-            "text": "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
+            "text": "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs."
           },
           "kind": "toggle",
           "default": false,
@@ -1191,6 +1191,35 @@
             "duration",
             "last activity",
             "clock",
+            "rows"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.relativeTimestamps",
+          "title": {
+            "key": "settings.sidebar.relativeTimestamps",
+            "text": "Relative Timestamps"
+          },
+          "help": {
+            "key": "settings.sidebar.relativeTimestamps.help",
+            "text": "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "timestamps",
+            "relative",
+            "age",
+            "ago",
+            "elapsed",
+            "minutes",
+            "hours",
+            "time",
             "rows"
           ],
           "swift_owner": {

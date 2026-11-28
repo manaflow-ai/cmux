@@ -82,7 +82,6 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         model.agentSignatures = services.agentSignatures
-        wireSubagentOpen()
         // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
         container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
@@ -166,10 +165,10 @@ final class SidebarBridge {
         // The spaces and the current space come from the same observation
         // as the rows (cx-5k3r): a space switch reaches the sidebar as one
         // change (new space and its rows together).
-        // The band's layout comes with the rows it projects too (cx-odqn):
-        // a pinned workspace leaves the list in the turn it joins the band.
+        // The band's layout comes with the rows it projects too (cx-odqn): a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, showsFirstRunAtOnce: seededProfiles == nil, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            // bridge-ok: Chief faces are lookups (ChiefMascotPicks memo, HomeStore.chiefIDs); PerChiefPetTests times 1,100 rows.
+            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFace(of: $0)) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
                      services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
