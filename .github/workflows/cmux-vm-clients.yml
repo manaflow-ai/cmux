@@ -123,7 +123,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          ./scripts/regenerate.sh
+          CMUX_VM_REGEN_SKIP_CALLERS=1 ./scripts/regenerate.sh
           if [[ -n "$(git status --porcelain -- .)" ]]; then
             git --no-pager diff --stat -- .
             echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
