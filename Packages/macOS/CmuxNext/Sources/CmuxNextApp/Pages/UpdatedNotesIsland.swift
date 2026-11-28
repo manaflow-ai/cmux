@@ -18,7 +18,7 @@ final class UpdatedNotesIsland: SidebarSurfaceIsland {
     var onDismiss: (() -> Void)?
     private var task: Task<Void, Never>?
 
-    var contentWidth: CGFloat { SidebarUpdateCardView.popoverWidth }
+    var contentWidth: CGFloat { 340 }
     var contentHeight: CGFloat { notes.text == nil ? 0 : notes.fittingHeight(width: contentWidth) }
     var contentSettled: Bool { true }
     var paintsOwnGlass: Bool { false }
