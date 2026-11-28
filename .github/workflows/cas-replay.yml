@@ -47,6 +47,7 @@ on:
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
+      - "cmux-tui/crates/cmux-signed-envelope/**"
       - "scripts/cas/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - ".github/workflows/cas-replay.yml"

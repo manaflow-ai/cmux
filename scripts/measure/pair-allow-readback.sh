@@ -32,6 +32,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/pair-allow-readback.XXXXXX")"
 mnt=""
 cleanup() { [[ -n "$mnt" ]] && hdiutil detach "$mnt" >/dev/null 2>&1; rm -rf "$work"; }
 trap cleanup EXIT
+# Every call that can wait on something (the bundled CLI, cargo) runs under a bound: a 2026-11-27 run sat 6 h after the
+# plist read with no output. macOS has no timeout(1); perl's alarm survives exec and SIGALRM ends the call (rc 142).
+bounded() { local secs="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec $ARGV[0]: $!"' "$secs" "$@"; }
 curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/nightly.dmg" "$dmg" || { echo "PAR download failed"; exit 3; }
 mnt="$work/mnt"; mkdir -p "$mnt"
 hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null || exit 3
@@ -44,14 +47,15 @@ echo "PAR nightly $(plutil -extract CFBundleShortVersionString raw -o - "$plist"
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */PAR nightly plist /'
 cli="$(find "$work/app.app/Contents" -type f -perm -u+x -name cmux 2>/dev/null | head -1)"
 [[ -n "$cli" ]] || { echo "PAR no cmux CLI in the bundle"; exit 3; }
-echo "PAR cli ${cli#"$work/app.app/"}: $(HOME="$work" "$cli" --version 2>&1 | head -1)"
-HOME="$work" "$cli" mobile pair-requests --help 2>&1 | head -6 | sed 's/^/PAR help /'
+echo "PAR cli ${cli#"$work/app.app/"}: $(HOME="$work" bounded 60 "$cli" --version </dev/null 2>&1 | head -1) (rc ${PIPESTATUS[0]})"
+HOME="$work" bounded 60 "$cli" mobile pair-requests --help </dev/null 2>&1 | head -6 | sed 's/^/PAR help /'
 
 cd "$root/cmux-next-ios/rust" || exit 3
 export CARGO_TARGET_DIR="$root/.build/pair-allow-readback-target"
-CMUX_PAIR_REQUESTS_CLI="$cli" cargo test --locked -p cmux-mobile-host --test host -- lists_and_allows \
+CMUX_PAIR_REQUESTS_CLI="$cli" bounded 2700 cargo test --locked -p cmux-mobile-host --test host -- lists_and_allows \
   --nocapture --test-threads=1 2>&1 | tee "$work/test.log"
 status=${PIPESTATUS[0]}
+[[ "$status" == 142 ]] && echo "PAR cargo test passed its 2700 s bound"
 grep -E '^test .* (ok|FAILED)$|^test result' "$work/test.log" | sed 's/^/PAR /'
 echo "PAR exit=$status step $(git -C "$root" rev-parse HEAD) nightly $(plutil -extract CFBundleVersion raw -o - "$plist")"
 exit "$status"

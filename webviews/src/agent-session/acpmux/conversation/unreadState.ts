@@ -39,7 +39,6 @@ export type UnreadView = {
 /// How the banner shows, the `agentPane.display.unreadBanner` setting (chatDisplay.ts): expanded
 /// (the count, the time, Jump and Mark read), collapsed (a small pill), or off.
 export type UnreadBannerMode = "expanded" | "collapsed" | "off";
-export const UNREAD_BANNER_MODES: readonly UnreadBannerMode[] = ["expanded", "collapsed", "off"];
 export const isUnreadBannerMode = (value: unknown): value is UnreadBannerMode =>
   value === "expanded" || value === "collapsed" || value === "off";
 
