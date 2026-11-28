@@ -22,6 +22,13 @@ use serde::{Deserialize, Serialize};
 use super::{Receipt, Reference, SetupSource, check_id};
 use crate::Error;
 
+/// Whether `words` is the short plain phrase a look's tagline or description
+/// is: at most seven words, no colon or semicolon (no "A look: x, y, z").
+pub fn plain_phrase(words: &str) -> bool {
+    let words = words.trim();
+    !words.is_empty() && words.split_whitespace().count() <= 7 && !words.contains([':', ';'])
+}
+
 /// The catalog as compiled in.
 pub const CATALOG: &str = include_str!("looks.json");
 /// The catalog format version this cmux reads.
@@ -57,6 +64,10 @@ pub struct Look {
     pub repo: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Two or three plain words that sum it up ("Dark", "Compact"): the
+    /// gallery's tag line when `experiments.lookDescriptions` is `tagged`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub traits: Vec<String>,
     /// Repo files that picture it, per scheme, tried before the golden
     /// sample's (a look whose pictures are not at `preview/golden-*.png`).
     #[serde(default, skip_serializing_if = "Previews::is_empty")]

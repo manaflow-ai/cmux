@@ -652,11 +652,12 @@ fn an_empty_machine_gets_every_look_and_no_stack() {
     assert_eq!(
         looks[0],
         json!({
-            "id": "manaflow-ai/studio-look",
-            "name": "Studio",
-            "tagline": "Dark and compact, made for long agent chats.",
-            "repo": "github.com/manaflow-ai/cmux-studio-look",
-            "tags": ["chat", "dark", "sidebar"],
+            "id": "manaflow-ai/codex-profile",
+            "name": "Codex",
+            "tagline": "Like Codex.",
+            "repo": "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
+            "tags": ["chat", "sidebar", "new-tab"],
+            "traits": ["Light", "Round corners"],
             "installed": null,
         })
     );
@@ -710,27 +711,26 @@ fn a_preview_is_fetched_once_kept_a_day_and_falls_back_file_by_file() {
         Ok(url.ends_with("screenshots/chat.png").then(|| PNG.to_vec()))
     };
     let now = 1_000_000;
-    let first =
-        preview(&customize, "manaflow-ai/studio-look", Scheme::Dark, &mut get, now).unwrap();
+    let first = preview(&customize, "manaflow-ai/paper-look", Scheme::Dark, &mut get, now).unwrap();
     assert_eq!(first["path"], "screenshots/chat.png");
     assert_eq!(first["cached"], json!(false));
     assert_eq!(first["scheme"], "dark");
-    assert_eq!(first["id"], "manaflow-ai/studio-look");
+    assert_eq!(first["id"], "manaflow-ai/paper-look");
     assert_eq!(first["dataUrl"], "data:image/png;base64,iVBORw0KGgppbWFnZQ==");
     assert_eq!(
         *asked.borrow(),
         [
-            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/preview/golden-dark.png",
-            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/preview/golden-light.png",
-            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/screenshots/chat.png",
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-paper-look/HEAD/preview/golden-dark.png",
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-paper-look/HEAD/preview/golden-light.png",
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-paper-look/HEAD/screenshots/chat.png",
         ]
     );
-    assert!(root.path().join("state/looks/previews/manaflow-ai-studio-look/dark.png").is_file());
+    assert!(root.path().join("state/looks/previews/manaflow-ai-paper-look/dark.png").is_file());
     // By its repo too, from the cache, without a request.
     asked.borrow_mut().clear();
     let again = preview(
         &customize,
-        "https://github.com/manaflow-ai/cmux-studio-look",
+        "https://github.com/manaflow-ai/cmux-paper-look",
         Scheme::Dark,
         &mut get,
         now + 1000,
@@ -742,7 +742,7 @@ fn a_preview_is_fetched_once_kept_a_day_and_falls_back_file_by_file() {
     );
     assert!(asked.borrow().is_empty());
     // A day on, it is fetched again.
-    preview(&customize, "manaflow-ai/studio-look", Scheme::Dark, &mut get, now + 86_400_000)
+    preview(&customize, "manaflow-ai/paper-look", Scheme::Dark, &mut get, now + 86_400_000)
         .unwrap();
     assert_eq!(asked.borrow().len(), 3);
 }
@@ -759,7 +759,7 @@ fn a_repo_with_no_preview_is_refused_and_that_is_kept_too() {
     };
     for _ in 0..2 {
         let Err(failure) =
-            preview(&customize, "manaflow-ai/studio-look", Scheme::Light, &mut get, 5)
+            preview(&customize, "manaflow-ai/paper-look", Scheme::Light, &mut get, 5)
         else {
             panic!()
         };

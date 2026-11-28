@@ -127,6 +127,53 @@
           ]
         },
         {
+          "key": "experiments.lookDescriptions",
+          "note": "Taste prototype (Leo 2026-11-27: \"im not a fan of the descriptions on our themes and whatnot\"): how Settings > Appearance > Looks words each tile (webviews LooksGalleryCard.tsx, lookDescriptions.ts). A, the shipped one: one short plain phrase. B: the name and preview only. C: the phrase over a two or three word tag line from the catalog's traits (Dark · Compact). Default A; B and C change nothing else.",
+          "title": {
+            "key": "settings.experiments.lookDescriptions",
+            "text": "Look Descriptions"
+          },
+          "help": {
+            "key": "settings.experiments.lookDescriptions.help",
+            "text": "How each look in the Looks gallery is described."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "phrase",
+              "title": {
+                "key": "settings.choice.lookDescriptions.phrase",
+                "text": "A: One Short Phrase"
+              }
+            },
+            {
+              "value": "name",
+              "title": {
+                "key": "settings.choice.lookDescriptions.name",
+                "text": "B: Name Only"
+              }
+            },
+            {
+              "value": "tagged",
+              "title": {
+                "key": "settings.choice.lookDescriptions.tagged",
+                "text": "C: Phrase and Tag Line"
+              }
+            }
+          ],
+          "default": "phrase",
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "looks",
+            "gallery",
+            "descriptions",
+            "tagline",
+            "themes"
+          ]
+        },
+        {
           "key": "experiments.paletteV2",
           "note": "Taste prototype: the native command palette (CmuxNextPalette, PaletteV2Look) groups its results under Workspaces, Sessions, Commands and Agents, regrouping as you type, the top match selected, an Esc chip in the field. A: grouped list; B: a category rail with counts; C: grouped with a scope bar (All, This Workspace, Sessions) and typed tokens. Read on every open (PaletteSourcesBridge). Off by default; off keeps today's palette.",
           "title": {

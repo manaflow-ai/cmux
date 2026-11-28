@@ -4,7 +4,7 @@
 // one for light ink.
 {
   "name": "Duotone Dark",
-  "description": "Dark: two shades of dark gray.",
+  "description": "Two dark grays, no color.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

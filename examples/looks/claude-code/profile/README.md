@@ -1,4 +1,4 @@
-# Claude Code app profile
+# Claude Code
 
 The whole Claude Code desktop app in one install, not only its look: the
 [whole](../whole) look (theme, project sidebar, transcript, one-line composer, New Tab home,

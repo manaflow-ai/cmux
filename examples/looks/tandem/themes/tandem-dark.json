@@ -7,7 +7,7 @@
 // accent (#271E1D sampled).
 {
   "name": "Tandem Dark",
-  "description": "Dark: a warm near-black card, a warm gray sidebar, an orange accent.",
+  "description": "Warm near-black, orange accent.",
 
   // The terminal follows the workspace; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Dark",

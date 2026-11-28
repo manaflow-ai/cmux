@@ -2,7 +2,7 @@
 // links), electric cyan for work in progress, floating round panes with a gap between them.
 {
   "name": "Overdrive",
-  "description": "Near-black, hot pink and electric cyan, fast motion.",
+  "description": "Black with hot pink and cyan.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

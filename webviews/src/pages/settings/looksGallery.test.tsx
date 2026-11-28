@@ -3,7 +3,7 @@
 // page's words, pins the commit the card showed, and sends `order` every installed id top first.
 // On the page: Appearance shows the gallery after the theme studio; Install shows the consent card and installs only
 // after it, pinned; an installed look turns off, moves and uninstalls (after asking).
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockOptions } from "./mockProvider";
 import type { Rendered } from "./testing";
@@ -14,6 +14,41 @@ const { renderPage, settle, click } = await import("./testing");
 const { consentLines, moveOrder, pinnedReference, readLooksAnswer, asGallery, asPreview } =
   await import("./looksGallery");
 const { mockConsentCard, mockStackedLooks } = await import("./mockLooks");
+const { rowsByKey, schema } = await import("./schema");
+type SchemaRow = (typeof schema.rows)[number];
+
+// The Experiments row `experiments.lookDescriptions` in the page's schema when the checked-in export
+// (settings-schema.json, regenerated on a Mac) does not have it yet, shaped like the other Experiments
+// choices; a no-op once the export lists it.
+beforeAll(() => {
+  const key = "experiments.lookDescriptions";
+  if (rowsByKey.has(key)) return;
+  const like = schema.rows.find((row) => row.key === "experiments.paletteV2");
+  if (!like) throw new Error("no Experiments choice to copy");
+  const choice = (value: string, text: string) => ({
+    value,
+    title: { key: `settings.choice.lookDescriptions.${value}`, text },
+  });
+  const row = {
+    ...structuredClone(like),
+    key,
+    path: ["experiments", "lookDescriptions"],
+    default: "phrase",
+    accepts: ["phrase", "name", "tagged"],
+    choices: [
+      choice("phrase", "A: One Short Phrase"),
+      choice("name", "B: Name Only"),
+      choice("tagged", "C: Phrase and Tag Line"),
+    ],
+    title: { key: "settings.experiments.lookDescriptions", text: "Look Descriptions" },
+    help: {
+      key: "settings.experiments.lookDescriptions.help",
+      text: "How each look in the Looks gallery is described.",
+    },
+  } as SchemaRow;
+  schema.rows.push(row);
+  (rowsByKey as Map<string, SchemaRow>).set(row.key, row);
+});
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -144,4 +179,25 @@ test("a refused change shows the CLI's words", async () => {
 test("a host without the Looks part draws no card", async () => {
   await open({ failing: { "cmux.settings.looks": "cmux.protocol.unknown_op" } });
   expect(card()).toBeNull();
+});
+
+// Leo, 2026-11-27: "im not a fan of the descriptions on our themes and whatnot". Look Descriptions
+// (`experiments.lookDescriptions`): one short phrase by default, the name alone, or the phrase and
+// its traits as one tag line.
+test("each look says one short phrase by default, only its name, or its phrase and tag line", async () => {
+  const words = () => {
+    const paper = tile("manaflow-ai/paper-look");
+    return [
+      paper.querySelector(".looks-tagline")?.textContent ?? null,
+      paper.querySelector(".looks-traits")?.textContent ?? null,
+    ];
+  };
+  await open();
+  expect(words()).toEqual(["Warm, roomy, serif replies.", null]);
+  page!.unmount();
+  await open({ values: { "experiments.lookDescriptions": "name" } });
+  expect(words()).toEqual([null, null]);
+  page!.unmount();
+  await open({ values: { "experiments.lookDescriptions": "tagged" } });
+  expect(words()).toEqual(["Warm, roomy, serif replies.", "Light · Roomy"]);
 });

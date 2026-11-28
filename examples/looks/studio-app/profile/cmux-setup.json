@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/studio-app-profile",
   "name": "Thread workspace, keys and motion",
-  "description": "The thread workspace look with every feature look's settings, the app's keyboard flows (Command-K palette, Command-J terminal, Command-D diff, Shift-Command-M/E/A composer chords) and its instant panels.",
+  "description": "Thread workspace with its keys and panels.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

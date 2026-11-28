@@ -2,7 +2,7 @@
 // Radius 8 px for panes, tabs, cards and popovers (layout.paneCornerRadius); buttons and tabs sit 2 px inside it.
 {
   "name": "Hairline Light",
-  "description": "Light: zinc grays, thin borders, no shadows.",
+  "description": "Light gray, thin borders.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

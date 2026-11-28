@@ -23,11 +23,11 @@ type Props = { layout: ChecklistLayout | "app-store"; state: State };
 
 /** Looks as the examples folders name them, when the gallery cannot read examples/ itself. */
 const SAMPLE_LOOKS: VerifiedLook[] = [
-  ["looks/ember", "manaflow-ai/ember-look", "Ember", "Warm dark surfaces with an ember accent."],
-  ["looks/hairline", "manaflow-ai/hairline", "Hairline", "One-pixel rules, no fills."],
-  ["looks/lamina", "manaflow-ai/lamina", "Lamina", "Layered glass panes."],
-  ["looks/paper", "manaflow-ai/paper", "Paper", "A light, printed page."],
-  ["recipes/focus", "manaflow-ai/focus", "Focus", "Hide the chrome while you type."],
+  ["looks/ember", "manaflow-ai/ember-look", "Ember", "Dark glass with a coral accent."],
+  ["looks/hairline", "manaflow-ai/hairline", "Hairline", "Flat grays with thin borders."],
+  ["looks/lamina", "manaflow-ai/lamina", "Lamina", "Frosted glass layers, compact rows."],
+  ["looks/paper", "manaflow-ai/paper", "Paper", "Warm, roomy, serif replies."],
+  ["recipes/focus", "manaflow-ai/focus", "Focus", "Less chrome while you type."],
 ].map(([folder, id, name, tagline]) => ({
   id: id!,
   name: name!,

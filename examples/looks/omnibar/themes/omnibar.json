@@ -4,7 +4,7 @@
 // The colours are Hush's (warm near-white), flattened to one tone. Its twin is Omnibar Dark.
 {
   "name": "Omnibar",
-  "description": "Light: one color for the sidebar and tabs.",
+  "description": "Light, one solid color.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

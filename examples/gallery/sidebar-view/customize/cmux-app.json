@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Starter sidebar view" },
   "version": "1.0.0",
-  "description": "A three-line hover card (title and age, status, branch) and rows with a dot while an agent works.",
+  "description": "Your own hover card and rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },
