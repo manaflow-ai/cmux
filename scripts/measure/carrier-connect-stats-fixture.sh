@@ -8,7 +8,7 @@
 set -euo pipefail
 # The binary links libghostty-vt, which needs Zig 0.17; a runner without one installs it here.
 if [ -z "${CMUX_ZIG:-}" ] && ! command -v zig >/dev/null; then
-  root="${ZIG_INSTALL_ROOT:-$HOME/.local/zig-ci}"
+  root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-$HOME/.local/zig-ci}}"
   ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT="$root" GHOSTTY_ZIG_SOURCE=ghostty-next scripts/install-zig-ci.sh >&2
   CMUX_ZIG="$(find "$root" -maxdepth 3 -name zig -type f -perm -u+x | head -1)"
   export CMUX_ZIG
