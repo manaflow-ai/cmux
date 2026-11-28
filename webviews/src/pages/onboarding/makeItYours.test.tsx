@@ -202,4 +202,36 @@ describe("make cmux yours", () => {
     await act(async () => slider.dispatchEvent(new Event("pointerup", { bubbles: true })));
     expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.2 } }]);
   });
+
+  // https://github.com/manaflow-ai/cmux/issues/65781: a drag that starts on WebKit's thumb ends with
+  // a mouseup and no pointerup. It is written then, and the next key is its own write again.
+  test("Opacity: a drag on the thumb is written once on its mouseup, with no pointerup", async () => {
+    const calls: { op: string; params: unknown }[] = [];
+    const client = {
+      call: async (op: string, params: unknown) => {
+        calls.push({ op, params });
+        return {} as never;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    };
+    const store = new OnboardingStore(client, makeItYoursState("picked"));
+    const root = document.createElement("div");
+    document.body.append(root);
+    await act(async () => createRoot(root).render(<OnboardingPage store={store} strings={strings} />));
+    calls.length = 0;
+    const slider = root.querySelector<HTMLInputElement>('input[type="range"]')!;
+    const setValue = (value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, value);
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    await act(async () => slider.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => setValue("0.3"));
+    expect(calls).toEqual([]);
+    await act(async () => slider.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.3 } }]);
+    calls.length = 0;
+    await act(async () => setValue("0.35"));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.35 } }]);
+  });
 });

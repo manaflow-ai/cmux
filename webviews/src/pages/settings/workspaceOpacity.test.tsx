@@ -95,3 +95,26 @@ test("This Workspace's Opacity over Art reaches 100%", async () => {
   expect(input.max).toBe("1");
   page.unmount();
 });
+
+// https://github.com/manaflow-ai/cmux/issues/65781: a drag that starts on WebKit's thumb ends with a
+// mouseup and no pointerup. The workspace's opacity is saved then, not left waiting for a blur
+// (closing Settings before one dropped it).
+test("a drag on This Workspace's Opacity thumb saves once on its mouseup, with no pointerup", async () => {
+  const { page, slider } = await thisWorkspace("none", "starryNight");
+  const saved: (number | null)[] = [];
+  page.store.setWorkspaceOpacity = async (_workspace, opacity) => {
+    saved.push(opacity);
+    return true;
+  };
+  const input = slider()!.querySelector<HTMLInputElement>('input[type="range"]')!;
+  await act(async () => input.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "0.4");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(saved).toEqual([]);
+  await act(async () => input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })));
+  await settle();
+  expect(saved).toEqual([0.4]);
+  page.unmount();
+});

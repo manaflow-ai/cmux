@@ -553,6 +553,33 @@ test("Slider sends each snapped change synchronously and drops values that snap 
   expect(slider.disabled).toBe(true);
 });
 
+// https://github.com/manaflow-ai/cmux/issues/65781: a page pointer capture on a range input takes the
+// mouseup from WebKit's thumb, which then follows the pointer with no button down. The press leaves
+// the mouse to the thumb, and the thumb's release (a mouseup, no pointerup) ends the drag.
+test("Slider press never captures the pointer, and the thumb's mouseup ends the drag", () => {
+  const { container, store } = render([
+    { op: "create", id: "level", type: "Slider", props: { min: 0, max: 10, step: 0.5, value: 2, onChange: true } },
+    { op: "root", id: "level" },
+  ]);
+  const slider = container.querySelector<HTMLInputElement>('input[type="range"]')!;
+  const captured: number[] = [];
+  slider.setPointerCapture = (id: number) => void captured.push(id);
+  act(() => {
+    slider.dispatchEvent(new dom!.window.Event("pointerdown", { bubbles: true }));
+  });
+  expect(captured).toEqual([]);
+  act(() => {
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(slider, "4");
+    slider.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  act(() => store.apply([{ op: "update", id: "level", props: { value: 3 } }]));
+  expect(slider.value).toBe("4");
+  act(() => {
+    slider.dispatchEvent(new dom!.window.MouseEvent("mouseup", { bubbles: true }));
+  });
+  expect(slider.value).toBe("3");
+});
+
 test("Slider snapping matches the native renderer's range, step and decimals", () => {
   expect(sliderSnap(0.30000000000000004, [0, 1], 0.1)).toBe(0.3);
   expect(sliderSnap(-4, [0, 1], 0.01)).toBe(0);
