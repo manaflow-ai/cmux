@@ -12,15 +12,10 @@ import { useStore } from "../context";
 import type { ArchivedAction, ArchivedEntryWire } from "../ops";
 import { ARCHIVED_KEY, archivedQuery } from "../sectionQueries";
 import { t } from "../strings";
+import { archivedDetail } from "./archivedDetail";
 
 /** A row's key: a workspace and a link may share an id. */
 const rowKey = (row: ArchivedEntryWire) => `${row.kind}:${row.id}`;
-
-/** The line under the name: the group and the computer, or "Link" for a link, tab or app row. */
-export function archivedDetail(row: ArchivedEntryWire): string {
-  if (row.kind === "item") return t("settingsPage.archived.kindLink");
-  return [row.group, row.machine].filter((part): part is string => !!part && part.trim() !== "").join(" · ");
-}
 
 export function ArchivedWorkspacesCard({ reveal = false }: { reveal?: boolean }) {
   const store = useStore();

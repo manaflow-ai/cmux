@@ -65,6 +65,13 @@ pub(in crate::server) async fn new_on(
     params: &Value,
     p: Value,
 ) -> Result<Value, RpcError> {
+    let started = start_on(peer, params, p).await;
+    // A host that refuses starts leaves `machine pick` for a while (`placement/reach.rs`).
+    crate::placement::reach::note_start_outcome(&peer.name, started.as_ref().err());
+    started
+}
+
+async fn start_on(peer: &crate::peer::Peer, params: &Value, p: Value) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
     let web = via_web(&p);
     // Creation is interactive (New Tab and composer), unlike a prompt's unbounded turn, but

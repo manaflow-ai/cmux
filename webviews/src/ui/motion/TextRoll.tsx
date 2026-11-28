@@ -21,6 +21,7 @@
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { entranceAllowed } from "../../agent-session/shared/pageReveal";
 import { experimentArm } from "../../experiments/experiment";
+import { onAnimationDone } from "./animationDone";
 import { motionMode } from "./motionMode";
 import { textRollLook } from "./textRoll.experiment";
 import "./motion.css";
@@ -44,7 +45,7 @@ function applyLook(doc: Document): void {
 }
 
 /// How a change on `node` may move now.
-export function textRollMode(node: HTMLElement): TextRollMode {
+function textRollMode(node: HTMLElement): TextRollMode {
   if (typeof node.animate !== "function" || !entranceAllowed(node.ownerDocument)) return "none";
   const mode = motionMode(node.ownerDocument, node);
   if (mode === "none") return "none";
@@ -119,6 +120,7 @@ export function TextRoll({
   });
   useLayoutEffect(() => {
     if (cell.current) applyLook(cell.current.ownerDocument);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the look is applied once, on mount.
   }, []);
   // The width ease: one animation per roll on the cell alone, on the roll's own clock.
   useLayoutEffect(() => {
@@ -195,21 +197,4 @@ function msOf(value: string): number | undefined {
   const number = Number.parseFloat(text);
   if (!Number.isFinite(number)) return undefined;
   return text.endsWith("ms") ? number : text.endsWith("s") ? number * 1000 : number;
-}
-
-/// A ref that calls `done` when the node's own animation ends or is cancelled (React has no
-/// animationcancel prop); its listeners go with the node.
-export function onAnimationDone(done: () => void) {
-  return (node: HTMLElement | null) => {
-    if (!node) return undefined;
-    const ended = (event: Event) => {
-      if (event.target === node) done();
-    };
-    node.addEventListener("animationend", ended);
-    node.addEventListener("animationcancel", ended);
-    return () => {
-      node.removeEventListener("animationend", ended);
-      node.removeEventListener("animationcancel", ended);
-    };
-  };
 }

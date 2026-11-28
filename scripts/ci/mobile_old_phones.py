@@ -75,17 +75,23 @@ RESET_WAIT_MAX_S = 20 * 60
 
 
 def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=time.sleep, now=time.time,
-               waits=(5, 20, 60), reset_wait_max: float = 0) -> list[dict]:
+               waits=(5, 20, 60), reset_wait_max: float = 0, fallback_token: str = "") -> list[dict]:
     """Read the shipped phone runs; a 403/429/5xx (a busy repo's token rate limit) retries, and the last
     one names GitHub's own reason instead of a bare traceback. With RESET_WAIT_MAX set, a spent quota
     (x-ratelimit-remaining=0) whose x-ratelimit-reset is that close gets one more read after the reset:
     run 46141489174 had no earlier list to fall back on (the repo's caches sit at GitHub's 10 GB limit and evicted it) and died 90 s
-    in, with the quota due back within the hour."""
+    in, with the quota due back within the hour.
+
+    FALLBACK_TOKEN is a second token with its own quota (the workflow passes the bot App's token first and
+    the workflow token second, as ios-internal-nightly-trigger.yml does): a spent quota switches to it at
+    once, before any retry. Run 46185856595 died on the workflow token's spent quota with no list left
+    in the evicted cache and the reset over 20 min away."""
+    tokens = [token] + ([fallback_token] if fallback_token and fallback_token != token else [])
     reset_waited = False
     attempt = 0
     while True:
         try:
-            with opener(runs_request(repo, token), timeout=30) as r:
+            with opener(runs_request(repo, tokens[0]), timeout=30) as r:
                 return json.load(r).get("workflow_runs", [])
         except urllib.error.HTTPError as e:
             body = e.read()[:300].decode("utf-8", "replace")
@@ -93,6 +99,10 @@ def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=ti
                    f"(x-ratelimit-remaining={e.headers.get('x-ratelimit-remaining')}): {body}")
             if e.code not in RETRY_CODES:
                 raise SystemExit(f"::error::{why}") from None
+            if e.headers.get("x-ratelimit-remaining") == "0" and len(tokens) > 1:
+                print(f"::warning::{why}; reading again with the other token", file=sys.stderr)
+                tokens.pop(0)
+                continue
             if attempt < len(waits):
                 print(f"::warning::{why}; retrying in {waits[attempt]} s", file=sys.stderr)
                 sleep(waits[attempt])
@@ -108,7 +118,8 @@ def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=ti
             reset_waited = True
 
 
-def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetch_runs) -> tuple[list[str], bool]:
+def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetch_runs,
+            fallback_token: str = "") -> tuple[list[str], bool]:
     """The phone build lines and whether they are fresh. The repo's token shares one hourly quota with every
     workflow, and runs 46116606886 and 46125947911 died on "API rate limit exceeded for installation"
     (x-ratelimit-remaining=0) after every retry. Builds ship about nightly, so the last list read
@@ -116,7 +127,8 @@ def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetc
     caches sit at GitHub's 10 GB limit, so that list is often evicted: those runs wait for the reset (fetch_runs)."""
     have_old = bool(cache and cache.is_file() and cache.read_text().strip())
     try:
-        got = shipped_commits(fetch(repo, token, reset_wait_max=0 if have_old else RESET_WAIT_MAX_S), count)
+        kw = {"fallback_token": fallback_token} if fallback_token else {}
+        got = shipped_commits(fetch(repo, token, reset_wait_max=0 if have_old else RESET_WAIT_MAX_S, **kw), count)
     except SystemExit as e:
         old = cache.read_text().split("\n") if cache and cache.is_file() else []
         old = [line for line in old if line.strip()]
@@ -218,7 +230,8 @@ def main() -> int:
     a = ap.parse_args()
     if a.cmd == "resolve":
         lines, fresh = resolve(a.repo, os.environ.get("GH_TOKEN", ""), a.count,
-                               Path(a.cache) if a.cache else None)
+                               Path(a.cache) if a.cache else None,
+                               fallback_token=os.environ.get("GH_FALLBACK_TOKEN", ""))
         if not lines:
             return 1
         print("\n".join(lines))

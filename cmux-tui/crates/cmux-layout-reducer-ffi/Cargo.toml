@@ -36,6 +36,8 @@ cmux-rd-core = { path = "../cmux-rd-core", features = ["app"] }
 # The WebRTC screen stream's rules (src/screen.rs: `screen_*`).
 cmux-rd-screen = { path = "../cmux-rd-screen" }
 cmux-tab-discard = { path = "../cmux-tab-discard" }
+# The Feed's rules (src/app_feed.rs: `app_feed_*`).
+cmux-app-feed = { path = "../cmux-app-feed" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 # The VNC client's rules (src/vnc.rs: `vnc_*`).
 cmux-vnc = { path = "../cmux-vnc" }

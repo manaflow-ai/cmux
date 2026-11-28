@@ -355,10 +355,26 @@ def run_script(script: str) -> dict:
 
 # ---------- captures ----------
 
-def fetch(step_id: str, into: Path) -> list[Path]:
+FETCH_TIMEOUT_S = int(os.environ.get("CMUX_IOS_VERIFY_FETCH_TIMEOUT_S", "240"))
+
+
+def fetch(step_id: str, into: Path, timeout: int | None = None) -> list[Path]:
+    """STEP_ID's screenshots and video, or none when its artifact cannot be read within TIMEOUT seconds.
+
+    The download had no bound: from a lane VM the artifact route ran at ~35 KB/s, so cmux#62161's proof (12/12 green
+    on cmux28) died to its caller's timeout twice while fetching evidence, and baseline() fetches up to 15 more zips.
+    The verdict comes from the steps, not the pictures, so a slow route costs the screen diff, never the post."""
     into.mkdir(parents=True, exist_ok=True)
     z = into / "evidence.zip"
-    if subprocess.run(["cmux-ci", "artifact", step_id, str(z)], capture_output=True).returncode or not z.is_file():
+    bound = FETCH_TIMEOUT_S if timeout is None else timeout
+    try:
+        p = subprocess.run(["cmux-ci", "artifact", step_id, str(z)], capture_output=True, timeout=bound)
+    except subprocess.TimeoutExpired:
+        print(f"ios verify: artifact of step {step_id} not read within {bound} s; posting without its screens",
+              file=sys.stderr, flush=True)
+        z.unlink(missing_ok=True)
+        return []
+    if p.returncode or not z.is_file():
         return []
     with zipfile.ZipFile(z) as zf:
         for n in zf.namelist():
@@ -542,8 +558,10 @@ def rerun_gate(repo: str, sha: str) -> str:
             jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
             for j in jobs.get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    sh("gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo)
-                    return f"reran {GATE_JOB} (job {j['id']})"
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
     except SystemExit as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the proof when it does"
