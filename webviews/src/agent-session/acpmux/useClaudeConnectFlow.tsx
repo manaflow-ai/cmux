@@ -8,7 +8,6 @@ import {
 } from "./claudeConnect";
 import { ConnectCard } from "./ConnectCard";
 
-
 type ConnectFlowState = { openBrand: string | undefined; saved: boolean; ran: boolean };
 
 /// The connect flow's next state, a fixed point (a second step changes nothing): a sign-in that
