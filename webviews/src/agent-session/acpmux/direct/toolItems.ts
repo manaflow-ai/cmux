@@ -219,7 +219,8 @@ export function mergeToolItem(
 /// A test command's results acpmux put on the update (`_meta.acpmux.testResults`), else none.
 function readTestResults(update: any): AcpmuxTestResults | undefined {
   const results = update._meta?.acpmux?.testResults;
-  if (!objectValue(results)) return undefined;
+  if (!objectValue(results) || typeof results.passed !== "number" || typeof results.failed !== "number")
+    return undefined;
   const count = (value: unknown) => (typeof value === "number" && value >= 0 ? value : 0);
   return {
     runner: typeof results.runner === "string" ? results.runner : "tests",

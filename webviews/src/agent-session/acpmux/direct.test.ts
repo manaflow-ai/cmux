@@ -90,3 +90,52 @@ test("a shell call with Bash's description but no command yet is still a draft",
     isDraftCall({ id: "call-2", title: "Bash", kind: "execute", status: "in_progress", description: "List the runs" }),
   ).toBe(true);
 });
+
+test("a test command's results, read in Rust, ride the call and stay when an update has none", () => {
+  const results = (passed: number, failed: number, done: boolean) => ({
+    acpmux: {
+      testResults: {
+        runner: "cargo",
+        passed,
+        failed,
+        skipped: 0,
+        done,
+        failures: failed ? [{ name: "it_breaks", path: "src/lib.rs", line: 12, message: "boom" }] : [],
+      },
+    },
+  });
+  const call = mergeToolItem(
+    undefined,
+    {
+      title: "cargo test",
+      kind: "execute",
+      status: "in_progress",
+      rawInput: { command: "cargo test" },
+      _meta: results(3, 0, false),
+    },
+    "c1",
+    "",
+    1,
+  );
+  expect(call.tool?.testResults?.passed).toBe(3);
+  const kept = mergeToolItem(call, { status: "in_progress" }, "c1", "", 2);
+  expect(kept.tool?.testResults?.passed).toBe(3);
+  const done = mergeToolItem(kept, { status: "failed", _meta: results(4, 1, true) }, "c1", "", 3);
+  expect(done.tool?.testResults).toEqual({
+    runner: "cargo",
+    passed: 4,
+    failed: 1,
+    skipped: 0,
+    done: true,
+    failures: [{ name: "it_breaks", path: "src/lib.rs", line: 12, message: "boom" }],
+  });
+  // A malformed field is dropped, not drawn.
+  const bad = mergeToolItem(
+    undefined,
+    { title: "x", kind: "execute", status: "in_progress", _meta: { acpmux: { testResults: { passed: "3" } } } },
+    "c2",
+    "",
+    1,
+  );
+  expect(bad.tool?.testResults).toBeUndefined();
+});
