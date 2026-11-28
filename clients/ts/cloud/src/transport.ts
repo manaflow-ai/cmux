@@ -1,0 +1,109 @@
+import { cloudOpMeta, type CloudMutationName, type CloudOps, type CloudReadName, type MutationResult } from "./generated.ts"
+
+/** Error shape of the cmux Cloud API (wire conventions, backend.md "APIs"). */
+export interface CloudOpError {
+  readonly code: string
+  readonly message: string
+  readonly details?: unknown
+  readonly retryable: boolean
+}
+
+/** Outcome of one mutation, always with its write barrier (request-settled). */
+export type CloudMutationOutcome<T> =
+  | ({ readonly ok: true } & MutationResult<T> & CloudSettle)
+  | ({ readonly ok: false; readonly error: CloudOpError; readonly transaction: string; readonly replayed: boolean } & CloudSettle)
+
+export interface CloudSettle {
+  readonly idempotency_key: string
+  readonly stream: string
+  readonly sequence: number
+}
+
+export class CloudHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown
+  ) {
+    super(`cmux Cloud API ${status}`)
+  }
+}
+
+export interface CloudClientOptions {
+  /** API origin, for example https://cloud-api.cmux.dev */
+  readonly baseUrl: string
+  /** Bearer token for each call: a Stack session token or an install token. */
+  readonly token: () => string | Promise<string>
+  /**
+   * The shared team a Stack session acts in (`x-cmux-team`, or the `team.<id>` subprotocol on a
+   * socket); absent means the personal team. The server checks the membership on every request
+   * and answers auth.forbidden for a team the user is not in. Install tokens keep their own team.
+   */
+  readonly team?: () => string | undefined | Promise<string | undefined>
+  readonly fetch?: typeof fetch
+}
+
+/**
+ * Typed transport for cloud ops. Mutations always carry an idempotency key
+ * (reuse the same key to retry; the owner replays the original result).
+ */
+export const createCloudClient = (options: CloudClientOptions) => {
+  const doFetch = options.fetch ?? fetch
+  const base = options.baseUrl.replace(/\/$/, "")
+  const post = async (path: string, body: unknown) => {
+    const team = await options.team?.()
+    const res = await doFetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${await options.token()}`, ...(team ? { "x-cmux-team": team } : {}) },
+      body: JSON.stringify(body)
+    })
+    const json: unknown = await res.json().catch(() => undefined)
+    if (!res.ok) throw new CloudHttpError(res.status, json)
+    return json
+  }
+  return {
+    async mutate<K extends CloudMutationName>(
+      op: K,
+      params: CloudOps[K]["params"],
+      opts: { idempotencyKey?: string; expectedRevision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" } = {}
+    ): Promise<CloudMutationOutcome<CloudOps[K]["result"]>> {
+      const r = (await post("/v1/ops", {
+        op,
+        params,
+        idempotency_key: opts.idempotencyKey ?? crypto.randomUUID(),
+        origin: opts.origin ?? "user",
+        ...(opts.expectedRevision ? { expected_revision: opts.expectedRevision } : {})
+      })) as Record<string, unknown>
+      return r.ok
+        ? ({ ok: true, value: r.value, revision: r.revision, transaction: r.transaction, replayed: r.replayed, idempotency_key: r.idempotency_key, stream: r.stream, sequence: r.sequence } as CloudMutationOutcome<CloudOps[K]["result"]>)
+        : ({ ok: false, error: r.error, transaction: r.transaction, replayed: r.replayed, idempotency_key: r.idempotency_key, stream: r.stream, sequence: r.sequence } as CloudMutationOutcome<CloudOps[K]["result"]>)
+    },
+    async read<K extends CloudReadName>(op: K, params: CloudOps[K]["params"]): Promise<{ value: CloudOps[K]["result"]; stream: string; revision: string }> {
+      const r = (await post("/v1/read", { op, params })) as { value: CloudOps[K]["result"]; stream: string; revision: string }
+      return r
+    },
+    /**
+     * WebSocket to an owner stream (`cmux.wire/1` frames). Browsers cannot set headers, and
+     * Workers invocation logs record every header but Authorization (cx-dgsp), so the socket
+     * carries only a single-use ticket from POST /v1/wire/ticket, never the token. A Worker
+     * from before cx-dgsp answers that POST 404 and gets the legacy `bearer.` subprotocol.
+     */
+    async openWire(scope: "user" | "team"): Promise<WebSocket> {
+      const team = await options.team?.()
+      const token = await options.token()
+      const res = await doFetch(`${base}/v1/wire/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+      let credential: string
+      if (res.status === 404) credential = `bearer.${token}`
+      else {
+        const body: unknown = await res.json().catch(() => undefined)
+        const ticket = res.ok ? (body as { ticket?: unknown } | undefined)?.ticket : undefined
+        // Only a 404 (an old Worker) gets the legacy subprotocol; any other answer without a ticket throws.
+        if (typeof ticket !== "string") throw new CloudHttpError(res.status, body)
+        credential = `ticket.${ticket}`
+      }
+      return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", credential, ...(team ? [`team.${team}`] : [])])
+    },
+    meta: cloudOpMeta
+  }
+}
+
+export type CloudClient = ReturnType<typeof createCloudClient>

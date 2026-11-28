@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stress</title>
+<style>
+  body { font: 14px/1.4 sans-serif; margin: 8px; }
+  .card { border: 1px solid #ccc; margin: 2px; padding: 2px; }
+  .deep { overflow: hidden; }
+  #viewport { height: 600px; overflow: auto; position: relative; border: 1px solid #999; }
+  #viewport .row { position: absolute; left: 0; right: 0; height: 30px; }
+  iframe { width: 120px; height: 40px; border: 1px solid #ddd; }
+</style>
+<body>
+<h1 id="title">Stress page</h1>
+<main id="root"></main>
+<script>
+// Synthetic pages for tests/browser-parity/perf and scenario 30-stress.
+// ?kind=<name>&n=<count>. Every page is deterministic: the same query builds
+// the same DOM, so snapshot sizes and oracle values are stable.
+(() => {
+  const params = new URLSearchParams(location.search);
+  const kind = params.get("kind") || "cards";
+  const n = Number(params.get("n") || 1000);
+  const peer = params.get("peer") || "";
+  const root = document.getElementById("root");
+  document.title = `Stress ${kind} ${n}`;
+  const html = [];
+  const word = (i) => ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"][i % 8];
+  switch (kind) {
+    // ~6 elements per card: n is the element count.
+    case "cards": {
+      const cards = Math.ceil(n / 6);
+      for (let i = 0; i < cards; i++) {
+        html.push(`<div class="card"><h3>Card ${i}</h3><p>Text ${word(i)} ${i} with <a href="/item/${i}">link ${i}</a> and more.</p>` +
+          `<button type="button">Action ${i}</button><span>${word(i + 3)}</span></div>`);
+      }
+      break;
+    }
+    case "table": {
+      html.push("<table><caption>Rows</caption><thead><tr><th>Id</th><th>Name</th><th>City</th><th>Score</th><th>Link</th></tr></thead><tbody>");
+      for (let i = 0; i < n; i++) {
+        html.push(`<tr><td>${i}</td><td>${word(i)} ${i}</td><td>${word(i + 2)}</td><td>${(i * 37) % 100}</td>` +
+          (i % 10 === 0 ? `<td><a href="/row/${i}">open ${i}</a></td>` : `<td>-</td>`) + "</tr>");
+      }
+      html.push("</tbody></table>");
+      break;
+    }
+    case "list": {
+      html.push('<nav aria-label="Items"><ul>');
+      for (let i = 0; i < n; i++) html.push(`<li><a href="/l/${i}">Item ${i}</a> ${word(i)}</li>`);
+      html.push("</ul></nav>");
+      break;
+    }
+    case "deep": {
+      // Built with DOM calls: the HTML parser stops nesting at 512 levels.
+      // Every `every`-th level (default 50) is a named group.
+      const every = Number(params.get("every")) || 50;
+      let at = root;
+      for (let i = 0; i < n; i++) {
+        const div = at.appendChild(document.createElement("div"));
+        if (i % 10 === 0) div.className = "deep";
+        if (i % every === 0) {
+          div.setAttribute("role", "group");
+          div.setAttribute("aria-label", `level ${i}`);
+        }
+        at = div;
+      }
+      at.insertAdjacentHTML("beforeend", '<button type="button">Deepest</button><span>bottom text</span>');
+      return;
+    }
+    case "iframes": {
+      // A third each: same-origin srcdoc, cross-origin, and a same-origin
+      // frame that nests a cross-origin one.
+      for (let i = 0; i < n; i++) {
+        const mode = i % 3;
+        if (mode === 0) html.push(`<iframe title="srcdoc ${i}" srcdoc="<button>Inner ${i}</button>"></iframe>`);
+        else if (mode === 1) html.push(`<iframe title="cross ${i}" src="${peer}/stress/frame.html?i=${i}"></iframe>`);
+        else html.push(`<iframe title="nested ${i}" src="/stress/frame.html?i=${i}&nest=${encodeURIComponent(peer)}"></iframe>`);
+      }
+      break;
+    }
+    case "shadow": {
+      customElements.define("x-card", class extends HTMLElement {
+        constructor() {
+          super();
+          const r = this.attachShadow({ mode: "open" });
+          r.innerHTML = `<div><button type="button">Shadow ${this.getAttribute("i")}</button><slot></slot></div>`;
+        }
+      });
+      for (let i = 0; i < n; i++) html.push(`<x-card i="${i}"><span>light ${i}</span></x-card>`);
+      break;
+    }
+    case "text": {
+      // One text node of n characters.
+      const chunk = "lorem ipsum dolor sit amet ";
+      root.appendChild(document.createElement("p")).appendChild(document.createTextNode(chunk.repeat(Math.ceil(n / chunk.length)).slice(0, n)));
+      root.insertAdjacentHTML("beforeend", '<button type="button">After text</button>');
+      return;
+    }
+    case "select": {
+      html.push('<label>Pick <select id="pick">');
+      for (let i = 0; i < n; i++) html.push(`<option value="${i}">Option ${i}</option>`);
+      html.push('</select></label><label>Many <select id="many" multiple size="8">');
+      for (let i = 0; i < n; i++) html.push(`<option value="${i}">Choice ${i}</option>`);
+      html.push("</select></label>");
+      break;
+    }
+    case "virtual": {
+      // n logical rows; only the ones in the scroll viewport exist.
+      root.innerHTML = '<div id="viewport" role="list" aria-label="Virtual rows"><div id="spacer"></div></div>';
+      const vp = document.getElementById("viewport");
+      const spacer = document.getElementById("spacer");
+      spacer.style.height = `${n * 30}px`;
+      const draw = () => {
+        const first = Math.floor(vp.scrollTop / 30);
+        const count = Math.ceil(600 / 30) + 2;
+        const rows = [];
+        for (let i = first; i < Math.min(n, first + count); i++) {
+          rows.push(`<div class="row" role="listitem" style="top:${i * 30}px"><a href="/v/${i}">Row ${i}</a> ${word(i)}</div>`);
+        }
+        spacer.innerHTML = rows.join("");
+      };
+      vp.addEventListener("scroll", draw);
+      draw();
+      return;
+    }
+  }
+  root.innerHTML = html.join("");
+})();
+</script>
+</body>

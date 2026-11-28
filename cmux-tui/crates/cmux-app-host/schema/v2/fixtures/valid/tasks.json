@@ -1,0 +1,58 @@
+{
+  "manifestVersion": 2,
+  "id": "cmux/tasks",
+  "name": "Tasks",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "catalog": "catalog.json",
+  "server": {
+    "kind": "native",
+    "binaries": {
+      "darwin-arm64": "cmux-tasks",
+      "linux-x64": "cmux-tasks"
+    },
+    "args": [
+      "serve"
+    ],
+    "instances": "team",
+    "hosts": [
+      "team-vm",
+      "cmux-server",
+      "local"
+    ],
+    "data": [
+      {
+        "name": "db",
+        "class": "durable"
+      }
+    ],
+    "lifecycle": {
+      "start": "onDemand",
+      "idleStopSeconds": 900
+    }
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "native": "tasks.board",
+      "title": "Tasks"
+    },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": "Tasks"
+    },
+    "cmux.search.provider/1": {
+      "export": "search"
+    }
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "files": [
+    "dist/",
+    "catalog.json"
+  ]
+}

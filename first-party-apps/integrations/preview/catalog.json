@@ -1,0 +1,556 @@
+{
+  "scopes": {
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.tools.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.tools.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.catalog.preview": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.share": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.reauth": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.revoke": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.mcp.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "ui.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "integration.list": {
+      "connections": [
+        {
+          "id": "conn_github00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "github",
+          "account": {
+            "key": "github:installation:4211",
+            "name": "orbit-labs"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "issues:write",
+            "pull_requests:read",
+            "metadata:read"
+          ],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": true,
+          "resources": {
+            "repos": [
+              "orbit-labs/api",
+              "orbit-labs/web",
+              "orbit-labs/docs"
+            ]
+          }
+        },
+        {
+          "id": "conn_linear00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "linear",
+          "account": {
+            "key": "linear:org:77",
+            "name": "Orbit"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "read",
+            "issues:create"
+          ],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_slack000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_ada",
+          "provider": "slack",
+          "account": {
+            "key": "slack:team:T0ORBIT",
+            "name": "orbit-team"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "chat:write"
+          ],
+          "status": "needs_reauth",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_linearpending0000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "linear",
+          "account": null,
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "pending",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_taskboard00000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "openapi",
+          "account": {
+            "key": "openapi:specs.taskboard.example.com:taskboard_api",
+            "name": "Taskboard API"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": true,
+          "catalog": {
+            "kind": "openapi",
+            "title": "Taskboard API",
+            "version": "2.4.0",
+            "digest": "openapi:8dfd4a2e",
+            "source_url": "https://specs.taskboard.example.com/openapi.json"
+          },
+          "auth": {
+            "kind": "api_key"
+          }
+        },
+        {
+          "id": "conn_docs0000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "mcp",
+          "account": {
+            "key": "mcp:mcp.docs.example.com:docs_server",
+            "name": "Docs Server"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false,
+          "catalog": {
+            "kind": "mcp",
+            "title": "Docs Server",
+            "version": "1.2.0",
+            "digest": "mcp:ec9223b0",
+            "source_url": "https://mcp.docs.example.com/mcp",
+            "changed": {
+              "at": 1790086400000,
+              "feed_item": "feed_catalogdocs0000001",
+              "previous_digest": "mcp:00000000"
+            }
+          },
+          "auth": {
+            "kind": "oauth2_code"
+          }
+        }
+      ],
+      "providers": [
+        {
+          "provider": "github",
+          "configured": true
+        },
+        {
+          "provider": "linear",
+          "configured": true
+        },
+        {
+          "provider": "slack",
+          "configured": true
+        }
+      ],
+      "revision": "r12",
+      "viewer": {
+        "user": "usr_me",
+        "team_admin": false
+      },
+      "limit": {
+        "used": 9,
+        "max": 50
+      }
+    },
+    "integration.policy.get": {
+      "allowed_providers": null,
+      "generic_hosts": null,
+      "github": {
+        "scope": "linking_user_repos",
+        "require_org_admin": false,
+        "repo_allowlist": null
+      },
+      "source": "admin",
+      "locked": false,
+      "updated_at": 1790000000000,
+      "updated_by": "usr_ada"
+    },
+    "integration.tools.list": {
+      "$sequence": [
+        {
+          "namespace": "docs_server",
+          "tools": [
+            {
+              "path": "search_docs",
+              "title": "search_docs",
+              "description": "Search the docs.",
+              "kind": "mcp",
+              "target": "search_docs",
+              "op_class": "read",
+              "default_action": "allow",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "path": "create_page",
+              "title": "create-page",
+              "description": "Create a page.",
+              "kind": "mcp",
+              "target": "create-page",
+              "op_class": "mutate-shared",
+              "default_action": "ask"
+            },
+            {
+              "path": "create_page_2",
+              "title": "create page",
+              "description": "Same id after sanitizing.",
+              "kind": "mcp",
+              "target": "create page",
+              "op_class": "mutate-shared",
+              "default_action": "ask"
+            },
+            {
+              "path": "delete_page",
+              "title": "Delete a page",
+              "description": "MCP tool: Delete Page",
+              "kind": "mcp",
+              "target": "Delete Page",
+              "op_class": "destructive",
+              "default_action": "block"
+            }
+          ],
+          "rules": [
+            {
+              "id": "pol_u2",
+              "owner": "user",
+              "pattern": "docs_server.create_page_2",
+              "action": "block"
+            }
+          ],
+          "catalog": {
+            "kind": "mcp",
+            "title": "Docs Server",
+            "version": "1.2.0",
+            "digest": "mcp:ec9223b0",
+            "source_url": "https://mcp.docs.example.com/mcp"
+          }
+        },
+        {
+          "namespace": "linear",
+          "tools": [
+            {
+              "path": "teams.list",
+              "title": "linear.teams.list",
+              "kind": "provider",
+              "target": "linear.teams.list",
+              "op_class": "read",
+              "default_action": "allow"
+            },
+            {
+              "path": "issue.create",
+              "title": "linear.issue.create",
+              "kind": "provider",
+              "target": "linear.issue.create",
+              "op_class": "mutate-shared",
+              "default_action": "ask"
+            }
+          ],
+          "rules": []
+        },
+        {
+          "namespace": "github",
+          "tools": [
+            {
+              "path": "issue.comment",
+              "title": "github.issue.comment",
+              "kind": "provider",
+              "target": "github.issue.comment",
+              "op_class": "send-external",
+              "default_action": "ask"
+            }
+          ],
+          "rules": [
+            {
+              "id": "pol_t2",
+              "owner": "team",
+              "pattern": "github.issue.comment",
+              "action": "ask"
+            }
+          ]
+        },
+        {
+          "namespace": "taskboard_api",
+          "tools": [
+            {
+              "path": "health.getHealth",
+              "title": "Health",
+              "kind": "openapi",
+              "method": "GET",
+              "target": "/health",
+              "op_class": "read",
+              "default_action": "allow"
+            },
+            {
+              "path": "projects.createProject",
+              "title": "Create a project",
+              "kind": "openapi",
+              "method": "POST",
+              "target": "/v1/projects",
+              "op_class": "mutate-shared",
+              "default_action": "ask",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "$ref": "#/components/schemas/ProjectInput"
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
+              },
+              "scopes": [
+                [
+                  "projects:write"
+                ]
+              ]
+            },
+            {
+              "path": "projects.deleteProject",
+              "title": "Delete a project",
+              "kind": "openapi",
+              "method": "DELETE",
+              "target": "/v1/projects/{projectId}",
+              "op_class": "destructive",
+              "default_action": "block",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "path": "projects.getProject",
+              "title": "Get a project",
+              "kind": "openapi",
+              "method": "GET",
+              "target": "/v1/projects/{projectId}",
+              "op_class": "read",
+              "default_action": "allow",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "path": "projects.listProjects",
+              "title": "List projects",
+              "kind": "openapi",
+              "method": "GET",
+              "target": "/v1/projects",
+              "op_class": "read",
+              "default_action": "allow",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "path": "projects.updateProject",
+              "title": "Rename a project",
+              "kind": "openapi",
+              "method": "PATCH",
+              "target": "/v1/projects/{projectId}",
+              "op_class": "mutate-shared",
+              "default_action": "ask",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "object"
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "enum": [
+                      "application/json",
+                      "application/merge-patch+json"
+                    ],
+                    "default": "application/json"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "path": "tasks.createTask",
+              "title": "Add a task",
+              "kind": "openapi",
+              "method": "POST",
+              "target": "/v1/projects/{projectId}/tasks",
+              "op_class": "mutate-shared",
+              "default_action": "ask",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              },
+              "deprecated": true
+            },
+            {
+              "path": "tasks.listTasks",
+              "title": "List tasks",
+              "kind": "openapi",
+              "method": "GET",
+              "target": "/v1/projects/{projectId}/tasks",
+              "op_class": "read",
+              "default_action": "allow",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "rules": [
+            {
+              "id": "pol_t1",
+              "owner": "team",
+              "pattern": "taskboard_api.tasks.*",
+              "action": "ask"
+            },
+            {
+              "id": "pol_u1",
+              "owner": "user",
+              "pattern": "taskboard_api.tasks.listTasks",
+              "action": "allow"
+            },
+            {
+              "id": "pol_u3",
+              "owner": "user",
+              "pattern": "taskboard_api.projects.createProject",
+              "action": "allow"
+            },
+            {
+              "id": "pol_u4",
+              "owner": "user",
+              "pattern": "taskboard_api.projects.*",
+              "action": "allow"
+            }
+          ],
+          "catalog": {
+            "kind": "openapi",
+            "title": "Taskboard API",
+            "version": "2.4.0",
+            "digest": "openapi:8dfd4a2e",
+            "source_url": "https://specs.taskboard.example.com/openapi.json"
+          }
+        }
+      ]
+    }
+  }
+}

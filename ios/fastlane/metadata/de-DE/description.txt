@@ -1,0 +1,11 @@
+cmux bringt deine Coding-Agenten auf dein Handy. Verbinde dich mit deinem Mac, auf dem das cmux-Terminal läuft, und beobachte, wie deine KI-Agenten in Echtzeit arbeiten, erhalte eine Push-Benachrichtigung, sobald ein Agent deine Aufmerksamkeit benötigt oder eine Aufgabe abgeschlossen hat, und antworte oder führe Befehle von überall aus.
+
+cmux ist das Terminal für Coding-Agenten: vertikale Tabs, Benachrichtigungsringe wenn Agenten Eingaben brauchen, geteilte Fenster, ein integrierter Browser und eine skriptbare CLI auf dem Desktop. Die iOS-App ist deine Fernbedienung für alles.
+
+- Live-Terminal: übertrage deine Mac-cmux-Arbeitsbereiche und Terminals auf dein Handy
+- Agenten-Benachrichtigungen: eine Push-Nachricht, sobald ein Agent eine Frage stellt oder eine Aufgabe abschließt
+- Unterwegs antworten: Eingaben senden, Befehle ausführen und Arbeitsbereiche vom Handy wechseln
+- Sprache zu Text: Diktiere in das Eingabefeld
+- Sicheres Pairing: Verbinde dich mit deinem eigenen Mac über das lokale Netzwerk oder Relay
+
+Kostenlos und Open Source. Erfordert einen Mac mit cmux (kostenlos unter cmux.com).

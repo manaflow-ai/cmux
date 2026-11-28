@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Browser"
+  short_description: "Discover and automate cmux browser tabs (a browser surface per tab id) without changing focus."
+  default_prompt: "Use this skill for cmux browser automation. Check `cmux browser --help`, find the intended browser surface with `cmux --json tab list` (including other workspaces), pass its tab_ id to every page command, preserve visible focus, and re-snapshot after state changes. Waits are not supported yet."

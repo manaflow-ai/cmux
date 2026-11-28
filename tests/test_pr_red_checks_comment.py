@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Behavior test for scripts/ci/pr_red_checks_comment.py against a fake GitHub API (HTTP).
+
+Runs the script as the workflow does (env vars, real HTTP) and checks what it writes: a comment
+naming each red web/size check, an in-place edit when the list changes, an edit to green when they
+pass, and no write for a clean PR or an unchanged red list.
+"""
+import json
+import os
+import subprocess
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "ci" / "pr_red_checks_comment.py"
+MARKER = "<!-- cmux-red-checks -->"
+
+
+class FakeGitHub:
+    def __init__(self, check_runs, comments):
+        self.check_runs, self.comments, self.writes = check_runs, comments, []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def reply(self, data):
+                body = json.dumps(data).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if "/check-runs" in self.path:
+                    return self.reply({"total_count": len(fake.check_runs), "check_runs": fake.check_runs})
+                if self.path.startswith("/repos/o/r/issues/7/comments"):
+                    return self.reply(fake.comments)
+                self.send_error(404)
+
+            def body(self):
+                return json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+
+            def do_POST(self):
+                payload = self.body()
+                fake.writes.append(("POST", self.path, payload["body"]))
+                self.reply({"id": 99, "body": payload["body"]})
+
+            def do_PATCH(self):
+                payload = self.body()
+                fake.writes.append(("PATCH", self.path, payload["body"]))
+                self.reply({"id": 5, "body": payload["body"]})
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def run(self):
+        env = dict(os.environ, GITHUB_API_URL=f"http://127.0.0.1:{self.server.server_port}", GITHUB_REPOSITORY="o/r",
+                   GITHUB_TOKEN="t", PR_NUMBER="7", HEAD_SHA="a" * 40)
+        out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        self.server.shutdown()
+        assert out.returncode == 0, out.stderr
+        return self.writes
+
+
+def run(name, conclusion, status="completed", started="2026-10-13T00:00:00Z", id_=1):
+    return {"id": id_, "name": name, "status": status, "conclusion": conclusion, "started_at": started}
+
+
+def test_red_web_check_creates_one_comment_naming_it():
+    writes = FakeGitHub([run("web / react-apps-check", "failure"), run("web / web-typecheck", "success", id_=2),
+                         run("ci-status", "failure", id_=3)], []).run()
+    assert writes == [("POST", "/repos/o/r/issues/7/comments",
+                       MARKER + "\nred: web / react-apps-check; do not merge until green; see lane-rules")]
+
+
+def test_size_check_and_web_check_both_listed():
+    writes = FakeGitHub([run("cmux-next CmuxNextApp size cap", "failure"), run("web / Web status", "timed_out", id_=2)], []).run()
+    assert len(writes) == 1
+    body = writes[0][2]
+    assert "red: cmux-next CmuxNextApp size cap;" in body and "red: web / Web status;" in body
+
+
+def test_unchanged_red_list_writes_nothing():
+    existing = MARKER + "\nred: web / react-apps-check; do not merge until green; see lane-rules"
+    assert FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": existing}]).run() == []
+
+
+def test_green_again_edits_the_comment_in_place():
+    existing = MARKER + "\nred: web / react-apps-check; do not merge until green; see lane-rules"
+    writes = FakeGitHub([run("web / react-apps-check", "failure", started="2026-10-13T00:00:00Z", id_=1),
+                         run("web / react-apps-check", "success", started="2026-10-13T01:00:00Z", id_=2)],
+                        [{"id": 4, "body": "unrelated"}, {"id": 5, "body": existing}]).run()
+    assert writes == [("PATCH", "/repos/o/r/issues/comments/5", MARKER + "\nall web/size checks green")]
+
+
+def test_clean_or_pending_pr_gets_no_comment():
+    assert FakeGitHub([run("web / react-apps-check", "success"), run("web / web-tests", None, status="in_progress", id_=2)], []).run() == []

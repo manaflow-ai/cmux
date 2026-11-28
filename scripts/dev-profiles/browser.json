@@ -1,0 +1,12 @@
+{
+  "description": "A workspace with a browser pane open to example.com (a stable, always-reachable page), so the in-app browser surface can be exercised without a local dev server. --id-format uuids makes the captured workspace_id a stable UUID.",
+  "steps": [
+    {
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "Browser", "--cwd", "${cwd}", "--json"],
+      "capture": { "ws": "workspace_id" }
+    },
+    {
+      "args": ["new-pane", "--workspace", "${ws}", "--type", "browser", "--direction", "right", "--url", "https://example.com", "--focus", "false"]
+    }
+  ]
+}

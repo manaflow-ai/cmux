@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "parser": {
+    "package": "libpg-query",
+    "version": "18.1.5",
+    "sha256": {
+      "wasm/index.cjs": "25c2e5003e7e0254e347800adf4f9a507b9fabc8a40ba6051cec58cfff3ba15a",
+      "wasm/index.js": "6cc30bbc562c9a38358290b4c56b03e59390fa9e721de3abac6350af5a67f3f5",
+      "wasm/libpg-query.js": "219217cc9ed5d8522c6ab273e9ed0bfb56c84a7181d9dd01dc32bf77efd15281",
+      "wasm/libpg-query.wasm": "378b64e6182f65c71ad5dbd2c31c81e9dfed7d2f2debfb4b51c0d0de8fa2ae36",
+      "package.json": "7b655ea723b2b0402e2d691ef3753fa4254cc828c4ff1670ec60b5951fa04492"
+    }
+  },
+  "runtime": {
+    "packages": [
+      "@pgsql",
+      "libpg-query",
+      "pg",
+      "pg-cloudflare",
+      "pg-connection-string",
+      "pg-int8",
+      "pg-pool",
+      "pg-protocol",
+      "pg-types",
+      "pgpass",
+      "postgres-array",
+      "postgres-bytea",
+      "postgres-date",
+      "postgres-interval",
+      "split2",
+      "xtend"
+    ],
+    "sha256": "60277beb427fbb887dcb6e4bdd97745569f90725f86fa9fe2350c982fc55c693"
+  },
+  "trees": {
+    "cmux-vm": {
+      "grandfatheredThrough": "0008",
+      "files": {
+        "0001_cmux_vm_ownership.sql": "efaa9268d47ee6bfbf3ab6e596c982c4f9b6f870c9cec78c7433eb3abc2bd9ee",
+        "0002_cmux_vm_display_name_audit.sql": "61d4d0089eb559be47943c5549fa7958a0aa0d3ca5ed8a9eb178a915a65b7451",
+        "0003_cmux_vm_snapshot_parent.sql": "cadb388568905531912fdc73080246074b65b7c1f09121b70ba936f5b9a28053",
+        "0004_cmux_vm_mesh.sql": "b5fc967440bc82ac34c97cda0be3e99609b0537e8094814820b666afa2bd219e",
+        "0005_cmux_vm_mesh_m2.sql": "12a58159148dc116cdf55a1d087dff2d5437b7185257ccef996a67e99c523b75",
+        "0006_cmux_vm_mesh_m3.sql": "7657e3f456366ceb8423eaec40810f2024359a9b2a67130e82b773178f2621ee",
+        "0007_cmux_vm_mesh_m4.sql": "a3525bda461b9c19f2cdf74ff3a457e90ace177b7b517e187ea5b1173b734fe7",
+        "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8",
+        "0009_cmux_vm_mesh_device_address.sql": "dcd032132b00d3592058415a530b40cef240a7e22b655f7a13ccb7a81ad23d48"
+      }
+    },
+    "backend": {
+      "grandfatheredThrough": "0006",
+      "files": {
+        "0001_init.sql": "93519f97b4a6296e55da59327368c97c721d9a9eb5e568f323d202ad4a2a16fa",
+        "0002_comment_projection_tables.sql": "6ff36cfc138278f903d505dad7f65b437516037b3b895309ff9526bb40ea0fbf",
+        "0003_automations.sql": "0a210f8ec4171fb820311e4be8b9739c886bdf3a07220cfc1b5fdc428aaf192a",
+        "0004_connections.sql": "9459fb9706ccd0907aa46e07c8a4eb6457b363c0f1a825cc6b9c089beefa0b4c",
+        "0005_audit_events.sql": "6414026f95b4a0496c02bd20e554b3954a0515460b2a4f464798ff8c8b38964c",
+        "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858",
+        "0007_membership_roles.sql": "c2f115ca678bb41a42210e21d8a38fc22052ba7ec15586f35362bd20235c14df"
+      }
+    }
+  }
+}

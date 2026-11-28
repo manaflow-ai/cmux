@@ -1,0 +1,30 @@
+<!doctype html><html><head><title>ARIA Fixture</title></head><body>
+<header><h1>ARIA roles</h1></header>
+<nav aria-label="Breadcrumb"><ol><li><a href="/">Root</a></li><li><a href="/aria.html" aria-current="page">Here</a></li></ol></nav>
+<main>
+<h2>Names</h2>
+<span id="lbl">Labelled by span</span><input aria-labelledby="lbl">
+<label for="for-input">Label for</label><input id="for-input" value="prefilled">
+<input title="Title only"><button aria-label="Icon button"><svg width="8" height="8"></svg></button>
+<button aria-describedby="desc">Described</button><span id="desc">extra description</span>
+<h3>Level three</h3><h4>Level four</h4>
+<h2>Widgets</h2>
+<div role="tablist" aria-label="Tabs"><button role="tab" aria-selected="true">First</button><button role="tab" aria-selected="false">Second</button></div>
+<div role="tabpanel">Panel one</div>
+<button aria-expanded="false" aria-controls="m">Menu</button>
+<button aria-pressed="true">Bold</button>
+<div role="switch" aria-checked="true" tabindex="0">Wifi</div>
+<input type="range" min="0" max="10" value="3" aria-label="Volume">
+<fieldset><legend>Size</legend><label><input type="radio" name="s" checked> Small</label><label><input type="radio" name="s"> Large</label></fieldset>
+<div role="progressbar" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100" aria-label="Upload"></div>
+<div role="alert">Heads up</div>
+<table><caption>Scores</caption><thead><tr><th>Name</th><th>Score</th></tr></thead><tbody><tr><td>Ada</td><td>9</td></tr></tbody></table>
+<ul role="tree" aria-label="Files"><li role="treeitem" aria-expanded="true">src<ul role="group"><li role="treeitem">main.swift</li></ul></li></ul>
+<details><summary>More</summary><p>Hidden details text</p></details>
+<h2>Visibility</h2>
+<p hidden>Hidden attribute</p><p style="display:none">Display none</p><p style="visibility:hidden">Visibility hidden</p>
+<p aria-hidden="true">Aria hidden</p><p style="position:absolute;left:-9999px">Offscreen text</p>
+<div role="dialog" aria-modal="false" aria-label="Inline dialog"><p>Dialog body</p><button>OK</button></div>
+<a href="#top">Anchor link</a><div onclick="void 0" style="cursor:pointer">Clickable div</div>
+<div contenteditable="true" aria-label="Editor">Editable text</div>
+</main><footer>Footer text</footer></body></html>

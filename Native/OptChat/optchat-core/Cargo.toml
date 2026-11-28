@@ -1,0 +1,14 @@
+[package]
+name = "optchat-core"
+version = "0.1.0"
+edition = "2021"
+description = "OptChat memory: append-only log, binary summary tree, incremental view, compactor order (sans I/O)"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]

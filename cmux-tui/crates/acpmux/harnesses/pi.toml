@@ -1,0 +1,18 @@
+# Pi through the pi-acp adapter: bun add -g pi-acp (it starts `pi --mode rpc`).
+schema = 1
+id = "pi"
+name = "Pi"
+icon = "pi"
+protocol = "acp"
+command = "pi-acp"
+
+[capabilities]
+resume = true
+
+[auth]
+docs = "https://github.com/earendil-works/pi"
+
+[sessions]
+adapter = "pi"
+[sessions.resume]
+adopt = true

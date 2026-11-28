@@ -1,0 +1,402 @@
+{
+ "scopes": {
+  "terminal.search": {
+   "scope": "terminal:read",
+   "class": "read"
+  },
+  "terminal.viewport.reveal": {
+   "scope": "terminal:write",
+   "class": "mutation"
+  },
+  "browser.history.search": {
+   "scope": "browser_history:read",
+   "class": "read"
+  },
+  "fs.search": {
+   "scope": "fs:read",
+   "class": "read"
+  },
+  "search.providers.query": {
+   "scope": "search:read",
+   "class": "read"
+  }
+ },
+ "ops": {
+  "session.snapshot": {
+   "workspaces": [
+    {
+     "id": "workspace_api",
+     "session_id": "session_1",
+     "name": "api-server",
+     "index": 0,
+     "focused": true
+    },
+    {
+     "id": "workspace_web",
+     "session_id": "session_1",
+     "name": "web-app",
+     "index": 1,
+     "focused": false
+    },
+    {
+     "id": "workspace_mig",
+     "session_id": "session_1",
+     "name": "auth migration",
+     "index": 2,
+     "focused": false
+    }
+   ],
+   "screens": [
+    {
+     "id": "screen_1",
+     "workspace_id": "workspace_api",
+     "name": null,
+     "index": 0,
+     "focused": true,
+     "layout": {}
+    },
+    {
+     "id": "screen_2",
+     "workspace_id": "workspace_web",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "layout": {}
+    },
+    {
+     "id": "screen_3",
+     "workspace_id": "workspace_mig",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "layout": {}
+    }
+   ],
+   "panes": [
+    {
+     "id": "pane_1",
+     "screen_id": "screen_1",
+     "name": null,
+     "focused": true,
+     "zoomed": false
+    },
+    {
+     "id": "pane_2",
+     "screen_id": "screen_1",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    },
+    {
+     "id": "pane_3",
+     "screen_id": "screen_2",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    },
+    {
+     "id": "pane_4",
+     "screen_id": "screen_3",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    }
+   ],
+   "tabs": [
+    {
+     "id": "tab_1",
+     "pane_id": "pane_1",
+     "name": null,
+     "index": 0,
+     "focused": true,
+     "content_kind": "terminal",
+     "content_id": "terminal_1"
+    },
+    {
+     "id": "tab_2",
+     "pane_id": "pane_2",
+     "name": "auth tests",
+     "index": 0,
+     "focused": false,
+     "content_kind": "terminal",
+     "content_id": "terminal_2"
+    },
+    {
+     "id": "tab_3",
+     "pane_id": "pane_3",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "content_kind": "browser",
+     "content_id": "browser_1"
+    },
+    {
+     "id": "tab_4",
+     "pane_id": "pane_3",
+     "name": null,
+     "index": 1,
+     "focused": false,
+     "content_kind": "terminal",
+     "content_id": "terminal_3"
+    },
+    {
+     "id": "tab_5",
+     "pane_id": "pane_4",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "content_kind": "browser",
+     "content_id": "browser_2"
+    }
+   ],
+   "terminals": [
+    {
+     "id": "terminal_1",
+     "tab_id": "tab_1",
+     "tab_ids": [
+      "tab_1"
+     ],
+     "title": "zsh",
+     "cwd": "/Users/dev/src/api-server",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    },
+    {
+     "id": "terminal_2",
+     "tab_id": "tab_2",
+     "tab_ids": [
+      "tab_2"
+     ],
+     "title": "bun test",
+     "cwd": "/Users/dev/src/api-server/auth",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    },
+    {
+     "id": "terminal_3",
+     "tab_id": "tab_4",
+     "tab_ids": [
+      "tab_4"
+     ],
+     "title": "vite",
+     "cwd": "/Users/dev/src/web-app",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    }
+   ],
+   "browsers": [
+    {
+     "id": "browser_1",
+     "tab_id": "tab_3",
+     "url": "http://localhost:5173/login",
+     "title": "Sign in · Web App",
+     "loading": false,
+     "source": "launched",
+     "status": "live",
+     "error": null,
+     "frames_stalled": false,
+     "size": {
+      "width": 1280,
+      "height": 800
+     }
+    },
+    {
+     "id": "browser_2",
+     "tab_id": "tab_5",
+     "url": "https://docs.example.com/guides/auth-tokens",
+     "title": "Auth tokens · Example Docs",
+     "loading": false,
+     "source": "launched",
+     "status": "live",
+     "error": null,
+     "frames_stalled": false,
+     "size": {
+      "width": 1280,
+      "height": 800
+     }
+    }
+   ],
+   "machine": {
+    "id": "machine_1",
+    "name": "studio",
+    "origin": "local",
+    "status": "running",
+    "connectable": true,
+    "deleted": false,
+    "recoverable": false
+   },
+   "session": {
+    "id": "session_1",
+    "machine_id": "machine_1",
+    "generation": "1",
+    "revision": "1",
+    "connected": true
+   },
+   "clients": [],
+   "notifications": [],
+   "agents": [],
+   "frontend_projections": [],
+   "sidebar_views": [],
+   "cursor": {
+    "generation": "1",
+    "revision": "1"
+   }
+  },
+  "terminal.search": {
+   "matches": [
+    {
+     "terminal": "terminal_1",
+     "tab": "tab_1",
+     "title": "zsh",
+     "closed": false,
+     "row": "row_8812",
+     "line_text": "POST /v1/auth/refresh 401 Unauthorized (token expired) 12ms",
+     "match_start": 9,
+     "match_length": 4,
+     "last_output_at_ms": null
+    },
+    {
+     "terminal": "terminal_2",
+     "tab": "tab_2",
+     "title": "bun test",
+     "closed": false,
+     "row": "row_301",
+     "line_text": "✗ auth > refreshes an expired session [4.20ms]",
+     "match_start": 2,
+     "match_length": 4,
+     "last_output_at_ms": null
+    },
+    {
+     "terminal": "terminal_9",
+     "tab": null,
+     "title": "deploy",
+     "closed": true,
+     "row": "row_77",
+     "line_text": "rolled back auth-service to v41 after health check failed",
+     "match_start": 12,
+     "match_length": 4,
+     "last_output_at_ms": null
+    }
+   ],
+   "truncated": false
+  },
+  "browser.history.search": {
+   "entries": [
+    {
+     "url": "https://datatracker.example.org/doc/oauth-refresh",
+     "title": "OAuth refresh token rotation",
+     "last_visit_ms": null,
+     "visit_count": 3
+    },
+    {
+     "url": "https://github.com/example/api-server/pull/412",
+     "title": "Fix auth header parsing · Pull Request #412",
+     "last_visit_ms": null,
+     "visit_count": 5
+    }
+   ],
+   "truncated": false
+  },
+  "fs.search": {
+   "matches": [
+    {
+     "root": "/Users/dev/src/api-server",
+     "path": "/Users/dev/src/api-server/src/auth.ts",
+     "relative": "src/auth.ts",
+     "kind": "name",
+     "match_start": 0,
+     "match_length": 4,
+     "modified_ms": null
+    },
+    {
+     "root": "/Users/dev/src/api-server",
+     "path": "/Users/dev/src/api-server/src/middleware/session.ts",
+     "relative": "src/middleware/session.ts",
+     "kind": "content",
+     "line": 42,
+     "column": 18,
+     "line_text": "  if (!req.headers.authorization) return deny(res, 'missing auth')",
+     "match_start": 19,
+     "match_length": 4,
+     "modified_ms": null
+    },
+    {
+     "root": "/Users/dev/src/web-app",
+     "path": "/Users/dev/src/web-app/README.md",
+     "relative": "README.md",
+     "kind": "content",
+     "line": 12,
+     "column": 5,
+     "line_text": "Set AUTH_URL before you run the dev server.",
+     "match_start": 4,
+     "match_length": 4,
+     "modified_ms": null
+    }
+   ],
+   "truncated": true
+  },
+  "search.providers.query": {
+   "providers": [
+    {
+     "provider": "cmux/notes#notes",
+     "title": "Notes",
+     "items": [
+      {
+       "id": "note_17",
+       "title": "Auth rollout plan",
+       "subtitle": "edited yesterday",
+       "symbol": "note.text",
+       "open": {
+        "command": "openNote",
+        "args": {
+         "id": "note_17"
+        }
+       }
+      }
+     ],
+     "truncated": false
+    },
+    {
+     "provider": "cmux/inbox#inbox",
+     "title": "Inbox",
+     "items": [
+      {
+       "id": "item_5",
+       "title": "Review requested: auth middleware",
+       "subtitle": "api-server",
+       "symbol": "tray",
+       "open": {
+        "command": "openItem",
+        "args": {
+         "id": "item_5"
+        }
+       }
+      }
+     ],
+     "truncated": false
+    }
+   ]
+  },
+  "app.storage.get": {
+   "$sequence": [
+    [
+     "auth",
+     "npm ERR",
+     "f: config.ts"
+    ],
+    {},
+    null
+   ]
+  },
+  "app.storage.set": null,
+  "tab.focus": null,
+  "workspace.focus": null,
+  "action.run": null
+ }
+}

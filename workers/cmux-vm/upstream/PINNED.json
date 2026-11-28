@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Pinned copy of the upstream VM provider's public API surface. Internal only:",
+    "nothing in this directory is served, bundled or documented publicly.",
+    "openapi.json is the unauthenticated public OpenAPI document, byte for byte.",
+    "sdk/ holds the type declarations (dist/**/*.d.ts) and package.json of the",
+    "upstream SDK and CLI npm package, byte for byte. The coverage test (S3a)",
+    "reads both; the scheduled refresh job opens a PR when either changes."
+  ],
+  "fetchedAt": "2026-10-07T02:49:21Z",
+  "openapi": {
+    "url": "https://api.freestyle.sh/openapi.json",
+    "file": "openapi.json",
+    "sha256": "c0eef41b4010c60d817433bba79c1405cc72074aedafe1e72debd275d53b7007",
+    "openapiVersion": "3.1.0",
+    "infoVersion": "0.1.0",
+    "operations": 88
+  },
+  "sdk": {
+    "package": "freestyle",
+    "version": "0.2.16",
+    "license": "MIT",
+    "tarball": "https://registry.npmjs.org/freestyle/-/freestyle-0.2.16.tgz",
+    "tarballSha256": "2b9f857a856b73d0ecbef10784015270e6175f00962972d3e52e50239748e6b3",
+    "integrity": "sha512-8pC7lh/R2PDanbs9Noc1Q7YlPl8Be8hHaQA/rpwFmELrcLTUAuCuxpoZ1Xm+7fuxqhJqJzO83bTTeLcSUoJ9SA==",
+    "directory": "sdk"
+  }
+}

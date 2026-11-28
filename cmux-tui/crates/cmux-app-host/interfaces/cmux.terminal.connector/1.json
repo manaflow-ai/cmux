@@ -1,0 +1,63 @@
+{
+  "name": "cmux.terminal.connector/1",
+  "version": 1,
+  "docs": "Host mode (ghostty-next-switch.md, cloud-app.md): the far end runs its own session host; the local host relays the viewer protocol (GHOSTSNP snapshot plus bytes, size state, input, presence) and does not parse. An app connector runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. Rust traits TerminalConnector and HostLink in the crate cmux-terminal-iface; the daemon side is cmux-tui-core terminal_backend.",
+  "props": {
+    "kind": "string (one of options.kinds)",
+    "target": "string (a connector-defined id)"
+  },
+  "methods": {
+    "connect": "removed from the wire (2026-10-04): the app opens a link with the host op cmux.terminal.connector.open (hostOps); the Rust trait TerminalConnector::connect stays for in-process connectors and as the app's own shape",
+    "close": "({channel}) -> void: the host ends the link (sent as host.event); the app answers with the end frame of the channel"
+  },
+  "events": [
+    "end"
+  ],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "kinds",
+      "openOps"
+    ],
+    "properties": {
+      "kinds": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$"
+        },
+        "description": "Target kinds this implementation serves; the registry ids are app:<app>/<kind>. Default deny: a kind not listed is never routed here."
+      },
+      "openOps": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96
+        },
+        "description": "Catalog ops of this app whose user runs open a link or terminal: only an origin-user run of one of these gets an open token (stamped by the host, single use, 60 s), and the host accepts a token only when it was minted for one of them (default deny). Every entry must be an op in the app's catalog fragment."
+      }
+    }
+  },
+  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04); refined with the first connector before the interface is public; 2026-10-04: credit-based data frames shared with cmux.terminal.backend/1; 2026-10-04 later: link open is the app -> host op cmux.terminal.connector.open (the host consumes the token, checks the kind, assigns the channel)",
+  "eventShapes": {
+    "end": "end {channel, lost: {reason, retryable}} after the last data; the host also accepts end {channel, exit} and treats it the same way"
+  },
+  "dataPlane": {
+    "frames": "Data moves as frames on the app host's stream (binary payload), never as op calls. Per channel, in order: data {channel, offset, bytes} (offset = running byte total after this frame, per direction), credit {channel, direction: in|out, bytes} and end {channel, exit? | lost?} (exactly once, after the last data). channel is the connector link; the bytes are the viewer protocol (GHOSTSNP snapshot and terminal bytes frames, size state, input, presence).",
+    "credit": "The receiver grants bytes; the sender keeps at most the granted, not yet acknowledged bytes in flight and never sends past them. Each direction starts with window_bytes (from the open answer, 64 KiB to 1 MiB, default 256 KiB); the receiver sends credit as it consumes data. Data past the credit is a protocol violation: the receiver ends the channel with lost {reason: \"credit\", retryable: false}. No frame or op waits.",
+    "backpressure": "End to end: the session host grants output credit for a terminal only while its viewers and journal keep up; a backend grants host-channel out credit only from its own terminal credit, so a slow viewer stops the far end (SSH window) instead of growing a buffer. Input runs the other way the same way.",
+    "continuity": "A receiver checks offsets: a gap or an overlap ends the channel with lost. resume continues the offsets of the resumed terminal."
+  },
+  "hostOps": {
+    "cmux.terminal.connector.open": "({kind, target, open_token}) -> {channel, window_bytes}. Direction: app server -> host. The app calls it after it has its carrier to target. The host consumes open_token first (issued to this app, single use, 60 s; any attempt burns it), then checks that the token was minted for an op in options.openOps, that the app implements this interface with its server and holds the terminal:backend grant, and that kind is in options.kinds (default deny). It assigns the channel id (the host owns every channel id), records the link as app:<app>/<kind> plus target and answers window_bytes (the default 256 KiB). Data, credit and end then follow dataPlane on the app's stream. At most one link per (app, kind, target): a second open while it is up answers the same channel (the token is still consumed); at most 64 links per app (unavailable, retryable). A revoked grant, a disabled or removed app, or a server stop or exit ends every link of the app. Errors: denied (token, op, grant or kind), invalid (missing token, or a target that is empty, longer than 256 bytes or has control characters), unavailable.",
+    "open_token": "Issued by the host after the user's gesture: the supervisor stamps it into a user-origin apps-run of one of the app's catalog ops (never for cli, mcp, script or remote origins) and the client never sees it. The app passes it on in cmux.terminal.connector.open. A missing, expired, reused or other app's token, or one minted for an op outside options.openOps, is denied. A reconnect needs a new token (a new user run)."
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "comment": "Owned by the license review. One row per file of ghostty-next/src/shell-integration at the gitlink: the cmux-next app bundles the directory (scripts/cmux-next/bundle-ghostty-resources.sh -> Contents/Resources/ghostty/shell-integration) and cmux-tui embeds the rows with embedded=true (include_str! in cmux-tui-core/src/shell_integration.rs, every target). marker is a regex the file must match (it pins the reviewed upstream version or origin). text: a key of texts, 'ghostty' (Ghostty's MIT LICENSE, already in every notice) or 'cmux-gpl' (the GPL-3.0 text every cmux package ships as LICENSE). shell_integration_notices.py fails a file without a row, a stale row, a marker or text mismatch, an embedded flag that differs from the include_str! set, and an include from another Ghostty tree.",
+  "source": "ghostty-next",
+  "texts": {
+    "bash-preexec-0.7.0": {
+      "file": "texts/bash-preexec-0.7.0/LICENSE.md",
+      "sha256": "5ef6b4c99c25dffaee76ecea063cf5df477f0af0fe925e6254229eeebe9a1b42",
+      "source": "LICENSE.md at tag 0.7.0 (commit d866eeefdb8dfce075cbd4e37dc73c4deb4b0bd2) of https://github.com/rcaloras/bash-preexec; ghostty-next 5d6615fc4 'bash: upgrade to bash-preexec 0.7.0'"
+    }
+  },
+  "files": {
+    "README.md": {
+      "owner": "Ghostty (ghostty-next)",
+      "license": "MIT",
+      "text": "ghostty",
+      "marker": "",
+      "embedded": false
+    },
+    "bash/bash-preexec.sh": {
+      "owner": "bash-preexec 0.7.0 (Ryan Caloras and contributors, https://github.com/rcaloras/bash-preexec), modified by Ghostty (__bp_adjust_histcontrol commented out)",
+      "license": "MIT",
+      "text": "bash-preexec-0.7.0",
+      "marker": "(?m)^# V0\\.7\\.0$",
+      "embedded": true
+    },
+    "bash/ghostty.bash": {
+      "license": "GPL-3.0-or-later",
+      "text": "cmux-gpl",
+      "owner": "Ghostty (ghostty-next), parts based on Kitty's bash integration (https://github.com/kovidgoyal/kitty)",
+      "marker": "Kitty's (?:bash|zsh) integration\\. Kitty is",
+      "embedded": true
+    },
+    "elvish/lib/ghostty-integration.elv": {
+      "owner": "Ghostty (ghostty-next)",
+      "license": "MIT",
+      "text": "ghostty",
+      "marker": "",
+      "embedded": false
+    },
+    "fish/vendor_conf.d/ghostty-shell-integration.fish": {
+      "owner": "Ghostty (ghostty-next)",
+      "license": "MIT",
+      "text": "ghostty",
+      "marker": "",
+      "embedded": true
+    },
+    "nushell/vendor/autoload/ghostty.nu": {
+      "owner": "Ghostty (ghostty-next)",
+      "license": "MIT",
+      "text": "ghostty",
+      "marker": "",
+      "embedded": false
+    },
+    "zsh/.zshenv": {
+      "license": "GPL-3.0-or-later",
+      "text": "cmux-gpl",
+      "owner": "Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty)",
+      "marker": "Kitty's (?:bash|zsh) integration\\. Kitty is",
+      "embedded": true
+    },
+    "zsh/ghostty-integration": {
+      "license": "GPL-3.0-or-later",
+      "text": "cmux-gpl",
+      "owner": "Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty)",
+      "marker": "Kitty's (?:bash|zsh) integration\\. Kitty is",
+      "embedded": true
+    }
+  }
+}

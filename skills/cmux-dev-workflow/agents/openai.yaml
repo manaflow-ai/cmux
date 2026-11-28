@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Dev Workflow"
+  short_description: "Follow cmux setup, Xcode, and tagged build development rules."
+  default_prompt: "Use this skill when setting up cmux, touching Xcode project files, or working with tagged debug builds that must coexist with other dev builds."

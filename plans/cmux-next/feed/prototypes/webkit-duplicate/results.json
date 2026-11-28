@@ -1,0 +1,333 @@
+{
+  "checks" : [
+    {
+      "actual" : "finish /page",
+      "expected" : "finish /page",
+      "id" : "A0",
+      "kind" : "check",
+      "name" : "agent tab A loads /page",
+      "pass" : true
+    },
+    {
+      "actual" : "1",
+      "expected" : "1",
+      "id" : "A1",
+      "kind" : "check",
+      "name" : "agent shim runs in A",
+      "pass" : true
+    },
+    {
+      "actual" : "{\"scrollY\":1234,\"value\":\"typed by agent\",\"cookie\":\"pref=dark\"}",
+      "expected" : "",
+      "id" : "A2",
+      "kind" : "observe",
+      "name" : "state set in A (page world)"
+    },
+    {
+      "actual" : "pref=dark; sid=agent-session",
+      "expected" : "sid=agent-session; pref=dark",
+      "id" : "A3",
+      "kind" : "check",
+      "name" : "A sends HttpOnly sid and pref",
+      "pass" : true
+    },
+    {
+      "actual" : "load=finish /page headSS={}",
+      "expected" : "unknown",
+      "id" : "C1",
+      "kind" : "observe",
+      "name" : "control: interactionState alone carries sessionStorage?"
+    },
+    {
+      "actual" : "sameController=true headShim=1",
+      "expected" : "shim leaks (the trap a fresh controller avoids)",
+      "id" : "C2",
+      "kind" : "observe",
+      "name" : "control: configuration.copy() keeps the agent's controller and shim"
+    },
+    {
+      "actual" : "http://127.0.0.1:58878 [\"ssKey\": \"agent-ss\"]",
+      "expected" : "ssKey=agent-ss",
+      "id" : "D0",
+      "kind" : "check",
+      "name" : "read A's top-origin sessionStorage from the app world",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /page url=http://127.0.0.1:58878/page",
+      "expected" : "finish /page, url == A.url",
+      "id" : "D1",
+      "kind" : "check",
+      "name" : "D restores A's current entry",
+      "pass" : true
+    },
+    {
+      "actual" : "GET /page requests during restore: 0",
+      "expected" : "",
+      "id" : "D1n",
+      "kind" : "observe",
+      "name" : "restore in D hits the network for /page"
+    },
+    {
+      "actual" : "0",
+      "expected" : "0",
+      "id" : "D2",
+      "kind" : "check",
+      "name" : "D history matches A (back list count)",
+      "pass" : true
+    },
+    {
+      "actual" : "pref=dark; sid=agent-session",
+      "expected" : "sid=agent-session; pref=dark",
+      "id" : "D3",
+      "kind" : "check",
+      "name" : "D sends A's cookies incl. HttpOnly sid",
+      "pass" : true
+    },
+    {
+      "actual" : "pref=dark",
+      "expected" : "no sid",
+      "id" : "D3h",
+      "kind" : "check",
+      "name" : "sid is HttpOnly (absent from document.cookie in D)",
+      "pass" : true
+    },
+    {
+      "actual" : "agent-ls",
+      "expected" : "agent-ls",
+      "id" : "D4",
+      "kind" : "check",
+      "name" : "D sees A's localStorage",
+      "pass" : true
+    },
+    {
+      "actual" : "[\"ssKey\": \"agent-ss\"]",
+      "expected" : "ssKey=agent-ss at head",
+      "id" : "D5",
+      "kind" : "check",
+      "name" : "seeded sessionStorage visible to D's inline head script (document-start ran first)",
+      "pass" : true
+    },
+    {
+      "actual" : "agent-ss",
+      "expected" : "agent-ss",
+      "id" : "D6",
+      "kind" : "check",
+      "name" : "D sessionStorage after load",
+      "pass" : true
+    },
+    {
+      "actual" : "''",
+      "expected" : "typed by agent (if WebKit carried it)",
+      "id" : "D7",
+      "kind" : "observe",
+      "name" : "D form value of the current entry"
+    },
+    {
+      "actual" : "1234",
+      "expected" : "1234",
+      "id" : "D8",
+      "kind" : "check",
+      "name" : "D scroll offset restored",
+      "pass" : true
+    },
+    {
+      "actual" : "{\"head\":null,\"now\":\"undefined\"}",
+      "expected" : "head null, now undefined",
+      "id" : "D9",
+      "kind" : "check",
+      "name" : "agent shim absent in D",
+      "pass" : true
+    },
+    {
+      "actual" : "userScripts=0",
+      "expected" : "no user scripts in D",
+      "id" : "D10",
+      "kind" : "check",
+      "name" : "seed script removed after first commit",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /page ssKey=changed-in-D",
+      "expected" : "changed-in-D",
+      "id" : "D11",
+      "kind" : "check",
+      "name" : "site change in D survives reload (seed is one-shot)",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /home",
+      "expected" : "finish /home",
+      "id" : "S1",
+      "kind" : "check",
+      "name" : "sign-in in D ends on /home",
+      "pass" : true
+    },
+    {
+      "actual" : "js_login=1; sid=user-session; pref=dark",
+      "expected" : "sid=user-session; js_login=1",
+      "id" : "S2",
+      "kind" : "check",
+      "name" : "D has the new session cookie",
+      "pass" : true
+    },
+    {
+      "actual" : "/page > /home",
+      "expected" : "",
+      "id" : "S3",
+      "kind" : "observe",
+      "name" : "D history after sign-in (POST+303 leaves no /login entry)"
+    },
+    {
+      "actual" : "[\"js_login\", \"sid (HttpOnly)\"]",
+      "expected" : "[js_login, sid (HttpOnly)]",
+      "id" : "S4",
+      "kind" : "check",
+      "name" : "cookie diff across D's lifetime names the sign-in cookies (FD3 hide list)",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /home",
+      "expected" : "finish /home",
+      "id" : "B1",
+      "kind" : "check",
+      "name" : "A navigates by GET to D's final URL",
+      "pass" : true
+    },
+    {
+      "actual" : "js_login=1; sid=user-session; pref=dark",
+      "expected" : "sid=user-session; js_login=1",
+      "id" : "B2",
+      "kind" : "check",
+      "name" : "A sees the new session cookie",
+      "pass" : true
+    },
+    {
+      "actual" : "[\"authToken\": \"tok-123\", \"ssKey\": \"changed-in-D\"]",
+      "expected" : "authToken=tok-123, ssKey=changed-in-D",
+      "id" : "B3",
+      "kind" : "check",
+      "name" : "A's inline head script sees D's sessionStorage (new key and D's change)",
+      "pass" : true
+    },
+    {
+      "actual" : "shim=1 userScripts=1",
+      "expected" : "1, 1 user script left",
+      "id" : "B4",
+      "kind" : "check",
+      "name" : "A keeps its agent shim; only the app-world seed was removed",
+      "pass" : true
+    },
+    {
+      "actual" : "/page > /home",
+      "expected" : "/page > /home",
+      "id" : "B5",
+      "kind" : "check",
+      "name" : "A's history holds no /login entry",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /posted postCount=1",
+      "expected" : "",
+      "id" : "P0",
+      "kind" : "observe",
+      "name" : "A2 current entry is a POST result"
+    },
+    {
+      "actual" : "outcome=failProvisional NSURLErrorDomain -999 url=http://127.0.0.1:58878/posted POSTs sent during restore=1 postCount=2 body=POST /posted #2 events=[\"policy POST backForward /posted main=true\", \"failProvisional NSURLErrorDomain -999\", \"policy POST formResubmitted /posted main=true\", \"commit /posted\", \"finish /posted\"]",
+      "expected" : "",
+      "id" : "P1",
+      "kind" : "observe",
+      "name" : "restoring a POST entry in D2 (no guard)"
+    },
+    {
+      "actual" : "POSTs sent: 1",
+      "expected" : "no re-POST",
+      "id" : "P2",
+      "kind" : "observe",
+      "name" : "restoring a POST entry with no guard"
+    },
+    {
+      "actual" : "POSTs=0 outcome=timeout url=nil back=[\"/form\"] events=[\"policy POST backForward /posted main=true CANCEL\"]",
+      "expected" : "0 POSTs",
+      "id" : "P3",
+      "kind" : "check",
+      "name" : "a POST-cancelling policy in D stops the re-POST",
+      "pass" : true
+    },
+    {
+      "actual" : "finish /page {\"q\":\"\",\"q2\":\"\",\"scrollY\":777,\"persisted\":false}",
+      "expected" : "q='typed then left', q2='inserted then left', 777",
+      "id" : "F1",
+      "kind" : "observe",
+      "name" : "form values and scroll of a BACK entry in D after restore + goBack"
+    },
+    {
+      "actual" : "finish /page {\"q\":\"typed then left\",\"q2\":\"inserted then left\",\"scrollY\":777,\"persisted\":true}",
+      "expected" : "",
+      "id" : "F2",
+      "kind" : "observe",
+      "name" : "control: goBack inside A3 itself"
+    },
+    {
+      "actual" : "finish /page {\"q\":\"typed then left\",\"q2\":\"inserted then left\",\"scrollY\":777,\"persisted\":false}",
+      "expected" : "q='typed then left', q2='inserted then left', 777",
+      "id" : "F3",
+      "kind" : "observe",
+      "name" : "A4 (no back/forward cache): form values of a BACK entry in D6 after restore + goBack"
+    },
+    {
+      "actual" : "finish /page {\"q\":\"typed then left\",\"q2\":\"inserted then left\",\"scrollY\":777,\"persisted\":false}",
+      "expected" : "",
+      "id" : "F4",
+      "kind" : "observe",
+      "name" : "control: goBack inside A4 itself with the back/forward cache off"
+    },
+    {
+      "actual" : "registered",
+      "expected" : "",
+      "id" : "W0",
+      "kind" : "observe",
+      "name" : "agent registers a service worker in A"
+    },
+    {
+      "actual" : "true",
+      "expected" : "true",
+      "id" : "W1",
+      "kind" : "check",
+      "name" : "agent's service worker controls a new tab in the same store",
+      "pass" : true
+    },
+    {
+      "actual" : "127.0.0.1",
+      "expected" : "",
+      "id" : "W2",
+      "kind" : "observe",
+      "name" : "service-worker data records"
+    },
+    {
+      "actual" : "false",
+      "expected" : "false",
+      "id" : "W3",
+      "kind" : "check",
+      "name" : "after removing the origin's registrations a new tab is not controlled",
+      "pass" : true
+    }
+  ],
+  "environment" : {
+    "orderFront" : "0",
+    "os" : "Version 27.0 (Build 26A428)",
+    "store" : "WKWebsiteDataStore(forIdentifier:) 556B8899-4525-452D-9F69-6828918E1DBF",
+    "webkit" : "22625.1.29.11.27"
+  },
+  "notes" : [
+    "Requests per method and path over the whole run: [(key: \"GET /form\", value: 1), (key: \"GET /home\", value: 4), (key: \"GET /page\", value: 6), (key: \"GET /stats\", value: 8), (key: \"GET /sw.js\", value: 1), (key: \"GET /whoami\", value: 4), (key: \"POST /login\", value: 1), (key: \"POST /posted\", value: 2)]",
+    "GET /page requests before D: 1"
+  ],
+  "summary" : {
+    "checks" : 26,
+    "failed" : 0,
+    "observations" : 15,
+    "passed" : 26
+  }
+}

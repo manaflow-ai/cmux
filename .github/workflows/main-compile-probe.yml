@@ -1,0 +1,192 @@
+name: Main compile probe
+run-name: Main compile probe ${{ inputs.sha }}
+
+# Compiles one main commit's app-host test product (the app and cmuxTests,
+# build-for-testing, no test run) and nothing else: no seed, product or cache
+# is saved. ci-compile-attribution.yml dispatches it only for a commit the
+# seeds skipped inside a compile break's range of several merges, so the break
+# narrows to one pull request. seed-derived-data.yml is the per-push compile;
+# this is the rare extra data point. Its `Compile` step is the verdict
+# main_compile_attribution.py reads, and its completion runs the attribution
+# again. Never a required check: nothing waits on it.
+#
+# An owned warm mini first (the PR pool's root label, which the job-started
+# hook admits for a workflow_dispatch); the dispatcher sends a probe that has
+# not started within minutes to Blacksmith instead. It adopts the nearest
+# earlier main seed for its pool and width, so a probe compiles one merge's diff.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: The main commit to compile (full SHA).
+        required: true
+        type: string
+      runner:
+        description: The runs-on label (an owned root label, or a Blacksmith macOS pool as overflow).
+        required: true
+        default: glaeda-root-std-xcode-26.6
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
+jobs:
+  compile:
+    name: Compile ${{ inputs.sha }}
+    # Only from main's definition, only in this repository, only a main commit
+    # (checked below before anything is built).
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner }}
+    timeout-minutes: 45
+    concurrency:
+      group: main-compile-probe-${{ inputs.sha }}
+      cancel-in-progress: false
+    env:
+      CMUX_CI_XCODE_APP: ${{ endsWith(inputs.runner, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      PROBE_SHA: ${{ inputs.sha }}
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Refuse a commit that is not on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$PROBE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full commit SHA"; exit 1; }
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$PROBE_SHA...main" --jq .status)"
+          case "$status" in
+            ahead|identical) ;;
+            *) echo "::error::$PROBE_SHA is not on main ($status)"; exit 1 ;;
+          esac
+
+      - name: Prepare admission build paths
+        run: |
+          set -euo pipefail
+          # The paths compile admission and the seeds build at: part of the
+          # seed key. On an owned Mac hold the root the hook exported (or root
+          # 1) for the job, as the seed job does.
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
+          export CMUX_CI_CANONICAL_ROOT="$root"
+          echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          if [ -x "$helper" ]; then
+            status=0
+            "$helper" take "$root" --wait 900 >/dev/null || status=$?
+            placed="$(cat "${RUNNER_TEMP:-/nonexistent}/glaeda-canonical-root" 2>/dev/null || true)"
+            case "$status" in
+              0) ;;
+              2)
+                [ "$placed" = "$root" ] || {
+                  echo "::error::glaeda placed this job in ${placed:-no root}, not $root";
+                  exit 1;
+                }
+                ;;
+              *) echo "::error::could not hold $root for this job (glaeda-canonical-root exit $status)"; exit 1 ;;
+            esac
+          fi
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
+          echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Compute seed key
+        id: key
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
+          echo "prefix=admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-" >> "$GITHUB_OUTPUT"
+
+      - name: Install compilation dependencies
+        run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+          restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
+
+      - name: Install SwiftPM manifest cache
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
+
+      - name: Resolve Swift packages
+        env:
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+
+      # The nearest earlier main seed for this pool and width, so the compile
+      # is one merge's diff. Read without credentials, as compile admission does.
+      - name: Adopt the nearest main seed
+        id: adopt
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          PREFIX: ${{ steps.key.outputs.prefix }}
+          GH_TOKEN: ${{ github.token }}
+          # A probe runs on a specific mini shape. Never make a 14-core root
+          # runner replay a seed emitted with another Swift-driver width;
+          # without its own-width chain it safely compiles cold.
+          CMUX_SEED_REQUIRE_OWN_WIDTH: "1"
+        run: |
+          python3 scripts/ci/seed_derived_data.py adopt \
+            "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            "$PREFIX" "$PROBE_SHA"
+
+      # The verdict main_compile_attribution.py reads (COMPILE_STEPS).
+      - name: Compile
+        id: compile
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            "$PWD/.ci-source-packages" \
+            "$CMUX_COMPILE_ADMISSION_CAS"
+
+      - name: Forget the adopted-build inode override
+        if: always() && steps.adopt.outputs.hit == 'true'
+        continue-on-error: true
+        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true

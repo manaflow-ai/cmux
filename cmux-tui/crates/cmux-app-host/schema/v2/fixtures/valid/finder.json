@@ -1,0 +1,49 @@
+{
+  "manifestVersion": 2,
+  "id": "octo/files",
+  "name": "Files",
+  "version": "0.1.0",
+  "description": "A file browser.",
+  "repository": "https://github.com/octo/files",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": "Files"
+    },
+    "cmux.fs.provider/1": {
+      "export": "fs",
+      "schemes": [
+        "sftp"
+      ]
+    }
+  },
+  "consumes": {
+    "interfaces": [
+      "cmux.viewer/1"
+    ]
+  },
+  "scopes": {
+    "fs:read": "Browse folders you pick.",
+    "feed:answer": "Answer copy conflicts.",
+    "embed:run": "Show previews in your viewer app.",
+    "storage:local": "Remember recent folders."
+  },
+  "handles": {
+    "root": "Open the folders you pick.",
+    "connection": "Browse hosts you connect.",
+    "credential": "Use your SSH key without seeing it.",
+    "image": "Show thumbnails."
+  },
+  "categories": [
+    "files"
+  ],
+  "files": [
+    "dist/"
+  ]
+}

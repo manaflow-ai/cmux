@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""
+Validate project syntax, string spelling and object identities, then sort
+high-churn sections of project.pbxproj.
+
+Object IDs must be unique across the objects dictionary. Duplicate definitions
+silently replace each other in Xcode, and sorting can change which one wins.
+Reject them before normalizing or checking the project.
+
+What we sort:
+  - Every entry inside PBXBuildFile and PBXFileReference (Xcode picks
+    arbitrary order; entries are referenced by UUID so order is irrelevant
+    to the build).
+  - The files = ( ... ) arrays inside PBXSourcesBuildPhase,
+    PBXResourcesBuildPhase, PBXFrameworksBuildPhase, and
+    PBXCopyFilesBuildPhase (Xcode reorders these on UI touches; the
+    compiler does not care about order).
+
+What we leave alone:
+  - PBXGroup children = ( ... ) arrays. Order controls the project
+    navigator's visible order; sorting would reorder folders in the UI.
+  - All UUIDs and all comment text. We only reorder lines, never
+    rewrite identifiers.
+  - The objectVersion field, build settings, and every other section.
+
+Idempotent: running twice produces zero diff.
+Designed for the OpenStep-pbxproj flavor that Xcode writes by default.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
+
+ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
+OPENSTEP_TOKEN_RE = re.compile(
+    r'(?P<comment>/\*.*?\*/|//[^\n]*)|'
+    r'(?P<string>"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')|'
+    r'(?P<data><[0-9A-Fa-f\s]*>)|(?P<punctuation>[{}=;(),])|'
+    r'(?P<unquoted>[^\s{}=;(),"\']+)',
+    re.DOTALL,
+)
+# CoreFoundation's CFOldStylePList.c: isValidUnquotedStringCharacter.
+# Quoted strings, comments and data literals have separate token branches.
+OPENSTEP_UNQUOTED_RE = re.compile(r"[A-Za-z0-9_$/:.\-]+")
+
+# Sections we sort flat. Every entry is a single line of the form
+#   <UUID> /* <label> */ = { ... };
+FLAT_SECTIONS = (
+    "PBXBuildFile",
+    "PBXFileReference",
+)
+
+# Build phase sections whose `files = (...)` arrays we sort. Each line
+# inside the array looks like
+#   <UUID> /* <label> in <phase> */,
+BUILD_PHASE_SECTIONS = (
+    "PBXSourcesBuildPhase",
+    "PBXResourcesBuildPhase",
+    "PBXFrameworksBuildPhase",
+    "PBXCopyFilesBuildPhase",
+)
+
+
+def validate_token_gap(gap: str, line: int) -> None:
+    """The token regex must not silently skip an unmatched quote."""
+    if gap.strip():
+        leading_space = gap[: len(gap) - len(gap.lstrip())]
+        line += leading_space.count("\n")
+        raise ValueError(f"unterminated quoted string at line {line}")
+
+
+def validate_syntax(text: str) -> None:
+    """Validate the OpenStep dictionaries, arrays and strings Xcode emits.
+
+    Run on Linux before normalization: balancing braces alone misses a removed
+    semicolon and can let malformed projects reach expensive macOS runners.
+    Keep token positions for diagnostics without parsing shell-script contents.
+    """
+    tokens: list[tuple[str, int]] = []
+    line = 1
+    end = 0
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        gap = text[end:match.start()]
+        if gap.strip():
+            raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+        line += gap.count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if token.startswith("/*"):
+            if not token.endswith("*/"):
+                raise ValueError(f"syntax error on line {token_line}: unterminated comment")
+        elif not token.startswith("//"):
+            tokens.append((token, token_line))
+    if text[end:].strip():
+        raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+    tokens.append(("", line + text[end:].count("\n")))
+    index = 0
+
+    def fail(expected: str) -> None:
+        token, token_line = tokens[index]
+        found = repr(token) if token else "end of file"
+        raise ValueError(f"syntax error on line {token_line}: expected {expected}, found {found}")
+
+    def take(expected: str) -> None:
+        nonlocal index
+        if tokens[index][0] != expected:
+            fail(repr(expected))
+        index += 1
+
+    def scalar() -> None:
+        nonlocal index
+        if not tokens[index][0] or tokens[index][0] in "{}=;(),":
+            fail("a key or value")
+        index += 1
+
+    def value() -> None:
+        if tokens[index][0] == "{":
+            dictionary()
+        elif tokens[index][0] == "(":
+            take("(")
+            while tokens[index][0] != ")":
+                value()
+                if tokens[index][0] == ")":
+                    break
+                take(",")
+            take(")")
+        else:
+            scalar()
+
+    def dictionary() -> None:
+        take("{")
+        while tokens[index][0] != "}":
+            scalar()
+            take("=")
+            value()
+            take(";")
+        take("}")
+
+    dictionary()
+    if tokens[index][0]:
+        fail("end of file")
+
+
+def validate_object_ids(text: str) -> None:
+    """Reject repeated keys in the global objects dictionary, not references.
+
+    Track dictionary nesting in the token stream so quoted build scripts,
+    comments, and nested TargetAttributes keys cannot masquerade as objects.
+    IDs are not restricted to 24 hex characters: older and hand-edited projects
+    use shorter IDs, including the collision that broke nightly in #12736.
+    """
+    dictionaries: list[str | None] = []
+    previous: list[str] = []
+    definitions: dict[str, int] = {}
+    duplicates: list[str] = []
+    line = 1
+    end = 0
+    previous_group: str | None = None
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        gap = text[end:match.start()]
+        validate_token_gap(gap, line)
+        line += gap.count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if match.lastgroup == "comment":
+            continue
+        if not gap and previous_group in {"unquoted", "string"} and match.lastgroup in {"unquoted", "string"}:
+            raise ValueError(
+                f"adjacent scalar tokens at line {token_line}; "
+                "separate quoted and unquoted strings with whitespace or punctuation"
+            )
+        if match.lastgroup == "unquoted" and not OPENSTEP_UNQUOTED_RE.fullmatch(token):
+            raise ValueError(
+                f"invalid unquoted string at line {token_line}; "
+                "enclose strings containing special characters in double quotes"
+            )
+        if token == "{":
+            key = previous[-2] if len(previous) == 2 and previous[-1] == "=" else None
+            if key is not None and key.startswith(('"', "'")):
+                key = key[1:-1]
+            if dictionaries == [None, "objects"] and key is not None:
+                if key in definitions:
+                    duplicates.append(
+                        f"duplicate object ID {key} (lines {definitions[key]} and {token_line})"
+                    )
+                else:
+                    definitions[key] = token_line
+            dictionaries.append(key)
+        elif token == "}" and dictionaries:
+            dictionaries.pop()
+        previous = (previous + [token])[-2:]
+        previous_group = match.lastgroup
+    validate_token_gap(text[end:], line)
+    if duplicates:
+        raise ValueError("; ".join(duplicates))
+
+
+def entry_sort_key(line: str) -> tuple[str, str]:
+    """Sort lines by their /* comment */ label, then UUID as tie-breaker.
+
+    Falls back to the raw line when no comment is present so we never
+    drop or scramble unexpected lines.
+    """
+    comment = ENTRY_COMMENT_RE.search(line)
+    label = comment.group("label").lower() if comment else line.strip().lower()
+    uuid = line.lstrip().split(" ", 1)[0]
+    return (label, uuid)
+
+
+def sort_flat_section(lines: list[str], section: str) -> list[str]:
+    begin = f"/* Begin {section} section */"
+    end = f"/* End {section} section */"
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == begin)
+        stop = next(i for i, l in enumerate(lines) if l.strip() == end)
+    except StopIteration:
+        return lines
+
+    body = lines[start + 1 : stop]
+    # Separate content lines from blank lines; blanks are collapsed to a
+    # trailing group so they don't interleave with the sorted entries.
+    entries = [l for l in body if l.strip()]
+    blanks = [l for l in body if not l.strip()]
+    entries.sort(key=entry_sort_key)
+    new_body = entries + blanks
+    return lines[: start + 1] + new_body + lines[stop:]
+
+
+def sort_build_phase_files(lines: list[str], section: str) -> list[str]:
+    begin = f"/* Begin {section} section */"
+    end = f"/* End {section} section */"
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == begin)
+        stop = next(i for i, l in enumerate(lines) if l.strip() == end)
+    except StopIteration:
+        return lines
+
+    out = lines[: start + 1]
+    body = lines[start + 1 : stop]
+    i = 0
+    while i < len(body):
+        line = body[i]
+        out.append(line)
+        if line.strip() == "files = (":
+            j = i + 1
+            inner = []
+            while j < len(body) and body[j].strip() != ");":
+                inner.append(body[j])
+                j += 1
+            inner.sort(key=entry_sort_key)
+            out.extend(inner)
+            i = j
+            continue
+        i += 1
+    return out + lines[stop:]
+
+
+def normalize(text: str) -> str:
+    validate_syntax(text)
+    validate_object_ids(text)
+    lines = text.splitlines(keepends=True)
+    for section in FLAT_SECTIONS:
+        lines = sort_flat_section(lines, section)
+    for section in BUILD_PHASE_SECTIONS:
+        lines = sort_build_phase_files(lines, section)
+    return "".join(lines)
+
+
+def main(argv: list[str]) -> int:
+    check_only = "--check" in argv
+    positional = [a for a in argv[1:] if not a.startswith("--")]
+    path = Path(positional[0]) if positional else DEFAULT_PATH
+
+    if not path.exists():
+        print(f"error: not found: {path}", file=sys.stderr)
+        return 2
+
+    original = path.read_text()
+    try:
+        normalized = normalize(original)
+    except ValueError as error:
+        print(f"error: {path}: {error}", file=sys.stderr)
+        return 1
+
+    if check_only:
+        if original != normalized:
+            print(
+                f"error: {path} is not normalized. Run scripts/normalize-pbxproj.py to fix.",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+
+    if original != normalized:
+        path.write_text(normalized)
+        print(f"normalized: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

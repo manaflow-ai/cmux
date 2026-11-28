@@ -1,0 +1,134 @@
+// Pure encoder for the cmux iOS attach deep link.
+//
+// Takes the raw payload returned by the `mobile.attach_ticket.create` RPC
+// (`{ ticket: { routes, version, ... }, ... }`), optionally filters the ticket
+// routes by id/kind, base64url-encodes the (filtered) ticket, and builds the
+// `<scheme>://attach?v=<n>&payload=<b64>` URL the phone consumes.
+//
+// The scheme is the exact target bundle identifier, mirroring
+// `CmxPairingURLScheme` in `Packages/Shared/CMUXMobileCore`. Historical shared
+// schemes remain parse-only for old URLs; this encoder never creates one.
+//
+// This is the single source of truth for the encode recipe, shared by
+// `scripts/mobile-attach-qr.sh` (QR/HTML rendering) and `scripts/dev-setup.sh`
+// (headless auto-pair mint). Keep it pure (no I/O) so it is unit-testable with
+// `node --test scripts/lib/attach-url.test.mjs`.
+
+/** The pairing/attach URL scheme development (DEBUG/tagged) builds emit. */
+export const DEV_URL_SCHEME = "cmux-ios-dev";
+
+/** The pairing/attach URL scheme Release (beta + prod) builds emit. */
+export const RELEASE_URL_SCHEME = "cmux-ios";
+
+export function schemeForIOSBundleIdentifier(bundleIdentifier) {
+  const normalized = String(bundleIdentifier || "").trim().toLowerCase();
+  if (
+    !normalized.includes(".") ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalized)
+  ) {
+    throw new Error("An exact iOS bundle identifier is required");
+  }
+  return `cmux-ios-${normalized}`;
+}
+
+export function isCanonicalAttachURL(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/attach\?/.exec(value);
+  if (!match) return false;
+  const scheme = match[1].toLowerCase();
+  if ([DEV_URL_SCHEME, RELEASE_URL_SCHEME].includes(scheme)) return true;
+  if (!scheme.startsWith("cmux-ios-")) return false;
+  const bundleIdentifier = scheme.slice("cmux-ios-".length);
+  return bundleIdentifier.includes(".") &&
+    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(bundleIdentifier);
+}
+
+/**
+ * Filter a ticket's routes by id and/or kind. Returns the matching subset.
+ *
+ * @param {Array<object>} routes Ticket routes.
+ * @param {{routeID?: string, routeKind?: string}} [filter]
+ * @returns {Array<object>} The matching routes (all routes when no filter).
+ * @throws {Error} When a filter is given but matches nothing.
+ */
+export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
+  const id = String(routeID || "").trim();
+  const kind = String(routeKind || "").trim();
+  let filtered = routes;
+  if (id) {
+    filtered = filtered.filter((route) => route.id === id);
+  }
+  if (kind) {
+    filtered = filtered.filter((route) => route.kind === kind);
+  }
+  if (filtered.length === 0) {
+    throw new Error(
+      `No matching route for route_id=${id || "(none)"} route_kind=${kind || "(none)"}`,
+    );
+  }
+  return filtered;
+}
+
+/**
+ * Build the `<scheme>://attach` deep link from a raw attach-ticket payload.
+ *
+ * The returned `attachURL` is a bearer credential: it grants the holder the
+ * paired Mac's terminals for the ticket's TTL. Never log it.
+ *
+ * @param {object} payload The raw `mobile.attach_ticket.create` result.
+ * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
+ *   `scheme` is the exact-bundle URL scheme. It is required when the Mac did
+ *   not provide a canonical URL.
+ * @returns {{attachURL: string, routes: Array<object>, payload: object}}
+ *   `payload` is a shallow clone with `ticket.routes`/`routes` narrowed to the
+ *   filtered set, so callers (e.g. the QR HTML renderer) can show the addresses.
+ * @throws {Error} When the payload has no ticket/routes, or the filter is empty.
+ */
+export function buildAttachURL(payload, filter = {}) {
+  if (!payload || !payload.ticket || !Array.isArray(payload.ticket.routes)) {
+    throw new Error(
+      "mobile.attach_ticket.create did not return a ticket with routes",
+    );
+  }
+
+  const { routeID, routeKind, scheme } = filter;
+  const routes = filterRoutes(payload.ticket.routes, { routeID, routeKind });
+
+  const ticket = { ...payload.ticket, routes };
+  const result = { ...payload, ticket, routes };
+
+  // Newer Mac builds return the canonical pairing URL from the Swift ticket
+  // store. Prefer it when the caller did not narrow the route set locally:
+  // the Swift path may emit the v2 bare-route QR grammar, while this JS module
+  // can only reconstruct the older v1 JSON payload. If a caller filters an
+  // unfiltered payload locally, the canonical URL may point at a different
+  // route set, so fall through to the lossless v1 reconstruction.
+  if (
+    isCanonicalAttachURL(payload.attach_url) &&
+    routes.length === payload.ticket.routes.length
+  ) {
+    result.attach_url = payload.attach_url;
+    return { attachURL: result.attach_url, routes, payload: result };
+  }
+
+  const exactBundleIdentifier = typeof scheme === "string" &&
+    scheme.startsWith("cmux-ios-")
+    ? scheme.slice("cmux-ios-".length)
+    : "";
+  if (
+    !exactBundleIdentifier.includes(".") ||
+    !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(exactBundleIdentifier)
+  ) {
+    throw new Error("An exact-bundle pairing URL scheme is required");
+  }
+
+  const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(
+    "base64url",
+  );
+  const version = ticket.version || 1;
+  result.attach_url = `${scheme}://attach?v=${version}&payload=${encodedPayload}`;
+
+  return { attachURL: result.attach_url, routes, payload: result };
+}

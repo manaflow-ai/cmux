@@ -1,0 +1,21 @@
+[package]
+name = "cmux-tui-remote-access"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Remote access state of the cmux-tui daemon: device pairing challenges and credentials, relay peers, pairing records and revocation limits"
+
+[lints]
+workspace = true
+
+[features]
+# Test seams (peer and check-time reads), for dev-dependencies only.
+test-support = []
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+cmux-link.workspace = true
+getrandom.workspace = true

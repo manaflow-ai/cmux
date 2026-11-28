@@ -1,0 +1,48 @@
+[package]
+name = "cmux-rd-host"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+publish = false
+description = "cmux remote desktop host engine for Linux (virtual X display): damage capture, H.264 (Cisco's OpenH264 binary by default; x264 opt-in, waiting for a legal decision), cmux.rd/1 over UDP or a stream, XTest input; plus the bench client"
+
+# Own workspace: links C libraries (x264, openh264 for the bench), so it stays out of
+# the cmux-tui workspace build until those dependencies are feature-gated for every OS.
+[workspace]
+
+[[bin]]
+name = "cmux-rd"
+path = "src/main.rs"
+
+[dependencies]
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
+cmux-encode = { path = "../cmux-encode" }
+# The bench decoder only (OpenH264 from source never ships in the host).
+openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = ["bench", "openh264"]
+# The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
+# (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
+openh264 = ["cmux-encode/openh264-download"]
+# Opt-in only (links libx264.a statically; needs libx264-dev at build time). x264 waits
+# for Lawrence's legal decision on H.264 patent royalties; never in a release build.
+x264 = []
+# The bench client (decodes with openh264) and the OpenH264 source build for tests and
+# the bench only (plans/cmux-next/remote-desktop-c7.md section 4).
+bench = ["dep:openh264", "cmux-encode/openh264-source"]
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = "thin"

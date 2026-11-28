@@ -1,0 +1,133 @@
+{
+ "url": "https://text.npr.org/",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Go To Full Site",
+   "path": "1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Cornell fraternity rape case is reopened, as Hochul calls for review of school response",
+   "path": "1.1.1.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "U.S. Supreme Court sides with Trump administration in third-country deportations",
+   "path": "1.1.1.3.1.0"
+  },
+  {
+   "role": "link",
+   "name": "What to know about the $810 million in spending canceled by President Trump",
+   "path": "1.1.1.3.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Potential Taiwan tension sparked 'last minute' change in Trump-Xi National Archives visit",
+   "path": "1.1.1.3.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Tennessee is set to execute a woman for the first time in 200 years",
+   "path": "1.1.1.3.4.0"
+  },
+  {
+   "role": "link",
+   "name": "How to hide your spending habits from retailers (so you don't get ripped off)",
+   "path": "1.1.1.3.5.0"
+  },
+  {
+   "role": "link",
+   "name": "The Senate passes the Protect College Sports Act, but the bill's future is unclear",
+   "path": "1.1.1.3.7.0"
+  },
+  {
+   "role": "link",
+   "name": "This startup wants to prove gene-editing embryos is safe for making healthy babies",
+   "path": "1.1.1.3.8.0"
+  },
+  {
+   "role": "link",
+   "name": "5 men arrested near a U.S.-run base bailed as UK police probe if there's an Iran link",
+   "path": "1.1.1.3.9.0"
+  },
+  {
+   "role": "link",
+   "name": "Meet the 20 scholars and artists who've just won MacArthur Fellowships",
+   "path": "1.1.1.3.10.0"
+  },
+  {
+   "role": "link",
+   "name": "This year's MacArthur Fellows include researchers who fuse science and justice",
+   "path": "1.1.1.3.11.0"
+  },
+  {
+   "role": "link",
+   "name": "As the U.S. signals a smaller Middle East footprint, Turkey is ready to step in",
+   "path": "1.1.1.3.12.0"
+  },
+  {
+   "role": "link",
+   "name": "News organizations ask court to bar White House enforcement of access ban",
+   "path": "1.1.1.3.13.0"
+  },
+  {
+   "role": "link",
+   "name": "How to speak in public with confidence",
+   "path": "1.1.1.3.15.0"
+  },
+  {
+   "role": "link",
+   "name": "Simple ways to keep your car running smoothly",
+   "path": "1.1.1.3.16.0"
+  },
+  {
+   "role": "link",
+   "name": "How to ask about guns before a playdate",
+   "path": "1.1.1.3.17.0"
+  },
+  {
+   "role": "link",
+   "name": "Democrat Pete Buttigieg criticizes Trump's rollback of fuel-economy standards",
+   "path": "1.1.1.3.19.0"
+  },
+  {
+   "role": "link",
+   "name": "News",
+   "path": "1.3.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Culture",
+   "path": "1.3.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Music",
+   "path": "1.3.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Contact Us",
+   "path": "1.4.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Terms of Use",
+   "path": "1.4.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Permissions",
+   "path": "1.4.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy Policy",
+   "path": "1.4.0.3.0"
+  }
+ ],
+ "hiddenInChrome": 0,
+ "hidden": [],
+ "chromeAiSnapshotBytes": 5021
+}

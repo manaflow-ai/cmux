@@ -1,0 +1,38 @@
+{
+  "$comment": "HAND-EDITED source of the folder picker settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "picker",
+      "section": "general",
+      "group": {
+        "key": "settings.group.picker",
+        "text": "Folder Picker"
+      },
+      "note": "The cmux picker (R89, plans/cmux-next/picker.md): folders it lists under Locations. Parsed by PickerPinnedSetting.",
+      "rows": [
+        {
+          "key": "picker.pinned",
+          "note": "Folders the picker lists under Locations, after the standard ones: absolute or ~/ paths.",
+          "title": {
+            "key": "settings.picker.pinned",
+            "text": "Pinned Folders"
+          },
+          "help": {
+            "key": "settings.picker.pinned.help",
+            "text": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "picker",
+            "pinned",
+            "folders",
+            "locations",
+            "open",
+            "save"
+          ]
+        }
+      ]
+    }
+  ]
+}

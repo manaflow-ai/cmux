@@ -1,0 +1,234 @@
+{
+  "scopes": {
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.tools.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.tools.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.catalog.preview": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.share": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.reauth": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.revoke": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.mcp.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "ui.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "integration.list": {
+      "connections": [
+        {
+          "id": "conn_github00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "github",
+          "account": {
+            "key": "github:installation:4211",
+            "name": "orbit-labs"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "issues:write",
+            "pull_requests:read",
+            "metadata:read"
+          ],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": true,
+          "resources": {
+            "repos": [
+              "orbit-labs/api",
+              "orbit-labs/web",
+              "orbit-labs/docs"
+            ]
+          }
+        },
+        {
+          "id": "conn_linear00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "linear",
+          "account": {
+            "key": "linear:org:77",
+            "name": "Orbit"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "read",
+            "issues:create"
+          ],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_slack000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_ada",
+          "provider": "slack",
+          "account": {
+            "key": "slack:team:T0ORBIT",
+            "name": "orbit-team"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "chat:write"
+          ],
+          "status": "needs_reauth",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_linearpending0000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "linear",
+          "account": null,
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "pending",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false
+        },
+        {
+          "id": "conn_taskboard00000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "openapi",
+          "account": {
+            "key": "openapi:specs.taskboard.example.com:taskboard_api",
+            "name": "Taskboard API"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": true,
+          "catalog": {
+            "kind": "openapi",
+            "title": "Taskboard API",
+            "version": "2.4.0",
+            "digest": "openapi:8dfd4a2e",
+            "source_url": "https://specs.taskboard.example.com/openapi.json"
+          },
+          "auth": {
+            "kind": "api_key"
+          }
+        },
+        {
+          "id": "conn_docs0000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "mcp",
+          "account": {
+            "key": "mcp:mcp.docs.example.com:docs_server",
+            "name": "Docs Server"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "mcp_exposed": false,
+          "catalog": {
+            "kind": "mcp",
+            "title": "Docs Server",
+            "version": "1.2.0",
+            "digest": "mcp:ec9223b0",
+            "source_url": "https://mcp.docs.example.com/mcp",
+            "changed": {
+              "at": 1790086400000,
+              "feed_item": "feed_catalogdocs0000001",
+              "previous_digest": "mcp:00000000"
+            }
+          },
+          "auth": {
+            "kind": "oauth2_code"
+          }
+        }
+      ],
+      "providers": [
+        {
+          "provider": "github",
+          "configured": true
+        },
+        {
+          "provider": "linear",
+          "configured": true
+        },
+        {
+          "provider": "slack",
+          "configured": true
+        }
+      ],
+      "revision": "r12",
+      "viewer": {
+        "user": "usr_me",
+        "team_admin": false
+      },
+      "limit": {
+        "used": 50,
+        "max": 50
+      }
+    },
+    "integration.policy.get": {
+      "allowed_providers": null,
+      "generic_hosts": null,
+      "github": {
+        "scope": "linking_user_repos",
+        "require_org_admin": false,
+        "repo_allowlist": null
+      },
+      "source": "admin",
+      "locked": false,
+      "updated_at": 1790000000000,
+      "updated_by": "usr_ada"
+    }
+  }
+}

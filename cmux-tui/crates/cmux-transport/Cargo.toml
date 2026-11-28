@@ -1,0 +1,16 @@
+[package]
+name = "cmux-transport"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pure core of the cmux overlay transport: datagram classes, STUN, relay frames, probes and the path selector"
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

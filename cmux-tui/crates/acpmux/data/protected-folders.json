@@ -1,0 +1,24 @@
+{
+  "about": "LAUNCH-NO-TCC-PROMPTS: the folders macOS guards with a privacy prompt the first time an app reads inside them. The one list for every layer: acpmux reads it with include_str!; scripts/cmux-next/gen-protected-folders.py writes the Swift and TypeScript copies (--check fails CI on drift); scripts/cmux-next/launch-tcc-smoke.py reads it. Listing or opening inside one raises the prompt; a stat of a path does not. kind names the folder for people (settings anchors, explainers).",
+  "inHome": [
+    { "path": "Desktop", "kind": "desktop" },
+    { "path": "Documents", "kind": "documents" },
+    { "path": "Downloads", "kind": "downloads" },
+    { "path": "Pictures", "kind": "pictures" },
+    { "path": "Music", "kind": "music" },
+    { "path": "Movies", "kind": "movies" },
+    { "path": "Library/Mobile Documents", "kind": "iCloudDrive" },
+    { "path": "Library/CloudStorage", "kind": "cloudStorage" },
+    { "path": "Library/Containers", "kind": "appData" },
+    { "path": "Library/Group Containers", "kind": "appData" },
+    { "path": "Library/Mail", "kind": "appData" },
+    { "path": "Library/Messages", "kind": "appData" },
+    { "path": "Library/Safari", "kind": "appData" },
+    { "path": "Library/Calendars", "kind": "appData" }
+  ],
+  "roots": [
+    { "path": "/Volumes", "kind": "volumes" },
+    { "path": "/Network", "kind": "network" },
+    { "path": "/net", "kind": "network" }
+  ]
+}

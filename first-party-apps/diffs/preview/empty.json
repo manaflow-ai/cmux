@@ -1,0 +1,82 @@
+{
+  "scopes": {
+    "git.status": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "diff.get": {
+      "scope": "diff:read",
+      "class": "read"
+    },
+    "diff.decide": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comment.add": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "ui.embed.create": {
+      "scope": "embed:run",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:read",
+      "class": "read"
+    }
+  },
+  "ops": {
+    "workspace.list": [
+      {
+        "id": "workspace_orbit",
+        "session_id": "s",
+        "name": "orbit",
+        "index": 0,
+        "focused": true
+      }
+    ],
+    "git.status": {
+      "repo": {
+        "repo": "repo_orbit",
+        "name": "orbit",
+        "branch": "cache-evictions",
+        "head": "9b7d4e2"
+      },
+      "files": []
+    },
+    "git.diff": {
+      "diff": "diff_worktree1",
+      "title": "orbit · cache-evictions",
+      "producer": "git",
+      "base": {
+        "kind": "git",
+        "repo": "repo_orbit",
+        "rev": "HEAD"
+      },
+      "head": {
+        "kind": "worktree",
+        "repo": "repo_orbit"
+      },
+      "files": [],
+      "patch": "",
+      "acceptVerb": "stage",
+      "rejectVerb": "discard"
+    }
+  }
+}

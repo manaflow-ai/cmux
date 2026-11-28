@@ -1,0 +1,9 @@
+{
+  "name": "@cmux/chief-opencode-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "cmux-chief: the opencode v2 Effect plugin of the Cloud Chief brain O (Chief Protocol v0).",
+  "exports": { "./server": "./server.ts" },
+  "peerDependencies": { "@opencode/plugin": "2.0.29", "effect": "^4.0.0" }
+}

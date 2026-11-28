@@ -1,0 +1,51 @@
+{
+  "description": "Session journal shell.command.finished records in, history entries out. Ported from Swift TerminalCommandFoldTests and CommandHistory.entries(). Entries are oldest first (fold order).",
+  "cases": [
+    {
+      "name": "folds finished commands once in order",
+      "machine": "local", "local_machine": "local", "available": true,
+      "batches": [
+        [
+          {"sequence": "1", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "workspace", "id": "ws_1"}],
+           "payload": {"command": "make", "cwd": "/repo", "exit_code": 0, "started_at_ms": "1000", "duration_ms": "250"}},
+          {"sequence": "2", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "workspace", "id": "ws_1"}],
+           "payload": {"command": null, "cwd": "/repo", "exit_code": null, "started_at_ms": "2000", "duration_ms": "250"}}
+        ],
+        [
+          {"sequence": "1", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "workspace", "id": "ws_1"}],
+           "payload": {"command": "make", "cwd": "/repo", "exit_code": 0, "started_at_ms": "1000", "duration_ms": "250"}},
+          {"sequence": "2", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "workspace", "id": "ws_1"}],
+           "payload": {"command": null, "cwd": "/repo", "exit_code": null, "started_at_ms": "2000", "duration_ms": "250"}}
+        ]
+      ],
+      "expected_cursor": 2,
+      "expected_entries": [
+        {"id": "command:local/term_1/1000", "kind": "command", "at_ms": 1000, "title": "make", "detail": "/repo", "available": true,
+         "cwd": "/repo", "command": "make", "exit_code": 0},
+        {"id": "command:local/term_1/2000", "kind": "command", "at_ms": 2000, "title": "Command", "detail": "/repo", "available": true,
+         "cwd": "/repo"}
+      ]
+    },
+    {
+      "name": "other kinds advance the cursor only; capacity keeps the newest",
+      "machine": "box", "local_machine": "home", "available": true, "capacity": 2,
+      "batches": [
+        [
+          {"sequence": "1", "kind": "agent.turn.started", "subjects": [{"kind": "terminal", "id": "term_1"}],
+           "payload": {"command": "x", "cwd": "/repo", "exit_code": 0, "started_at_ms": "1000", "duration_ms": "250"}}
+        ],
+        [
+          {"sequence": "2", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}], "payload": {"command": "c2", "exit_code": 0, "started_at_ms": "2000"}},
+          {"sequence": "3", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}], "payload": {"command": "c3", "exit_code": 0, "started_at_ms": "3000"}},
+          {"sequence": "4", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}], "payload": {"command": "c4", "exit_code": 1, "started_at_ms": "4000"}},
+          {"sequence": "5", "kind": "shell.command.finished", "subjects": [{"kind": "terminal", "id": "term_1"}], "payload": {"command": "c5", "exit_code": 0, "started_at_ms": "5000"}}
+        ]
+      ],
+      "expected_cursor": 5,
+      "expected_entries": [
+        {"id": "command:box/term_1/4000", "kind": "command", "at_ms": 4000, "title": "c4", "machine": "box", "available": true, "command": "c4", "exit_code": 1},
+        {"id": "command:box/term_1/5000", "kind": "command", "at_ms": 5000, "title": "c5", "machine": "box", "available": true, "command": "c5", "exit_code": 0}
+      ]
+    }
+  ]
+}

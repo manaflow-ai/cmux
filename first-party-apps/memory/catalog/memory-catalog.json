@@ -1,0 +1,89 @@
+{
+  "family": "memory_app",
+  "operations": [
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "docs": "Open the Agent Memory pane.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "memory_app.open",
+      "owner": "app:cmux/memory",
+      "palette": {
+        "title": "Open Agent Memory"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "memory/1",
+      "export": "openMemory"
+    },
+    {
+      "class": "read",
+      "cli": null,
+      "docs": "Read memory roots and files again.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "memory_app.reload",
+      "owner": "app:cmux/memory",
+      "palette": {
+        "title": "Reload Agent Memory"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1",
+      "export": "reload"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "DEV/NIGHTLY: show the next design of the pane.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "memory_app.cycle_variant",
+      "owner": "app:cmux/memory",
+      "palette": {
+        "title": "Next Agent Memory Variant"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "memory/1",
+      "export": "cycleVariant"
+    }
+  ],
+  "owner": "app:cmux/memory",
+  "schema_version": 1,
+  "trigger_events": []
+}

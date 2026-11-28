@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cmux passkey test RP frame</title>
+<!-- Cross-origin iframe (frame.localhost) for the iframe scenarios in scenarios.js. -->
+<button id="go">go</button>
+<script src="scenarios.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
+  const mode = params.get("mode");
+  const topOrigin = params.get("top");
+  const { create, get, checkClientData, result, errName } = window.passkeyHelpers;
+  const send = (r) => parent.postMessage({ cmuxPasskeyFrame: id, result: r }, topOrigin);
+
+  async function runCreate() {
+    try {
+      const { cred, options } = await create();
+      const { problems } = checkClientData(cred, "webauthn.create", options.challenge, { crossOrigin: true, topOrigin });
+      send(result(problems.length === 0, problems.join("; ") || "ok"));
+    } catch (e) {
+      send(result(false, `${errName(e)}: ${e && e.message}`));
+    }
+  }
+  async function runGetDenied() {
+    try {
+      await get();
+      send(result(false, "resolved; expected NotAllowedError"));
+    } catch (e) {
+      send(result(errName(e) === "NotAllowedError", `${errName(e)}: ${e && e.message}`));
+    }
+  }
+  if (mode === "create") {
+    // Creating from a cross-origin iframe needs transient user activation.
+    document.getElementById("go").onclick = runCreate;
+  } else {
+    runGetDenied();
+  }
+</script>

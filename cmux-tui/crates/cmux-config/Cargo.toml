@@ -1,0 +1,24 @@
+[package]
+name = "cmux-config"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Owner of the settings file (~/.config/cmux/cmux-next.json) in the cmux daemon: schema validation, comment-preserving JSONC edits, managed (MDM and team) layers, the settings reducer, atomic publish, the cold-start cache and the file watcher."
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+notify.workspace = true
+plist = "1"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"

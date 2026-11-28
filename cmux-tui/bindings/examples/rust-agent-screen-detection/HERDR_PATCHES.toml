@@ -1,0 +1,17 @@
+# Documented cmux edits to vendored herdr manifests (Apache-2.0 section 4(b):
+# modified files carry a notice). scripts/cmux-next/herdr-sync.py sync applies
+# each edit to the upstream bytes and fails when an edit no longer matches
+# exactly once; HERDR_UPSTREAM.toml then flags the file with local_patch and
+# its reason. Remove an entry once upstream covers its reason.
+#
+# Format:
+#   [[patch]]
+#   file = "grok.toml"
+#   reason = "why cmux differs from upstream"
+#   [[patch.edit]]
+#   find = '''exact upstream text'''
+#   replace = '''cmux text'''
+#
+# No local patches at herdr 2563803d: upstream grok.toml 2026.10.05.1 carries
+# the idle-progress over custom-title precedence and the blank-braille
+# exclusion that cmux used to patch in.

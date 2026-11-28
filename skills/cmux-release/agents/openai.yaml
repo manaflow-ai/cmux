@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Release"
+  short_description: "Prepare cmux releases with version, changelog, guard, tag, and asset rules."
+  default_prompt: "Use this skill when preparing a cmux release, bumping versions, updating CHANGELOG.md, running the release pretag guard, tagging, or troubleshooting release assets."

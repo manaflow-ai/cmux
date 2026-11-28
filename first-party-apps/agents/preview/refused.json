@@ -1,0 +1,143 @@
+{
+  "grant": [
+    "machine:read",
+    "agent_cli:read"
+  ],
+  "scopes": {
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
+    "agent_cli.update": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "agent_cli.install": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "agent_cli.sign_in": {
+      "scope": "agent_cli:execute",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "machine.list": [
+      {
+        "id": "machine_mac01",
+        "name": "MacBook Pro",
+        "origin": "local",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false,
+        "os": "darwin"
+      }
+    ],
+    "agent_cli.list": {
+      "machine": "machine_mac01",
+      "clis": [
+        {
+          "cli": "claude",
+          "installed": true,
+          "version": "2.1.281 (Claude Code)",
+          "latest": {
+            "version": "2.1.290",
+            "checked_at": 1790961000000
+          },
+          "install_method": "native",
+          "updatable": true,
+          "accounts": [
+            {
+              "account": "acct_c1",
+              "label": "Work",
+              "plan": "Max",
+              "status": "signed_in"
+            }
+          ],
+          "path_label": "~/.local/bin/claude"
+        },
+        {
+          "cli": "codex",
+          "installed": true,
+          "version": "codex-cli 0.149.1",
+          "latest": {
+            "version": "0.150.0",
+            "checked_at": 1790961000000
+          },
+          "install_method": "brew",
+          "updatable": true,
+          "accounts": [
+            {
+              "account": "acct_x1",
+              "label": "Personal",
+              "plan": "Plus",
+              "status": "expired"
+            }
+          ],
+          "path_label": "/opt/homebrew/bin/codex"
+        },
+        {
+          "cli": "opencode",
+          "installed": true,
+          "version": "1.2.3",
+          "latest": {
+            "version": "1.2.3",
+            "checked_at": 1790961000000
+          },
+          "install_method": "npm",
+          "updatable": true,
+          "accounts": [
+            {
+              "account": "acct_o1",
+              "label": "Default",
+              "plan": null,
+              "status": "signed_in"
+            }
+          ]
+        },
+        {
+          "cli": "pi",
+          "installed": true,
+          "version": "0.9.0",
+          "latest": {
+            "version": "0.9.0",
+            "checked_at": 1790961000000
+          },
+          "install_method": "npm",
+          "updatable": true,
+          "accounts": [
+            {
+              "account": "acct_p1",
+              "label": "API key",
+              "plan": null,
+              "status": "signed_in"
+            }
+          ]
+        },
+        {
+          "cli": "chief",
+          "installed": true,
+          "version": "0.4.0",
+          "latest": {
+            "version": "0.4.0",
+            "checked_at": 1790961000000
+          },
+          "install_method": "cmux",
+          "updatable": false,
+          "accounts": []
+        }
+      ]
+    },
+    "agent_cli.update": {
+      "$error": {
+        "code": "scope.missing",
+        "message": "agent_cli:execute is not granted"
+      }
+    }
+  }
+}

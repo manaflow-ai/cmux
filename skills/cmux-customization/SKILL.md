@@ -1,0 +1,111 @@
+---
+name: cmux-customization
+description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux.json actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, or Ghostty-backed terminal preferences."
+---
+
+# cmux Customization
+
+Keep the user's config intact, prefer schema-backed edits, and validate before reporting completion.
+
+For content viewers, start with [the viewer customization matrix](references/viewer-types.md).
+It maps each viewer to the settings, command, or external file that owns its
+knobs, including explicit fallbacks for viewer types whose template settings
+have not shipped yet.
+
+## Choose the right surface
+
+| Want to change | Edit |
+|---|---|
+| App preferences (appearance, sidebar, notifications, browser routing, automation, shortcuts, new-workspace placement) | `~/.config/cmux/cmux.json` via the `cmux-settings` helper |
+| Custom actions, workspace layouts/commands, tab bar buttons, plus-button behavior, Command Palette entries, notification hooks | `~/.config/cmux/cmux.json` globally or `.cmux/cmux.json` in the project |
+| Dock controls (right-sidebar terminals: logs, test watchers, git TUIs, dev servers, queues) | `.cmux/dock.json` or `~/.config/cmux/dock.json` |
+| Terminal rendering and terminal keybindings (fonts, themes, cursor style, copy-on-select, shell integration) | Ghostty config, usually `~/.config/ghostty/config` |
+| Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
+| Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
+| Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
+
+Viewer-specific JSON settings live in the global `cmux.json`: `browser.*`,
+`markdown.*`, `fileEditor.*`, `fileExplorer.*`, and `diffViewer.*`. Generic file
+preview routing also uses `app.openSupportedFilesInCmux` and
+`app.openMarkdownInCmuxViewer` plus `app.preferredEditor`. Right-sidebar tools
+are structural state and Dock configuration, not a `templates.rightSidebarTool`
+object.
+
+Project-local `.cmux/cmux.json` and `.cmux/dock.json` let worktree, SSH, review, dev, CI, and docs patterns travel with the repo; project actions and commands override global entries with the same ID or name. Global app preferences do not belong there.
+
+If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
+
+Key surfaces in `cmux.json`: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu), `ui.newWorkspace.action` (replaces the plus-button click) and `ui.newWorkspace.contextMenu` (right-click menu; `ui.newWorkspace.rightClick` is an accepted alias but new examples use `contextMenu`), `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible; copy built-ins `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` also work here and in `actions`), and `commands` (workspace definitions with split layouts).
+
+## Workflow
+
+1. Inspect existing config.
+
+   ```bash
+   test -f ~/.config/cmux/cmux.json && sed -n '1,220p' ~/.config/cmux/cmux.json
+   test -f .cmux/cmux.json && sed -n '1,220p' .cmux/cmux.json
+   ```
+
+2. Pick global or project-local scope. Default to project-local for repo-specific commands, global for app preferences. Ask only when the choice changes behavior meaningfully.
+3. Back up the target file when it already exists (applicable path only, no backup for a missing file).
+
+   ```bash
+   stamp="$(date +%Y%m%d-%H%M%S)"
+   test -f ~/.config/cmux/cmux.json && cp -p ~/.config/cmux/cmux.json ~/.config/cmux/cmux.json."$stamp".bak
+   test -f .cmux/cmux.json && cp -p .cmux/cmux.json .cmux/cmux.json."$stamp".bak
+   ```
+
+4. For app settings and cmux-owned shortcuts, use the settings helper (`~/.codex/skills/...` if the user installed with `skills.sh`).
+
+   ```bash
+   ~/.agents/skills/cmux-settings/scripts/cmux-settings list-supported
+   ~/.agents/skills/cmux-settings/scripts/cmux-settings set browser.openTerminalLinksInCmuxBrowser true
+   ~/.agents/skills/cmux-settings/scripts/cmux-settings validate
+   ```
+
+5. For actions, UI wiring, workspace layouts, notification hooks, and Dock controls, edit the JSONC by hand and preserve unrelated sections (`vault`, `rightSidebar`, `commands`, `actions`, `ui`, `notifications`).
+6. `cmux settings reload-configuration` (app action; the file watcher also reloads on save).
+7. Verify the configured entrypoint exists: read back the shortcut binding, or confirm the action ID and where it should appear.
+
+For viewer changes, verify the exact path or command state from the matrix. If
+the requested viewer or knob is absent from the schema, explain that it is not
+supported yet instead of writing an unknown key. The `templates.<viewer>`
+surface proposed for future notes/Markdown/diff customization is not available
+until the schema and runtime implement it.
+
+## Example: Command Palette action
+
+Appears in Cmd+Shift+P unless `palette` is false.
+
+```json
+{
+  "actions": {
+    "codex-new-tab": {
+      "type": "agent",
+      "agent": "codex",
+      "title": "Codex",
+      "subtitle": "Start Codex in this workspace",
+      "target": "newTabInCurrentPane",
+      "palette": true
+    }
+  }
+}
+```
+
+Before choosing a preset, template, starter config, or known workflow pattern, read [references/examples.md](references/examples.md). `cmux docs workflows` was removed with the Swift CLI, so that file is the catalog.
+
+## Validation
+
+- App settings: `cmux-settings validate`.
+- Keep valid JSONC, no duplicate keys.
+- Parse `.cmux/dock.json` or `~/.config/cmux/dock.json` with a JSON parser before reporting completion.
+- `cmux settings reload-configuration` when the app is running.
+- Confirm the exact user-facing result: action title, shortcut, plus-button behavior, context-menu entry, or tab bar placement.
+
+## Rules
+
+- Do not overwrite a whole top-level config section unless you own the full section.
+- Do not store secrets in actions, commands, or prompts. Use environment variables or the user's secret manager.
+- Do not use sleeps or timing workarounds in generated commands.
+- Do not add a cmux setting for behavior Ghostty already owns.
+- Keep labels short enough for menus, buttons, and the Command Palette.

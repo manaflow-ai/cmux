@@ -1,0 +1,100 @@
+import Foundation
+import Testing
+@testable import CmuxNextAgentPane
+
+/// The cost of the full JSON parse and re-encode (the id swap, ad349 round 6 and 7) and of the
+/// duplicate-key check, on real-shaped large replies, the largest page frame, and the small
+/// notification of the burst bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
+struct AgentPaneTransportBenchParse {
+    /// An `_acpmux/events` page: `count` transcript events of about `textBytes` of text each.
+    nonisolated static func eventsPage(count: Int, textBytes: Int) -> String {
+        let text = String(repeating: "lorem ipsum dolor sit amet, \\\"quoted\\\" and \\u00e9 ", count: textBytes / 48)
+        let event = { (seq: Int) in
+            #"{"sessionId":"s-1","seq":\#(seq),"at":1759650000000,"kind":"transcript","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\#(text)"}}}"#
+        }
+        return #"{"jsonrpc":"2.0","id":41,"result":{"events":["# + (0..<count).map(event).joined(separator: ",") + #"],"more":true,"lastSeq":\#(count)}}"#
+    }
+
+    /// A `session/load` style replay: tool calls whose outputs are large strings.
+    nonisolated static func replay(calls: Int, outputBytes: Int) -> String {
+        let output = String(repeating: "0123456789abcdef/path/to/file.swift:42: warning\\n", count: outputBytes / 48)
+        let call = { (n: Int) in
+            #"{"sessionUpdate":"tool_call_update","toolCallId":"t\#(n)","status":"completed","content":[{"type":"content","content":{"type":"text","text":"\#(output)"}}],"rawOutput":{"stdout":"\#(output)","exitCode":0}}"#
+        }
+        return #"{"jsonrpc":"2.0","id":42,"result":{"updates":["# + (0..<calls).map(call).joined(separator: ",") + "]}}"
+    }
+
+    nonisolated static func full(_ text: String) -> String? {
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return nil }
+        guard object["method"] == nil else { return text }
+        object["id"] = 7
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+
+    /// Median and maximum milliseconds of `runs` runs.
+    nonisolated static func time(_ runs: Int, _ body: () -> String?) -> (median: Double, max: Double) {
+        var samples: [Double] = []
+        for _ in 0..<runs {
+            let start = ContinuousClock.now
+            precondition(body() != nil)
+            let elapsed = ContinuousClock.now - start
+            samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+        }
+        samples.sort()
+        return (samples[samples.count / 2], samples.last ?? 0)
+    }
+
+    @Test func theIdSwapCost() {
+        let frames: [(String, String, Int)] = [
+            ("notification-300B", #"{"jsonrpc":"2.0","method":"session/update","params":{"s":12,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\#(String(repeating: "x", count: 200))"}}}}"#, 2000),
+            ("events-1MB", Self.eventsPage(count: 1000, textBytes: 1000), 20),
+            ("events-5MB", Self.eventsPage(count: 5000, textBytes: 1000), 10),
+            ("replay-10MB", Self.replay(calls: 100, outputBytes: 50_000), 10),
+            ("replay-30MB", Self.replay(calls: 300, outputBytes: 50_000), 5),
+            // The largest page frame: a prompt with a 20 MB attachment.
+            ("prompt-20MB", #"{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"image","mimeType":"image/png","data":"\#(String(repeating: "QUJD", count: 5_000_000))"}]}}"#, 5),
+        ]
+        for (name, text, runs) in frames {
+            #expect(Self.full(text) != nil, "\(name)")
+            let full = Self.time(runs) { Self.full(text) }
+            // The duplicate-key check that every page frame passes first.
+            let check = Self.time(runs) { AcpmuxJSONKeys.refuses(Array(text.utf8)) ? nil : "" }
+            print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f check_ms=%.3f check_max_ms=%.3f",
+                         name, text.utf8.count, full.median, full.max, check.median, check.max))
+        }
+    }
+
+    /// The main thread's CPU time and the wall time of one 20 MB prompt (an image attachment) sent
+    /// through the transport, 5 rounds.
+    @Test func aTwentyMegabytePromptOnTheMainThread() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let transport = AgentPaneTransport()
+        transport.deliver = { _, done in done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        transport.sessions.add("s")
+        let data = String(repeating: "QUJD", count: 5_000_000)
+        var cpu: [Double] = []
+        var wall: [Double] = []
+        for round in 0..<5 {
+            let frame = #"{"jsonrpc":"2.0","id":\#(100 + round),"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"image","mimeType":"image/png","data":"\#(data)"}],"_meta":{"acpmux":{"promptId":"p\#(round)"}}}}"#
+            transport.gestures.record()
+            let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+            let start = ContinuousClock.now
+            let error = await transport.send(connection: id, frames: [frame])
+            let elapsed = ContinuousClock.now - start
+            cpu.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- cpu0) / 1e6)
+            wall.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+            #expect(error == nil, "\(String(describing: error))")
+        }
+        cpu.sort()
+        wall.sort()
+        print(String(format: "PANE-MAIN prompt-20MB main_cpu_ms=%.3f main_cpu_max_ms=%.3f wall_ms=%.3f wall_max_ms=%.3f",
+                     cpu[2], cpu[4], wall[2], wall[4]))
+    }
+}

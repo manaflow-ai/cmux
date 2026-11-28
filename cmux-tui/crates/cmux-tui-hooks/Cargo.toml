@@ -1,0 +1,30 @@
+[package]
+name = "cmux-tui-hooks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux-tui coding-agent hook installer: writes, checks and removes the journal hook entries and plugins in each provider's native config"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+getrandom = { workspace = true, features = ["std"] }
+libc.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml_edit.workspace = true
+wait-timeout.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+cmux-tui-platform.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+toml.workspace = true

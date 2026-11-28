@@ -1,0 +1,6 @@
+<!doctype html><html><head><title>Level two</title></head><body>
+<p>Level two (primary origin)</p>
+<iframe id="l3" title="Level three" width="400" height="120"></iframe>
+<script>
+fetch("/origins.json").then((r) => r.json()).then((o) => { document.getElementById("l3").src = o.peer + "/nest-l3.html"; });
+</script></body></html>

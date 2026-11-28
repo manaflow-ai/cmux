@@ -1,0 +1,22 @@
+[package]
+name = "cmux-tui-util"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Small cmux-tui daemon primitives without daemon state: accept backoff, stream interrupts, debug spans, short ids, machine name, respawn text, settings-file reads"
+
+[lints]
+workspace = true
+
+[features]
+# Test seams (the scoped new-workspace placement), for dev-dependencies only.
+test-support = []
+
+[dependencies]
+cmux-tui-platform.workspace = true
+getrandom.workspace = true
+libc.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true

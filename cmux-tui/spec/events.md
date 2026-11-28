@@ -1,0 +1,1820 @@
+# Event Contract
+
+This file specifies private protocol-v12 events for cmux frontends and raw SDK
+adapters. Application code should use the typed streams in
+[`cmux.protocol/2`](resource-api-v2.md).
+
+Event lines are JSON objects with an `event` string and no response envelope.
+
+The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
+
+Implemented event lines can appear on subscribe, attach, or control lifecycle streams:
+
+| Stream | How to start | Event names |
+| --- | --- | --- |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
+| Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
+| Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
+| Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
+| Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
+| Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+
+Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
+
+## Event Scoping
+
+Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
+
+Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+
+Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
+
+| Event | Stream | Subject field | Since/compatibility |
+| --- | --- | --- | --- |
+| `workspace-added` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
+| `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
+| `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
+| `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
+| `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
+| `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
+| `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
+| `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
+| `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
+| `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
+| `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
+| `cloud-conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-chief-live-v1` |
+| `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-session-needed` | subscribe | session lease | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
+| `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
+| `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
+| `screen-changed` | subscribe (`deltas`) | `screen` | protocol 12 additive extension; capability `screen-metadata-v1`; parent `workspace` |
+| `pane-added` | subscribe (`deltas`) | `pane` | protocol 7; parents `workspace`, `screen` |
+| `pane-closed` | subscribe (`deltas`) | `pane` | protocol 7; parents `workspace`, `screen` |
+| `tab-added` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `tab-closed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `tab-changed` | subscribe (`deltas`) | `surface` | protocol 12 additive extension; capability `tab-metadata-v1`; parents `workspace`, `screen`, `pane` |
+| `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
+| `layout-changed` | subscribe | `screen` | protocol 6; `workspace`, the screen layout fields and `transaction` are a protocol 12 additive extension, capability `layout-delta-v1` |
+| `surface-output` | subscribe | `surface` | protocol 5 |
+| `surface-resized` | subscribe | `surface` | protocol 5 |
+| `surface-exited` | subscribe | `surface` | protocol 5 |
+| `title-changed` | subscribe | `surface` | protocol 5 |
+| `bell` | subscribe | `surface` | protocol 5 |
+| `program-status-changed` | subscribe | `surface` | protocol 12 additive |
+| `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
+| `config-reload-requested` | subscribe | session | protocol 6 |
+| `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
+| `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
+| `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
+| `window-title-requested` | subscribe | session | protocol 6 |
+| `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `activity-changed` | control (targeted) | session | protocol 12 additive extension; capability `vm-activity-v1`; only to `subscribe-activity` connections |
+| `client-attached` | subscribe | `client` | protocol 6 |
+| `client-changed` | subscribe | `client` | protocol 6 |
+| `client-detached` | subscribe | `client` | protocol 6 |
+| `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
+| `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
+| `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
+| `terminal-reaped` | subscribe | `terminal_id` | protocol 12 additive extension; capability `terminal-reap-v1` |
+| `pairing-requested` | trusted Unix subscribe | `request` | protocol 7 |
+| `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
+| `status` | subscribe | session | protocol 5 internal status line |
+| `empty` | subscribe | session | protocol 5 |
+| `agent-changed` | subscribe | `surface` | protocol 11; `agent` is optional since protocol 12 |
+| `agent-presence-changed` | subscribe | `surface` | protocol 12 additive extension; capability `agent-presence-v1` |
+| `vt-state` | byte attach | `surface` | protocol 5 |
+| `resized` | byte attach | `surface` | protocol 6 |
+| `output` | byte attach | `surface` | protocol 5 |
+| `colors-changed` | byte attach | `surface` | protocol 6; subject field added in protocol 7 |
+| `render-state` | render attach | `surface` | protocol 7 |
+| `render-delta` | render attach | `surface` | protocol 7 |
+| `browser-state` | browser attach | `surface` | protocol 6 |
+| `frame` | browser attach | `surface` | protocol 6 |
+| `scroll-changed` | subscribe and all attach modes | `surface` | protocol 6 |
+| `detached` | byte/render/browser attach | `surface` | protocol 5; `reason`, `by`, `view` additive with `shared-sizing-v1`; `scope` with `sizing-view-detach-v1` |
+
+## Ordering Guarantees
+
+The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
+
+Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
+
+For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
+
+Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.
+
+Each subscription retains at most 4,096 pending events. If a client falls behind that bound, the server drains the accepted backlog, emits `overflow`, and ends that subscription. A subscribe client must open a new subscription and fetch `list-workspaces` to reconcile state. An attach client must reattach the named surface.
+
+`subscribe` registers the event receiver before the command response is written. A client must not treat the `subscribe` response as an event-stream barrier.
+
+`subscribe` does not send an initial tree snapshot. Clients that need the current tree should start `subscribe` and buffer events, call `list-workspaces`, apply that snapshot, then drain the buffer. This avoids a gap between snapshot and registration.
+
+`attach-surface` has a stronger ordering contract. The server takes the VT replay snapshot and registers the live output tap under the same terminal lock. The attach stream therefore has no gap and no duplicated bytes between the `vt-state` replay and subsequent `output` chunks. In v5, the `vt-state` event is sent before the `attach-surface` command response.
+
+Protocol v6 attach streams are ordered as `vt-state -> (resized | output | colors-changed)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. `colors-changed` is ordered with `resized` and `output` for its attached surface. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The v6 `resized` replay is carried in the `data` field (verified against `server.rs`; an earlier draft called it `replay`).
+
+Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
+
+When a terminal resource exits, the mux atomically records its durable exit
+receipt and detaches every live tab placement. A terminal with several
+placements emits `surface-exited` once for each former legacy surface ID so
+existing per-placement subscribers invalidate every view. The receipt remains
+addressable through the terminal registry until `terminal.close` tombstones
+it, but no placement or live runtime remains. Browser surfaces and
+unregistered compatibility PTYs are also reaped on exit.
+
+## Subscribe Events
+
+### overflow
+
+| Field | Value |
+| --- | --- |
+| event | `overflow` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"overflow",error:string,scope?:"surface",surface?:Id}
+```
+
+Meaning: The client stopped draining events before the bounded server backlog filled. Without `scope`, the subscribe stream ended and the client must subscribe again, then fetch `list-workspaces`. With `scope:"surface"`, the attach notification stream ended and the client must reattach `surface`.
+
+Example:
+
+```json
+{"event":"overflow","error":"subscriber fell behind; resubscribe to continue receiving events"}
+```
+
+### client-attached
+
+| Field | Value |
+| --- | --- |
+| event | `client-attached` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-attached",client:uint64,transport:"unix"|"ws",name:string|null,kind:string|null}
+```
+
+Meaning: The server emits this once when the control connection commits its
+first attach stream, whether it comes from the legacy `attach-surface` command
+or a resource `terminal.attach` or `browser.attach` operation. A connection
+with no committed attachment does not emit it, and later streams or surfaces
+on the same connection do not emit it again. Use `list-clients` for the
+authoritative attached-surface set and reported sizes.
+
+Example:
+
+```json
+{"event":"client-attached","client":2,"transport":"ws","name":"lawrences-iphone","kind":"web"}
+```
+
+### client-changed
+
+| Field | Value |
+| --- | --- |
+| event | `client-changed` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-changed",client:uint64,name:string|null,kind:string|null}
+```
+
+Meaning: Client metadata or sizing participation changed. `set-client-info` emits this event for every successful call. Sizing changes reuse the same payload and omit the affected surface or participation state, so consumers that display sizing must refetch `list-clients`.
+
+Example:
+
+```json
+{"event":"client-changed","client":2,"name":"lawrences-iphone","kind":"web"}
+```
+
+### client-detached
+
+| Field | Value |
+| --- | --- |
+| event | `client-detached` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-detached",client:uint64}
+```
+
+Meaning: The server emits this once when it removes a control connection,
+whether the connection ended naturally or through `detach-client`. It is
+emitted even when the connection never attached a surface.
+
+Example:
+
+```json
+{"event":"client-detached","client":2}
+```
+
+### client-list-invalidated
+
+| Field | Value |
+| --- | --- |
+| event | `client-list-invalidated` |
+| status | reserved serializer; no current core producer |
+| since | protocol 9 additive extension |
+
+Payload: `object{event:"client-list-invalidated"}`.
+
+Meaning: A recovered subscription may have missed client lifecycle events and must refetch `list-clients`. The event is part of the v9 decoder contract, although the current core does not emit it.
+
+### pairing-requested
+
+| Field | Value |
+| --- | --- |
+| event | `pairing-requested` |
+| status | implemented |
+| since | protocol 7 additive extension |
+
+Payload: `object{event:"pairing-requested",request:uint64,code:string,peer:string,expires_in:uint64}`.
+
+Pending challenges are sent only to trusted Unix subscriptions and may arrive before the `subscribe` response. `code` is the value a human compares in the trusted frontend. `request` has the JavaScript precision limitation recorded in `commands.md`.
+
+### pairing-resolved
+
+| Field | Value |
+| --- | --- |
+| event | `pairing-resolved` |
+| status | implemented |
+| since | protocol 7 additive extension |
+
+Payload: `object{event:"pairing-resolved",request:uint64}`.
+
+Meaning: The request was approved, denied, disconnected, or expired. The v9 payload does not identify which outcome occurred.
+
+### Tree delta events
+
+Protocol v7 adds typed lifecycle deltas for ordinary tree mutations, delivered only when the subscription explicitly requests `tree_events:"deltas"`. The default `"coarse"` subscription receives none of these events. `entity` is the exact `Workspace`, `Screen`, `Pane`, or `Tab` payload defined for `list-workspaces` in `commands.md`; it is not a reduced event-only projection. Added and renamed events carry the entity after the mutation. Closed events carry its last-known payload immediately before removal. This lets clients remove a subtree without having to retain a second copy for close animation or cleanup.
+
+Ordered workspace events additionally carry `workspace_revision`, stable
+`registry_id`, boot `generation`, optional `origin`, and optional `mutation_id`. A client applies
+only the exact next revision for the same registry/generation and refetches
+`list-workspaces` after a gap or generation change. The server commits the
+durable mutation before publishing this event and holds one registry writer
+through event publication, so revision order and stream order are identical.
+
+For `*-added`, `index` is the zero-based insertion index in the parent's
+corresponding array. For `*-closed`, it is the former index.
+`workspace-moved` carries the new zero-based root index. Workspace events use
+the root `workspaces` array and carry the stable key in `entity`; tab events
+use the pane's `tabs` array. Rename events do not carry `index` because they do
+not reorder the entity.
+
+One settled mutation may affect a subtree. A server may emit only the highest-level delta when its `entity` already contains the complete affected subtree; it must not also emit redundant descendant add/close deltas. If it emits multiple independent deltas, adds are parent-first and closes are child-first.
+
+These lifecycle deltas do not encode every mutable tree field. Selection, reorder, split-layout, zoom, and other multi-entity changes continue to use their existing events or the `tree-changed` fallback. Under churn, or whenever the server cannot represent the authoritative result without ambiguity, the server may emit `tree-changed` to a delta subscriber instead of one or more deltas. Delta clients must implement both paths and treat `tree-changed` as a full-resync barrier, but they MUST NOT rely on it for ordinary delta-representable mutations.
+
+### workspace-added
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-added` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"workspace-added",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+### workspace-closed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-closed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"workspace-closed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+### workspace-renamed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-renamed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+### workspace-moved
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-moved` |
+| status | implemented |
+| since | protocol 7 |
+
+```text
+object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+### workspace-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-metadata-v1` |
+
+Emitted after `set-workspace-metadata` commits. It carries a workspace
+registry revision like the other workspace deltas; clients that do not know
+the event name must still advance their revision cursor or refetch on the gap.
+
+```text
+object{event:"workspace-changed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+For all workspace delta events, `origin` and `mutation_id` are either both
+present or both absent.
+
+### frontend-projection-changed
+
+| Field | Value |
+| --- | --- |
+| event | `frontend-projection-changed` |
+| status | implemented |
+| since | protocol 7 |
+
+Published after a successful non-replayed projection CAS commit. The payload
+contains `frontend`, `scope`, `subject_key`, `projection_revision`, `origin`,
+and `mutation_id`. It does not contain the opaque projection; interested
+frontends fetch it with `get-frontend-projection`. Projection changes do not
+advance `workspace_revision`.
+
+### personal-changed
+
+| Field | Value |
+| --- | --- |
+| event | `personal-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `profiles-v1` |
+
+Published after a personal-state command (commands.md, `list-personal` and
+the commands after it) commits a change. The payload is
+`{event:"personal-changed", personal_revision:uint64}`; interested frontends
+refetch `list-personal`. An unchanged retry publishes nothing. Personal state
+does not advance `workspace_revision`.
+
+### bookmarks-changed
+
+| Field | Value |
+| --- | --- |
+| event | `bookmarks-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Published after a bookmark command (commands.md, `list-bookmarks` and the
+commands after it) or a `delete-browser-profile` that deleted bookmarks
+commits a change. The payload is
+`{event:"bookmarks-changed", browser_profile_id:string, bookmarks_revision:uint64}`;
+interested frontends refetch `list-bookmarks` for that browser profile. An
+unchanged retry publishes nothing. Bookmarks advance neither
+`personal_revision` nor `workspace_revision`.
+### history-changed
+
+| Field | Value |
+| --- | --- |
+| event | `history-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `history-v1` |
+
+Published by the session's history module when the merged history changes:
+a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
+`history.restore`, `history.visit.record`, `history.visit.title`,
+`history.visit.remove` or `history.trail.record` that changed something,
+agent and command journal records the module newly folded, or terminal
+command rows the command worker stored or a client deleted. The payload is
+`{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
+names the entry kinds that changed (`page`, `location`, `command`, `agent`, and
+`closed` when a history remove or clear deleted closed groups, or when a
+committed change closed or deleted a workspace, tab, screen or group in the
+closed-history store, after the module's journal feed started with a history
+read); interested frontends re-read `history.entries.list`. A replayed
+mutation publishes nothing, and a deletion can publish `closed` twice (the
+mutation and its journal record). The daemon owns the location trail
+(cx-hnmbt.12), so its changes are announced here with kind `location`. A page relay hears this event when
+its page lists it in page-router.json (`page-events-v1`). Page visits are shared
+by the sessions of a machine; the event goes to the session that served the
+change.
+
+### settings-changed
+
+| Field | Value |
+| --- | --- |
+| event | `settings-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `settings-v1` |
+
+Published by the daemon's settings owner after a `settings.*` mutation that
+changed something, and after it found a change in the settings file
+(`cmux-next.json`) or a managed layer on disk (a hand edit, an MDM profile).
+The payload is `{event:"settings-changed", revision:uint64, keys:[string],
+origin:string}`: `revision` advances once per change, `keys` lists the dotted
+keys whose effective or file value changed (empty when only diagnostics
+changed), and `origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or
+`file` (found on disk). A comment-only edit or an unchanged write publishes
+nothing. Clients refetch `settings.snapshot`.
+### keybindings-changed
+
+| Field | Value |
+| --- | --- |
+| event | `keybindings-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `keybindings-v1` |
+
+Published by the daemon's keybindings owner after a `keybindings.*` mutation
+that changed the file, and after it found a change in `keybindings.json` on
+disk (a hand edit, including one that only changes comments). The payload is
+`{event:"keybindings-changed", revision:uint64, origin:string}`: `revision`
+advances once per change and is the `revision` of `keybindings.get`, and
+`origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or `file` (found
+on disk). A write that leaves the text unchanged publishes nothing. Clients
+refetch `keybindings.get`.
+### conversation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Published after a `conversation-create` or `conversation-op` commits, never
+for a replay, and only to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Payload:
+
+```text
+object{
+  event:"conversation-changed",
+  conversation:string,
+  rev:uint64,
+  transaction:string|null,
+  change:Change
+}
+Change = object{kind:"message", message:Message}
+       | object{kind:"message-updated", message:Message}
+       | object{kind:"read-cursor", participant:string, seq:uint64}
+       | object{kind:"conversation", conversation:Summary}
+```
+
+`Message` and `Summary` are defined under `conversation-list` in
+commands.md. `rev` increases by exactly one per committed op, so a mirror
+that sees a gap refetches `conversation-snapshot`. `transaction` is the
+request's `transaction`, or null.
+
+### cloud-conversation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+Relays one committed cloud conversation event to trusted local connections:
+`object{event:"cloud-conversation-changed", conversation:string, rev:uint64,
+seq:uint64, transaction:string, change:Change, account?:string}` with the
+`conversation-changed` `Change` shapes plus
+`object{kind:"invite", conversation, invite}`. The related events
+`cloud-conversation-resynced` (`summary`, `messages`, `account?`),
+`cloud-inbox-changed` (`entries`, `account?`), `cloud-inbox-reset`
+(`account?`), `cloud-subscription-state` (`scope`, `state`, `reason?`,
+`account?`) and `cloud-session-needed` (`reason`, `expires_at?`) are specified
+in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
+id (the JWT `sub`) of the lease the daemon used for the upstream socket that
+produced the event, absent when that lease has no readable `sub`; a client
+drops an event whose `account` is present and differs from the account
+signed in now. The daemon also sends `cloud-inbox-reset` with `seq` 0 when the
+verified app sets a new lease (a sign-in or another account, not a renewal),
+so the person's other clients (a page, `ws-cloud-conversations-v1`) list the
+inbox again. With `ws-cloud-conversations-v1` these events also reach a paired
+WebSocket connection while the app holds the lease.
+
+### conversation-typing
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+`object{event:"conversation-typing", conversation:string, participant:string, on:bool}`,
+published for `conversation-typing` to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Ephemeral:
+never stored or replayed.
+
+### conversation-inbox-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-inbox-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+
+`object{event:"conversation-inbox-changed", conversation:string, participant:string, pinned:bool, pin_position?:uint64, marked_unread:bool}`,
+published after a `conversation-inbox-op` commit, only to the connections
+whose principal is `participant` (the person's own clients; an agent never
+sees the person's pins). Not a conversation change: it carries no `rev` and
+never reaches `conversation.events` or the remote relay.
+
+### conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-runs-v1` |
+
+`object{event:"conversation-run-changed", conversation:string, run:Run, steps:[Step]}`,
+published after a `conversation-run-append` commit (the run after the append
+and the steps it wrote; see `commands.md`), only to trusted local connections
+that echoed `conversation-runs-v1` in `set-client-info`. Not a conversation
+change: it carries no conversation `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### conversation-live
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-live-v1` |
+
+`object{event:"conversation-live", conversation:string, frame:object}`, one
+accepted `conversation-live-publish` frame of a running run (`step.delta` or
+`run.activity`, unchanged; see `commands.md`), only to trusted local
+connections that echoed `chief-live-v1` in `set-client-info`. Never stored and
+never replayed: a client that missed a frame (a `seq` gap) reads
+`conversation-live`. It never reaches `conversation.events` or the remote
+relay.
+
+### participant-avatar-changed
+
+| Field | Value |
+| --- | --- |
+| event | `participant-avatar-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `participant-avatars-v1` |
+
+`object{event:"participant-avatar-changed", participant:string, avatar:AvatarRef|null}`
+(`AvatarRef = object{sha256, media_type, bytes}`), published after a committed
+`participant.avatar.set` or `chief.profile.avatar.set` change, only to trusted
+local connections that echoed `participant-avatars-v1` in `set-client-info`.
+A client reads the bytes with `participant.avatar.get` (once per `sha256`). Not
+a conversation change: it carries no conversation or `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### chief-changed
+
+| Field | Value |
+| --- | --- |
+| event | `chief-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-events-v1` |
+
+`object{event:"chief-changed", chief:string, change:"created"|"updated"|"deleted"}`,
+published after a committed `chief.profile.create`, `chief.profile.update`,
+`chief.profile.avatar.set` (also through `participant.avatar.set`) or
+`chief.profile.delete` (a replayed request, and an edit that leaves the
+Chief's `rev` as it was, publish nothing), only to the person's own trusted
+local connections (acting as `user_local`; never a bound agent or Chief) that
+echoed `chief-events-v1` in `set-client-info`, including the Channels page on
+its page-bound credential. A client
+reads the record with `chief.profile.get` or `chief.profile.list`. Home and
+the Channels page redraw their Chiefs on it instead of polling. Not a
+conversation change: it carries no conversation or `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### cloud-conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
+
+`object{event:"cloud-conversation-run-changed", conversation:string, run:Run, steps:[Step], account?:string}`,
+a Cloud Chief's run change in a subscribed Cloud conversation (the owner's
+`conversation-run-changed` frame), only to the person's connections that
+echoed `conversation-runs-v1`. Never replayed.
+
+### cloud-conversation-live
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-chief-live-v1` |
+
+`object{event:"cloud-conversation-live", conversation:string, frame:object, account?:string}`,
+a Cloud Chief's live frame in a subscribed Cloud conversation (the owner's
+`step.delta`, `run.activity` or `run.live`, with both `type` and `t`, unchanged), only to
+the person's connections that echoed `chief-live-v1`. Never stored or
+replayed.
+
+### terminal-registry-changed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-registry-changed` |
+| status | implemented |
+| since | protocol 9 additive extension |
+
+Payload:
+
+```text
+object{
+  event:"terminal-registry-changed",
+  registry_id:string,
+  generation:string,
+  terminal_revision:uint64,
+  refetch:"terminal-events-or-list-terminals"
+}
+```
+
+This event is a durable commit barrier. Fetch `terminal-events` from the last applied revision or replace state from `list-terminals`.
+
+
+### terminal-reaped
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-reaped` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-reap-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-reaped",terminal_id:string,terminal:string|null,grace_ms:uint64}
+```
+
+Meaning: The owner ended a terminal that had no tab placement for the reap
+grace period and was not marked kept (see `set-terminal-keep`). `terminal_id`
+is the stable host id and `terminal` the public `term_` id when it had one.
+The end already committed through the `close-terminal` path, so the terminal
+registry and resource events report it too.
+
+Example:
+
+```json
+{"event":"terminal-reaped","terminal_id":"0f1e...","terminal":"term_0f1e...","grace_ms":30000}
+```
+
+### screen-added
+
+| Field | Value |
+| --- | --- |
+| event | `screen-added` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"screen-added",workspace:Id,screen:Id,index:usize,entity:Screen}
+```
+
+### screen-closed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-closed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"screen-closed",workspace:Id,screen:Id,index:usize,entity:Screen}
+```
+
+### screen-renamed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-renamed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"screen-renamed",workspace:Id,screen:Id,entity:Screen}
+```
+
+### pane-added
+
+| Field | Value |
+| --- | --- |
+| event | `pane-added` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"pane-added",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pane}
+```
+
+### pane-closed
+
+| Field | Value |
+| --- | --- |
+| event | `pane-closed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"pane-closed",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pane}
+```
+
+### tab-added
+
+| Field | Value |
+| --- | --- |
+| event | `tab-added` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+```
+
+The tab's subject id is its `surface`, matching `Tab.surface`; the protocol has no separate tab id.
+
+### tab-closed
+
+| Field | Value |
+| --- | --- |
+| event | `tab-closed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"tab-closed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+```
+
+### tab-renamed
+
+| Field | Value |
+| --- | --- |
+| event | `tab-renamed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
+```
+
+`tab-renamed` reports a user-visible tab-name mutation such as `rename-surface`. Application title changes remain `title-changed`.
+
+### screen-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-metadata-v1` |
+
+Emitted when a screen's color, icon, pin, or group changed, when it moved
+(within its workspace or into another one), or, with `dock-columns-v1`, when
+`set-column-dock` changed a column's `dock` flag. That delta carries the
+request's numeric `transaction` as a decimal string. `entity` is the full refreshed
+`Screen` and `index` its position in the workspace. Commands that reorder
+screens also emit `tree-changed` first. It carries no workspace revision.
+
+```text
+object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
+```
+
+### tab-changed
+
+| Field | Value |
+| --- | --- |
+| event | `tab-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-metadata-v1` |
+
+Emitted when a tab's metadata changes without a structural change: its
+pinned flag, its presented directory (and so its git HEAD), or its unread
+notification marker. `entity` is the full refreshed `Tab`. It carries no
+workspace revision.
+
+```text
+object{event:"tab-changed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
+```
+
+After a tab drag command (`move-tab`, `move-tab-to-workspace`,
+`move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`), the
+moved tab's `tab-changed` carries the request's `transaction` so the frontend
+that dropped the tab can reconcile its optimistic layout. It follows the
+drag's `tree-changed`.
+
+### tree-changed
+
+| Field | Value |
+| --- | --- |
+| event | `tree-changed` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"tree-changed"}
+```
+
+Meaning: The workspace, screen, pane, tab, active selection, names, split layout, or surface set changed. The event does not include the new tree. Clients should call `list-workspaces`.
+
+Protocol v7 retains this event in two negotiated roles. A `tree_events:"coarse"` subscription receives the exact protocol-v6 behavior: `tree-changed` is emitted wherever v6 emits it, and no lifecycle deltas are emitted. A `tree_events:"deltas"` subscription receives it only as an authoritative resync fallback under churn, for a mutation not represented by the delta set, or when coalescing makes an exact delta ambiguous. A delta client MUST NOT rely on `tree-changed` for ordinary mutations, but it must handle the fallback by re-fetching the tree and may discard buffered deltas older than the replacement snapshot. The server may emit it after earlier deltas when a later mutation invalidates them.
+
+Resource API v2 content mutations that add or move a tab (`terminal.project`, `terminal.move`) emit it on both subscription kinds once their commit lands (not on an idempotent replay), because the delta set has no entry for them; before, only resource API v2 subscribers learned about the new tab.
+
+Example:
+
+```json
+{"event":"tree-changed"}
+```
+
+### layout-changed
+
+| Field | Value |
+| --- | --- |
+| event | `layout-changed` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pane?:Id|null,layout?:Layout,viewport_splits?:array,viewport_base_width?:number,columns?:array,transaction?:string}
+```
+
+Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
+
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+
+Example:
+
+```json
+{"event":"layout-changed","screen":3,"workspace":1,"active_pane":7,"zoomed_pane":null,"layout":{"type":"split","split":4,"dir":"right","ratio":0.42,"a":{"type":"leaf","pane":7},"b":{"type":"leaf","pane":8}},"transaction":"1729150000000256"}
+```
+
+### surface-output
+
+| Field | Value |
+| --- | --- |
+| event | `surface-output` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"surface-output",surface:Id}
+```
+
+Meaning: A surface has new output or was marked dirty. For PTY surfaces, this is coalesced by the surface dirty flag and is not a byte stream. For browser surfaces, this can indicate a new frame or dirty state. Use `attach-surface` for byte-exact PTY streaming.
+
+Example:
+
+```json
+{"event":"surface-output","surface":1}
+```
+
+### scroll-changed
+
+| Field | Value |
+| --- | --- |
+| event | `scroll-changed` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"scroll-changed",surface:Id,offset:uint64,at_bottom:boolean}
+```
+
+Meaning: A PTY surface viewport moved within its scrollback. The event is emitted after a settled viewport mutation from user scrolling, `scroll-surface`, input snapping the viewport to the live bottom, or PTY output that changes the viewport position. `offset` is the same row offset used by the scrollbar geometry, and `at_bottom` is true when the viewport is pinned to the live bottom.
+
+Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface. This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
+
+Example:
+
+```json
+{"event":"scroll-changed","surface":1,"offset":12,"at_bottom":false}
+```
+
+### surface-resized
+
+| Field | Value |
+| --- | --- |
+| event | `surface-resized` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"surface-resized",surface:Id,cols:uint16,rows:uint16,reservation_id:uint64|null}
+```
+
+Meaning: A surface's final clamped cell size changed. `reservation_id` identifies the accepted asynchronous browser resize that completed, and is `null` for PTY resizes. A same-size `resize-surface` command returns success but emits no `surface-resized` event.
+
+Example:
+
+```json
+{"event":"surface-resized","surface":1,"cols":120,"rows":40,"reservation_id":7}
+```
+
+### surface-resize-failed
+
+| Field | Value |
+| --- | --- |
+| event | `surface-resize-failed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null,reservation_id:uint64}
+```
+
+Meaning: An accepted asynchronous browser resize failed. `reservation_id` matches the accepted request. A numeric `retry_after_ms` is the delay before the requesting client retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it. The event is broadcast, so subscribers that did not request this geometry must not echo it.
+
+Example:
+
+```json
+{"event":"surface-resize-failed","surface":1,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
+```
+
+### surface-exited
+
+| Field | Value |
+| --- | --- |
+| event | `surface-exited` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"surface-exited",surface:Id}
+```
+
+Meaning: A PTY child exited or a browser surface was closed. A session-owned
+terminal retains a durable exit receipt until explicit `terminal.close`, while
+every placement and its live runtime are already removed. A projected terminal
+emits this event for each former placement. Browsers and unregistered
+compatibility PTYs are also already reaped from the tree.
+
+Example:
+
+```json
+{"event":"surface-exited","surface":1}
+```
+
+### title-changed
+
+| Field | Value |
+| --- | --- |
+| event | `title-changed` |
+| status | implemented |
+| since | protocol 5 |
+| `title` field | protocol 7 |
+
+Payload:
+
+```text
+object{event:"title-changed",surface:Id,title:string}
+```
+
+Meaning: A surface title changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
+
+Example:
+
+```json
+{"event":"title-changed","surface":1,"title":"build logs"}
+```
+
+### bell
+
+| Field | Value |
+| --- | --- |
+| event | `bell` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"bell",surface:Id}
+```
+
+Meaning: A PTY surface emitted a terminal bell.
+
+Example:
+
+```json
+{"event":"bell","surface":1}
+```
+
+### program-status-changed
+
+| Field | Value |
+| --- | --- |
+| event | `program-status-changed` |
+| status | implemented |
+| since | protocol 12 additive |
+
+Payload:
+
+```text
+object{event:"program-status-changed",surface:Id,program_status:ShownProgramStatus|null}
+```
+
+Meaning: The status a PTY surface's tab shows for its programs' OSC 7501
+reports changed. `program_status` is the strongest non-idle record
+(`blocked`, then `error`, `working`, `done`; the newest wins a tie), with
+`progress` 0-100 or null, or null when nothing is shown. The same value is the
+tab's `program_status` field in `list-workspaces`. Coalesced per surface; the
+full records stay on the terminal resource's `extra.program_status`. A
+terminal's exit hides its `working` and `blocked` records without this event;
+clients re-read the tab on `surface-exited`.
+
+Example:
+
+```json
+{"event":"program-status-changed","surface":1,"program_status":{"state":"working","progress":40}}
+```
+
+### notification
+
+| Field | Value |
+| --- | --- |
+| event | `notification` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon",desktop?:boolean,reply?:boolean}
+```
+
+Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. With `notification-desktop-v1`, `desktop` is false when the poster asked for no desktop banner (`notification.create` `desktop: false`, `cmux notify --desktop false`); the sidebar marker still shows. With `notification-reply-v1`, `reply` is true when the poster asked for a typed reply (`notification.create` `reply: true`, `cmux notify --reply`): the app's banner takes text and pastes it into the notifying terminal, then submits it. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
+
+Example:
+
+```json
+{"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1}
+```
+
+The same surface-scoped notification can also be delivered to byte and browser attachments. Protocol v10 does not tag the originating registration, so clients sharing one connection must deduplicate by notification id.
+
+### status
+
+| Field | Value |
+| --- | --- |
+| event | `status` |
+| status | implemented internal event |
+| since | protocol 5 |
+
+Payload: `object{event:"status",message:string}`.
+
+Meaning: A transient server status line intended for an interactive frontend. It is not retained and has no stable status id.
+
+### config-reload-requested
+
+| Field | Value |
+| --- | --- |
+| event | `config-reload-requested` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"config-reload-requested"}
+```
+
+Meaning: Emitted by `reload-config` so attached TUI frontends can re-read local mux config and redraw.
+
+Example:
+
+```json
+{"event":"config-reload-requested"}
+```
+
+### window-title-requested
+
+| Field | Value |
+| --- | --- |
+| event | `window-title-requested` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"window-title-requested",title:string}
+```
+
+Meaning: Emitted by `set-window-title` and `clear-window-title` so attached TUI frontends can write OSC 0/2 to their controlling stdout. Empty `title` clears the title.
+
+Example:
+
+```json
+{"event":"window-title-requested","title":"hello"}
+```
+
+### activity-changed
+
+| Field | Value |
+| --- | --- |
+| event | `activity-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `vm-activity-v1` |
+
+Payload:
+
+```text
+object{event:"activity-changed",activity:ActivitySnapshot}
+```
+
+Meaning: The daemon's activity facts changed (a person's input, an agent action, a person's client attached or detached, an agent became live or not live). Sent only to `subscribe-activity` connections, at most one per second; the body is the same object the `subscribe-activity` reply carries.
+
+Example:
+
+```json
+{"event":"activity-changed","activity":{"attached_clients":0,"live_agents":1,"last_user_input_at_ms":1791246114793,"last_agent_action_at_ms":1791246120001}}
+```
+
+### machine-usage-changed
+
+| Field | Value |
+| --- | --- |
+| event | `machine-usage-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Payload:
+
+```text
+object{event:"machine-usage-changed",usage:MachineUsage|null}
+```
+
+Meaning: The daemon's machine-level model spend readout changed. `usage` carries the same object `machine-usage` returns; null means the readout became unavailable and frontends must hide it. Emitted only when the value differs from the previous one, so a steady poll is silent.
+
+Example:
+
+```json
+{"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
+```
+
+### empty
+
+| Field | Value |
+| --- | --- |
+| event | `empty` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"empty"}
+```
+
+Meaning: Every workspace is gone. Remote clients also synthesize this event locally when the socket connection is lost.
+
+Example:
+
+```json
+{"event":"empty"}
+```
+
+## Control Events
+
+### daemon-shutdown
+
+| Field | Value |
+| --- | --- |
+| event | `daemon-shutdown` |
+| status | implemented control lifecycle event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"daemon-shutdown"}
+```
+
+Meaning: Sent on the control queue to every live control client after the
+`shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
+requesting client did not open a subscription. Clients should classify the
+following EOF and pending requests as expected daemon shutdown.
+
+Example:
+
+```json
+{"event":"daemon-shutdown"}
+```
+
+### terminal-input-unclaimed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-input-unclaimed` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-input-while-creating-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,reason:string}
+```
+
+Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
+[commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
+closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
+this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
+may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a
+subscription. The client should give the bytes to the terminal that has focus.
+
+Example:
+
+```json
+{"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
+### terminal-clipboard-read
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read", request_id:string, terminal_id:string,
+       location:"standard"|"selection"|"primary",
+       host:object{kind:"local"|"remote"|"cloud", name?:string}}
+```
+
+Meaning: A program in `terminal_id` sent an OSC 52 clipboard read and the
+terminal host is waiting for the user's answer. It goes only to the single
+frontend connection subscribed to that terminal with
+`terminal-clipboard-subscribe` (see commands.md, "Terminal clipboard reads").
+`request_id` is an unguessable UUID that only this connection can answer, once,
+with `terminal-clipboard-reply`. `host` names where the terminal runs; this
+daemon's terminal hosts are local to it, so it sends `{kind:"local"}`, and a
+frontend that reached the daemon over a remote or Cloud transport shows that
+machine instead. The event never carries clipboard text.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","terminal_id":"term_0123456789abcdef0123456789abcdef","location":"standard","host":{"kind":"local"}}
+```
+
+### terminal-clipboard-read-cancelled
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read-cancelled` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read-cancelled", request_id:string}
+```
+
+Meaning: The read is over before the user answered: the terminal host refused
+it itself (its 60-second timeout, or the terminal ended), its host connection
+ended, or a newer read from the same terminal replaced it. The frontend
+dismisses its question; a later reply to `request_id` returns
+`{accepted:false}`.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
+```
+
+## Attach Events
+
+### render-state
+
+| Field | Value |
+| --- | --- |
+| event | `render-state` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{
+  event:"render-state",
+  surface:Id,
+  size:object{cols:uint16,rows:uint16},
+  cursor:Cursor,
+  default_fg:ColorHex,
+  default_bg:ColorHex,
+  scrollback_rows:uint32,
+  history_epoch:uint64,
+  rows:array<Row>
+}
+```
+
+Meaning: Initial authoritative viewport state for `attach-surface` with `mode:"render"`. `Cursor`, `Row`, `Run`, color resolution, and the complete-snapshot invariant are defined in [`render.md`](render.md#render-state).
+
+### render-delta
+
+| Field | Value |
+| --- | --- |
+| event | `render-delta` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{
+  event:"render-delta",
+  surface:Id,
+  cursor:Cursor,
+  full:boolean,
+  size?:object{cols:uint16,rows:uint16},
+  default_fg?:ColorHex,
+  default_bg?:ColorHex,
+  scrollback_rows?:uint32,
+  history_epoch?:uint64,
+  rows:array<Row>
+}
+```
+
+Meaning: One coalesced render frame. The cursor is always present; `rows` contains dirty replacements unless `full:true`. `size` is present if and only if the surface resized, and every resize is a full viewport replacement. See [`render.md`](render.md#render-delta).
+
+### vt-state
+
+| Field | Value |
+| --- | --- |
+| event | `vt-state` |
+| status | implemented |
+| since | protocol 5 |
+| `colors` field | protocol 6 additive extension |
+| Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
+| `pending` field | additive, `terminal-pending-sequence-v1` |
+
+Payload:
+
+```text
+object{
+  event:"vt-state",
+  surface:Id,
+  cols:uint16,
+  rows:uint16,
+  data:Base64,
+  kitty_image_aliases?:array<object{image_id:uint32,image_number:uint32}>,
+  kitty_graphics_state?:object{
+    image_bytes:uint64,
+    inflight_bytes:uint64,
+    images:uint64,
+    placements:uint64,
+    replay_cursor_offset:uint32,
+    primary_replay_next_image_id:uint32,
+    primary_next_image_id:uint32,
+    alternate_replay_next_image_id:uint32,
+    alternate_next_image_id:uint32
+  },
+  colors:object{
+    fg:ColorHex|null,
+    bg:ColorHex|null,
+    cursor:ColorHex|null,
+    overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
+    selection_bg:ColorHex|null,
+    selection_fg:ColorHex|null,
+    palette?:object{[index:string]:ColorHex},
+    cursor_style:"block"|"underline"|"bar"|null,
+    cursor_blink:boolean|null
+  },
+  pending?:Base64
+}
+```
+
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+
+The additive `overrides` object distinguishes application-authored OSC 10/11/12
+state from the effective `fg`, `bg`, and `cursor` fields. A viewer with its own
+theme uses `overrides` for those three colors and the existing sparse `palette`
+for OSC 4. Each is a full replacement: null special colors and absent palette
+indexes reset to that viewer's configured defaults. An override equal to a
+shared default remains authored until OSC 104/110/111/112 or RIS resets it.
+Shared session-default changes never populate `overrides`. Older servers omit
+the object; their effective special colors do not expose this distinction.
+The same object travels on resize, output sidecars, and colors-changed events.
+It is emitted only for byte attachments whose connection advertised
+`terminal-color-overrides-v1` through `set-client-info` before attaching. The
+choice is captured for that attachment's lifetime. Other clients retain the
+previous exact color-object shape, including clients with strict SDK decoders.
+Older servers safely ignore the unknown client capability and omit the object.
+
+The server takes the replay at any byte of the PTY stream, so its parser may
+be inside an escape sequence, control string, Kitty command, or UTF-8 code
+point. For an attachment whose connection advertised
+`terminal-pending-sequence-v1` through `set-client-info` before attaching,
+`data` ends at a parser boundary and `pending` carries those incomplete bytes;
+it is omitted when there are none. Write `pending` after `data`, the Kitty
+sidecars, and any color sequences the client applies, immediately before the
+next `output`, which completes the sequence. Other attachments receive the
+same bytes appended to `data`, which suits clients that write nothing between
+the replay and the live stream. The one exception is a control string longer
+than 1 MiB that is not a direct Kitty upload: a replay taken inside it omits the
+string, and a resize there drops byte attachments so they reattach.
+
+Example:
+
+```json
+{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}}
+```
+
+### output
+
+| Field | Value |
+| --- | --- |
+| event | `output` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
+```
+
+Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
+
+Example:
+
+```json
+{"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### resized
+
+| Field | Value |
+| --- | --- |
+| event | `resized` |
+| status | implemented in protocol 6 attach stream |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64}
+```
+
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, write `pending` when present (with the same capability and meaning as on `vt-state`), then continue applying later `output` chunks.
+
+Example:
+
+```json
+{"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{"4":"#445566"},"cursor_style":"bar","cursor_blink":false}}
+```
+
+### colors-changed
+
+| Field | Value |
+| --- | --- |
+| event | `colors-changed` |
+| status | implemented in protocol 6 attach stream |
+| since | protocol 6 additive extension |
+| `surface` field | protocol 7 additive extension |
+
+Payload:
+
+```text
+object{
+  event:"colors-changed",
+  surface?:Id,
+  fg:ColorHex|null,
+  bg:ColorHex|null,
+  cursor?:ColorHex|null,
+  overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
+  selection_bg:ColorHex|null,
+  selection_fg:ColorHex|null,
+  palette?:object{[index:string]:ColorHex},
+  cursor_style?:"block"|"underline"|"bar"|null,
+  cursor_blink?:boolean|null
+}
+```
+
+Meaning: The session defaults or a surface's live OSC palette state changed. Each live PTY byte-attach stream receives the effective colors for its surface. Active per-surface OSC overrides remain authoritative; protocol-v7 sparse `palette` entries replace authored OSC 4 indexes while omitted indexes retain the frontend theme palette. Live palette events omit cursor metadata so the frontend preserves its current cursor; default-color events include authoritative cursor state. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface` and `palette`; v6 clients remain compatible because the new fields are additive. Selection fields carry configured or hosted values when present and are otherwise `null`.
+
+Example:
+
+```json
+{"event":"colors-changed","surface":1,"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}
+```
+
+### browser-state
+
+| Field | Value |
+| --- | --- |
+| event | `browser-state` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{
+  event:"browser-state",
+  surface:Id,
+  cols:uint16,
+  rows:uint16,
+  url:string,
+  title:string,
+  status:"starting"|"live"|"failed",
+  error:string|null,
+  frames_stalled:boolean,
+  frame?:object{seq:uint64,width:uint32,height:uint32,data:Base64}|null
+}
+```
+
+The initial browser state includes `frame`; later state updates omit it. Browser commands returning `object{}` are queue acknowledgements, so clients observe their eventual outcome here. Protocol v9 `error` can contain raw browser-runtime text and is not stable or safe to parse; vNext replaces it with the structured, sanitized error contract.
+
+### frame
+
+| Field | Value |
+| --- | --- |
+| event | `frame` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload: `object{event:"frame",surface:Id,seq:uint64,width:uint32,height:uint32,data:Base64}`.
+
+`data` is the current encoded browser frame. A newer `seq` supersedes older pixels for that surface.
+
+### detached
+
+| Field | Value |
+| --- | --- |
+| event | `detached` |
+| status | implemented |
+| since | protocol 5 |
+
+Payload:
+
+```text
+object{event:"detached",surface:Id,reason?:"network"|"disconnected-by"|"host-shutdown",by?:object{user_id?,display_name?,device_name?},view?:string,scope?:"view"}
+```
+
+Meaning: The attach stream ended because the surface disappeared, its output
+tap stopped, or its connection was detached. A server-initiated connection
+detach carries `reason`: `disconnected-by` after `detach-client` (with `by`,
+the actor), `host-shutdown` after `shutdown-daemon`, and `network` otherwise.
+A client treats an absent or unknown reason as `network` and reconnects; it
+must not reconnect automatically after `disconnected-by`. `view` is present
+only when a relay sub-view was detached; the relay keeps its own attachment
+and forwards the notice to that leaf. `scope:"view"` means only the
+receiving client's own view left shared sizing; its connection and attach
+stream stay, and `reattach-view` restores the view.
+
+Example:
+
+```json
+{"event":"detached","surface":1}
+{"event":"detached","surface":1,"reason":"disconnected-by","by":{"display_name":"Maya","device_name":"Mac Studio"}}
+```
+
+### size-state
+
+| Field | Value |
+| --- | --- |
+| event | `size-state` |
+| status | implemented |
+| since | protocol 12 additive; client capability `shared-sizing-v1` |
+
+Payload:
+
+```text
+object{event:"size-state",surface:Id,state:SizeState,self_participant?:string}
+```
+
+`SizeState` is the wire object of
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md#size-state-wire-format):
+`generation`, `cols`, `rows`, `reason`, `owners`, `policy`, and
+`participants` (each with `id`, `user_id`, `display_name`, `device_kind`,
+`device_name`, `via`, `viewport`, `counts_override`, `counts`,
+`priority_key`).
+
+Meaning: A terminal's shared sizing state changed. The server emits it to
+every subscriber and on every legacy attach stream of each placement of the
+terminal, only for connections that sent `shared-sizing-v1` through
+`set-client-info`. `self_participant` is the receiving connection's own view
+id when that view participates. `device_kind` is `linux` or `windows` only for
+connections that sent `open-device-kinds-v1`; others receive `unknown` for
+them. `generation` increases by one per change;
+deliveries on different routes may interleave, so ignore a state whose
+generation is not newer than the last one applied.
+
+Example:
+
+```json
+{"event":"size-state","surface":4,"self_participant":"c3","state":{"generation":7,"cols":118,"rows":38,"reason":"latest","owners":["c3"],"policy":{"mode":"latest","priority":[],"fixed":null},"participants":[{"id":"c3","user_id":"u_maya","display_name":"Maya Ortiz","device_kind":"mac","device_name":"Mac Studio","via":null,"viewport":{"cols":118,"rows":38},"counts_override":null,"counts":true,"priority_key":"u_maya/mac"}]}}
+```
+
+### agent-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-changed` |
+| status | implemented |
+| since | protocol 11; `agent` is optional since protocol 12 |
+
+Payload:
+
+```text
+object{
+  event:"agent-changed",
+  surface:Id,
+  state:"working"|"blocked"|"idle"|"done"|"unknown",
+  source:"plugin"|"detected"|"socket"|"hook",
+  session:string|null,
+  agent?:string|null,
+  updated_at_ms:uint64,
+  since_ms?:uint64,
+  last_prompt?:string|null
+}
+```
+
+`last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
+`list-agents`).
+
+Meaning: The current agent state for a surface changed. `agent` is the
+adapter identity when the producer knows it. `since_ms` is when the agent
+entered `state` (a report that keeps the state keeps it; after a daemon restart it is the
+last report's time; senders before it omit it, so use `updated_at_ms`). Hook authority and source
+precedence follow `commands.md`.
+
+Example:
+
+```json
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000,"since_ms":1709999940000}
+```
+
+The earlier draft name `agent-state-changed` is not emitted. Clients must
+subscribe to `agent-changed`.
+
+### agent-presence-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-presence-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-presence-v1` |
+
+Payload:
+
+```text
+object{
+  event:"agent-presence-changed",
+  surface:Id,
+  activity:"thinking"|"editing"|"reading"|"running"|"browsing"|"computer_use"|"waiting"|null,
+  agent:string|null,
+  session:string|null,
+  tool:string|null,
+  path:string|null,
+  line:uint64|null,
+  updated_at_ms:uint64|null
+}
+```
+
+Meaning: What the agent in a surface's terminal is touching right now,
+reduced from its committed hook events. A pre-tool event sets `activity`,
+`tool`, and the `path` and `line` the tool input names (the only part of the
+tool input the journal keeps). A post-tool event keeps the target with
+`activity:"thinking"`. An approval, question or plan review sets
+`"waiting"`. Turn end, session start or end, terminal close, and the
+surface's agent going idle or done by any path clear it:
+`activity` and every other field are `null`. Presence is live-only. It is
+not persisted, replayed journal commits do not emit it, a hook event that
+commits after a newer one for the same terminal is ignored, and there is no
+snapshot, so a client that reconnects waits for the next event. A client
+should fade a presence that has not updated for a while.
+
+Example:
+
+```json
+{"event":"agent-presence-changed","surface":1,"activity":"editing","agent":"claude","session":"abc","tool":"Edit","path":"/repo/src/app.rs","line":null,"updated_at_ms":1710000000000}
+```
+
+## Proposed Events
+
+### notification vNext extension
+
+| Field | Value |
+| --- | --- |
+| event | `notification` |
+| status | proposed |
+| since | proposed protocol 10 |
+
+Payload:
+
+```text
+object{
+  event:"notification",
+  notification:Id,
+  title:string,
+  body:string,
+  level:"info"|"warning"|"error",
+  surface:Id|null,
+  created_at_ms:uint64
+}
+```
+
+Meaning: A notification was posted by `notify`, a hook, or an internal mux action.
+
+Example:
+
+```json
+{"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1,"created_at_ms":1710000000000}
+```
+
+## Surface-Scoped Subscriptions and Proposed Filters
+
+Protocol v9 implements an optional numeric `surface` on `subscribe`. It filters unrelated high-volume surface and layout events before the bounded subscriber mailbox while retaining target topology and session lifecycle events.
+
+Proposed protocol v10 extends this with arbitrary event and multi-surface filters:
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `events` | `array<string>` | default all | Event names to include |
+| `surfaces` | `array<IdRef>` | default all | Surface-scoped events to include |
+
+Request:
+
+```json
+{"id":1,"cmd":"subscribe","events":["bell","agent-changed"],"surfaces":[1,"a8f3k2"]}
+```
+
+Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.

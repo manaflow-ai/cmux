@@ -1,0 +1,19 @@
+{
+  "description": "Words an app may not use as its manifest cli.name (plans/cmux-next/app-commands-codemode.md section 1). Built-in commands always win over app commands; this list also keeps names free for future built-ins. Each built-in noun is reserved with its plural. The cmux-tui CLI tests check that every top-level word it accepts is listed here. firstParty maps a reserved word to the one first-party app id that may claim it; no third-party app may.",
+  "firstParty": {
+    "cloud": "cmux/cloud"
+  },
+  "names": [
+    "accounts", "acp", "action", "actions", "agent", "agents", "app", "apps", "audit", "auth",
+    "bookmark", "bookmarks", "browser", "browser-proxy", "browsers", "chief", "client", "clients",
+    "closed", "cloud", "code", "coderouter", "completion", "config", "connect", "cua", "docs",
+    "enroll", "ensure", "events", "feed", "force", "forward", "git", "help", "history", "home",
+    "hook", "hooks", "install-self", "known-daemons", "login", "logout", "machine", "machines", "mcp",
+    "notification", "notifications", "notify", "open", "pairing", "pane", "panes", "plugin", "plugins",
+    "projection", "provider", "providers", "raw", "remote", "remote-link", "remote-probe",
+    "remote-sidecar", "remote-stop", "room", "rooms", "rpc", "run", "screen", "screens", "search",
+    "server", "servers", "session", "sessions", "settings", "sidebar", "sidebars", "ssh", "stats",
+    "status", "stop", "tab", "tabs", "task", "tasks", "terminal", "terminals", "update", "version",
+    "vm", "vms", "wg", "window", "windows", "workspace", "workspaces", "ws", "x"
+  ]
+}

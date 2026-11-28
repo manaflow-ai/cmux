@@ -1,0 +1,66 @@
+[
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_rq5h63zxz1mse6mwxemsqr29ww",
+    "action": "mesh.create",
+    "cmuxId": "mesh_n3rbcc6v0sdzwa9fmf29znp7d8",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:12.935Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_nt3sn9py96td93vp689yz9enpg",
+    "action": "vm.create",
+    "cmuxId": "vm_n265dd69rzny9gvptd4012xv60",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:13.959Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_j2570d5zapbcrt6nv4pe760gb0",
+    "action": "mesh.vm.attach",
+    "cmuxId": "mesh_n3rbcc6v0sdzwa9fmf29znp7d8",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:14.135Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_zn2yrgje352bb07j1dt22jgm48",
+    "action": "vm.exec",
+    "cmuxId": "vm_n265dd69rzny9gvptd4012xv60",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:15.171Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_d2bxh59dryfwwr5emn27dxfkf8",
+    "action": "device.create",
+    "cmuxId": "mesh_n3rbcc6v0sdzwa9fmf29znp7d8",
+    "outcome": "Conflict",
+    "at": "2026-10-07T07:17:15.307Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_1kjteynpzvn1h1jvretx1jfgm0",
+    "action": "mesh.vm.detach",
+    "cmuxId": "mesh_n3rbcc6v0sdzwa9fmf29znp7d8",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:15.447Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_gx8pyc93d3j31fm810x9ez8pvw",
+    "action": "vm.delete",
+    "cmuxId": "vm_n265dd69rzny9gvptd4012xv60",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:15.510Z"
+  },
+  {
+    "tenantId": "team_mesh_m1_m1cmuxrypdg",
+    "actor": "key:vmk_x2w9nw9d5tjcfjznk0tx2dv1ac",
+    "action": "mesh.delete",
+    "cmuxId": "mesh_n3rbcc6v0sdzwa9fmf29znp7d8",
+    "outcome": "ok",
+    "at": "2026-10-07T07:17:15.552Z"
+  }
+]

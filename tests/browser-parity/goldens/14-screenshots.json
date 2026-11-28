@@ -1,0 +1,28 @@
+{
+  "oracle": {
+    "viewport": {
+      "type": "png",
+      "width": 1280,
+      "height": 800
+    },
+    "full-page-taller": true,
+    "locator-smaller": true,
+    "ref-matches-locator": true,
+    "jpeg": "jpeg",
+    "buffer": {
+      "isBuffer": true,
+      "magic": "PNG"
+    },
+    "pdf-magic": "%PDF-",
+    "screenshot-path": "PNG"
+  },
+  "cmux": {
+    "annotated-size": [
+      1280,
+      800
+    ],
+    "annotated-differs": true,
+    "annotations-removed": true,
+    "no-overlay-in-dom": 0
+  }
+}

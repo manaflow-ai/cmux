@@ -1,0 +1,11 @@
+/* The preview card's "Open in" menu (previewCard/OpenInMenu.tsx, decision D6). */
+.acpmux-open-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.acpmux-open-in__icon {
+  margin-right: 8px;
+  flex: none;
+  border-radius: 3px;
+}

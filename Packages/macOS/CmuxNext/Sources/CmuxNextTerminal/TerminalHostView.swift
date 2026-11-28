@@ -1,0 +1,250 @@
+public import AppKit
+import CmuxNextDesign
+import CmuxNextTerminalFind
+import Observation
+
+/// Container the App embeds. Holds the current surface view (swapped on
+/// replay) and paints the terminal's background (its theme's, else the
+/// config's) behind an announced grid that is smaller than the view.
+///
+/// The surface fills the host, which fills the pane's content border, so
+/// the first cell sits exactly Ghostty's padding inside the border
+/// (`TerminalPadding.cmuxDefault` unless the user set their own).
+public final class TerminalHostView: NSView {
+    private weak var current: TerminalSurfaceView?
+    /// The session's theme; nil paints the config background.
+    var theme: GhosttyThemeConfig? {
+        didSet { paintBackground() }
+    }
+    /// Shown over the last screen while the link is down (click-through).
+    private let banner = TerminalStatusBanner()
+    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
+    private let scroller = TerminalScroller()
+    private var shownStatus: TerminalConnectionStatus = .connected
+    private var hostLoss: TerminalHostLoss?
+    private var hostLossCause: TerminalHostLossCause?
+    private var shellStall: TerminalShellStall?
+    /// "Restart Shell Here" above the banner while the shell has ended.
+    private let restartButton = TerminalRestartButton()
+    /// "Retry" above the banner once the view stopped retrying its attach.
+    private let retryButton = TerminalRetryButton()
+    /// The App's `tab.restart` for this tab; nil hides the button (a daemon
+    /// without `tab-restart-v1`, a tab that cannot restart).
+    public var onRestart: (@MainActor () -> Void)? {
+        get { restartButton.onRestart }
+        set { restartButton.onRestart = newValue; needsLayout = true }
+    }
+
+    /// The first cell's top-left in this view's coordinates (top-left
+    /// origin): Ghostty's leading and top padding, or with
+    /// `window-padding-balance` half the grid's leftover (for `debug.pane_chrome`).
+    public var firstCellOrigin: CGPoint {
+        let padding = GhosttyRuntime.shared.terminalPadding
+        guard padding.balanced, let model = current?.session?.model, let grid = model.grid, grid.columns > 0, grid.rows > 0 else {
+            return CGPoint(x: padding.leading, y: padding.top)
+        }
+        let scale = window?.backingScaleFactor ?? 2
+        let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
+        let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
+        let width = bounds.width - scroller.reservedWidth
+        return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (bounds.height - gridHeight) / 2))
+    }
+
+    private var configObserver: (any NSObjectProtocol)?
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        wantsLayer = true
+        // A surface that keeps its last frame while the pane's size moves
+        // (TerminalSurfaceSizeSettle) never draws past the host.
+        layer?.masksToBounds = true
+        paintBackground()
+        // Frame layout (`layout()`), not Auto Layout: a pane resized every
+        // frame of a drag solves no constraints here.
+        addSubview(banner)
+        addSubview(scroller, positioned: .below, relativeTo: banner)
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
+        scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
+        addSubview(restartButton, positioned: .above, relativeTo: banner)
+        addSubview(retryButton, positioned: .above, relativeTo: banner)
+        // The same re-attach a click in the disconnected terminal starts.
+        retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
+        // A config reload can change window-padding-x.
+        configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
+            MainActor.assumeIsolated { self?.needsLayout = true }
+        }
+    }
+
+    /// Pins the session's find bar to the top-trailing corner, above the
+    /// surface and the status banner.
+    /// The find bar is built the first time find opens, not with the
+    /// terminal: its glass panel, stack and buttons cost about 5 ms of main
+    /// thread per new terminal (R81 trace), most of a 120 Hz frame.
+    func attachFind(_ find: TerminalFindController) {
+        if find.isPresented { return installFindBar(find) }
+        withObservationTracking {
+            _ = find.isPresented
+        } onChange: { [weak self, weak find] in
+            Task { @MainActor in
+                guard let self, let find else { return }
+                self.attachFind(find)
+            }
+        }
+    }
+
+    private func installFindBar(_ find: TerminalFindController) {
+        guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
+        let bar = TerminalFindBarView(find: find)
+        bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
+        addSubview(bar, positioned: .above, relativeTo: banner)
+        needsLayout = true
+    }
+
+    /// The link status label over the terminal (hidden while connected).
+    var statusText: String? {
+        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+    }
+
+    func showStatus(_ status: TerminalConnectionStatus) {
+        shownStatus = status
+        banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+        restartButton.show(status)
+        retryButton.show(status)
+        needsLayout = true
+    }
+
+    func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
+        hostLoss = loss
+        hostLossCause = cause
+        banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
+        needsLayout = true
+    }
+
+    /// A shell the daemon cannot reach is labeled even while the view's link is up.
+    func showShellStall(_ stall: TerminalShellStall?) {
+        shellStall = stall
+        banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        needsLayout = true
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func install(_ surfaceView: TerminalSurfaceView) {
+        let old = current
+        surfaceView.autoresizingMask = []
+        surfaceView.frame = surfaceFrame
+        // Below the scroller and the status banner, which stay over every swapped-in surface.
+        addSubview(surfaceView, positioned: .below, relativeTo: scroller)
+        current = surfaceView
+        old?.removeFromSuperview()
+        followScrollbar(of: surfaceView)
+    }
+
+    /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
+    /// every change, while the surface is the current one.
+    private func followScrollbar(of surfaceView: TerminalSurfaceView) {
+        guard current === surfaceView, let model = surfaceView.session?.model else { return }
+        let bar = withObservationTracking { model.scrollbar } onChange: { [weak self, weak surfaceView] in
+            Task { @MainActor in
+                guard let self, let surfaceView else { return }
+                self.followScrollbar(of: surfaceView)
+            }
+        }
+        scroller.update(bar)
+    }
+
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
+    private var surfaceFrame: CGRect {
+        CGRect(x: bounds.minX, y: bounds.minY, width: max(0, bounds.width - scroller.reservedWidth), height: bounds.height)
+    }
+
+    public override func layout() {
+        super.layout()
+        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        let strip = scroller.strip(in: bounds)
+        if scroller.frame != strip { scroller.frame = strip }
+        layoutOverlays()
+    }
+
+    /// The status banner centered 12 pt above the bottom (at most the width
+    /// less 24), the restart and retry buttons centered 8 pt above it, and
+    /// the find bar in the top-trailing corner. Hidden ones are skipped.
+    private func layoutOverlays() {
+        let buttons = [restartButton, retryButton].filter { !$0.isHidden } as [NSView]
+        if !banner.isHidden || !buttons.isEmpty {
+            layoutStatus(buttons: buttons)
+        }
+        let inset = Metrics.panelInset
+        // Framed hidden too: the bar shows itself when find opens.
+        for case let bar as TerminalFindBarView in subviews {
+            _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in
+                CGPoint(x: self.bounds.width - inset - size.width, y: self.bounds.height - inset - size.height)
+            }
+        }
+    }
+
+    private func layoutStatus(buttons: [NSView]) {
+        let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
+            CGPoint(x: (self.bounds.width - size.width) / 2, y: 12)
+        }
+        for button in buttons {
+            _ = place(button, maxWidth: bounds.width) { size in
+                CGPoint(x: (self.bounds.width - size.width) / 2, y: banner.maxY + 8)
+            }
+        }
+    }
+
+    /// Sizes `view` to its fitting size (no wider than `maxWidth`) at
+    /// `origin`; returns its frame (the banner's, even while hidden, which
+    /// places the buttons above where it shows).
+    private func place(_ view: NSView, maxWidth: CGFloat, evenHidden: Bool = false, origin: (CGSize) -> CGPoint) -> CGRect {
+        let fitting = view.fittingSize
+        let size = CGSize(width: max(0, min(fitting.width, maxWidth)), height: fitting.height)
+        let frame = CGRect(origin: origin(size), size: size).integral
+        if !view.isHidden || evenHidden, view.frame != frame { view.frame = frame }
+        return frame
+    }
+
+    /// Anything that lands on the host itself goes to the surface.
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard hit === self, let current else { return hit }
+        return current
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paintBackground()
+    }
+
+    /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
+    /// translucent window the window root paints the one sheet. The user's
+    /// terminal background (`appearance.surfaces.terminal`) replaces both;
+    /// the surfaces then draw a transparent default background.
+    private func paintBackground() {
+        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
+        if let fill {
+            layer?.backgroundColor = fill.cgColor
+            return
+        }
+        let runtime = GhosttyRuntime.shared
+        guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
+            layer?.backgroundColor = runtime.backgroundColor.cgColor
+            return
+        }
+        layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+    }
+}

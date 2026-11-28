@@ -1,0 +1,17 @@
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
+
+/// The app's machines as remote localhost sees them (the app's
+/// `MachineRegistry`): which daemon holds a tab, each machine's badge name
+/// and where the person's own choices live.
+@MainActor
+public protocol RemoteLocalhostMachines: AnyObject {
+    /// This Mac's daemon, home of personal state.
+    var local: DaemonService { get }
+    var daemons: [DaemonService] { get }
+    func daemon(forTab tab: TabModel) -> DaemonService
+    func daemon(machine machineID: String) -> DaemonService?
+    func machineBadge(_ machineID: String) -> String?
+    /// Workspace `id`'s personal-state address: the session that owns it and its key.
+    func personalAddress(ofWorkspace id: String) -> (session: String, key: String)?
+}

@@ -1,0 +1,141 @@
+public import AppKit
+public import CmuxNextDesign
+public import Foundation
+
+/// What a native confirmation sheet asks before a page call that grants or removes something
+/// (install, uninstall, update, grant; delete, billing, firewall, publication for other pages).
+/// Page JS cannot prove a gesture (coordinator Q4), so these calls always pass this sheet; only an
+/// approved call reaches the owner as the user's own.
+public nonisolated struct PageConfirmation: Sendable, Hashable {
+    public enum Kind: String, Sendable, Hashable {
+        case install, uninstall, update, grant, delete, custom
+    }
+
+    /// One scope the app asks for, with its class from scope-classes.json and the app's reason.
+    public struct Scope: Sendable, Hashable {
+        public var scope: String
+        public var reason: String
+        /// `standard`, `sensitive` or `restricted`.
+        public var risk: String
+
+        public init(scope: String, reason: String, risk: String) {
+            self.scope = scope
+            self.reason = reason
+            self.risk = risk
+        }
+    }
+
+    public var kind: Kind
+    /// The subject's display name (the app, the machine).
+    public var name: String
+    public var scopes: [Scope]
+    /// A web app's start URL and the other origins it opens (app-platform.md section 16).
+    public var webURL: String?
+    public var webOrigins: [String]
+    /// For `custom` and `delete`: the sentence under the title.
+    public var detail: String?
+
+    public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil) {
+        self.kind = kind
+        self.name = name
+        self.scopes = scopes
+        self.webURL = webURL
+        self.webOrigins = webOrigins
+        self.detail = detail
+    }
+
+    /// The sheet's title.
+    public var title: String {
+        switch kind {
+        case .install: String(format: PageStrings.installTitle, name)
+        case .uninstall: String(format: PageStrings.uninstallTitle, name)
+        case .update: String(format: PageStrings.updateTitle, name)
+        case .grant: String(format: PageStrings.grantTitle, name, scopes.map(\.scope).joined(separator: ", "))
+        case .delete: String(format: PageStrings.deleteTitle, name)
+        case .custom: name
+        }
+    }
+
+    /// The confirm button.
+    public var confirmTitle: String {
+        switch kind {
+        case .install: PageStrings.install
+        case .uninstall: PageStrings.remove
+        case .update: PageStrings.update
+        case .grant: PageStrings.allow
+        case .delete: PageStrings.delete
+        case .custom: PageStrings.continueTitle
+        }
+    }
+
+    /// Whether the confirm button is destructive.
+    public var isDestructive: Bool { kind == .uninstall || kind == .delete }
+
+    /// The body lines: the detail, the scopes (riskiest first, with their class), the web origins.
+    public var lines: [String] {
+        var lines: [String] = []
+        if let detail { lines.append(detail) }
+        let order = ["restricted": 0, "sensitive": 1, "standard": 2]
+        let sorted = scopes.sorted { (order[$0.risk] ?? 3, $0.scope) < (order[$1.risk] ?? 3, $1.scope) }
+        if !sorted.isEmpty, kind != .grant {
+            lines.append(PageStrings.asksFor)
+            for scope in sorted { lines.append("• \(scope.scope) (\(PageStrings.risk(scope.risk))): \(scope.reason)") }
+        } else if kind == .grant {
+            for scope in sorted { lines.append("\(PageStrings.risk(scope.risk)): \(scope.reason)") }
+        }
+        if let webURL {
+            lines.append(PageStrings.opensWeb)
+            for url in [webURL] + webOrigins { lines.append("• \(url)") }
+        }
+        return lines
+    }
+}
+
+/// Shows a confirmation and answers whether the person approved it.
+@MainActor
+public protocol PageConfirmationPresenter: AnyObject {
+    func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool
+}
+
+/// The cmux dialog for a page op (`CmuxDialogCenter`, drawn natively above every page, so page
+/// script cannot answer it): on the page's window, app-wide when the page has none. A removal's
+/// confirm button is destructive and Return presses nothing; otherwise Return confirms.
+@MainActor
+public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
+    private let center: CmuxDialogCenter
+
+    public init(center: CmuxDialogCenter = .shared) {
+        self.center = center
+    }
+
+    public static func spec(_ confirmation: PageConfirmation) -> CmuxDialogSpec {
+        let confirm = CmuxDialogButton(id: "confirm", title: confirmation.confirmTitle,
+                                       role: confirmation.isDestructive ? .destructive : .default)
+        return CmuxDialogSpec(title: confirmation.title, lines: confirmation.lines,
+                              buttons: [.cancel(PageStrings.cancel), confirm], identifier: "cmux.dialog.pageConfirmation")
+    }
+
+    public func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool {
+        let scope: CmuxDialogScope = anchor?.window.map { .window($0) } ?? .app
+        return await center.present(Self.spec(confirmation), in: scope).button == "confirm"
+    }
+}
+
+public extension PageConfirmation {
+    /// The sheet for a confirmed namespace op (``PageDescriptor/confirmedOps``) run through
+    /// `cmux.app.action.run {action: <op>, args}`. `name` is the subject the args name (the machine's
+    /// display name or id); ops without a subject ask about the action itself.
+    static func forOp(_ op: String, kind: Kind, args: [String: String]) -> PageConfirmation {
+        let name = args["displayName"] ?? args["name"] ?? args["machine"] ?? args["snapshot"] ?? args["publication"]
+            ?? args["firewall"] ?? args["id"] ?? op
+        switch op {
+        case "cmux.cloud.publication.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudPublish, name))
+        case "cmux.cloud.firewall.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudFirewall, name))
+        case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
+        case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
+        case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
+        case "cmux.cloud.machine.connect": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, name))
+        default: return PageConfirmation(kind: kind, name: name)
+        }
+    }
+}

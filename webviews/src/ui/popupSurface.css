@@ -1,0 +1,138 @@
+/* One surface for every menu and popover (dogfood 2026-10-08): compact rows, small-radius rects,
+   one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
+   each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
+   load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+:root {
+  --ui-popup-radius: 8px;
+  --ui-popup-padding: calc(4px * var(--cmux-interface-scale, 1));
+  /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
+     native PopupStyle.elevation2) and a hairline edge: one
+     elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
+     hairline is a popup's only edge (popup-one-hairline.test.ts); Increase Contrast sets its color
+     (pages/shared/desktop.css). `--ui-popup-drop` is the shadow alone, for a floating bar that
+     draws its own border. */
+  /* The fallback is the same step, for a host that loads this sheet without desktop.css (the
+     gallery shell): an undefined token would drop the whole shadow, rim included. */
+  --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+  --ui-popup-shadow:
+    var(--ui-popup-drop),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-radius: 5px;
+  --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
+  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). */
+  --ui-popup-open: 120ms;
+  /* The close: a fade, in every motion setting (the native fadeOut token). */
+  --ui-popup-close: 80ms;
+}
+
+/* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
+   clears the composer's; the popup's fill keeps it apart. */
+:root[data-borders="none"] {
+  --ui-popup-edge: transparent;
+}
+
+@keyframes ui-popup-open {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes ui-popup-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reduce Motion keeps the open's fade and drops its scale (POLISH: no flash; motion.md rule 7):
+   a popup that appeared in one frame flashed. Every host loads this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-popup) {
+    animation: ui-popup-fade var(--ui-popup-open) ease-out;
+  }
+}
+
+/* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
+   keeps it mounted while it carries data-ending-style, until the fade ends. */
+:where(.ui-popup) {
+  transition: opacity var(--ui-popup-close) ease-in;
+}
+:where(.ui-popup[data-ending-style]) {
+  opacity: 0;
+}
+
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
+:where(.ui-dialog, .ui-backdrop) {
+  transition: opacity var(--ui-popup-open) ease-out;
+}
+:where(.ui-dialog, .ui-backdrop)[data-starting-style],
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  opacity: 0;
+}
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  transition-duration: var(--ui-popup-close);
+}
+
+/* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the
+   dropdown layer by default (webviews/src/ui/README.md, "Layers and transparency"): opaque and
+   unblurred, so the page under it never shows through. Zero-specificity defaults: a feature's
+   own surface class still wins, and draws on the same token. A host maps --ui-popup-fg to its
+   ink (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu,
+   a new menu) still gets the same look. */
+:where(.ui-positioner) {
+  z-index: var(--layer-dropdown);
+}
+:where(.ui-popup) {
+  background-color: var(--surface-popup);
+  color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
+}
+
+/* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
+   too, so a dialog portals above the pane instead of becoming a flow child that pushes its
+   transcript and composer when it opens. */
+:where(.ui-backdrop) {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
+}
+:where(.ui-dialog) {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: min(560px, calc(100vw - 32px));
+  z-index: var(--layer-modal);
+  outline: none;
+}
+
+/* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
+   "Reasoning" and "Service Tier" as large unstyled titles at another indent, with no line between the sections, because
+   the pane does not load ui.css). Zero-specificity defaults: a quiet caption aligned with the rows' text, and a
+   hairline between sections; a feature's own rules still win. */
+:where(.ui-menu-group-label) {
+  display: block;
+  padding: 6px var(--ui-row-padding-inline) 2px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+}
+/* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
+   agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
+:where(.ui-menu-shortcut) {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+:where(.ui-field) {
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+:where(.ui-separator) {
+  height: 1px;
+  margin: 4px var(--ui-row-padding-inline);
+  border: 0;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}

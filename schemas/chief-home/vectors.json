@@ -1,0 +1,67 @@
+{
+  "description": "Chief home resolution shared by the cmux-next app (ChiefHome.swift) and the cmux CLI (cmux-tui cli/chief/home.rs). `tag` is the app's build tag; the CLI reads it from CMUX_TAG. `isolated` null: the app and the CLI may differ (an explicit home).",
+  "cases": [
+    {
+      "name": "the default Chief",
+      "user_home": "/Users/cmux",
+      "tag": null,
+      "environment": {},
+      "root": "/Users/cmux/.cmux/chief/default",
+      "session": "cmux-chief-b902d10e",
+      "isolated": false
+    },
+    {
+      "name": "every tag opens the default Chief",
+      "user_home": "/Users/cmux",
+      "tag": "nxdog80-v1",
+      "environment": {},
+      "root": "/Users/cmux/.cmux/chief/default",
+      "session": "cmux-chief-b902d10e",
+      "isolated": false
+    },
+    {
+      "name": "an account",
+      "user_home": "/Users/cmux",
+      "tag": null,
+      "environment": {
+        "CMUX_NEXT_CHIEF_ACCOUNT": "work acct!"
+      },
+      "root": "/Users/cmux/.cmux/chief/work-acct",
+      "session": "cmux-chief-9409d8bc",
+      "isolated": false
+    },
+    {
+      "name": "an agent preflight launch (nxdog80 coordinator test)",
+      "user_home": "/Users/cmux",
+      "tag": "nxdog80-v1",
+      "environment": {
+        "CMUX_NEXT_NO_ACTIVATE": "1"
+      },
+      "root": "/Users/cmux/.cmux/chief/isolated/nxdog80-v1",
+      "session": "cmux-chief-9c63c459",
+      "isolated": true
+    },
+    {
+      "name": "an isolated untagged launch",
+      "user_home": "/Users/cmux",
+      "tag": null,
+      "environment": {
+        "CMUX_NEXT_CHIEF_ISOLATED": "1"
+      },
+      "root": "/Users/cmux/.cmux/chief/isolated/untagged",
+      "session": "cmux-chief-314ce1d4",
+      "isolated": true
+    },
+    {
+      "name": "an explicit home",
+      "user_home": "/Users/cmux",
+      "tag": "t1",
+      "environment": {
+        "CMUX_NEXT_CHIEF_HOME": "/tmp/chief/x/../iso"
+      },
+      "root": "/tmp/chief/iso",
+      "session": "cmux-chief-cb3f73eb",
+      "isolated": null
+    }
+  ]
+}

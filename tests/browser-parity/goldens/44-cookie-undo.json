@@ -1,0 +1,28 @@
+{
+  "oracle": {},
+  "cmux": {
+    "start": [
+      "peer parity",
+      "primary parity",
+      "primary u1",
+      "primary u2"
+    ],
+    "restore-ids": 1,
+    "cleared": [
+      "peer parity"
+    ],
+    "restore": {
+      "restored": 2,
+      "kept": 1,
+      "expired": 0
+    },
+    "restored": [
+      "peer parity",
+      "primary parity",
+      "primary u1",
+      "primary u2"
+    ],
+    "set-since-kept": "new",
+    "second-restore": "invalid"
+  }
+}

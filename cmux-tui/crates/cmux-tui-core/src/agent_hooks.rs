@@ -1,0 +1,993 @@
+use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
+
+use crate::resource::TerminalPublicId;
+use crate::{
+    JournalClass, JournalEventSchema, JournalIngress, JournalProducerManifest, JournalReplayPolicy,
+    JournalSensitivity, JournalSubject,
+};
+
+pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
+pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
+pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+/// Internal lifecycle event emitted when the generic core supervisor observes
+/// a userland journal-plugin exit. This is a core projection adapter, not an
+/// agent implementation. It lets the roster remain a journal-only projection
+/// even when a crashed plugin cannot emit per-terminal `session.ended` events.
+// Keep the wire value from the preview so journals already on disk replay
+// after this boundary rename.
+pub(crate) const JOURNAL_PLUGIN_EXIT_NATIVE_EVENT: &str = "AgentPluginExited";
+const MAX_AGENT_SOURCE_BYTES: usize = 64;
+const MAX_NATIVE_EVENT_BYTES: usize = 128;
+const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const REDACTED_AGENT_VALUE: &str = "[redacted]";
+
+const AGENT_EVENT_KINDS: [&str; 13] = [
+    "agent.session.started",
+    "agent.turn.started",
+    "agent.turn.completed",
+    "agent.child.spawned",
+    "agent.child.completed",
+    "agent.child.failed",
+    "agent.approval.requested",
+    "agent.question.requested",
+    "agent.plan_review.requested",
+    "agent.error.reported",
+    "agent.state.changed",
+    "agent.session.ended",
+    "agent.plugin.exited",
+];
+
+/// Longest prompt kept for the hover card's task line (characters).
+pub const LIVE_PROMPT_CHARS: usize = 200;
+
+/// The prompt a turn-start hook carries, for the hover card's task line: shown text (no
+/// control or invisible formatting characters), trimmed, at most [`LIVE_PROMPT_CHARS`]
+/// characters. Read before redaction; it never enters the journal or a log (Lawrence
+/// 2026-10-14: memory only). `None` for other events and empty prompts.
+pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
+    if semantic_key(native_event) != "userpromptsubmit" {
+        return None;
+    }
+    let text =
+        first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
+    live_prompt_text(text)
+}
+
+/// The agent's last message a finished or failed turn carries (Claude's
+/// `last_assistant_message`, a provider's `message`/`response`/`summary`), for the banner's
+/// preview: shown text, whitespace folded, at most [`LIVE_PROMPT_CHARS`] characters. Read
+/// before redaction; like the prompt it travels beside the event and is kept in memory only
+/// until its banner takes it (cx-kz6m0). `None` for other events and empty messages.
+pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
+    let normalized = normalized_fields(native);
+    let kind = semantic_kind(source, native_event, &normalized);
+    if !matches!(kind, "agent.turn.completed" | "agent.error.reported") {
+        return None;
+    }
+    live_prompt_text(normalized.get("message")?.as_str()?)
+}
+
+/// The texts a hook sends beside its journal event, memory only (`session.journal.append`
+/// `live_prompt`, `live_reply`). Read them before the event redacts its payload.
+pub fn agent_hook_live_fields(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(prompt) = agent_hook_live_prompt(native_event, native) {
+        fields.insert("live_prompt".into(), Value::String(prompt));
+    }
+    if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
+        fields.insert("live_reply".into(), Value::String(reply));
+    }
+    fields
+}
+
+/// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
+pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shown = crate::program_status::shown_text(&folded, LIVE_PROMPT_CHARS);
+    (!shown.is_empty()).then_some(shown)
+}
+
+pub fn agent_hook_journal_ingress(
+    source: &str,
+    native_event: &str,
+    terminal_id: Option<&str>,
+    native: Value,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(source)?;
+    validate_native_event(native_event)?;
+    let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read before redaction: `tool_input` is redacted whole, and live
+    // presence needs only its file target.
+    let tool_target = tool_target_fields(&native);
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
+    let native = redact_agent_native(native_event, native);
+    let mut normalized = normalized_fields(&native);
+    normalized.extend(tool_target);
+    add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
+    let mut subjects = Vec::with_capacity(4);
+    if let Some(terminal_id) = terminal_id {
+        subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+    }
+    for (field, kind) in [
+        ("agent_tree_id", "agent_tree"),
+        ("agent_node_id", "agent_node"),
+        ("parent_agent_node_id", "agent_parent"),
+    ] {
+        if let Some(id) = normalized.get(field).and_then(Value::as_str) {
+            subjects.push(JournalSubject { kind: kind.into(), id: id.into() });
+        }
+    }
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: kind.into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects,
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format":AGENT_HOOK_FORMAT,
+            "adapter":{"id":source,"version":1},
+            "native_event":native_event,
+            "normalized":normalized,
+            "native":native,
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// Stamp when the hook helper observed `ingress` (now, wall clock) as
+/// `normalized.observed_at_ms`. The hook session fence uses it to tell a late
+/// event of an ended incarnation from an event of a resumed session that
+/// reuses the same id. Call it once, where the agent invoked the hook.
+pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
+    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        && let Ok(now_ms) = u64::try_from(now.as_millis())
+    {
+        stamp_agent_hook_observed_at(ingress, now_ms);
+    }
+}
+
+pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
+}
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+
+/// The file a tool call targets, copied from the tool input before it is
+/// redacted: `tool_target_path` and, when the input names one,
+/// `tool_target_line`. Only these two values are kept. Commands, contents and
+/// patches stay redacted; a Codex `apply_patch` contributes only the first
+/// file header it names.
+fn tool_target_fields(native: &Value) -> Map<String, Value> {
+    const CONTAINERS: [&[&str]; 9] = [
+        &["tool_input"],
+        &["toolInput"],
+        &["input"],
+        &["args"],
+        &["arguments"],
+        &["params"],
+        &["event", "properties", "args"],
+        &["event", "properties", "input"],
+        &[],
+    ];
+    const PATH_KEYS: [&str; 6] =
+        ["file_path", "filePath", "notebook_path", "absolute_path", "path", "target_file"];
+    const LINE_KEYS: [&str; 5] = ["line", "offset", "start_line", "startLine", "line_number"];
+    let mut fields = Map::new();
+    for container in CONTAINERS {
+        let Some(Value::Object(input)) = value_at(native, container) else { continue };
+        let path = PATH_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_str))
+            .or_else(|| {
+                ["command", "patch", "input"]
+                    .iter()
+                    .find_map(|key| input.get(*key).and_then(Value::as_str))
+                    .and_then(apply_patch_first_path)
+            })
+            .filter(|path| tool_target_path_is_valid(path));
+        let Some(path) = path else { continue };
+        fields.insert("tool_target_path".into(), Value::String(path.to_owned()));
+        if let Some(line) = LINE_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_u64))
+            .filter(|line| *line > 0)
+        {
+            fields.insert("tool_target_line".into(), Value::from(line));
+        }
+        break;
+    }
+    fields
+}
+
+fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(value, |value, key| value.get(*key))
+}
+
+fn tool_target_path_is_valid(path: &str) -> bool {
+    !path.trim().is_empty()
+        && path.len() <= MAX_TOOL_TARGET_PATH_BYTES
+        && !path.chars().any(char::is_control)
+}
+
+/// The first file an `apply_patch` envelope adds, updates or deletes.
+fn apply_patch_first_path(patch: &str) -> Option<&str> {
+    if !patch.trim_start().starts_with("*** Begin Patch") {
+        return None;
+    }
+    patch.lines().find_map(|line| {
+        ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
+            .iter()
+            .find_map(|header| line.strip_prefix(header))
+            .map(str::trim)
+    })
+}
+
+fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
+    if semantic_key(native_event) == "input" {
+        return json!({"redacted":true,"reason":"raw_input"});
+    }
+    redact_agent_fields(&mut native);
+    native
+}
+
+fn redact_agent_fields(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (field, value) in fields {
+                if agent_field_is_sensitive(field) {
+                    *value = Value::String(REDACTED_AGENT_VALUE.into());
+                } else {
+                    redact_agent_value(value, agent_string_field_is_structural(field));
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_agent_value(value, false);
+            }
+        }
+        Value::String(_) => *value = Value::String(REDACTED_AGENT_VALUE.into()),
+        _ => {}
+    }
+}
+
+fn redact_agent_value(value: &mut Value, preserve_strings: bool) {
+    match value {
+        Value::String(_) if !preserve_strings => {
+            *value = Value::String(REDACTED_AGENT_VALUE.into());
+        }
+        Value::Object(_) | Value::Array(_) => redact_agent_fields(value),
+        _ => {}
+    }
+}
+
+fn agent_string_field_is_structural(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "id"
+        || field.ends_with("id")
+        || [
+            "cwd",
+            "directory",
+            "worktree",
+            "path",
+            "name",
+            "type",
+            "state",
+            "status",
+            "relation",
+            "source",
+            "provider",
+            "kind",
+            "role",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field == marker || field.ends_with(marker))
+}
+
+fn agent_field_is_sensitive(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "key"
+        || field == "auth"
+        || [
+            "password",
+            "passwd",
+            "passphrase",
+            "secret",
+            "token",
+            "credential",
+            "authorization",
+            "cookie",
+            "privatekey",
+            "apikey",
+            "accesskey",
+            "input",
+            "prompt",
+            "stdin",
+            "paste",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field.contains(marker))
+}
+
+pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
+    let payload_schema = json!({
+        "type":"object",
+        "required":["format","adapter","native_event","normalized","native"],
+        "properties":{
+            "format":{"const":AGENT_HOOK_FORMAT},
+            "adapter":{
+                "type":"object",
+                "required":["id","version"],
+                "properties":{
+                    "id":{
+                        "type":"string",
+                        "minLength":1,
+                        "maxLength":MAX_AGENT_SOURCE_BYTES,
+                        "pattern":"^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "version":{"const":1}
+                },
+                "additionalProperties":false
+            },
+            "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
+            "normalized":{"type":"object"},
+            "native":{}
+        },
+        "additionalProperties":false
+    });
+    JournalProducerManifest {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        namespace: "agent".into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        max_sensitivity: JournalSensitivity::Sensitive,
+        permissions: vec!["journal.append.agent".into()],
+        events: AGENT_EVENT_KINDS
+            .into_iter()
+            .map(|kind| JournalEventSchema {
+                kind: kind.into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload_schema: payload_schema.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn validate_agent_source(source: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !source.is_empty()
+            && source.len() <= MAX_AGENT_SOURCE_BYTES
+            && source.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && source.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+            }),
+        "agent source must match [a-z0-9][a-z0-9_-]* and contain at most {MAX_AGENT_SOURCE_BYTES} bytes"
+    );
+    Ok(())
+}
+
+fn validate_native_event(native_event: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !native_event.trim().is_empty()
+            && native_event.len() <= MAX_NATIVE_EVENT_BYTES
+            && !native_event.chars().any(char::is_control),
+        "native agent event must contain 1 to {MAX_NATIVE_EVENT_BYTES} non-control UTF-8 bytes"
+    );
+    Ok(())
+}
+
+fn semantic_kind(
+    source: &str,
+    native_event: &str,
+    normalized: &Map<String, Value>,
+) -> &'static str {
+    let event = semantic_key(native_event);
+    let tool =
+        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
+    if tool == "askuserquestion" {
+        return "agent.question.requested";
+    }
+    if tool == "exitplanmode" {
+        return "agent.plan_review.requested";
+    }
+    if event == "questionasked" {
+        return "agent.question.requested";
+    }
+    match (source, event.as_str()) {
+        // These providers use their session-end callback as a per-turn
+        // boundary and expose a distinct finalization event where available.
+        ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
+        ("opencode", "sessioncreated") => "agent.session.started",
+        ("opencode", "sessionidle") => "agent.turn.completed",
+        ("opencode", "sessionexecutionsucceeded" | "sessionexecutioninterrupted") => {
+            "agent.turn.completed"
+        }
+        ("opencode", "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror") => {
+            "agent.error.reported"
+        }
+        ("opencode", "sessiondeleted") => "agent.session.ended",
+        (_, event) if is_child_spawn(event) => "agent.child.spawned",
+        (_, event) if is_child_completion(event) => "agent.child.completed",
+        (_, "subagentfailed" | "childfailed") => "agent.child.failed",
+        // These Claude-compatible runtimes use Notification as their only
+        // reliable completed-turn callback.
+        ("copilot" | "codebuddy" | "factory", "notification") => "agent.turn.completed",
+        (_, "sessionstart" | "onsessionstart" | "onsessionreset") => "agent.session.started",
+        (
+            _,
+            "userpromptsubmit" | "beforesubmitprompt" | "beforeagent" | "prellmcall"
+            | "preinvocation" | "agentstart" | "turnstart" | "beforeagentstart",
+        ) => "agent.turn.started",
+        (
+            _,
+            "stop" | "afteragent" | "afteragentresponse" | "postllmcall" | "oncomplete"
+            | "turncompletion" | "agentend" | "taskcompleted" | "turnend" | "agentsettled",
+        ) => "agent.turn.completed",
+        (
+            _,
+            "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
+        ) => "agent.approval.requested",
+        (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
+        (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
+            "agent.session.ended"
+        }
+        _ => "agent.state.changed",
+    }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
+}
+
+fn is_child_spawn(event: &str) -> bool {
+    matches!(
+        event,
+        "subagentstart"
+            | "subagentstarted"
+            | "subagentspawned"
+            | "agentspawn"
+            | "agentspawned"
+            | "childstart"
+            | "childstarted"
+            | "childspawned"
+    )
+}
+
+fn is_child_completion(event: &str) -> bool {
+    matches!(
+        event,
+        "subagentstop"
+            | "subagentended"
+            | "subagentcompleted"
+            | "childstop"
+            | "childended"
+            | "childcompleted"
+    )
+}
+
+fn normalized_fields(native: &Value) -> Map<String, Value> {
+    let mut normalized = Map::new();
+    for (field, paths) in [
+        (
+            "agent_session_id",
+            &[
+                &["session_id"][..],
+                &["sessionId"][..],
+                &["sessionID"][..],
+                &["conversation_id"][..],
+                &["thread_id"][..],
+                &["session", "id"][..],
+                &["properties", "sessionID"][..],
+                &["properties", "sessionId"][..],
+                &["properties", "info", "id"][..],
+                &["event", "properties", "sessionID"][..],
+                &["event", "properties", "sessionId"][..],
+                &["event", "properties", "info", "id"][..],
+                &["event", "properties", "info", "sessionID"][..],
+                &["event", "properties", "info", "sessionId"][..],
+                &["event", "session_id"][..],
+                &["event", "sessionId"][..],
+                &["event", "thread", "id"][..],
+                &["context", "session_id"][..],
+                &["context", "sessionId"][..],
+                &["context", "thread", "id"][..],
+            ][..],
+        ),
+        (
+            "turn_id",
+            &[
+                &["turn_id"][..],
+                &["turnId"][..],
+                &["message_id"][..],
+                &["messageId"][..],
+                &["tool_use_id"][..],
+                &["event", "turn_id"][..],
+                &["event", "turnId"][..],
+                &["event", "message_id"][..],
+                &["event", "messageId"][..],
+                &["context", "turn_id"][..],
+                &["context", "turnId"][..],
+            ][..],
+        ),
+        (
+            "tool_use_id",
+            &[
+                &["tool_use_id"][..],
+                &["toolUseId"][..],
+                &["call_id"][..],
+                &["callId"][..],
+                &["event", "tool_use_id"][..],
+                &["event", "toolUseId"][..],
+                &["event", "call_id"][..],
+                &["event", "callId"][..],
+            ][..],
+        ),
+        (
+            "cwd",
+            &[
+                &["cwd"][..],
+                &["directory"][..],
+                &["workspace", "root"][..],
+                &["properties", "cwd"][..],
+                &["properties", "info", "directory"][..],
+                &["event", "properties", "cwd"][..],
+                &["event", "properties", "directory"][..],
+                &["event", "properties", "info", "directory"][..],
+                &["event", "cwd"][..],
+                &["event", "directory"][..],
+                &["context", "cwd"][..],
+                &["context", "directory"][..],
+            ][..],
+        ),
+        (
+            "transcript_path",
+            &[
+                &["transcript_path"][..],
+                &["transcriptPath"][..],
+                &["transcript", "path"][..],
+                &["event", "transcript_path"][..],
+                &["event", "transcriptPath"][..],
+                &["context", "transcript_path"][..],
+                &["context", "transcriptPath"][..],
+            ][..],
+        ),
+        (
+            "tool_name",
+            &[
+                &["tool_name"][..],
+                &["toolName"][..],
+                &["tool", "name"][..],
+                &["properties", "tool"][..],
+                &["properties", "tool_name"][..],
+                &["event", "properties", "tool", "name"][..],
+                &["event", "properties", "tool_name"][..],
+                &["event", "tool_name"][..],
+                &["event", "toolName"][..],
+                &["event", "tool", "name"][..],
+                &["context", "tool_name"][..],
+                &["context", "toolName"][..],
+            ][..],
+        ),
+        (
+            "message",
+            &[
+                &["message"][..],
+                &["last_assistant_message"][..],
+                &["response"][..],
+                &["summary"][..],
+                &["properties", "message"][..],
+                &["event", "properties", "message"][..],
+                &["event", "properties", "info", "message"][..],
+                &["event", "message"][..],
+                &["event", "last_assistant_message"][..],
+                &["event", "response"][..],
+                &["event", "summary"][..],
+                &["context", "message"][..],
+            ][..],
+        ),
+        (
+            "native_agent_id",
+            &[
+                &["agent_id"][..],
+                &["agentId"][..],
+                &["agent", "id"][..],
+                &["event", "agent_id"][..],
+                &["event", "agentId"][..],
+                &["event", "agent", "id"][..],
+                &["context", "agent_id"][..],
+                &["context", "agentId"][..],
+            ][..],
+        ),
+        (
+            "native_child_agent_id",
+            &[
+                &["child_agent_id"][..],
+                &["childAgentId"][..],
+                &["subagent_id"][..],
+                &["subagentId"][..],
+                &["child", "agent_id"][..],
+                &["child", "agentId"][..],
+                &["child", "id"][..],
+                &["event", "child_agent_id"][..],
+                &["event", "childAgentId"][..],
+                &["event", "subagent_id"][..],
+                &["event", "subagentId"][..],
+                &["event", "child", "agent_id"][..],
+                &["event", "child", "agentId"][..],
+                &["event", "child", "id"][..],
+                &["context", "child_agent_id"][..],
+                &["context", "childAgentId"][..],
+            ][..],
+        ),
+        (
+            "native_parent_agent_id",
+            &[
+                &["parent_agent_id"][..],
+                &["parentAgentId"][..],
+                &["parent", "agent_id"][..],
+                &["parent", "agentId"][..],
+                &["parent", "id"][..],
+                &["event", "parent_agent_id"][..],
+                &["event", "parentAgentId"][..],
+                &["event", "parent", "agent_id"][..],
+                &["event", "parent", "agentId"][..],
+                &["event", "parent", "id"][..],
+                &["context", "parent_agent_id"][..],
+                &["context", "parentAgentId"][..],
+            ][..],
+        ),
+        (
+            "native_root_agent_id",
+            &[
+                &["root_agent_id"][..],
+                &["rootAgentId"][..],
+                &["root", "agent_id"][..],
+                &["root", "agentId"][..],
+                &["root", "id"][..],
+                &["event", "root_agent_id"][..],
+                &["event", "rootAgentId"][..],
+                &["event", "root", "agent_id"][..],
+                &["event", "root", "agentId"][..],
+                &["event", "root", "id"][..],
+                &["context", "root_agent_id"][..],
+                &["context", "rootAgentId"][..],
+            ][..],
+        ),
+        (
+            "root_agent_session_id",
+            &[
+                &["root_session_id"][..],
+                &["rootSessionId"][..],
+                &["root_thread_id"][..],
+                &["rootThreadId"][..],
+                &["rootThreadID"][..],
+                &["event", "root_session_id"][..],
+                &["event", "rootSessionId"][..],
+                &["event", "root_thread_id"][..],
+                &["event", "rootThreadId"][..],
+                &["context", "root_session_id"][..],
+                &["context", "rootSessionId"][..],
+                &["context", "rootSessionID"][..],
+                &["context", "thread", "root_session_id"][..],
+                &["context", "thread", "rootSessionId"][..],
+            ][..],
+        ),
+        (
+            "parent_agent_session_id",
+            &[
+                &["parent_session_id"][..],
+                &["parentSessionId"][..],
+                &["parent_thread_id"][..],
+                &["parentThreadId"][..],
+                &["parentThreadID"][..],
+                &["parent_id"][..],
+                &["parentId"][..],
+                &["parentID"][..],
+                &["properties", "parentID"][..],
+                &["properties", "parentId"][..],
+                &["properties", "info", "parentID"][..],
+                &["properties", "info", "parentId"][..],
+                &["event", "properties", "parentID"][..],
+                &["event", "properties", "parentId"][..],
+                &["event", "properties", "info", "parentID"][..],
+                &["event", "properties", "info", "parentId"][..],
+                &["event", "parent_session_id"][..],
+                &["event", "parentSessionId"][..],
+                &["event", "parent_thread_id"][..],
+                &["event", "parentThreadId"][..],
+                &["context", "parent_session_id"][..],
+                &["context", "parentSessionId"][..],
+                &["context", "parentSessionID"][..],
+                &["context", "thread", "parent_session_id"][..],
+                &["context", "thread", "parentSessionId"][..],
+            ][..],
+        ),
+        (
+            "agent_name",
+            &[
+                &["agent_name"][..],
+                &["agentName"][..],
+                &["agent_display_name"][..],
+                &["agentDisplayName"][..],
+                &["event", "agent_name"][..],
+                &["event", "agentName"][..],
+                &["event", "agent_display_name"][..],
+                &["event", "agentDisplayName"][..],
+            ][..],
+        ),
+        (
+            "agent_type",
+            &[
+                &["agent_type"][..],
+                &["agentType"][..],
+                &["event", "agent_type"][..],
+                &["event", "agentType"][..],
+                &["context", "agent_type"][..],
+                &["context", "agentType"][..],
+            ][..],
+        ),
+    ] {
+        if let Some(value) = first_string_at(native, paths) {
+            normalized
+                .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
+        }
+    }
+    if let Some(depth) = first_value_at(
+        native,
+        &[
+            &["agent_depth"][..],
+            &["agentDepth"][..],
+            &["depth"][..],
+            &["event", "agent_depth"][..],
+            &["event", "agentDepth"][..],
+            &["event", "depth"][..],
+            &["context", "agent_depth"][..],
+            &["context", "agentDepth"][..],
+        ],
+    ) && let Some(depth) = depth.as_u64().or_else(|| depth.as_str()?.parse().ok())
+    {
+        normalized.insert("agent_depth".into(), Value::from(depth));
+    }
+    normalized
+}
+
+fn add_agent_topology(
+    source: &str,
+    native_event: &str,
+    terminal_id: Option<&TerminalPublicId>,
+    normalized: &mut Map<String, Value>,
+) {
+    let scope = [
+        ("root_agent_session_id", "session"),
+        // A session scopes the whole agent tree while provider agent IDs
+        // identify nodes inside it. Keeping that distinction stable also
+        // lets later child events reveal an explicit root-session alias.
+        ("agent_session_id", "session"),
+        ("native_root_agent_id", "agent"),
+        ("parent_agent_session_id", "session"),
+        ("transcript_path", "transcript"),
+    ]
+    .into_iter()
+    .find_map(|(field, identity_kind)| {
+        normalized
+            .get(field)
+            .and_then(Value::as_str)
+            .map(|identity| (identity_kind, identity.to_string()))
+    })
+    .or_else(|| terminal_id.map(|terminal| ("terminal", terminal.as_str().to_string())));
+    let Some((scope_kind, scope_identity)) = scope else {
+        return;
+    };
+    let tree_id = stable_topology_id("agenttree", &[source, scope_kind, &scope_identity]);
+    normalized.insert("agent_tree_id".into(), Value::String(tree_id.clone()));
+    let root_node_id = stable_agent_node_id(&tree_id, scope_kind, &scope_identity);
+
+    let event = semantic_key(native_event);
+    let child_event = is_child_spawn(&event)
+        || is_child_completion(&event)
+        || matches!(event.as_str(), "subagentfailed" | "childfailed");
+    let native_agent_id =
+        normalized.get("native_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let native_root_agent_id =
+        normalized.get("native_root_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let session_id = normalized.get("agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let parent_session_id =
+        normalized.get("parent_agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let node_identity = if child_event {
+        normalized
+            .get("native_child_agent_id")
+            .and_then(Value::as_str)
+            .or(native_agent_id.as_deref())
+            .map(|identity| ("agent", identity, "native"))
+    } else {
+        session_id
+            .as_deref()
+            .map(|identity| ("session", identity, "session"))
+            .or_else(|| native_agent_id.as_deref().map(|identity| ("agent", identity, "native")))
+            .or_else(|| {
+                native_root_agent_id.as_deref().map(|identity| ("agent", identity, "native_root"))
+            })
+    };
+    let fallback_agent_name =
+        child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
+    let (node_id, identity_quality) = match node_identity {
+        Some((identity_kind, identity, quality)) => {
+            let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
+                || (identity_kind == "agent"
+                    && native_root_agent_id.as_deref() == Some(identity)
+                    && parent_session_id.is_none());
+            let node_id = if is_root {
+                root_node_id.clone()
+            } else {
+                stable_agent_node_id(&tree_id, identity_kind, identity)
+            };
+            (node_id, quality.to_string())
+        }
+        None if !child_event => (root_node_id.clone(), "session_root".into()),
+        None if fallback_agent_name.is_some() => {
+            let name = fallback_agent_name.expect("presence checked");
+            let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
+            let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+            if turn.is_empty() && tool.is_empty() {
+                normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+                return;
+            }
+            let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
+            (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
+        }
+        None => {
+            normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+            return;
+        }
+    };
+    normalized.insert("agent_node_id".into(), Value::String(node_id));
+    normalized.insert("agent_identity_quality".into(), Value::String(identity_quality));
+
+    if let Some(parent) = parent_session_id.as_deref() {
+        let parent_id = if scope_kind == "session" && parent == scope_identity.as_str() {
+            root_node_id
+        } else {
+            stable_agent_node_id(&tree_id, "session", parent)
+        };
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("explicit".into()));
+    } else if let Some(parent) = normalized.get("native_parent_agent_id").and_then(Value::as_str) {
+        let parent_id = if native_root_agent_id.as_deref() == Some(parent) {
+            root_node_id
+        } else {
+            stable_agent_node_id(&tree_id, "agent", parent)
+        };
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("explicit".into()));
+    } else if matches!(source, "claude" | "claude-code") && child_event {
+        // Claude Code's command-hook contract exposes a stable child ID but
+        // no parent ID, and its subagents cannot spawn subagents. The parent
+        // is therefore the root of the shared session tree.
+        normalized.insert("parent_agent_node_id".into(), Value::String(root_node_id));
+        normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
+    } else if child_event
+        || normalized.get("agent_node_id").and_then(Value::as_str) != Some(root_node_id.as_str())
+    {
+        normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+    } else {
+        normalized.insert("agent_relation".into(), Value::String("root".into()));
+    }
+}
+
+fn stable_agent_node_id(tree_id: &str, identity_kind: &str, identity: &str) -> String {
+    stable_topology_id("agentnode", &[tree_id, identity_kind, identity])
+}
+
+fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    for component in components {
+        digest.update((component.len() as u64).to_be_bytes());
+        digest.update(component.as_bytes());
+    }
+    let digest = digest.finalize();
+    let mut id = String::with_capacity(prefix.len() + 1 + 32);
+    id.push_str(prefix);
+    id.push('_');
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest[..16].iter().copied() {
+        id.push(char::from(HEX[usize::from(byte >> 4)]));
+        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    id
+}
+
+fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
+    paths.iter().find_map(|path| {
+        path.iter()
+            .try_fold(native, |value, component| value.get(*component))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn first_value_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a Value> {
+    paths
+        .iter()
+        .find_map(|path| path.iter().try_fold(native, |value, component| value.get(*component)))
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.into();
+    }
+    let mut boundary = max_bytes;
+    while !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    value[..boundary].into()
+}
+
+pub(crate) fn semantic_key(value: &str) -> String {
+    value
+        .bytes()
+        .filter(|byte| byte.is_ascii_alphanumeric())
+        .map(|byte| byte.to_ascii_lowercase() as char)
+        .collect()
+}

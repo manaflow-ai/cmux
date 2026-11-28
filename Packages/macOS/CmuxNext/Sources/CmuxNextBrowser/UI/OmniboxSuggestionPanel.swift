@@ -1,0 +1,185 @@
+import AppKit
+import CmuxNextDesign
+import QuartzCore
+
+/// The lower part of the suggestion card: flush under the bar, as wide as
+/// the card top (`OmnibarCardTopView`), rounded at the bottom only, with
+/// 28 pt rows whose icon and text line up with the bar's chip and text.
+/// It draws on the window's overlay host in the `.pane` layer, clipped to
+/// the browser pane (plans/cmux-next/overlay-host.md), so it stays above
+/// Chromium page windows without a panel of its own and never takes key
+/// status from the field being edited.
+///
+/// Rows only report the pointer and clicks; the omnibar state machine
+/// decides which one row is highlighted.
+final class OmniboxSuggestionPanel {
+    var onPick: ((Int, NSEvent.ModifierFlags) -> Void)?
+    /// Pointer over row (nil: left the rows), in screen points.
+    var onHover: ((Int?, CGPoint) -> Void)?
+
+    private let content = SuggestionCardView()
+    private var rows: [SuggestionRowView] = []
+    private(set) var overlay: OverlayHandle?
+    /// The bar's window rect the card was last placed under, so a later
+    /// layout can tell whether the card must move (`follow`).
+    private var placedAnchor: NSRect?
+
+    var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
+
+    /// The card view (tests draw it).
+    var cardView: NSView { content }
+
+    /// Shows `suggestions` under `anchor` (the bar), clipped to `pane`.
+    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, pane: NSView, in window: NSWindow) {
+        rows.forEach { $0.removeFromSuperview() }
+        rows = suggestions.enumerated().map { index, suggestion in
+            let row = SuggestionRowView(suggestion: suggestion)
+            row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
+            row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+            row.isHighlighted = index == highlighted
+            return row
+        }
+        rows.forEach { content.card.addSubview($0) }
+        content.setAccessibilityRows(rows)
+        place(below: anchor, pane: pane, in: window)
+    }
+
+    /// Sizes the card and its rows to `anchor` (the bar) and puts it under
+    /// it: presented when it is not on screen, else moved in place.
+    private func place(below anchor: NSView, pane: NSView, in window: NSWindow) {
+        let anchorRect = anchor.convert(anchor.bounds, to: nil)
+        placedAnchor = anchorRect
+        let outset = OmnibarStyle.cardSideOutset
+        let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
+        let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
+        let cardWidth = anchorRect.width + 2 * outset
+        content.setFrameSize(NSSize(width: cardWidth, height: cardHeight))
+        content.cardFrame = NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
+        // Rows from the top, inset (4 at the sides, 2 above each).
+        for (index, row) in rows.enumerated() {
+            let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
+            row.frame = NSRect(x: OmnibarStyle.rowSideInset, y: top - OmnibarStyle.rowHeight,
+                               width: cardWidth - 2 * OmnibarStyle.rowSideInset, height: OmnibarStyle.rowHeight)
+            // Icon and text line up with the bar's chip and text.
+            row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
+            row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
+        }
+        content.needsLayout = true
+        // The card takes the omnibar's theme scope (its room or workspace).
+        anchor.themeScope.fullStrength.root(content)
+
+        let origin = NSRect(x: anchorRect.minX - outset, y: anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
+        let clip = pane.convert(pane.bounds, to: nil)
+        if let overlay, !overlay.isDismissed, content.window?.parent === window {
+            overlay.update(paneClip: clip)
+            overlay.update(anchor: origin)
+            return
+        }
+        overlay?.dismiss()
+        let handle = WindowOverlayHost.host(for: window).present(
+            content, options: OverlayOptions(kind: .attached, anchor: origin, layer: .pane(clip: clip))
+        )
+        handle.onDismiss = { [weak self, weak handle] in
+            if self?.overlay === handle { self?.overlay = nil }
+        }
+        overlay = handle
+    }
+
+    /// Moves and resizes the open card when `anchor` moved since it was
+    /// placed (a window resize, or a toolbar render that lands after the
+    /// rows). The row views stay, so a hovered row keeps its tracking.
+    func follow(below anchor: NSView, pane: NSView, in window: NSWindow) {
+        guard isVisible, let placedAnchor, anchor.convert(anchor.bounds, to: nil) != placedAnchor else { return }
+        place(below: anchor, pane: pane, in: window)
+    }
+
+    func highlight(_ index: Int?) {
+        var changed = false
+        for (offset, row) in rows.enumerated() {
+            changed = changed || row.isHighlighted != (offset == index)
+            row.isHighlighted = offset == index
+        }
+        if changed {
+            NSAccessibility.post(element: content.card, notification: .selectedChildrenChanged)
+        }
+    }
+
+    /// Rows on screen (tests).
+    var rowViews: [SuggestionRowView] { rows }
+
+    func dismiss() {
+        let presented = overlay
+        overlay = nil
+        placedAnchor = nil
+        presented?.dismiss()
+    }
+}
+
+/// Transparent panel content holding the card layer and its shadow.
+final class SuggestionCardListView: NSView {
+    private var accessibilityRows: [SuggestionRowView] = []
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        accessibilityRows = rows
+    }
+
+    override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilityRows.filter { $0.isAccessibilitySelected() }
+    }
+}
+
+final class SuggestionCardView: NSView {
+    let card = SuggestionCardListView()
+    var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // The transparent host is layout-only. The card is the AX list so
+        // VoiceOver can enter the suggestion popup and move through rows.
+        setAccessibilityElement(false)
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.list)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        card.wantsLayer = true
+        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
+        card.layer?.cornerCurve = .continuous
+        card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        card.layer?.masksToBounds = false
+        // No shadow of its own: the card top's shadow reaches down past the seam (OmnibarCardTopView).
+        // This panel floats over the bar, so a shadow here that reached up to meet it would darken
+        // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
+        // PopupHostView's and a device check (cx-iif6y follow-up).
+        addSubview(card)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        card.frame = cardFrame
+        refresh()
+    }
+
+    /// The card never scrolls (at most 15 rows); the wheel must not reach
+    /// the page under it either.
+    override func scrollWheel(with event: NSEvent) {}
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refresh()
+    }
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        card.setAccessibilityRows(rows)
+        card.setAccessibilityChildren(rows)
+        rows.forEach { $0.setAccessibilityParent(card) }
+    }
+
+    private func refresh() {
+        performWithTheme {
+            card.layer?.backgroundColor = OmnibarStyle.cardFill.cgColor
+        }
+    }
+}

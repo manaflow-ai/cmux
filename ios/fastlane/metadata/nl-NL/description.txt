@@ -1,0 +1,11 @@
+cmux brengt je coding agents naar je telefoon. Koppel aan je Mac met de cmux-terminal en volg je AI-agents live in actie, ontvang een melding zodra een agent je aandacht nodig heeft of een taak afrondt, en reageer of voer commando's uit vanaf elke locatie.
+
+cmux is de terminal gebouwd voor coding agents: verticale tabbladen, meldingsringen wanneer agents input nodig hebben, gesplitste vensters, een ingebouwde browser en een scriptbare CLI op de desktop. De iOS-app is jouw afstandsbediening voor dit alles.
+
+- Live terminal: stream je Mac's cmux-werkruimten en terminals naar je telefoon
+- Agentmeldingen: een pushmelding zodra een agent een vraag stelt of werk afrondt
+- Overal reageren: stuur invoer, voer commando's uit en wissel van werkruimte vanaf je telefoon
+- Spraak naar tekst: dicteer in het berichtvak
+- Veilig koppelen: verbind met je eigen Mac via het lokale netwerk of relay
+
+Gratis en open source. Vereist een Mac met cmux (gratis op cmux.com).

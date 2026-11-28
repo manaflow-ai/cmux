@@ -1,0 +1,11 @@
+cmux, kodlama ajanlarınızı telefonunuza taşır. Mac'inizdeki cmux terminaline eşleyin, yapay zeka ajanlarınızın gerçek zamanlı çalışmasını izleyin, bir ajan dikkatinizi gerektirdiğinde veya görevi tamamladığında anında bildirim alın ve her yerden yanıt verin ya da komut çalıştırın.
+
+cmux, kodlama ajanları için tasarlanmış terminal uygulamasıdır: dikey sekmeler, ajanların girdi beklerken gösterdiği bildirim halkacıkları, bölünmüş paneller, uygulama içi tarayıcı ve masaüstünde komut satırı aracılığıyla tam kontrol. iOS uygulaması ise tüm bunlar için uzaktan kumandanızdır.
+
+- Canlı terminal: Mac'inizdeki cmux çalışma alanlarını ve terminalleri telefonunuza yayınlayın
+- Ajan bildirimleri: bir ajan soru sorduğunda veya işi tamamladığında anında bildirim alın
+- Her yerden yanıt verin: telefonunuzdan girdi gönderin, komut çalıştırın ve çalışma alanları arasında geçiş yapın
+- Sesli metin girişi: mesaj kutusuna dikte ederek yazın
+- Güvenli eşleştirme: kendi Mac'inize yerel ağ veya aktarıcı üzerinden bağlanın
+
+Ücretsiz ve açık kaynaklı. cmux çalıştıran bir Mac gerektirir (cmux.com adresinden ücretsiz edinin).

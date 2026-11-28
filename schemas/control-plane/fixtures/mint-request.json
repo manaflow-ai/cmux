@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "mint_request",
+  "payload": {
+    "endpointId": "8de4b1c22a10",
+    "proof": {
+      "bindingId": "e1b78ec4-7b2e-4077-88a4-ec4da794a9c6",
+      "timestamp": "2026-08-27T03:05:47Z",
+      "signature": "sig64=="
+    }
+  }
+}

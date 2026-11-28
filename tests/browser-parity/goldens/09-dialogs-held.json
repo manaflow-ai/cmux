@@ -1,0 +1,22 @@
+{
+  "oracle": {},
+  "cmux": {
+    "snapshot": "title: Dialogs Fixture\nurl: PRIMARY/dialogs.html\ndialog: confirm \"Confirm text\" (answer with page.dialog().accept() or .dismiss())\n# the page is blocked until the dialog is answered",
+    "dialog": {
+      "type": "confirm",
+      "message": "Confirm text",
+      "defaultValue": ""
+    },
+    "blocked": "page is blocked by a JavaScript confirm dialog \"Confirm text\"; answer it with page.dialog().accept() or page.dialog().dismiss()",
+    "blocked-evaluate": "page is blocked by a JavaScript confirm dialog \"Confirm text\"; answer it with page.dialog().accept() or page.dialog().dismiss()",
+    "after-accept": "confirm true",
+    "closed": null,
+    "prompt-line": "dialog: prompt \"Prompt text\" [default=\"default\"] (answer with page.dialog().accept() or .dismiss())",
+    "after-prompt": "prompt from agent",
+    "prompt-dismissed": "prompt null",
+    "keyboard-opened": "alert",
+    "after-alert": "after alert",
+    "timer-dialog": "Later",
+    "after-timer": true
+  }
+}

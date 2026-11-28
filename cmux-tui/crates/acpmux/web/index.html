@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acpmux</title>
+<style>
+  /* Codex desktop app palette: near-black ground, a shade lighter rail, soft
+     greys for chrome, one warm accent for full access. Light via the OS. */
+  :root {
+    --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f;
+    --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff;
+    --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f;
+    --add: #7fd07f; --del: #f08080; --shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a;
+      --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6;
+      --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; --shadow: 0 8px 24px rgba(0,0,0,.12); }
+  }
+  :root[data-theme="dark"] { --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f; --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff; --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f; --add: #7fd07f; --del: #f08080; --shadow: 0 8px 24px rgba(0,0,0,.35); }
+  :root[data-theme="light"] { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a; --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6; --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; --shadow: 0 8px 24px rgba(0,0,0,.12); }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; display: grid; grid-template-columns: 264px 1fr; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { background: transparent; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: var(--ink); }
+  button:hover { background: var(--hover); }
+  button.pill { background: var(--raised); padding: 6px 14px; border-radius: 999px; font-weight: 500; }
+  button.pill:hover { background: var(--sel); }
+  button.pill.warm { color: var(--warm); }
+  button.pill.bad { color: var(--bad); }
+  button.quiet { color: var(--muted); }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+
+  /* ---- rail */
+  aside { background: var(--rail); display: flex; flex-direction: column; min-height: 0; padding: 10px 8px 8px; gap: 2px; }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 6px 10px 12px; font-weight: 600; font-size: 15px; }
+  .brand .conn { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-left: auto; }
+  .brand .conn.off { background: var(--bad); }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .nav:hover { background: var(--hover); }
+  .nav .ic { color: var(--muted); width: 14px; text-align: center; }
+  .projects-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 4px; color: var(--muted); font-size: 12.5px; }
+  .projects-head button { color: var(--dim); padding: 2px 5px; font-size: 13px; }
+  .projects-head button:hover { color: var(--ink); }
+  .projects { display: grid; gap: 1px; }
+  .project { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border-radius: 8px; color: var(--muted); cursor: pointer; }
+  .project:hover { background: var(--hover); color: var(--ink); }
+  .project .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project .plus { color: var(--dim); padding: 1px 5px; font-size: 16px; line-height: 1; }
+  .project .plus:hover { color: var(--ink); background: var(--raised); }
+  .list { overflow-y: auto; min-height: 0; flex: 1; margin-top: 8px; }
+  .grp { display: flex; align-items: center; gap: 8px; padding: 12px 10px 4px; font-size: 12.5px; color: var(--muted); }
+  .grp .ic { color: var(--dim); }
+  .grp .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grp .plus { color: var(--dim); padding: 0 4px; font-size: 16px; line-height: 1; }
+  .grp .plus:hover { color: var(--ink); background: var(--raised); }
+  .sess { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 30px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .sess:hover { background: var(--hover); }
+  .sess.sel { background: var(--sel); }
+  .sess .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .mark { font-size: 11px; color: var(--muted); }
+  .sess .mark.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .sess .mark.dot.attn { background: var(--attn); }
+  .sess .mark.dot.bad { background: var(--bad); }
+  .sess .mark.run { color: var(--warm); animation: pulse 1.2s infinite; }
+  .sess .mark.q { color: var(--attn); font-weight: 600; }
+  .sess.closed .name { color: var(--dim); }
+  .sess .dots { display: none; color: var(--muted); padding: 0 4px; border-radius: 6px; font-weight: 700; line-height: 1; }
+  .sess:hover .dots, .sess.sel .dots { display: inline-block; }
+  .sess .dots:hover { background: var(--raised); color: var(--ink); }
+  .hovercard { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; max-width: 420px; box-shadow: var(--shadow); font-size: 13px; pointer-events: none; }
+  .hovercard .t { font-weight: 600; color: var(--ink); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hovercard .s { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu { position: fixed; z-index: 30; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 6px; min-width: 190px; box-shadow: var(--shadow); display: grid; }
+  .menu button { text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 13.5px; }
+  .menu button.bad { color: var(--bad); }
+  .menu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 0; }
+  .more { padding: 6px 10px 6px 30px; color: var(--muted); cursor: pointer; border-radius: 8px; font-size: 13px; }
+  .more:hover { background: var(--hover); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .rail-foot { padding: 8px 4px 0; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .host { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 6px; }
+  .host i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .host i.off { background: var(--dim); }
+  .empty { padding: 20px 12px; color: var(--muted); font-size: 13px; }
+
+  /* ---- main column */
+  section { display: grid; grid-template-rows: auto 1fr auto auto; min-height: 0; background: var(--bg); }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 12px 24px 8px; }
+  .bar .proj { color: var(--muted); }
+  .bar .sep { color: var(--dim); }
+  .bar h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .st { font-size: 12.5px; color: var(--attn); }
+  .bar .st.bad { color: var(--bad); }
+  .bar .spacer { flex: 1; }
+  .bar .usage { font-size: 12px; color: var(--dim); }
+  .bar .acts { display: flex; gap: 2px; }
+  .bar .acts button { color: var(--muted); padding: 4px 8px; font-size: 13px; }
+  .log { overflow-y: auto; padding: 8px 24px 24px; }
+  .col { max-width: 860px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; }
+  .when { text-align: center; color: var(--dim); font-size: 12.5px; margin: 8px 0 2px; }
+  .msg { position: relative; }
+  /* ChatGPT: a small action row appears under a message on hover. */
+  .mact { position: absolute; right: 0; bottom: -24px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; z-index: 2; }
+  .msg.assistant .mact { right: auto; left: 0; }
+  .msg:hover .mact, .mact:focus-within { opacity: 1; }
+  .mact button { padding: 3px 8px; font-size: 12px; color: var(--muted); border-radius: 6px; background: var(--bg); }
+  .mact button:hover { color: var(--ink); background: var(--hover); }
+  .msg.user { align-self: flex-end; max-width: 70%; background: var(--bubble); border-radius: 18px; padding: 10px 16px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user.steer { border: 1px solid var(--warm); }
+  .msg.user.local { opacity: .6; }
+  .msg.user.queued { opacity: .7; border: 1px dashed var(--rule); }
+  .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .msg-images img { max-width: 220px; max-height: 160px; border-radius: 8px; object-fit: contain; background: var(--raised); }
+  .qtag { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  /* Transcript hitboxes follow the painted content. The old stretch rule
+     made a short tool/message line clickable across the whole conversation. */
+  .msg.assistant, .work, .working, .act, .thought, .plan, .card, .edits { align-self: flex-start; width: fit-content; max-width: 100%; text-align: left; }
+  .col > [data-idx] { align-self: flex-start; width: fit-content; max-width: 100%; }
+  .msg.assistant { line-height: 1.6; word-break: break-word; margin-left: 0; padding-left: 0; }
+  .msg.assistant > :first-child { margin-top: 0; } .msg.assistant > :last-child { margin-bottom: 0; }
+  .msg.assistant p { margin: 0 0 10px; } .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
+  .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { font-size: 15px; margin: 14px 0 6px; }
+  .msg.assistant code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; background: var(--raised); padding: 1px 6px; border-radius: 6px; }
+  .msg.assistant pre { background: var(--code); border: 1px solid var(--rule); border-radius: 10px; padding: 0; overflow: hidden; margin: 6px 0 12px; }
+  .msg.assistant pre .lang { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--rule); }
+  .msg.assistant pre .lang button { font-size: 12px; padding: 0 6px; color: var(--muted); }
+  .msg.assistant pre code { display: block; padding: 10px 12px; background: transparent; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  .msg.assistant a { color: var(--link); }
+  .msg.assistant table { border-collapse: collapse; margin: 6px 0 12px; }
+  .msg.assistant th, .msg.assistant td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+  .msg.assistant th { color: var(--muted); font-weight: 500; }
+  .msg.assistant blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 3px solid var(--rule); color: var(--muted); }
+  .msg.assistant hr { border: 0; border-top: 1px solid var(--rule); margin: 12px 0; }
+  .work { margin: 2px 0; }
+  .work > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--rule); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+  .work > summary::-webkit-details-marker { display: none; }
+  .work > summary .chev { color: var(--dim); transition: transform .12s; }
+  .work[open] > summary .chev { transform: rotate(90deg); }
+  .work > summary:hover { color: var(--ink); }
+  .work .inner { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 4px; }
+  .act { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; cursor: default; }
+  .act.can { cursor: pointer; } .act.can:hover { color: var(--ink); }
+  .act .ic { width: 16px; text-align: center; color: var(--dim); }
+  .act.failed, .act.failed .ic { color: var(--bad); }
+  .act .cnt { font-size: 12.5px; } .act .cnt .a { color: var(--add); } .act .cnt .d { color: var(--del); margin-left: 4px; }
+  .act .chev { color: var(--dim); font-size: 12px; }
+  .act-detail { margin: -2px 0 4px 0; padding: 8px 12px; background: var(--code); border: 1px solid var(--rule); border-radius: 8px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
+  .act-detail .a { color: var(--add); } .act-detail .d { color: var(--del); } .act-detail .h { color: var(--muted); }
+  .thought { color: var(--muted); font-size: 13.5px; }
+  .thought summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .thought summary::-webkit-details-marker { display: none; }
+  .thought summary .lbl { color: var(--muted); flex: none; } .thought summary .sum { font-style: italic; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .thought summary:hover .sum { color: var(--muted); }
+  .thought .body { font-style: italic; color: var(--dim); white-space: pre-wrap; padding: 6px 0 2px 0; }
+  .plan { font-size: 13.5px; color: var(--muted); padding-left: 0; }
+  .plan div::before { content: "○ "; color: var(--dim); } .plan div.completed::before { content: "✓ "; color: var(--ok); } .plan div.in_progress::before { content: "▶ "; color: var(--warm); }
+  .note { font-size: 12.5px; color: var(--dim); }
+  .card { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; }
+  .card .ic { font-size: 16px; } .card.err .ic { color: var(--bad); }
+  .card .t { font-weight: 600; } .card .s { color: var(--muted); font-size: 13px; }
+  .edits { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+  .edits .head { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  .edits .head .ic { width: 28px; height: 28px; border-radius: 8px; background: var(--raised); display: grid; place-items: center; color: var(--muted); }
+  .edits .head .t { font-weight: 600; } .edits .cnt { font-size: 12.5px; } .edits .cnt .a { color: var(--add); } .edits .cnt .d { color: var(--del); margin-left: 4px; }
+  .edits .file { display: flex; justify-content: space-between; padding: 7px 14px; border-bottom: 1px solid var(--rule); }
+  .edits .file:last-child { border-bottom: 0; } .edits .file .dir { color: var(--muted); }
+  .working { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 4px 0; }
+  .shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--ink) 50%, var(--muted) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .shimmer, .sess .mark.run { animation: none; } }
+
+  /* ---- permission card + composer */
+  .perm { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 24px 8px; }
+  .perm .box { border: 1px solid var(--attn); border-radius: 14px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .perm .t { color: var(--attn); font-weight: 600; } .perm .t span { color: var(--ink); font-weight: 500; }
+  .perm .opts { display: flex; gap: 8px; margin-left: auto; }
+  .perm .opts button.allow { color: var(--ok); }
+  .perm kbd { font-size: 11px; color: var(--dim); }
+  .composer { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 24px 18px; }
+  .composer .box { border: 1px solid var(--rule); background: var(--panel); border-radius: 18px; padding: 12px 14px 8px; display: grid; gap: 6px; }
+  .composer .box:focus-within { border-color: var(--dim); }
+  .composer textarea { width: 100%; min-height: 24px; max-height: 240px; resize: none; border: 0; background: transparent; padding: 0 2px; line-height: 1.5; }
+  .composer textarea:focus { outline: none; }
+  .composer.drop-target .box { border-color: var(--link); background: var(--hover); }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+  .attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--raised); color: var(--muted); font-size: 12px; }
+  .attachment img { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; }
+  .attachment button { padding: 0 2px; color: var(--dim); }
+  .composer .row { display: flex; align-items: center; gap: 4px; }
+  .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .chip:hover { background: var(--hover); color: var(--ink); }
+  .chip.warm { color: var(--warm); }
+  .chip.policy-ask { color: var(--attn); }
+  .chip.policy-approve-reads { color: var(--link); }
+  .chip.policy-approve-edits { color: var(--ok); }
+  .chip.policy-approve-all { color: var(--warm); }
+  .chip.policy-deny-all { color: var(--bad); }
+  button.chip { border: 0; text-align: left; }
+  .draft-config { max-width: min(100%, 420px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .draft-config .chev { color: var(--dim); }
+  .chip select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .composer .send { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--bg); font-weight: 700; display: grid; place-items: center; padding: 0; }
+  .composer .send:disabled { background: var(--raised); color: var(--dim); cursor: default; }
+  .composer .steer { color: var(--muted); font-size: 13px; }
+  .hero { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); }
+  .hero h2 { font-size: 22px; font-weight: 500; color: var(--ink); margin: 0 0 8px; }
+  .hero h2 a { color: inherit; text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 4px; }
+  .hero h2 a:hover { text-decoration-color: var(--ink); }
+  dialog { border: 1px solid var(--rule); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog form { display: grid; gap: 12px; padding: 18px 20px; }
+  dialog h3 { margin: 0; font-size: 16px; }
+  dialog label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  dialog input, dialog select { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+  dialog .hint { color: var(--dim); font-size: 12.5px; margin: -4px 0 2px; }
+  .project-pref { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--rule); }
+  .project-pref:first-child { border-top: 0; }
+  .project-pref .path { flex: 1; min-width: 0; }
+  .project-pref .path strong { display: block; color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-pref .path small { display: block; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-pref .move, .project-pref .remove { color: var(--dim); padding: 3px 6px; }
+  .project-pref .move:hover, .project-pref .remove:hover { color: var(--ink); background: var(--hover); }
+  .project-add { display: flex; gap: 6px; }
+  .project-add input { flex: 1; min-width: 0; }
+  .toast { position: fixed; right: 18px; bottom: 18px; background: var(--raised); color: var(--ink); padding: 8px 12px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  /* Phones: the rail becomes a sheet behind the Sessions button. */
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; }
+    aside { display: none; }
+    aside.open { display: flex; position: fixed; inset: 0; z-index: 5; width: 100%; }
+    .bar { padding: 10px 14px 6px; } .log { padding: 6px 14px 16px; } .composer, .perm { padding-left: 14px; padding-right: 14px; }
+    .msg.user { max-width: 85%; }
+  }
+</style>
+</head>
+<body>
+<aside id="side">
+  <div class="brand">acpmux <span id="conn" class="conn off" title="connecting…"></span></div>
+  <div class="nav" id="btn-new" title="New session (⌘K / Ctrl-K)"><span class="ic">✎</span><span>New session</span></div>
+  <div class="projects-head"><span>Projects</span><button id="btn-projects" title="Customize sidebar projects" type="button">⚙</button></div>
+  <div class="projects" id="projects"></div>
+  <div class="list" id="list"></div>
+  <div id="empty" class="empty" hidden>No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code></div>
+  <div class="rail-foot" id="hosts"></div>
+</aside>
+<section>
+  <div class="bar" id="bar">
+    <button class="proj" id="proj" type="button" title="Change directory"></button><span class="sep" id="sep" hidden>›</span>
+    <h1 id="title">—</h1>
+    <span id="status" class="st"></span>
+    <span class="spacer"></span>
+    <span id="usage" class="usage"></span>
+    <span class="acts">
+      <button id="btn-cancel" hidden title="Cancel the running turn">Cancel</button>
+      <button id="btn-fork" hidden title="Fork this session with its history">Fork</button>
+      <button id="btn-rename" hidden title="Rename">Rename</button>
+      <button id="btn-kill" hidden title="Stop the agent; the log stays">Stop</button>
+      <button id="toggle-side" hidden>Sessions</button>
+    </span>
+  </div>
+  <div class="log" id="log"><div class="hero"><div><h2>What should we build?</h2>Pick a session on the left, or start one.</div></div></div>
+  <div class="perm" id="perm" hidden></div>
+  <div class="composer">
+    <div class="box">
+      <div class="attachments" id="attachments" hidden></div>
+      <textarea id="input" placeholder="Ask anything" rows="1"></textarea>
+      <div class="row">
+        <button id="chip-draft-harness" class="chip draft-config" hidden type="button" title="Change harness"><span id="draft-harness-label"></span></button>
+        <button id="chip-draft-model" class="chip draft-config" hidden type="button" title="Change model"><span id="draft-model-label"></span></button>
+        <button id="chip-draft-policy" class="chip draft-config" hidden type="button" title="Change permissions"><span id="draft-policy-label"></span></button>
+        <label class="chip" id="chip-policy"><span id="policy-label">Ask before acting</span><select id="policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
+        <label class="chip" id="chip-mode" hidden><span id="mode-label"></span><select id="mode"></select></label>
+        <button id="btn-steer" class="steer" hidden title="Interrupt the running turn with this message">Steer</button>
+        <span style="flex:1"></span>
+        <label class="chip" id="chip-model"><span id="model-label">model</span><select id="model"></select></label>
+        <label class="chip" id="chip-effort" hidden><span id="effort-label"></span><select id="effort"></select></label>
+        <button id="btn-send" class="send" title="Send (Enter)" disabled>↑</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<dialog id="dlg-new">
+  <form method="dialog" id="form-new">
+    <h3>New session</h3>
+    <label>Harness <select id="new-agent"></select></label>
+    <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
+    <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
+    <label>Model <select id="new-model"></select></label>
+    <label>Thinking effort <select id="new-effort"><option value="default">Default</option><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
+    <label>Permissions <select id="new-policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
+    <label>First message (optional) <input id="new-prompt" placeholder="inspect the failing tests"></label>
+    <div class="row"><button type="button" id="new-cancel" class="pill">Cancel</button><button type="submit" class="pill">Create</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-draft-config">
+  <form method="dialog" id="form-draft-config">
+    <h3>New session settings</h3>
+    <div class="hint">These settings apply when the first message creates the session.</div>
+    <label>Harness <select id="draft-agent"></select></label>
+    <label>Model <select id="draft-model"></select></label>
+    <label>Thinking effort <select id="draft-effort"><option value="default">Default</option><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
+    <label>Permissions <select id="draft-policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
+    <div class="row"><button type="button" id="draft-config-cancel" class="pill">Cancel</button><button type="submit" class="pill">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-projects">
+  <form method="dialog" id="form-projects">
+    <h3>Sidebar projects</h3>
+    <div class="hint">Choose project shortcuts and their order. Hidden projects stay in your session history.</div>
+    <div id="project-prefs"></div>
+    <div class="project-add"><input id="project-path" placeholder="/path/to/project"><button type="button" class="pill" id="project-add-btn">Add</button></div>
+    <div class="row"><button type="submit" class="pill">Done</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-directory">
+  <form id="form-directory">
+    <h3>Working directory</h3>
+    <label>Directory <input id="directory-path" placeholder="Absolute path, ~/…, or ../…"></label>
+    <div id="directory-folders" style="max-height:40vh;overflow:auto"></div>
+    <div class="hint" id="directory-note">Choose where to start a new session.</div>
+    <div class="row"><button type="button" id="directory-cancel">Cancel</button><button type="button" id="directory-browse">Browse</button><button type="submit" class="pill">Use directory</button></div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const theme = new URLSearchParams(location.search).get('theme');
+  // ?open=1 starts every turn's work unfolded (screenshots, debugging).
+  const openAll = new URLSearchParams(location.search).get('open') === '1';
+  // ?session=<id or name> opens that session (the TUI's "Open in web dashboard").
+  const wantSession = new URLSearchParams(location.search).get('session') || '';
+  // ?session=X&draft=1 starts a draft in X's project, as "New session" does.
+  const wantDraft = new URLSearchParams(location.search).get('draft') === '1';
+  if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
+  // ---------- transport
+  let ws, nextId = 1, pending = new Map(), backoff = 500;
+  const call = (method, params = {}) => new Promise((res, rej) => {
+    if (!ws || ws.readyState !== 1) return rej(new Error('not connected'));
+    const id = nextId++;
+    pending.set(id, { res, rej });
+    ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+  });
+  const notify = (method, params = {}) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = async () => {
+      backoff = 500;
+      $('#conn').classList.remove('off'); $('#conn').title = 'connected';
+      await call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'acpmux-web', version: '0.1' } });
+      const w = await call('_acpmux/watch', { enabled: true });
+      setSessions(w.sessions || []);
+      const a = await call('_acpmux/harnesses', {});
+      agents = a.harnesses || {}; harnessDefaults = a.defaults || {}; defaultHarness = a.defaultHarness;
+      try { const catalog = await call('_acpmux/models', {}); modelCatalog = {}; for (const h of catalog.harnesses || []) modelCatalog[h.harness] = h; } catch (e) { modelCatalog = {}; }
+      try { const st = await call('_acpmux/status', {}); daemonStatus = st || {}; homeDir = st.userHome || ''; renderHosts(st.peers || []); renderProjects(); } catch (e) {}
+      const wanted = wantSession && state.sessions.find((x) => x.sessionId === wantSession || x.name === wantSession || x.name.endsWith('/' + wantSession));
+      if (selected) attach(selected, true);
+      else if (wantSession === 'new') startDraft();
+      else if (wanted) { select(wanted.sessionId); if (wantDraft) startDraft(); }
+      else if (state.sessions.length) select(state.sessions[0].sessionId);
+      else startDraft();
+    };
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.id !== undefined && (m.result !== undefined || m.error)) {
+        const p = pending.get(m.id); pending.delete(m.id);
+        if (!p) return; m.error ? p.rej(new Error(m.error.message)) : p.res(m.result);
+        return;
+      }
+      if (m.method) onNotification(m.method, m.params || {});
+    };
+    ws.onclose = () => {
+      $('#conn').classList.add('off'); $('#conn').title = 'disconnected, retrying…';
+      for (const p of pending.values()) p.rej(new Error('disconnected')); pending.clear();
+      setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 8000);
+    };
+  }
+
+  // ---------- state
+  const state = { sessions: [], transcripts: new Map(), details: new Map() };
+  let selected = null, agents = {}, harnessDefaults = {}, defaultHarness = null, attached = new Set();
+  let modelCatalog = {}, daemonStatus = {}, homeDir = '';
+  const projectsKey = 'acpmux.sidebar.projects.v1';
+  let projectPrefs = loadProjectPrefs();
+  // Codex app: "New session" is an empty conversation with the composer
+  // ready; the session is created on the first message.
+  let draft = null;
+  // Files dropped onto the composer stay attached until the next prompt is
+  // sent. They are encoded once and sent as ACP image content blocks.
+  let promptImages = [];
+
+  function renderAttachments() {
+    const el = $('#attachments'); if (!el) return;
+    el.replaceChildren(); el.hidden = !promptImages.length;
+    promptImages.forEach((image, i) => {
+      const chip = document.createElement('span'); chip.className = 'attachment';
+      const img = document.createElement('img'); img.src = image.url; img.alt = image.name;
+      const label = document.createElement('span'); label.textContent = image.name;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove image';
+      remove.onclick = () => { promptImages.splice(i, 1); renderAttachments(); autosize(); };
+      chip.append(img, label, remove); el.appendChild(chip);
+    });
+  }
+
+  function readImage(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return Promise.resolve(null);
+    if (file.size > 8 * 1024 * 1024) { toast('Image is larger than 8 MB'); return Promise.resolve(null); }
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        const comma = url.indexOf(',');
+        resolve(comma < 0 ? null : { name: file.name || 'image', mimeType: file.type, data: url.slice(comma + 1), url });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files) {
+    const images = [];
+    for (const file of Array.from(files || [])) {
+      const image = await readImage(file); if (image) images.push(image);
+    }
+    if (!images.length) return;
+    promptImages.push(...images); renderAttachments(); autosize(); $('#input').focus();
+  }
+  function startDraft(preferredCwd) {
+    const cur = state.sessions.find((x) => x.sessionId === selected && !x.peer);
+    const harness = (cur && cur.harness) || (draft && draft.harness) || defaultHarness || Object.keys(agents)[0] || '';
+    const defaults = defaultsForHarness(harness);
+    const detail = cur && state.details.get(cur.sessionId);
+    const effort = currentOption(detail, ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning']);
+    draft = {
+      harness,
+      model: (cur && cur.model) || defaults.model || defaultModelFor(harness),
+      effort: effort || defaults.effort || 'default',
+      policy: (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'approve-all',
+      cwd: preferredCwd !== undefined ? preferredCwd : (cur && !cur.peer && cur.cwd) || (draft && draft.cwd) || ''
+    };
+    promptImages = []; selected = null; document.title = 'acpmux';
+    renderAttachments(); renderList(); renderBar(); renderLog(true); $('#input').focus(); $('#side').classList.remove('open');
+  }
+
+  function setSessions(list) { state.sessions = list; sortSessions(); renderList(); renderProjects(); }
+  function sortSessions() { state.sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
+  function upsertSession(s) {
+    const i = state.sessions.findIndex((x) => x.sessionId === s.sessionId);
+    if (i >= 0) state.sessions[i] = s; else state.sessions.push(s);
+    sortSessions(); renderList(); renderProjects(); if (s.sessionId === selected) renderBar();
+  }
+
+
+  // ---------- diffs (mirror of src/transcript.rs)
+  function diffLines(a, b) {
+    // Like Rust's lines(): a trailing newline does not add an empty line.
+    const A = a.replace(/\n$/, '').split('\n'), B = b.replace(/\n$/, '').split('\n');
+    if (A.length * B.length > 400000) return A.map((l) => ['-', l]).concat(B.map((l) => ['+', l]));
+    const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    const out = []; let i = 0, j = 0;
+    while (i < n && j < m) { if (A[i] === B[j]) { out.push([' ', A[i]]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) out.push(['-', A[i++]]); else out.push(['+', B[j++]]); }
+    while (i < n) out.push(['-', A[i++]]); while (j < m) out.push(['+', B[j++]]);
+    return out;
+  }
+  function diffText(path, oldT, newT) {
+    const lines = diffLines(oldT, newT);
+    const keep = lines.map((_, i) => lines.slice(Math.max(0, i - 2), i + 3).some(([k]) => k !== ' '));
+    let out = path ? '@@ ' + path + '\n' : '', gap = false;
+    lines.forEach(([k, l], i) => { if (!keep[i]) { gap = true; return; } if (gap && out && !out.endsWith('@@ ')) { out += '…\n'; gap = false; } out += k + ' ' + l + '\n'; });
+    return out.trimEnd();
+  }
+  const diffCounts = (d) => { if (!d || (!d.startsWith('@@ ') && !/^[+-] /m.test(d))) return null; const p = (d.match(/^\+ /mg) || []).length, m = (d.match(/^- /mg) || []).length; return p + m ? [p, m] : null; };
+  // ---------- transcript model (mirror of src/transcript.rs)
+  function newTranscript() { return { items: [], status: '', mode: null, model: null, usage: null, pendingUserChunk: false, lastSeq: 0, dirty: new Set(), runningSince: 0, activity: '', activeTools: 0, activeTerminals: 0 }; }
+  const touch = (t, i) => t.dirty.add(i);
+  // Sequence guard: an attach snapshot can race a live notification; drop anything already applied.
+  const fresh = (t, seq) => { if (typeof seq !== 'number') return true; if (seq <= t.lastSeq) return false; t.lastSeq = seq; return true; };
+  const textOf = (c) => Array.isArray(c) ? c.map(textOf).join('') : (c && typeof c === 'object') ? (typeof c.text === 'string' ? c.text : c.content ? textOf(c.content) : c.type === 'image' ? '[image]' : c.resource ? (c.resource.text || '[resource]') : '') : (typeof c === 'string' ? c : '');
+  function applyUpdate(t, u) {
+    const before = t.items.length;
+    applyUpdateInner(t, u);
+    for (let i = Math.max(0, before - 1); i < t.items.length; i++) touch(t, i);
+  }
+  function applyUpdateInner(t, u) {
+    const k = u.sessionUpdate; const last = t.items[t.items.length - 1];
+    if (k === 'user_message_chunk') { const s = textOf(u.content); if (last && last.type === 'user' && t.pendingUserChunk) last.text += s; else t.items.push({ type: 'user', text: s, steer: false }); t.pendingUserChunk = true; return; }
+    t.pendingUserChunk = false;
+    if (k === 'agent_message_chunk') { const s = textOf(u.content); if (last && last.type === 'assistant') last.text += s; else t.items.push({ type: 'assistant', text: s }); t.activity = 'Writing response'; }
+    else if (k === 'agent_thought_chunk') { const s = textOf(u.content); if (last && last.type === 'thought') last.text += s; else t.items.push({ type: 'thought', text: s }); const line = s.split(/\r?\n/).find((x) => x.trim()); t.activity = line ? line.trim().slice(0, 120) : 'Thinking'; }
+    else if (k === 'tool_call' || k === 'tool_call_update') {
+      let detail = (u.content || []).map((b) => b && b.type === 'diff' ? diffText(b.path || '', b.oldText || '', b.newText || '') : textOf(b)).filter(Boolean).join('\n');
+      if (!detail && u.rawOutput !== undefined) detail = typeof u.rawOutput === 'string' ? u.rawOutput : JSON.stringify(u.rawOutput, null, 1);
+      if (detail.length > 6000) detail = detail.slice(0, 6000) + '\n…';
+      let it = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'tool' && t.items[i].id === u.toolCallId) { it = t.items[i]; touch(t, i); break; }
+      if (it) { if (u.title) it.title = u.title; if (u.kind) it.kind = u.kind; if (u.status) it.status = u.status; if (detail) it.detail = detail; }
+      else t.items.push({ type: 'tool', id: u.toolCallId || '', title: u.title || 'tool', kind: u.kind || '', status: u.status || 'pending', detail });
+      refreshActivity(t);
+    }
+    else if (k === 'plan') { const entries = (u.entries || []).map((e) => ({ status: e.status || '', content: e.content || '' })); let p = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'plan') { p = t.items[i]; touch(t, i); break; } if (p) p.entries = entries; else t.items.push({ type: 'plan', entries }); refreshActivity(t); }
+    else if (k === 'usage_update') t.usage = { used: u.used || 0, size: u.size || 0 };
+    else if (k === 'current_mode_update') t.mode = u.currentModeId;
+    else if (k === 'config_option_update') { for (const o of u.configOptions || []) if (o.id === 'model') t.model = o.currentValue; }
+  }
+  function refreshActivity(t) {
+    const active = t.items.filter((x) => x.type === 'tool' && (x.status === 'pending' || x.status === 'in_progress'));
+    t.activeTools = active.length;
+    t.activeTerminals = active.filter((x) => ['execute', 'terminal', 'shell'].includes(x.kind)).length;
+    const tool = active[active.length - 1];
+    if (tool) { t.activity = (tool.title || 'Working').slice(0, 120); return; }
+    const plan = [...t.items].reverse().find((x) => x.type === 'plan' && x.entries.some((e) => e.status === 'in_progress'));
+    if (plan) { const step = plan.entries.find((e) => e.status === 'in_progress'); if (step) { t.activity = (step.content || 'Working').slice(0, 120); return; } }
+    if (t.status === 'running') t.activity = 'Thinking';
+  }
+  function applyEvent(t, ev) {
+    const before = t.items.length;
+    applyEventInner(t, ev);
+    for (let i = Math.max(0, before - 1); i < t.items.length; i++) touch(t, i);
+  }
+  function applyEventInner(t, ev) {
+    const { dir, kind, msg } = ev;
+    if (dir === 'in') { if (kind.endsWith('.replay')) return; if (msg && msg.method === 'session/update' && msg.params && msg.params.update) applyUpdate(t, msg.params.update); return; }
+    if (dir !== 'mux') return;
+    t.pendingUserChunk = false;
+    const push = (x) => t.items.push(x);
+    switch (kind) {
+      case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
+      case 'user_message': {
+        const incomingText = msg.text || '';
+        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
+        if (local >= 0 && t.items[local].queued) { t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); t.reorder = true; }
+        else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
+        else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at });
+        break;
+      }
+      case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
+      case 'turn_result': push({ type: 'turn_result', status: msg.status || '', at: ev.at, startAt: t.turnStartAt }); break;
+      case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); refreshActivity(t); } else { t.runningSince = 0; t.activity = ''; t.activeTools = 0; t.activeTerminals = 0; } break;
+      case 'turn_end': t.activity = ''; t.activeTools = 0; t.activeTerminals = 0; push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at, startAt: t.turnStartAt }); break;
+      case 'turn_error': push({ type: 'error', text: msg.error || 'turn failed' }); break;
+      case 'permission_request': { const r = msg.request || {}; push({ type: 'permission', id: msg.permissionId, title: (r.toolCall && r.toolCall.title) || 'permission', options: (r.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })), decided: null }); break; }
+      case 'permission_decision': case 'permission_auto': { const d = (msg.outcome && (msg.outcome.optionId || msg.outcome.outcome)) || msg.optionId || 'cancelled'; let found = false; for (let i = t.items.length - 1; i >= 0; i--) { const it = t.items[i]; if (it.type === 'permission' && it.id === msg.permissionId) { it.decided = d; found = true; touch(t, i); break; } } if (!found && kind === 'permission_auto') push({ type: 'permission', id: msg.permissionId, title: (msg.request && msg.request.toolCall && msg.request.toolCall.title) || 'permission', options: [], decided: d + ' (policy)' }); break; }
+      case 'stderr': push({ type: 'stderr', text: msg.text || '' }); break;
+      case 'exited': push({ type: 'note', text: 'agent exited unexpectedly' }); break;
+      case 'stopped': push({ type: 'note', text: 'agent stopped' }); break;
+      case 'resumed': push({ type: 'note', text: 'resumed (' + (msg.level || '?') + ')' }); break;
+      case 'resume_failed': push({ type: 'note', text: 'resume failed: ' + (msg.error || '?') }); break;
+      case 'forked': push({ type: 'note', text: 'forked from parent' }); break;
+      case 'mode': t.mode = msg.modeId; push({ type: 'note', text: 'mode: ' + msg.modeId }); break;
+      case 'model': t.model = msg.modelId; push({ type: 'note', text: 'model: ' + msg.modelId }); break;
+      case 'config': if (msg.configId === 'model') t.model = msg.value; push({ type: 'note', text: msg.configId + ' = ' + JSON.stringify(msg.value) }); break;
+      case 'renamed': push({ type: 'note', text: 'renamed to ' + msg.to }); break;
+    }
+  }
+  const pendingPermission = (t) => { for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'permission' && !t.items[i].decided) return t.items[i]; return null; };
+
+
+  // ---------- notifications
+  function onNotification(method, p) {
+    const sid = p.sessionId;
+    if (method === 'session/update' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p._meta && p._meta.acpmux && p._meta.acpmux.seq)) return; applyUpdate(t, p.update || {}); if (sid === selected) scheduleRender(); }
+    else if (method === '_acpmux/event' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p.seq)) return; applyEvent(t, p); if (sid === selected) scheduleRender(true); }
+    else if (method === '_acpmux/session_changed' && p.session) { if (p.kind === 'purged') { state.sessions = state.sessions.filter((s) => s.sessionId !== p.sessionId); renderList(); } else upsertSession(p.session); }
+    else if (method === '_acpmux/permission_pending' && sid && sid !== selected) { document.title = '? acpmux'; }
+  }
+
+  // ---------- actions
+  async function attach(id, force) {
+    if (attached.has(id) && !force) return;
+    attached.add(id);
+    try {
+      const r = await call('_acpmux/attach', { sessionId: id, limit: 3000 });
+      const t = newTranscript(); for (const e of r.events || []) { if (fresh(t, e.seq)) applyEvent(t, e); }
+      const d = r.session || {}; t.status = d.status || t.status; t.mode = d.currentModeId || t.mode; t.model = d.model || t.model; if (t.status === 'running' && d.turn && d.turn.startedAt) t.runningSince = d.turn.startedAt;
+      state.details.set(id, d); state.transcripts.set(id, t);
+      if (id === selected) { renderLog(true); renderBar(); }
+    } catch (e) { attached.delete(id); console.warn('attach', e); }
+  }
+  function select(id) { selected = id; draft = null; promptImages = []; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderAttachments(); renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
+  async function send(steer) {
+    const text = $('#input').value.trim(); const images = promptImages.slice(); if (!text && !images.length) return;
+    if (!steer && (text === 'cd' || /^cd\s+[^\n\r;|&`]*$/.test(text) && !text.includes('$('))) {
+      openDirectory(text === 'cd' ? '' : text.slice(2).trim()); return;
+    }
+    if (draft && !selected) {
+      const meta = draftMeta(draft);
+      const params = { mcpServers: [], _meta: { acpmux: meta } };
+      if (draft.cwd) params.cwd = draft.cwd;
+      $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
+      try {
+        const r = await call('session/new', params);
+        const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns);
+        select(r.sessionId);
+        const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
+        t.items.push({ type: 'user', text, images, steer: false, local: true, at: Date.now() }); touch(t, t.items.length - 1);
+        t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); scheduleRender(true);
+        call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))) }).catch((e) => toast('error: ' + e.message));
+      } catch (err) { toast('error: ' + err.message); $('#input').value = text; promptImages = images; renderAttachments(); autosize(); }
+      return;
+    }
+    if (!selected) return;
+    $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
+    const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
+    const busy = t.status === 'running' || t.status === 'waiting';
+    t.items.push({ type: 'user', text, images, steer, local: true, queued: busy && !steer, at: Date.now() }); touch(t, t.items.length - 1);
+    if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
+    scheduleRender(true);
+    call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))), _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
+  }
+  let toastEl = null;
+  const toast = (msg) => { if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'toast'; document.body.appendChild(toastEl); } toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastEl._t); toastEl._t = setTimeout(() => { toastEl.hidden = true; }, 4000); };
+
+  // ---------- helpers
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const projectOf = (cwd) => { if (!cwd) return ''; const t = cwd.replace(/\/+$/, ''); const parts = t.split('/').filter(Boolean); if (parts.length === 2 && (parts[0] === 'Users' || parts[0] === 'home')) return '~'; return parts[parts.length - 1] || t; };
+  const isAuto = (s) => { const bare = (s.name || '').split('/').pop(); const h = s.harness || ''; return h && (bare === h || (bare.startsWith(h + '-') && /^\d+$/.test(bare.slice(h.length + 1)))); };
+  const titleOf = (s) => { const t = (s.title || '').trim(); const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name; return t && isAuto(s) ? t : name; };
+  const groupOf = (s) => (s.peer ? s.peer + ' · ' : '') + projectOf(s.cwd);
+  const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'; };
+  const when = (ms) => { const d = new Date(ms), now = new Date(); const clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); const same = d.toDateString() === now.toDateString(); const y = new Date(now); y.setDate(now.getDate() - 1); return (same ? 'Today ' : d.toDateString() === y.toDateString() ? 'Yesterday ' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ') + clock; };
+  const shortTitle = (title) => title.split(' ').map((w) => { const t = w.replace(/^['"`]|['"`,]$/g, ''); return (t.startsWith('/') || t.startsWith('~/')) && (t.match(/\//g) || []).length >= 2 ? t.split('/').pop() : t; }).join(' ').replace(/^Read file /, 'Read ').replace(/^Write file /, 'Write ').replace(/^Edit file /, 'Edit ');
+  const glyphOf = (kind) => ({ read: '≡', edit: '✎', execute: '$', search: '⌕', fetch: '↓', think: '…', delete: '⇄', move: '⇄' }[kind] || '•');
+  const policyLabel = (p) => ({ 'approve-all': 'Full access', 'approve-edits': 'Edits allowed', 'approve-reads': 'Reads allowed', 'deny-all': 'Read-only' }[p] || 'Ask before acting');
+  const policyIcon = (p) => ({ 'approve-all': '✓', 'approve-edits': '✎', 'approve-reads': '◉', 'deny-all': '⊘' }[p] || '?');
+
+  function loadProjectPrefs() {
+    try {
+      const v = JSON.parse(localStorage.getItem(projectsKey) || '{}');
+      return { hidden: Array.isArray(v.hidden) ? v.hidden : [], custom: Array.isArray(v.custom) ? v.custom : [], order: Array.isArray(v.order) ? v.order : [] };
+    } catch (e) { return { hidden: [], custom: [], order: [] }; }
+  }
+  function saveProjectPrefs() {
+    try { localStorage.setItem(projectsKey, JSON.stringify(projectPrefs)); } catch (e) {}
+  }
+  function normalizePath(path) {
+    let p = String(path || '').trim();
+    if (!p) return '';
+    if (p === '~' && homeDir) return homeDir;
+    if (p.startsWith('~/') && homeDir) return homeDir.replace(/\/$/, '') + p.slice(1);
+    if (p.length > 1) p = p.replace(/\/+$/, '');
+    return p;
+  }
+  function detectedProjectPaths() {
+    const out = new Set();
+    for (const s of state.sessions) if (!s.peer && s.cwd) out.add(normalizePath(s.cwd));
+    return out;
+  }
+  function allProjectPaths() {
+    const out = detectedProjectPaths();
+    for (const p of projectPrefs.custom) if (p) out.add(normalizePath(p));
+    const known = new Set(out);
+    const order = projectPrefs.order.filter((p) => known.has(p));
+    const rest = Array.from(out).filter((p) => !order.includes(p)).sort((a, b) => a.localeCompare(b));
+    return order.concat(rest);
+  }
+  function visibleProjectPaths() {
+    const hidden = new Set(projectPrefs.hidden);
+    return allProjectPaths().filter((p) => !hidden.has(p));
+  }
+  function projectTitle(path) { return projectOf(path) || path || 'project'; }
+  function defaultsForHarness(harness) {
+    const info = agents[harness] || {};
+    const family = info.family;
+    const d = (family && harnessDefaults[family]) || {};
+    return Object.assign({}, d, info.defaults || {});
+  }
+  function modelOptionsFor(harness) {
+    const row = modelCatalog[harness];
+    if (row && Array.isArray(row.models) && row.models.length) return row.models;
+    const declared = agents[harness] && agents[harness].models;
+    if (Array.isArray(declared) && declared.length) return declared.map((m) => typeof m === 'string' ? { id: m, name: m } : m);
+    return [{ id: 'default', name: 'default model' }];
+  }
+  function defaultModelFor(harness) {
+    const d = defaultsForHarness(harness);
+    if (d.model) return d.model;
+    return 'default';
+  }
+  function modelDisplay(harness, id) {
+    if (!id || id === 'default') return 'default model';
+    const o = modelOptionsFor(harness).find((x) => x.id === id);
+    return modelLabel((o && (o.name || o.id)) || id);
+  }
+  function currentOption(detail, ids) {
+    const opts = detail && Array.isArray(detail.configOptions) ? detail.configOptions : [];
+    const o = opts.find((x) => ids.includes(x.id));
+    return o && o.currentValue || '';
+  }
+  function draftMeta(d) {
+    const meta = { harness: d.harness, policy: d.policy };
+    if (d.model && d.model !== 'default') meta.model = d.model;
+    if (d.effort && d.effort !== 'default') meta.effort = d.effort;
+    return meta;
+  }
+
+  // ---------- rendering: rail
+  const expanded = new Set();
+  function renderHosts(peers) {
+    const el = $('#hosts'); el.innerHTML = '<span class="host"><i></i>mac</span>' + peers.map((p) => '<span class="host" title="' + esc(p.url || '') + '"><i class="' + (p.connected ? '' : 'off') + '"></i>' + esc(p.name) + '</span>').join('');
+  }
+  function renderProjects() {
+    const el = $('#projects'); if (!el) return;
+    el.innerHTML = '';
+    for (const path of visibleProjectPaths()) {
+      const row = document.createElement('div'); row.className = 'project'; row.title = path;
+      row.innerHTML = '<span class="ic">▢</span><span class="name">' + esc(projectTitle(path)) + '</span><button class="plus" type="button" title="New session in ' + esc(path) + '">+</button>';
+      row.onclick = (e) => { if (e.target.classList.contains('plus')) { e.stopPropagation(); startDraft(path); } else startDraft(path); };
+      el.appendChild(row);
+    }
+    if (!el.children.length) {
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Add a project with ⚙'; el.appendChild(empty);
+    }
+  }
+  function renderList() {
+    const list = $('#list'); list.innerHTML = '';
+    const order = [], members = new Map();
+    const hidden = new Set(projectPrefs.hidden);
+    for (const s of state.sessions) {
+      if (!s.peer && s.cwd && hidden.has(normalizePath(s.cwd))) continue;
+      const g = JSON.stringify([s.peer || '', normalizePath(s.cwd)]); if (!members.has(g)) { order.push(g); members.set(g, []); } members.get(g).push(s);
+    }
+    $('#empty').hidden = order.length > 0;
+    if (!order.length && state.sessions.length) $('#empty').innerHTML = 'No visible sessions. Customize projects with ⚙.';
+    else $('#empty').innerHTML = 'No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code>';
+    for (const g of order) {
+      const rows = members.get(g);
+      const cwd = rows.find((s) => !s.peer && s.cwd);
+      const h = document.createElement('div'); h.className = 'grp'; h.innerHTML = '<span class="ic">▢</span><span class="name">' + esc(groupOf(rows[0])) + '</span>' + (cwd ? '<button class="plus" type="button" title="New session in ' + esc(cwd.cwd) + '">+</button>' : '');
+      if (cwd) h.querySelector('.plus').onclick = (e) => { e.stopPropagation(); startDraft(cwd.cwd); };
+      list.appendChild(h);
+      const cut = rows.length > 7 && !expanded.has(g) && !rows.slice(6).some((s) => s.sessionId === selected);
+      for (const s of (cut ? rows.slice(0, 6) : rows)) {
+        const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : ''); el.dataset.id = s.sessionId;
+        const pending = s.pendingPermissions > 0;
+        const mark = pending ? '<span class="mark q">?</span>' : s.status === 'running' ? '<span class="mark run">●</span>' : s.status === 'waiting' ? '<span class="mark q">?</span>' : (s.status === 'disconnected' || s.status === 'unreachable') ? '<span class="mark dot bad"></span>' : s.unread ? '<span class="mark dot"></span>' : '';
+        el.innerHTML = '<span class="name">' + esc(titleOf(s)) + '</span>' + mark + '<span class="dots" title="Actions">⋯</span>';
+        el.onclick = (e) => { if (e.target.classList.contains('dots')) { openMenu(e.target, s); } else select(s.sessionId); };
+        el.oncontextmenu = (e) => { e.preventDefault(); openMenu(e, s); };
+        el.onmouseenter = () => showHover(el, s);
+        el.onmouseleave = hideHover;
+        list.appendChild(el);
+      }
+      if (cut) { const m = document.createElement('div'); m.className = 'more'; m.textContent = 'Show more (' + (rows.length - 6) + ')'; m.onclick = () => { expanded.add(g); renderList(); }; list.appendChild(m); }
+    }
+  }
+
+  // Codex app: a card with the full title, directory, harness and age
+  // while a row is hovered; a small menu behind ⋯ or a right-click.
+  let hoverEl = null, hoverTimer = null, menuEl = null;
+  const ago = (ms) => { const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; };
+  function showHover(row, s) {
+    hideHover();
+    hoverTimer = setTimeout(() => {
+      const r = row.getBoundingClientRect();
+      hoverEl = document.createElement('div'); hoverEl.className = 'hovercard';
+      const title = titleOf(s); const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name;
+      const line2 = [(s.peer ? s.peer + ' · ' : '') + (s.cwd || ''), s.harness + (s.model && s.model !== 'default' ? ' · ' + s.model : ''), s.updatedAt ? ago(s.updatedAt) : ''].filter(Boolean).join('  ·  ');
+      hoverEl.innerHTML = '<div class="t">' + esc(title) + (title !== name ? ' <span class="s">· ' + esc(name) + '</span>' : '') + '</div><div class="s">' + esc(line2) + '</div>';
+      document.body.appendChild(hoverEl);
+      const top = Math.min(r.top, window.innerHeight - hoverEl.offsetHeight - 12);
+      hoverEl.style.left = (r.right + 8) + 'px'; hoverEl.style.top = top + 'px';
+    }, 350);
+  }
+  function hideHover() { clearTimeout(hoverTimer); if (hoverEl) { hoverEl.remove(); hoverEl = null; } }
+  function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+  function openMenu(at, s) {
+    closeMenu(); hideHover();
+    const r = at.getBoundingClientRect ? at.getBoundingClientRect() : { left: at.clientX, right: at.clientX, top: at.clientY, bottom: at.clientY };
+    menuEl = document.createElement('div'); menuEl.className = 'menu';
+    const act = (label, fn, bad) => { const b = document.createElement('button'); b.textContent = label; if (bad) b.className = 'bad'; b.onclick = () => { closeMenu(); fn(); }; menuEl.appendChild(b); };
+    act('Rename…', async () => { const name = prompt('New name:', s.name.replace(/^[^/]+\//, '')); if (!name) return; try { await call('_acpmux/rename', { sessionId: s.sessionId, newName: name }); } catch (e) { toast('error: ' + e.message); } });
+    act('Fork with history', async () => { const p = { sessionId: s.sessionId, mcpServers: [], _meta: { acpmux: {} } }; try { const r = await call('session/fork', p); const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } });
+    act('Open in a new tab', () => window.open(location.pathname + location.search.replace(/&session=[^&]*/, '') + '&session=' + encodeURIComponent(s.sessionId), '_blank'));
+    if (s.status !== 'closed' && s.status !== 'idle') act('Stop agent (keeps history)', async () => { try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: false }); } catch (e) { toast('error: ' + e.message); } });
+    menuEl.appendChild(document.createElement('hr'));
+    act('Delete session…', async () => { if (!confirm('Delete "' + titleOf(s) + '" and its history?')) return; try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: true }); state.sessions = state.sessions.filter((x) => x.sessionId !== s.sessionId); if (selected === s.sessionId) { selected = null; renderBar(); renderLog(true); } renderList(); } catch (e) { toast('error: ' + e.message); } }, true);
+    document.body.appendChild(menuEl);
+    const left = Math.min(r.right + 4, window.innerWidth - menuEl.offsetWidth - 8), top = Math.min(r.top, window.innerHeight - menuEl.offsetHeight - 8);
+    menuEl.style.left = left + 'px'; menuEl.style.top = top + 'px';
+    setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); hideHover(); } });
+
+  // ---------- rendering: header + composer chips
+  function renderBar() {
+    if (draft && !selected) { renderDraftBar(); return; }
+    $('#chip-draft-harness').hidden = true; $('#chip-draft-model').hidden = true; $('#chip-draft-policy').hidden = true;
+    $('#chip-policy').hidden = false; $('#chip-model').hidden = false;
+    const s = state.sessions.find((x) => x.sessionId === selected);
+    const d = state.details.get(selected) || {};
+    const t = state.transcripts.get(selected);
+    $('#proj').textContent = s ? (s.peer ? s.peer + ' · ' : '') + projectOf(s.cwd) : '';
+    $('#sep').hidden = !s;
+    $('#title').textContent = s ? titleOf(s) : '—';
+    const st = t ? t.status : (s ? s.status : '');
+    const stEl = $('#status'); stEl.textContent = st === 'waiting' || (s && s.pendingPermissions > 0) ? 'needs permission' : (st === 'disconnected' || st === 'unreachable' || st === 'closed') ? st : ''; stEl.className = 'st' + (st === 'disconnected' || st === 'unreachable' ? ' bad' : '');
+    $('#usage').textContent = t && t.usage && t.usage.size ? Math.round(t.usage.used / 1000) + 'k / ' + Math.round(t.usage.size / 1000) + 'k' : (t && t.usage ? Math.round(t.usage.used / 1000) + 'k tokens' : '');
+    $('#btn-steer').hidden = !(st === 'running');
+    for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = !s;
+    // Policy chip.
+    const policy = (s && s.policy) || 'approve-all'; $('#policy').value = policy; $('#policy-label').textContent = policyIcon(policy) + ' ' + policyLabel(policy); $('#chip-policy').className = 'chip policy-' + policy;
+    // Mode chip: only when the harness has more than one mode and it is not the plain default.
+    const modeSel = $('#mode'); modeSel.innerHTML = '';
+    const modes = (d.modes && d.modes.availableModes) || [];
+    for (const m of modes) modeSel.add(new Option(m.name || m.id, m.id));
+    const curMode = (t && t.mode) || (d.modes && d.modes.currentModeId) || '';
+    modeSel.value = curMode; $('#mode-label').textContent = (modes.find((m) => m.id === curMode) || {}).name || curMode;
+    // The plain default mode carries no information; other modes (plan, accept edits) do.
+    const modeName = ((modes.find((m) => m.id === curMode) || {}).name || '').toLowerCase();
+    $('#chip-mode').hidden = modes.length < 2 || ['default', 'normal', 'agent', 'build', ''].includes(curMode) || ['normal', 'default'].includes(modeName);
+    // Model chip.
+    const modelSel = $('#model'); modelSel.innerHTML = '';
+    const opts = d.configOptions || []; const modelOpt = opts.find((o) => o.id === 'model');
+    const models = modelOpt ? (modelOpt.options || []) : ((d.models && d.models.availableModels) || []).map((m) => ({ value: m.modelId || m.id, name: m.name }));
+    for (const o of models) modelSel.add(new Option(o.name || o.value, o.value));
+    const curModel = (t && t.model) || (modelOpt && modelOpt.currentValue) || (s && s.model) || '';
+    if (curModel) modelSel.value = curModel;
+    $('#model-label').textContent = curModel && curModel !== 'default' ? modelLabel(curModel) : ((s && s.harness) || 'model') + (curModel === 'default' ? ' · default' : '');
+    $('#chip-model').style.pointerEvents = models.length ? '' : 'none';
+    // Effort chip.
+    const eff = opts.find((o) => ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning'].includes(o.id) && o.options);
+    const effSel = $('#effort'); effSel.innerHTML = '';
+    if (eff) { for (const o of eff.options) effSel.add(new Option(o.name || o.value, o.value)); effSel.value = eff.currentValue; $('#effort-label').textContent = eff.currentValue === 'default' ? 'effort' : effortLabel(eff.currentValue); effSel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: eff.id, value: effSel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); }
+    $('#chip-effort').hidden = !eff || eff.currentValue === 'default';
+    renderPerm(t);
+  }
+  function renderDraftBar() {
+    $('#proj').textContent = draft.cwd ? projectOf(draft.cwd) : ''; $('#sep').hidden = !draft.cwd; $('#title').textContent = 'New session';
+    $('#status').textContent = ''; $('#usage').textContent = ''; $('#btn-steer').hidden = true;
+    for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = true;
+    $('#chip-draft-harness').hidden = false; $('#draft-harness-label').textContent = draft.harness || 'harness';
+    $('#chip-draft-model').hidden = false; $('#draft-model-label').textContent = modelDisplay(draft.harness, draft.model);
+    $('#chip-draft-policy').hidden = false; $('#chip-draft-policy').className = 'chip draft-config policy-' + draft.policy; $('#draft-policy-label').textContent = policyIcon(draft.policy) + ' ' + policyLabel(draft.policy);
+    $('#chip-policy').hidden = true; $('#chip-model').hidden = true;
+    $('#chip-mode').hidden = true; $('#chip-effort').hidden = true;
+    $('#perm').hidden = true; $('#perm').innerHTML = '';
+  }
+  function renderPerm(t) {
+    const el = $('#perm'); const perm = t && pendingPermission(t);
+    if (!perm) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    const permissionIcon = (kind) => kind === 'allow_always' ? '✓✓' : kind.startsWith('allow') ? '✓' : kind === 'reject_always' ? '⊘⊘' : '✕';
+    el.innerHTML = '<div class="box"><span class="t">? Needs permission · <span>' + esc(shortTitle(perm.title)) + '</span></span><span class="opts">' + perm.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="pill ' + (o.kind.startsWith('allow') ? 'allow' : 'bad') + '">' + permissionIcon(o.kind) + ' ' + esc(o.name) + '</button>').join('') + '</span><kbd>y allow · n reject</kbd></div>';
+    for (const b of el.querySelectorAll('button')) b.onclick = () => call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: b.dataset.opt }).catch((e) => toast(e.message));
+  }
+
+  // ---------- rendering: transcript
+  let renderedCount = 0, rafPending = false, barPending = false, col = null;
+  function scheduleRender(bar) {
+    if (bar) barPending = true;
+    if (rafPending) return; rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; renderLogIncremental(); if (barPending) { barPending = false; renderBar(); } });
+  }
+  // Pin the clicked summary while a details element changes height. Browser
+  // scroll anchoring is not consistent across engines.
+  function pinAccordion(details) {
+    const summary = details && details.querySelector(':scope > summary');
+    if (!summary || summary.dataset.pinned === '1') return;
+    summary.dataset.pinned = '1';
+    summary.addEventListener('click', () => {
+      const before = summary.getBoundingClientRect().top;
+      requestAnimationFrame(() => {
+        const delta = summary.getBoundingClientRect().top - before;
+        if (delta) $('#log').scrollTop += delta;
+      });
+    });
+  }
+  // The hover action row under a message: Copy (the raw text).
+  function actions(text) {
+    const row = document.createElement('div'); row.className = 'mact';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Copy'; b.title = 'Copy the message text';
+    b.onclick = (e) => { e.stopPropagation(); navigator.clipboard.writeText(text).then(() => toast('Copied'), () => toast('Copy failed')); };
+    row.appendChild(b); return row;
+  }
+  // A model id as the chip shows it: no trailing date stamp (-20251001).
+  const modelLabel = (m) => m.replace(/-\d{8}$/, '') || m;
+  // Effort as the Codex app words it: "Extra high", "High", "Medium", "Low".
+  const effortLabel = (e) => ({ xhigh: 'Extra high', 'x-high': 'Extra high', extra_high: 'Extra high', 'extra-high': 'Extra high', ultra: 'Ultra', max: 'Max', high: 'High', medium: 'Medium', low: 'Low', minimal: 'Minimal', none: 'None' })[e] || e;
+  function hero(text, sub) { return '<div class="hero"><div><h2>' + esc(text) + '</h2>' + esc(sub) + '</div></div>'; }
+  function renderLog() {
+    const log = $('#log');
+    const t = state.transcripts.get(selected);
+    const s = state.sessions.find((x) => x.sessionId === selected);
+    if (!selected && draft) {
+      // Codex app: the project name is the link to change it (and the name).
+      const where = draft.cwd ? projectOf(draft.cwd) : 'a directory';
+      log.innerHTML = '<div class="hero"><div><h2>What should we build ' + (draft.cwd ? 'in ' : '') + '<a href="#" id="draft-where" title="Name and directory">' + esc(where) + '</a>?</h2>Type below and press Enter to start.</div></div>';
+      $('#draft-where').onclick = (e) => { e.preventDefault(); openDirectory(); };
+      col = null; return;
+    }
+    if (!selected) { log.innerHTML = hero('What should we build?', 'Pick a session on the left, or start one.'); col = null; return; }
+    if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; col = null; return; }
+    log.innerHTML = ''; renderedCount = 0; t.dirty.clear();
+    if (!t.items.length && t.status !== 'running') { log.innerHTML = hero('What should we build in ' + projectOf(s && s.cwd) + '?', 'Type below and press Enter'); col = null; return; }
+    col = document.createElement('div'); col.className = 'col'; log.appendChild(col);
+    renderLogIncremental(); log.scrollTop = log.scrollHeight;
+  }
+  function renderLogIncremental() {
+    const log = $('#log'); const t = state.transcripts.get(selected); if (!t) return;
+    if (t.reorder) { t.reorder = false; renderLog(); return; }
+    if (!col) { renderLog(); return; }
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+    for (const i of t.dirty) { if (i < renderedCount) { const old = col.querySelector('[data-idx="' + i + '"]'); if (old) old.replaceWith(renderItem(t.items[i], i)); } }
+    t.dirty.clear();
+    for (; renderedCount < t.items.length; renderedCount++) {
+      const it = t.items[renderedCount];
+      // Queued messages stay at the bottom, under the running turn's work,
+      // until their own turn starts.
+      const firstQueued = col.querySelector('.msg.user.queued');
+      const put = (n) => (firstQueued && !(it.type === 'user' && it.queued)) ? col.insertBefore(n, firstQueued) : col.appendChild(n);
+      if (it.type === 'user' && it.at) { const w = document.createElement('div'); w.className = 'when'; w.textContent = when(it.at); put(w); }
+      const el = renderItem(it, renderedCount);
+      if (it.type === 'turn_result' || it.type === 'turn_end') { wrapWork(t, renderedCount, it); }
+      put(el);
+    }
+    renderWorking(t);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  // The work of a finished turn (everything between the user message and the
+  // final reply) folds under "Worked for 19s", as in the Codex app.
+  function wrapWork(t, endIdx, marker) {
+    let userIdx = -1, finalIdx = -1;
+    for (let i = endIdx - 1; i >= 0; i--) { const x = t.items[i]; if (x.type === 'user') { userIdx = i; break; } if (x.type === 'assistant' && finalIdx < 0) finalIdx = i; }
+    if (userIdx < 0) return;
+    const nodes = [];
+    for (const n of Array.from(col.children)) { const i = Number(n.dataset.idx); if (!Number.isFinite(i)) continue; if (i > userIdx && i < endIdx && i !== finalIdx && !n.classList.contains('work')) nodes.push(n); }
+    if (!nodes.length) return;
+    const d = document.createElement('details'); d.className = 'work'; d.open = openAll;
+    const start = marker.startAt || t.turnStartAt;
+    const ms = start && marker.at ? Math.max(0, marker.at - start) : (t.runningSince ? Date.now() - t.runningSince : 0);
+    const files = new Map(); let plus = 0, minus = 0, commands = 0, reads = 0, toolCalls = 0, failures = 0;
+    for (let i = userIdx + 1; i < endIdx; i++) {
+      const x = t.items[i]; if (x.type !== 'tool') continue;
+      toolCalls++;
+      if (x.status === 'failed') failures++;
+      if (x.kind === 'execute' || x.kind === 'terminal' || x.kind === 'shell' || /\b(run|exec|bash|shell|command)\b/i.test(x.title)) commands++;
+      if (x.kind === 'read' || x.kind === 'search' || x.kind === 'fetch') reads++;
+      const c = diffCounts(x.detail); if (!c) continue;
+      plus += c[0]; minus += c[1];
+      for (const l of x.detail.split('\n')) if (l.startsWith('@@ ')) { const p = l.slice(3); const cur = files.get(p) || [0, 0]; files.set(p, cur); }
+      // Per-file counts: attribute this tool's lines to its files.
+      const own = x.detail.split(/^@@ /m).slice(1);
+      for (const chunk of own) { const nl = chunk.indexOf('\n'); const p = chunk.slice(0, nl < 0 ? undefined : nl).trim(); const body = nl < 0 ? '' : chunk.slice(nl + 1); const cur = files.get(p) || [0, 0]; cur[0] += (body.match(/^\+ /mg) || []).length; cur[1] += (body.match(/^- /mg) || []).length; files.set(p, cur); }
+    }
+    const stats = [];
+    if (ms) stats.push('Worked for ' + dur(ms)); else stats.push('Worked');
+    if (files.size) stats.push(files.size + ' file' + (files.size === 1 ? '' : 's') + ' edited');
+    if (commands) stats.push(commands + ' command' + (commands === 1 ? '' : 's'));
+    if (reads) stats.push(reads + ' read' + (reads === 1 ? '' : 's'));
+    if (toolCalls && !commands && !reads) stats.push(toolCalls + ' tool call' + (toolCalls === 1 ? '' : 's'));
+    if (failures) stats.push(failures + ' failed');
+    d.innerHTML = '<summary><span>' + esc(stats.join(' · ')) + '</span><span class="chev">›</span></summary><div class="inner"></div>';
+    nodes[0].before(d);
+    const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
+    pinAccordion(d);
+    // "Edited 2 files +21 -2", listed per file, outside the fold (Codex app).
+    if (files.size) {
+      const card = document.createElement('div'); card.className = 'edits';
+      const rows = Array.from(files.entries()).map(([p, [a, b]]) => { const parts = p.split('/'); const base = parts.pop(); const dir = parts.length ? parts.slice(-2).join('/') + '/' : ''; return '<div class="file"><span><span class="dir">' + esc(dir) + '</span>' + esc(base) + '</span><span class="cnt"><span class="a">+' + a + '</span><span class="d">-' + b + '</span></span></div>'; });
+      card.innerHTML = '<div class="head"><span class="ic">✎</span><div><div class="t">Edited ' + files.size + ' file' + (files.size === 1 ? '' : 's') + '</div><div class="cnt"><span class="a">+' + plus + '</span><span class="d">-' + minus + '</span></div></div></div>' + rows.join('');
+      d.after(card);
+    }
+  }
+  let workingEl = null, workingTimer = null;
+  function renderWorking(t) {
+    if (!col) return;
+    const show = t.status === 'running';
+    if (show) {
+      if (!workingEl) { workingEl = document.createElement('div'); workingEl.className = 'working'; col.appendChild(workingEl); }
+      else if (col.lastElementChild !== workingEl) col.appendChild(workingEl);
+      const since = t.turnStartAt || t.runningSince;
+      const queued = t.items.filter((x) => x.type === 'user' && x.queued).length;
+      let label = since ? 'Working (' + dur(Date.now() - since) + ' · Esc to interrupt)' : 'Working…';
+      if (t.activity) label += ' · ' + t.activity;
+      if (t.activeTerminals) label += ' · ' + t.activeTerminals + ' background terminal' + (t.activeTerminals === 1 ? '' : 's');
+      else if (t.activeTools) label += ' · ' + t.activeTools + ' active tool' + (t.activeTools === 1 ? '' : 's');
+      workingEl.innerHTML = '<span class="shimmer">' + esc(label) + '</span>' + (queued ? '<span>· ' + queued + ' queued</span>' : '');
+      if (!workingTimer) workingTimer = setInterval(() => { const cur = state.transcripts.get(selected); if (cur) renderWorking(cur); }, 1000);
+    } else if (workingEl) { workingEl.remove(); workingEl = null; if (workingTimer) { clearInterval(workingTimer); workingTimer = null; } }
+  }
+  function renderItem(it, idx) {
+    const el = document.createElement('div'); el.dataset.idx = idx;
+    switch (it.type) {
+      case 'user': {
+        el.className = 'msg user' + (it.steer ? ' steer' : '') + (it.local ? ' local' : '') + (it.queued ? ' queued' : '');
+        if (it.text) el.appendChild(document.createTextNode(it.text));
+        if (it.images && it.images.length) { const imgs = document.createElement('div'); imgs.className = 'msg-images'; for (const image of it.images) { const img = document.createElement('img'); img.src = image.url || ('data:' + image.mimeType + ';base64,' + image.data); img.alt = image.name || 'attached image'; imgs.appendChild(img); } el.appendChild(imgs); }
+        if (!it.queued) el.appendChild(actions(it.text || '')); if (it.queued) { const q = document.createElement('div'); q.className = 'qtag'; q.textContent = 'queued · sends when the running turn ends'; el.appendChild(q); }
+        break;
+      }
+      case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); if (it.text.trim()) el.appendChild(actions(it.text)); for (const b of el.querySelectorAll('button.copy')) b.onclick = () => navigator.clipboard.writeText(b.closest('pre').querySelector('code').textContent).then(() => toast('Copied')); break;
+      case 'thought': { el.className = 'thought'; const first = (it.text.split('\n').find((l) => l.trim()) || '').trim().replace(/^\*+|\*+$/g, ''); el.innerHTML = '<details><summary><span class="lbl">Thought</span><span class="sum">' + esc(first) + '</span></summary><div class="body">' + esc(it.text) + '</div></details>';  pinAccordion(el.querySelector('details')); break; }
+      case 'tool': {
+        const counts = diffCounts(it.detail); const files = (it.detail || '').split('\n').filter((l) => l.startsWith('@@ ')).map((l) => l.slice(3).split('/').pop());
+        const title = files.length && (it.kind === 'edit' || /edit/i.test(it.title)) ? (it.status === 'completed' ? 'Edited ' : 'Editing ') + files.join(', ') : shortTitle(it.title);
+        el.className = 'act ' + esc(it.status) + (it.detail ? ' can' : '');
+        el.innerHTML = '<span class="ic">' + esc(glyphOf(it.kind)) + '</span><span>' + esc(title) + '</span>' + (counts ? '<span class="cnt"><span class="a">+' + counts[0] + '</span><span class="d">-' + counts[1] + '</span></span>' : '') + (it.detail ? '<span class="chev">›</span>' : '');
+        if (it.detail) {
+          const box = document.createElement('div'); box.className = 'act-detail'; box.hidden = true;
+          box.innerHTML = counts ? esc(it.detail).split('\n').map((l) => l.startsWith('+ ') ? '<span class="a">' + l + '</span>' : l.startsWith('- ') ? '<span class="d">' + l + '</span>' : l.startsWith('@@ ') ? '<span class="h">' + l + '</span>' : l).join('\n') : esc(it.detail);
+          const wrap = document.createElement('div'); wrap.dataset.idx = idx; wrap.appendChild(el); wrap.appendChild(box);
+          el.onclick = () => { box.hidden = !box.hidden; el.querySelector('.chev').textContent = box.hidden ? '›' : '▾'; };
+          return wrap;
+        }
+        break;
+      }
+      case 'plan': el.className = 'plan'; el.innerHTML = it.entries.map((e) => '<div class="' + esc(e.status) + '">' + esc(e.content) + '</div>').join(''); break;
+      case 'permission': el.className = 'act'; el.innerHTML = it.decided ? (it.decided.startsWith('allow') ? '<span class="ic">✓</span><span>Allowed  ' + esc(shortTitle(it.title)) + '</span>' : it.decided.startsWith('reject') ? '<span class="ic" style="color:var(--bad)">✗</span><span>Rejected  ' + esc(shortTitle(it.title)) + '</span>' : '<span class="ic">–</span><span>Cancelled  ' + esc(shortTitle(it.title)) + '</span>') : '<span class="ic" style="color:var(--attn)">?</span><span style="color:var(--attn)">Needs permission  ' + esc(shortTitle(it.title)) + '</span>'; if (it.decided && it.decided.startsWith('allow')) el.hidden = true; break;
+      case 'turn_end': case 'turn_result': el.className = 'note'; el.hidden = true; break;
+      case 'error': el.className = 'card err'; el.innerHTML = '<span class="ic">✗</span><div><div class="t">The turn failed</div><div class="s">' + esc(it.text) + '</div></div>'; break;
+      case 'stderr': el.className = 'note'; el.hidden = true; el.textContent = 'stderr: ' + it.text.slice(0, 300); break;
+      case 'note': el.className = 'note'; el.hidden = true; el.textContent = it.text; break;
+      default: el.className = 'note'; el.hidden = true;
+    }
+    return el;
+  }
+  // Markdown: headings, paragraphs, lists (nested by indent), fenced code with
+  // a language header and a copy button, inline code, bold, italic, links,
+  // simple pipe tables, quotes, rules.
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  }
+  function renderMd(src) {
+    const lines = src.replace(/\r/g, '').split('\n'); let out = '', i = 0;
+    const para = [];
+    const flush = () => { if (para.length) { out += '<p>' + inline(para.join(' ')) + '</p>'; para.length = 0; } };
+    while (i < lines.length) {
+      const l = lines[i];
+      const fence = l.match(/^```\s*([\w+.-]*)\s*$/);
+      if (fence) { flush(); const lang = fence[1]; let body = []; i++; while (i < lines.length && !/^```\s*$/.test(lines[i])) body.push(lines[i++]); i++; out += '<pre><div class="lang"><span>' + esc(lang || 'code') + '</span><button class="copy" type="button">Copy</button></div><code>' + esc(body.join('\n')) + '</code></pre>'; continue; }
+      const h = l.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { flush(); out += '<h' + Math.min(3, h[1].length) + '>' + inline(h[2]) + '</h' + Math.min(3, h[1].length) + '>'; i++; continue; }
+      if (/^\s*([-*+]|\d+[.)])\s+/.test(l)) {
+        flush();
+        const stack = [];
+        while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
+          const m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/); const depth = Math.floor(m[1].replace(/\t/g, '    ').length / 2); const ordered = /\d/.test(m[2]);
+          while (stack.length > depth + 1) { out += '</li></' + stack.pop() + '>'; }
+          if (stack.length === depth + 1) out += '</li>';
+          while (stack.length < depth + 1) { const tag = ordered ? 'ol' : 'ul'; stack.push(tag); out += '<' + tag + '>'; }
+          out += '<li>' + inline(m[3]); i++;
+          while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) { out += ' ' + inline(lines[i].trim()); i++; }
+        }
+        while (stack.length) { out += '</li></' + stack.pop() + '>'; }
+        continue;
+      }
+      if (/^\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+        flush(); const cells = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+        out += '<table><thead><tr>' + cells(l).map((c) => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>'; i += 2;
+        while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) { out += '<tr>' + cells(lines[i]).map((c) => '<td>' + c + '</td>').join('') + '</tr>'; i++; }
+        out += '</tbody></table>'; continue;
+      }
+      if (/^>\s?/.test(l)) { flush(); const q = []; while (i < lines.length && /^>\s?/.test(lines[i])) q.push(lines[i++].replace(/^>\s?/, '')); out += '<blockquote>' + inline(q.join(' ')) + '</blockquote>'; continue; }
+      if (/^\s*([-*_])\s*\1\s*\1[\s-*_]*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
+      if (!l.trim()) { flush(); i++; continue; }
+      para.push(l.trim()); i++;
+    }
+    flush();
+    return out;
+  }
+
+  // A directory change edits a draft; an existing session gets a new draft.
+  let directoryBase = '', directoryRequest = 0;
+  function resolveDirectory(path) {
+    path = String(path || '').trim().replace(/^(["'])(.*)\1$/, '$2');
+    if (!path) path = directoryBase || homeDir;
+    if (path === '~') path = homeDir || path;
+    else if (path.startsWith('~/') && homeDir) path = homeDir + path.slice(1);
+    else if (!path.startsWith('/')) path = directoryBase + '/' + path;
+    const parts = [];
+    for (const part of path.split('/')) { if (part === '..') parts.pop(); else if (part && part !== '.') parts.push(part); }
+    return '/' + parts.join('/');
+  }
+  async function browseDirectory() {
+    const request = ++directoryRequest;
+    const target = resolveDirectory($('#directory-path').value);
+    $('#directory-path').value = target;
+    let paths = allProjectPaths(), parent = target.split('/').slice(0,-1).join('/') || '/';
+    try {
+      const result = await call('_acpmux/directories', {path: target, cwd: directoryBase});
+      if (request !== directoryRequest) return;
+      paths = result.directories || []; parent = result.parent; homeDir = result.home || homeDir;
+      $('#directory-path').value = result.path;
+      $('#directory-note').textContent = 'Click a folder to browse, then use this directory.';
+    } catch (e) {
+      if (request !== directoryRequest) return;
+      $('#directory-note').textContent = e.message.includes('Method not found') ? 'Known projects shown. Restart the daemon for folder browsing.' : e.message;
+    }
+    const el = $('#directory-folders'); el.replaceChildren();
+    const add = (label,path) => { const b=document.createElement('button'); b.type='button'; b.style.cssText='display:block;width:100%;text-align:left'; b.textContent=label; b.title=path; b.onclick=()=>{$('#directory-path').value=path; browseDirectory();}; el.appendChild(b); };
+    if(parent) add('↑ Parent directory',parent);
+    for(const path of paths) add('▢ '+projectOf(path),path);
+  }
+  function openDirectory(path = '') {
+    const cur=state.sessions.find(s=>s.sessionId===selected);
+    if(cur && cur.peer) { toast('Change remote directories from the TUI'); return; }
+    directoryBase=(draft && draft.cwd)||(cur && cur.cwd)||homeDir;
+    $('#directory-path').value=path||directoryBase;
+    $('#dlg-directory').showModal(); $('#directory-path').focus(); browseDirectory();
+  }
+  $('#proj').onclick=()=>openDirectory();
+  $('#directory-cancel').onclick=()=>$('#dlg-directory').close();
+  $('#directory-browse').onclick=browseDirectory;
+  $('#form-directory').onsubmit=async e=>{
+    e.preventDefault(); let path=resolveDirectory($('#directory-path').value);
+    try { const result=await call('_acpmux/directories',{path,cwd:directoryBase}); path=result.path; }
+    catch(err) { if(!err.message.includes('Method not found')) { $('#directory-note').textContent=err.message; return; } }
+    if(draft) { draft.cwd=path; renderBar(); renderLog(); } else startDraft(path);
+    if(/^cd(?:\s|$)/.test($('#input').value.trim())) { $('#input').value=''; autosize(); }
+    $('#dlg-directory').close(); $('#input').focus();
+  };
+
+  // ---------- new session dialog
+  function fillModelSelect(sel, harness, wanted) {
+    sel.innerHTML = '';
+    const options = modelOptionsFor(harness);
+    if (!options.some(o => (o.value || o.id) === 'default')) sel.add(new Option('Default model', 'default'));
+    for (const o of options) sel.add(new Option(o.name || o.value || o.id, o.value || o.id));
+    const value = wanted || defaultModelFor(harness);
+    sel.value = Array.from(sel.options).some((o) => o.value === value) ? value : (sel.options[0] && sel.options[0].value) || 'default';
+  }
+  function fillNewEffort(wanted) { $('#new-effort').value = wanted || 'default'; }
+  function fillDraftEffort(wanted) { $('#draft-effort').value = wanted || 'default'; }
+  function openDraftConfig(field) {
+    if (!draft) return;
+    const sel = $('#draft-agent'); sel.innerHTML = '';
+    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
+    sel.value = draft.harness;
+    fillModelSelect($('#draft-model'), draft.harness, draft.model);
+    fillDraftEffort(draft.effort);
+    $('#draft-policy').value = draft.policy;
+    $('#dlg-draft-config').showModal();
+    if (field === 'harness') $('#draft-agent').focus();
+    else if (field === 'model') $('#draft-model').focus();
+    else if (field === 'policy') $('#draft-policy').focus();
+  }
+  $('#draft-agent').onchange = () => {
+    const harness = $('#draft-agent').value;
+    fillModelSelect($('#draft-model'), harness, defaultModelFor(harness));
+    fillDraftEffort(defaultsForHarness(harness).effort || 'default');
+  };
+  $('#draft-config-cancel').onclick = () => $('#dlg-draft-config').close();
+  $('#form-draft-config').onsubmit = (e) => {
+    e.preventDefault();
+    if (!draft) return $('#dlg-draft-config').close();
+    draft.harness = $('#draft-agent').value;
+    draft.model = $('#draft-model').value || 'default';
+    draft.effort = $('#draft-effort').value || 'default';
+    draft.policy = $('#draft-policy').value || 'approve-all';
+    call('_acpmux/set_default_policy', { policy: draft.policy }).catch(() => {});
+    $('#dlg-draft-config').close(); renderBar();
+  };
+
+  function renderProjectPrefs() {
+    const el = $('#project-prefs'); if (!el) return;
+    const paths = allProjectPaths(); el.innerHTML = '';
+    if (!paths.length) { el.innerHTML = '<div class="empty">No projects yet. Add a directory below.</div>'; return; }
+    const hidden = new Set(projectPrefs.hidden);
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i]; const row = document.createElement('div'); row.className = 'project-pref';
+      const custom = projectPrefs.custom.includes(path);
+      row.innerHTML = '<input type="checkbox" ' + (hidden.has(path) ? '' : 'checked') + ' aria-label="Show ' + esc(path) + '"><span class="path"><strong>' + esc(projectTitle(path)) + '</strong><small>' + esc(path) + '</small></span>' +
+        '<button type="button" class="move" title="Move up"' + (i ? '' : ' disabled') + '>↑</button><button type="button" class="move" title="Move down"' + (i === paths.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        (custom ? '<button type="button" class="remove" title="Remove project shortcut">×</button>' : '');
+      row.querySelector('input').onchange = (e) => {
+        projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path);
+        if (!e.target.checked) projectPrefs.hidden.push(path);
+        saveProjectPrefs(); renderProjects(); renderList();
+      };
+      const moves = row.querySelectorAll('.move');
+      moves[0].onclick = () => moveProject(path, -1);
+      moves[1].onclick = () => moveProject(path, 1);
+      const remove = row.querySelector('.remove');
+      if (remove) remove.onclick = () => { projectPrefs.custom = projectPrefs.custom.filter((p) => p !== path); projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path); projectPrefs.order = projectPrefs.order.filter((p) => p !== path); saveProjectPrefs(); renderProjectPrefs(); renderProjects(); renderList(); };
+      el.appendChild(row);
+    }
+  }
+  function moveProject(path, delta) {
+    const paths = allProjectPaths(); const at = paths.indexOf(path); const to = at + delta;
+    if (at < 0 || to < 0 || to >= paths.length) return;
+    paths.splice(at, 1); paths.splice(to, 0, path); projectPrefs.order = paths; saveProjectPrefs(); renderProjectPrefs(); renderProjects();
+  }
+  function openProjects() { renderProjectPrefs(); $('#dlg-projects').showModal(); }
+  $('#btn-projects').onclick = openProjects;
+  $('#project-add-btn').onclick = () => {
+    const path = normalizePath($('#project-path').value);
+    if (!path) return;
+    if (!projectPrefs.custom.includes(path)) projectPrefs.custom.push(path);
+    projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path);
+    if (!projectPrefs.order.includes(path)) projectPrefs.order.push(path);
+    saveProjectPrefs(); $('#project-path').value = ''; renderProjectPrefs(); renderProjects(); renderList();
+  };
+
+  function openNew() {
+    const sel = $('#new-agent'); sel.innerHTML = '';
+    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
+    const cur = state.sessions.find((x) => x.sessionId === selected);
+    const harness = (draft && draft.harness) || (cur && cur.harness) || defaultHarness || Object.keys(agents)[0] || '';
+    sel.value = harness;
+    const defaults = defaultsForHarness(harness);
+    if (draft) { $('#new-policy').value = draft.policy; fillModelSelect($('#new-model'), harness, draft.model); fillNewEffort(draft.effort); }
+    else { $('#new-policy').value = (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'approve-all'; fillModelSelect($('#new-model'), harness, (cur && cur.model) || defaults.model); fillNewEffort(defaults.effort); }
+    $('#new-cwd').value = (draft && draft.cwd) || (cur && cur.cwd) || $('#new-cwd').value || '';
+    $('#new-name').value = ''; $('#new-prompt').value = '';
+    $('#dlg-new').showModal(); $('#new-name').focus();
+  }
+  $('#btn-new').onclick = () => startDraft();
+  $('#new-agent').onchange = () => { const h = $('#new-agent').value; fillModelSelect($('#new-model'), h, defaultModelFor(h)); fillNewEffort(defaultsForHarness(h).effort); };
+  $('#new-cancel').onclick = () => $('#dlg-new').close();
+  $('#form-new').onsubmit = async (e) => {
+    e.preventDefault();
+    const meta = { harness: $('#new-agent').value, policy: $('#new-policy').value };
+    if ($('#new-model').value && $('#new-model').value !== 'default') meta.model = $('#new-model').value;
+    if ($('#new-effort').value && $('#new-effort').value !== 'default') meta.effort = $('#new-effort').value;
+    if ($('#new-name').value) meta.name = $('#new-name').value;
+    const params = { mcpServers: [], _meta: { acpmux: meta } };
+    if ($('#new-cwd').value) params.cwd = $('#new-cwd').value;
+    try {
+      const r = await call('session/new', params);
+      $('#dlg-new').close();
+      const s = r._meta && r._meta.acpmux; if (s) upsertSession(s);
+      select(r.sessionId);
+      const first = $('#new-prompt').value.trim();
+      if (first) call('session/prompt', { sessionId: r.sessionId, prompt: [{ type: 'text', text: first }] }).catch((e2) => toast(e2.message));
+    } catch (err) { toast('error: ' + err.message); }
+  };
+
+  // ---------- controls
+  $('#chip-draft-harness').onclick = () => openDraftConfig('harness');
+  $('#chip-draft-model').onclick = () => openDraftConfig('model');
+  $('#chip-draft-policy').onclick = () => openDraftConfig('policy');
+  $('#btn-send').onclick = () => send(false);
+  $('#btn-steer').onclick = () => send(true);
+  $('#btn-cancel').onclick = () => selected && notify('session/cancel', { sessionId: selected });
+  $('#btn-fork').onclick = async () => { if (!selected) return; const name = prompt('Name for the fork (blank for automatic):'); if (name === null) return; const p = { sessionId: selected, mcpServers: [], _meta: { acpmux: {} } }; if (name) p._meta.acpmux.name = name; try { const r = await call('session/fork', p); const s = r._meta && r._meta.acpmux; if (s) upsertSession(s); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } };
+  $('#btn-rename').onclick = async () => { if (!selected) return; const s = state.sessions.find((x) => x.sessionId === selected); const name = prompt('New name:', s ? s.name.replace(/^[^/]+\//, '') : ''); if (!name) return; try { await call('_acpmux/rename', { sessionId: selected, newName: name }); } catch (e) { toast('error: ' + e.message); } };
+  $('#btn-kill').onclick = async () => { if (!selected) return; if (!confirm('Stop the agent for this session? The log stays and it can resume later.')) return; try { await call('_acpmux/kill', { sessionId: selected, purge: false }); } catch (e) { toast('error: ' + e.message); } };
+  $('#mode').onchange = () => call('session/set_mode', { sessionId: selected, modeId: $('#mode').value }).catch((e) => toast(e.message));
+  $('#model').onchange = () => { if (draft && !selected) { draft.harness = $('#model').value; renderBar(); return; } call('session/set_model', { sessionId: selected, modelId: $('#model').value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); };
+  $('#policy').onchange = () => { if (draft && !selected) { draft.policy = $('#policy').value; call('_acpmux/set_default_policy', { policy: draft.policy }).catch(() => {}); renderBar(); return; } call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message)); };
+  const input = $('#input');
+  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 240) + 'px'; $('#btn-send').disabled = !input.value.trim() && !promptImages.length; };
+  input.addEventListener('input', autosize);
+  input.addEventListener('paste', (e) => {
+    const files = Array.from(e.clipboardData && e.clipboardData.files || []).filter((file) => file.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addImageFiles(files); }
+  });
+  const composer = document.querySelector('.composer');
+  let dragDepth = 0;
+  composer.addEventListener('dragenter', (e) => { if (Array.from(e.dataTransfer.items || []).some((item) => item.kind === 'file' && item.type.startsWith('image/'))) { e.preventDefault(); dragDepth++; composer.classList.add('drop-target'); } });
+  composer.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.items || []).some((item) => item.kind === 'file' && item.type.startsWith('image/'))) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  composer.addEventListener('dragleave', (e) => { if (!composer.contains(e.relatedTarget)) { dragDepth = 0; composer.classList.remove('drop-target'); } });
+  composer.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; composer.classList.remove('drop-target'); addImageFiles(Array.from(e.dataTransfer.files || []).filter((file) => file.type.startsWith('image/'))); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(false); }
+    else if (e.key === 'Escape') { notify('session/cancel', { sessionId: selected }); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && e.shiftKey && document.activeElement === input && !$('#dlg-new').open && !$('#dlg-draft-config').open && !$('#dlg-directory').open) {
+      e.preventDefault();
+      const options = Array.from($('#policy').options); const at = Math.max(0, options.findIndex((o) => o.value === $('#policy').value));
+      $('#policy').value = options[(at + options.length - 1) % options.length].value;
+      $('#policy').dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+    if (!document.querySelector('dialog[open]') && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
+    // Alt-↑/↓ (or Alt-j/k) walk the rail, as j/k do in the TUI; the rows
+    // are read in their shown order so groups and "Show more" are honored.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k' || e.key === '∆' || e.key === '˚')) {
+      e.preventDefault();
+      const ids = Array.from(document.querySelectorAll('#list .sess')).map((el) => el.dataset.id);
+      if (!ids.length) return;
+      const down = e.key === 'ArrowDown' || e.key === 'j' || e.key === '∆';
+      const at = ids.indexOf(selected);
+      const next = at < 0 ? (down ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + (down ? 1 : -1)));
+      if (ids[next] !== selected) { select(ids[next]); const row = document.querySelector('#list .sess.sel'); if (row) row.scrollIntoView({ block: 'nearest' }); }
+      return;
+    }
+    const t = selected && state.transcripts.get(selected); const perm = t && pendingPermission(t);
+    if (perm && document.activeElement !== input && !$('#dlg-new').open) {
+      if (e.key === 'y') { const o = perm.options.find((x) => x.kind.startsWith('allow')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }
+      if (e.key === 'n') { const o = perm.options.find((x) => x.kind.startsWith('reject')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }
+    }
+  });
+  if (matchMedia('(max-width: 760px)').matches) { const b = $('#toggle-side'); b.hidden = false; b.onclick = () => $('#side').classList.toggle('open'); }
+  connect();
+})();
+</script>
+</body>
+</html>

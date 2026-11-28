@@ -1,0 +1,15 @@
+<!doctype html><html><head><title>Closed Shadow Fixture</title></head><body>
+<h1>Closed shadow</h1>
+<div id="host"></div>
+<p id="out">none</p>
+<script>
+const root = document.getElementById("host").attachShadow({ mode: "closed" });
+root.innerHTML = '<label>Closed input <input id="ci"></label>' +
+  '<button onclick="document.getElementById(\'out\').textContent = \'closed \' + event.isTrusted">Closed button</button>';
+// A closed root nested inside an open one.
+const outer = document.createElement("div");
+document.body.appendChild(outer);
+const open = outer.attachShadow({ mode: "open" });
+open.innerHTML = '<div id="inner"></div>';
+open.getElementById("inner").attachShadow({ mode: "closed" }).innerHTML = '<a href="/aria.html">Nested closed link</a>';
+</script></body></html>

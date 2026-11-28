@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/whats-new/v1.schema.json",
+  "title": "cmux What's New document",
+  "description": "One release's What's New page (decision WHATS-NEW-AFTER-UPDATE W2). File name: whats-new/<version>.json. scripts/whats-new/validate.py is the full check (locales, wording, media files); this schema is the structural subset for editors and the web.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "version", "channel", "date", "headline", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-(rc|nightly)\\.[0-9]+)?$"
+    },
+    "channel": { "enum": ["stable", "rc", "nightly"] },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "headline": { "$ref": "#/$defs/localized" },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" }, "maxItems": 24 }
+  },
+  "$defs": {
+    "localized": {
+      "description": "Text per language (Apple codes: en, ja, zh-Hans, pt-BR, ...). en is required; stable and rc need every supported language.",
+      "type": "object",
+      "required": ["en"],
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "title", "summary", "platforms", "audience"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "category": { "enum": ["new", "improved", "fixed", "security"] },
+        "title": { "$ref": "#/$defs/localized" },
+        "summary": { "$ref": "#/$defs/localized" },
+        "media": { "$ref": "#/$defs/media" },
+        "tryIt": { "$ref": "#/$defs/tryIt" },
+        "docs": { "type": "string", "pattern": "^https://" },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["macos", "ios", "cli", "web"] }
+        },
+        "audience": { "enum": ["all", "teams", "enterprise"] }
+      }
+    },
+    "media": {
+      "description": "Paths relative to the whats-new/ directory.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "light", "dark", "alt"],
+      "properties": {
+        "kind": { "enum": ["image", "video"] },
+        "light": { "type": "string", "pattern": "^media/[A-Za-z0-9._/-]+$" },
+        "dark": { "type": "string", "pattern": "^media/[A-Za-z0-9._/-]+$" },
+        "alt": { "$ref": "#/$defs/localized" }
+      }
+    },
+    "tryIt": {
+      "description": "Exactly one of: a registry action id the app runs as the user, or a cmux:// deeplink.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$" },
+        "deeplink": { "type": "string", "pattern": "^cmux://" }
+      },
+      "oneOf": [{ "required": ["action"] }, { "required": ["deeplink"] }]
+    }
+  }
+}

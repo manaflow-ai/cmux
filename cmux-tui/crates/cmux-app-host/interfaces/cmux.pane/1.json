@@ -1,0 +1,14 @@
+{
+  "name": "cmux.pane/1",
+  "version": 1,
+  "docs": "A tab kind: a pane the user opens from the palette, open-with or an op.",
+  "props": {
+    "title": "string",
+    "symbol": "string?"
+  },
+  "methods": {
+    "render": "scene|web|native"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

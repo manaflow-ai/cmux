@@ -1,0 +1,163 @@
+import { TeamStore, type TeamScope } from "../src/storage/team-store";
+import { UserUsageStore } from "../src/storage/user-usage";
+import { UserSocketStore } from "../src/storage/socket-store";
+import { applyStorageMigrations as applyDeployedMigrations } from "./fixtures/schema-v6";
+import { applyStorageMigrations } from "../src/storage/migrations";
+import { drizzle } from "drizzle-orm/durable-sqlite";
+import { sql } from "drizzle-orm";
+import { OperationError } from "../src/errors";
+
+const scope: TeamScope = { environment: "test", projectId: "iroh-v2-test", teamId: "team-e2e" };
+
+/** Small real-workerd harness for storage tests. Production adapters call the same stores directly. */
+export class StorageTestDO {
+  readonly team: TeamStore;
+  readonly usage: UserUsageStore;
+  readonly sockets: UserSocketStore;
+  constructor(ctx: DurableObjectState, env: unknown) {
+    this.team = new TeamStore(ctx.storage, scope, { initialize: false });
+    this.usage = new UserUsageStore(ctx.storage, { environment: scope.environment, projectId: scope.projectId }, { initialize: false });
+    this.sockets = new UserSocketStore(ctx.storage, { environment: scope.environment, projectId: scope.projectId }, { initialize: false });
+    ctx.blockConcurrencyWhile(async () => this.team.initialize());
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    try {
+      const body = request.method === "POST" ? await request.json() as Record<string, any> : {};
+      const path = new URL(request.url).pathname;
+      if (path === "/issue") return Response.json(this.team.issueChallenge(body.identity, body.issue));
+      if (path === "/fill-challenges") {
+        // The expiry test leaves one pending slot. Fill the remaining slots with
+        // distinct identities, then the test can verify replacement at capacity.
+        for (let index = 0; index < 4095; index += 1) {
+          const fillIdentity = {
+            ...scope,
+            userId: `fill-user-${index}`,
+            deviceId: `fill-device-${index}`,
+            appNamespace: "cmux",
+            buildTag: "fill",
+          };
+          this.team.issueChallenge(fillIdentity, {
+            challengeId: `fill-${index}`,
+            nonceHash: `fill-nonce-${index}`,
+            payloadHash: `fill-payload-${index}`,
+            issuedAt: 7000 + index,
+            expiresAt: 10000 + index,
+          });
+        }
+        return Response.json({ ok: true });
+      }
+      if (path === "/validate") { this.team.validateRegistrationChallenge(body.input); return Response.json({ ok: true }); }
+      if (path === "/register") return Response.json(this.team.commitRegistration(body.input));
+      if (path === "/device") return Response.json(this.team.getDeviceByRecordId(body.deviceRecordId));
+      if (path === "/receipt") return Response.json(this.team.findRegistrationReceipt(body.identity, body.requestId, body.requestHash));
+      if (path === "/proof") { this.team.consumeDeviceProof(body.input); return Response.json({ ok: true }); }
+      if (path === "/revoke") { return Response.json({ revision: this.team.revokeDevice(body.deviceRecordId, body.now, body.actorUserId) }); }
+      if (path === "/usage") return Response.json(this.usage.consume(body.userId, body.operation, body.nowMs));
+      if (path === "/socket/reserve") { this.sockets.reserveSocket(body.input); return Response.json({ ok: true }); }
+      if (path === "/socket/output") { this.sockets.setOutput(body.userId, body.sessionId, body.revision, body.bytes, body.messages); return Response.json({ ok: true }); }
+      if (path === "/socket/release") { this.sockets.releaseSocket(body.userId, body.sessionId); return Response.json({ ok: true }); }
+      if (path === "/socket/list") return Response.json(this.sockets.listSocketReservations(body.userId));
+      if (path === "/upgrade-schema") { applyStorageMigrations(this.team.storage, Date.now(), body.version); return Response.json({ok: true}); }
+      if (path === "/legacy-reopen") { applyDeployedMigrations(this.team.storage); return Response.json({ok: true}); }
+      if (path === "/bridge-reopen") { applyStorageMigrations(this.team.storage); return Response.json({ok: true}); }
+      if (path === "/schema") return Response.json(Array.from(this.team.storage.sql.exec("SELECT version FROM schema_history ORDER BY version")));
+      if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
+      if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
+      // Models the first directory/relay request after an existing authority
+      // lease is renewed on a v6-compatible store. Both production operations
+      // pass through observeAuthority before reading private state.
+      if (path === "/authority/renewal") {
+        const revision = this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now);
+        const devices = this.team.listDirectoryDevices(body.requester, body.now);
+        return Response.json({ revision, devices: devices.length });
+      }
+      if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
+      if (path === "/audit/fill") {
+        const db = drizzle((this.team.storage));
+        db.run(sql.raw(`WITH RECURSIVE "seed"("n") AS (SELECT (SELECT count(*) + 1 FROM "authority_audit") UNION ALL SELECT "n" + 1 FROM "seed" WHERE "n" < 65536) INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") SELECT 'seed', 'audit-test', 'seed-' || "n", "n", "n", '{}' FROM "seed" WHERE "n" <= 65536`));
+        return Response.json({ ok: true });
+      }
+      if (path === "/audit/count") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`));
+      }
+      if (path === "/audit/usage") {
+        const db = drizzle((this.team.storage));
+        const version = db.get<{version: number}>(sql`SELECT max("version") AS "version" FROM "schema_history"`)!.version;
+        return Response.json(version === 7
+          ? db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)
+          : db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`));
+      }
+      if (path === "/audit/first") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ targetId: string }>(sql`SELECT "target_id" AS "targetId" FROM "authority_audit" ORDER BY "id" LIMIT 1`));
+      }
+      if (path === "/preferences") {
+        return Response.json({ revision: this.team.updateRelayPreferences(body.relayURLs, body.expectedRevision, body.actorUserId ?? "audit-test", body.now) });
+      }
+      return new Response("not found", { status: 404 });
+    } catch (error) {
+      // Classified failures report their public code so tests can tell a
+      // retryable capacity signal from an unclassified internal error.
+      const code = error instanceof OperationError ? error.code : error instanceof Error ? error.message : "unknown";
+      return Response.json({ code }, { status: 500 });
+    }
+  }
+}
+
+/** Isolated migration probe used only to exercise the runtime migration transaction. */
+export class MigrationProbeDO {
+  constructor(private readonly ctx: DurableObjectState) {}
+
+  async fetch(request: Request): Promise<Response> {
+    const body = request.method === "POST" ? await request.json() as Record<string, any> : {};
+    const db = drizzle(this.ctx.storage);
+    try {
+      switch (new URL(request.url).pathname) {
+        case "/seed":
+          applyStorageMigrations(this.ctx.storage, 1, 7);
+          return Response.json({ ok: true });
+        case "/corrupt": {
+          const mode = body.mode;
+          if (mode === "gap") db.run(sql`DELETE FROM "schema_history" WHERE "version" = 3`);
+          else if (mode === "future") db.run(sql`INSERT INTO "schema_history" ("version", "hash", "applied_at") VALUES (99, 'future', 1)`);
+          else if (mode === "wrong-hash") db.run(sql`UPDATE "schema_history" SET "hash" = 'wrong' WHERE "version" = 1`);
+          else if (mode === "wrong-audit-hash") db.run(sql`UPDATE "schema_history" SET "hash" = 'wrong' WHERE "version" = 7`);
+          else if (mode === "failed-upgrade") {
+            db.run(sql`DELETE FROM "schema_history" WHERE "version" = 5`);
+            db.run(sql.raw(`DROP TABLE IF EXISTS "user_authority"`));
+            db.run(sql.raw(`CREATE VIEW "user_authority" AS SELECT 1 AS "user_id", 1 AS "verified_at", 1 AS "expires_at"`));
+          } else throw new Error("unknown corruption mode");
+          return Response.json({ ok: true });
+        }
+        case "/downgrade-audit": {
+          // Recreate the v6 on-disk shape so the append-only v7 migration is
+          // exercised against the version currently deployed in production.
+          db.run(sql`INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") VALUES ('seed', 'migration-test', 'seed-1', 1, 1, '{}'), ('seed', 'migration-test', 'seed-2', 2, 2, '{}')`);
+          db.run(sql`DELETE FROM "schema_history" WHERE "version" = 7`);
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_insert_count"`));
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_delete_count"`));
+          db.run(sql.raw(`DROP TABLE "authority_audit_usage"`));
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_limit_guard"`));
+          db.run(sql.raw(`CREATE TRIGGER "authority_audit_limit_guard" BEFORE INSERT ON "authority_audit" WHEN (SELECT count(*) FROM "authority_audit") >= 65536 BEGIN SELECT RAISE(ABORT, 'audit_limit'); END`));
+          return Response.json({ ok: true });
+        }
+        case "/migrate":
+          applyStorageMigrations(this.ctx.storage, 2, 7);
+          return Response.json({ ok: true });
+        case "/inspect": {
+          const history = db.all(sql`SELECT "version", "hash" FROM "schema_history" ORDER BY "version"`);
+          const objects = db.all(sql`SELECT "name", "type" FROM "sqlite_master" WHERE "name" = 'user_authority'`);
+          const auditUsage = db.get(sql`SELECT "row_count" FROM "authority_audit_usage" WHERE "id" = 1`);
+          return Response.json({ history, objects, auditUsage });
+        }
+        default: return new Response("not found", { status: 404 });
+      }
+    } catch (error) {
+      return Response.json({ code: error instanceof Error ? error.message : "unknown" }, { status: 500 });
+    }
+  }
+}
+
+export default { fetch: () => new Response("storage test harness") };

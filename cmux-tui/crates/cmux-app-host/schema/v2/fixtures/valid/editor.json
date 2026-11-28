@@ -1,0 +1,32 @@
+{
+  "manifestVersion": 2,
+  "id": "octo/monaco",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "repository": "https://github.com/octo/monaco",
+  "runtime": {
+    "web": {
+      "root": "web/",
+      "csp": "default-src 'self'"
+    }
+  },
+  "implements": {
+    "cmux.editor/1": {
+      "web": "web/editor.html",
+      "types": [
+        "public.source-code",
+        "public.plain-text"
+      ]
+    }
+  },
+  "handles": {
+    "document": "Edit the files you open with it."
+  },
+  "files": [
+    "web/"
+  ]
+}

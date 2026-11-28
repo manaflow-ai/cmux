@@ -1,0 +1,44 @@
+/// Why the app supervisor cannot be reached.
+public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
+    /// The daemon runs but lacks the `apps-v1` capability.
+    case needsNewerDaemon
+    /// The daemon is not connected (starting, restarting, gone).
+    case notConnected
+    /// The daemon is not connected, with its real cause from the daemon
+    /// service (still restoring, the last connect error, the drop reason).
+    case notReady(String)
+    /// An administrator turned apps off on this Mac (DisabledFeatures); the
+    /// text says so. Nothing mounts and nothing changes until it is back on.
+    case turnedOff(String)
+
+    /// The reason as shown (banner, app sections, action refusals).
+    public var text: String { AppsStrings.unavailable(self) }
+}
+
+/// Whether the supervisor answers. `epoch` changes on every (re)connect:
+/// the client then lists again and re-mounts.
+public nonisolated enum AppsAvailability: Sendable, Hashable {
+    case available(epoch: Int)
+    case unavailable(AppsUnavailableReason)
+
+    public var isAvailable: Bool { if case .available = self { true } else { false } }
+}
+
+/// A supervisor refusal or a failed call (`error_code` and `error` of the
+/// daemon reply, or a transport failure without a code).
+public nonisolated struct AppsTransportError: Error, Sendable, Hashable, CustomStringConvertible {
+    public var code: String?
+    public var message: String
+    /// The connection dropped before the reply (the request may or may not
+    /// have reached the supervisor). A change then leaves the intent log
+    /// without a rejection; the next connection's list shows the truth.
+    public var connectionLost: Bool
+
+    public init(code: String? = nil, message: String, connectionLost: Bool = false) {
+        self.code = code
+        self.message = message
+        self.connectionLost = connectionLost
+    }
+
+    public var description: String { code.map { "\(message) [\($0)]" } ?? message }
+}

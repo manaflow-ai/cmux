@@ -1,0 +1,384 @@
+#!/usr/bin/env node
+// Browser REPL scenario runner. See tests/browser-parity/README.md.
+//
+//   node tests/browser-parity/run.mjs check  --backend cmux-dev [--only 03] [-v]
+//   node tests/browser-parity/run.mjs record --backend oracle|cmux-dev [--only 03]
+//   node tests/browser-parity/run.mjs run    --backend cmux|cmux-dev|oracle|host-headless|host-cef|host-webkit [--only 03]
+//
+// A scenario is REPL code in the one cmux API, split into cells by
+// `// ---- cell` lines. `emit(key, value)` records a behavior value that the
+// oracle (real Playwright on Chrome) owns; `emitCmux(key, value)` records a
+// value whose format cmux defines (snapshot text, printing). A scenario whose
+// header says `// oracle: skip (<reason>)` is cmux-owned throughout, and so is
+// a cell marked `// ---- cell cmux-only`, which the oracle does not run.
+import fs from "node:fs";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { startFixtureServers } from "./lib/fixture-server.mjs";
+import { normalize, diffValues } from "./lib/normalize.mjs";
+import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
+import { startOwnHost } from "./lib/parity-host.mjs";
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+const MARK = "@@PARITY@@";
+const HOST_ENGINES = ["headless", "cef", "webkit"];
+const BACKENDS = ["cmux", "cmux-dev", "oracle", ...HOST_ENGINES.map((e) => `host-${e}`)];
+
+function parseArgs(argv) {
+  const args = { mode: argv[0], backend: null, only: null, verbose: false };
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--backend") args.backend = argv[++i];
+    else if (a === "--only") args.only = argv[++i];
+    else if (a === "-v" || a === "--verbose") args.verbose = true;
+    else throw new Error(`unknown argument ${a}`);
+  }
+  if (!["record", "check", "run"].includes(args.mode) || !BACKENDS.includes(args.backend)) {
+    throw new Error(`usage: run.mjs record|check|run --backend ${BACKENDS.join("|")} [--only PREFIX] [-v]`);
+  }
+  if (args.mode === "record" && !["oracle", "cmux-dev"].includes(args.backend)) throw new Error("record from oracle (behavior) or cmux-dev (cmux-owned format)");
+  return args;
+}
+
+// Scenario files: a header comment, then cells.
+export function loadScenario(file) {
+  const text = fs.readFileSync(file, "utf8");
+  const skip = /^\/\/ oracle: skip\b(.*)$/m.exec(text);
+  const cells = [];
+  let current = { session: null, capture: false, lines: [] };
+  for (const line of text.split("\n")) {
+    const m = /^\/\/ ---- cell\b(.*)$/.exec(line);
+    if (m) {
+      cells.push(current);
+      const session = /session=([\w-]+)/.exec(m[1]);
+      current = { session: session ? session[1] : null, capture: /\bcapture\b/.test(m[1]), cmuxOnly: /\bcmux-only\b/.test(m[1]), lines: [] };
+      continue;
+    }
+    current.lines.push(line);
+  }
+  cells.push(current);
+  return {
+    name: path.basename(file, ".js"),
+    oracleSkip: !!skip,
+    cells: cells.map((c) => ({ session: c.session, capture: c.capture, cmuxOnly: !!c.cmuxOnly, body: c.lines.join("\n") })).filter((c) => c.body.split("\n").some((l) => l.trim() && !l.trim().startsWith("//"))),
+  };
+}
+
+function prelude(origins) {
+  const line = (extra) => `${JSON.stringify(MARK)} + JSON.stringify({ k, v: v === undefined ? null : v${extra} })`;
+  return [
+    `const PRIMARY = ${JSON.stringify(origins.primary)};`,
+    `const PEER = ${JSON.stringify(origins.peer)};`,
+    `const INSECURE = ${JSON.stringify(origins.insecure)};`,
+    `const emit = (k, v) => console.log(${line("")});`,
+    `const emitCmux = (k, v) => console.log(${line(", c: 1")});`,
+  ].join("\n");
+}
+
+// Cells stay top-level code so their declarations persist in a named
+// session; an uncaught error becomes an "__error__" value.
+function wrapCell(origins, cell) {
+  return `${prelude(origins)};\n${cell.body}`;
+}
+
+function exec(cmd, argv, { input, timeoutMs = 180_000, env, cwd } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env, cwd });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: 127, out, err: `${cmd}: ${e.message}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, out, err });
+    });
+    child.stdin.end(input ?? "");
+  });
+}
+
+const backends = {
+  // The engine-neutral runtime (cmux-tui/crates/cmux-browser-host/js) in this process on
+  // Playwright WebKit through the dev driver. No app build needed.
+  async "cmux-dev"(cells) {
+    const { runDevCells } = await import("./lib/dev-driver.mjs");
+    return runDevCells(cells);
+  },
+  // Real Playwright on headless Google Chrome with a thin shim of the globals.
+  async oracle(cells) {
+    const { runOracleCells } = await import("./lib/oracle.mjs");
+    return runOracleCells(cells);
+  },
+  // The app. PARITY_CMUX_CLI selects a tagged build's CLI; CMUX_SOCKET_PATH
+  // its socket. Each cell is one CLI call; a named session is reset after.
+  async cmux(cells, { scenario }) {
+    const cli = process.env.PARITY_CMUX_CLI ?? "cmux";
+    return runCliCells(cells, scenario, {
+      evalArgv: (session) => ["browser", "repl", ...(session ? ["--session", session] : []), "--eval", "-"],
+      resetArgv: (session) => ["browser", "repl", "reset", session],
+      exec: (argv, opts) => exec(cli, argv, opts),
+    });
+  },
+};
+
+// The Rust browser host (plans/cmux-next/browser-host.md) on one engine:
+// host-headless (headless Chromium over the CDP pipe), host-cef (in-app CEF
+// tabs relayed by a tagged no-activate app), host-webkit (in-app WebKit tabs
+// through the app's driver). Same scenarios and goldens on every engine; a
+// deliberate engine difference is recorded in the golden with a reason.
+//
+// PARITY_HOST_CLI=cmux (default once the Rust CLI verb exists) runs
+//   cmux browser repl --engine E [--session S] --eval -
+// otherwise PARITY_HOST_BIN (default cmux-browser-host) runs
+//   cmux-browser-host eval [--session S] --engine E -
+// and `close --session S` after a named session.
+for (const engine of HOST_ENGINES) {
+  backends[`host-${engine}`] = async (cells, { scenario }) => {
+    const viaCli = process.env.PARITY_HOST_CLI;
+    const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
+    const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    // The run's own host (lib/parity-host.mjs), one for all scenarios;
+    // `cmux browser repl` manages the daemon's host itself.
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
+    return runCliCells(cells, scenario, {
+      evalArgv: viaCli
+        ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
+        : (session) => ["eval", ...(session ? ["--session", session] : []), "--engine", engine, "-"],
+      resetArgv: viaCli ? (session) => ["browser", "repl", "close", session] : (session) => ["close", "--session", session],
+      exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
+      closeKeptTabs: true,
+    });
+  };
+}
+
+// The run's own `cmux-browser-host serve`, started on first use and stopped
+// when main ends (stopOwnHost), also when the run fails.
+let ownHostStarted = null;
+function ownHost(bin) {
+  ownHostStarted ??= startOwnHost({ cmd: bin });
+  return ownHostStarted;
+}
+async function stopOwnHost() {
+  if (!ownHostStarted) return;
+  const started = ownHostStarted;
+  ownHostStarted = null;
+  await started.then((host) => host.stop(), () => {});
+}
+
+// The marker of the tab-id list a host run prints before a scenario.
+const TABS_MARK = "__PARITY_TABS__";
+
+// One CLI call per cell; output lines without the CLI's status line. With
+// `closeKeptTabs` (host backends) the tabs open before the scenario are
+// listed first, and every other tab still open after it (the tabs it kept)
+// is closed, also when a cell fails: a host reused across scenarios does
+// not pile them up.
+export async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run, closeKeptTabs = false }) {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sessions = new Set();
+  const outputs = [];
+  // A new working directory for the scenario: the session's fs root, where
+  // scenarios write and remove their files, never the checkout.
+  const workDir = makeTestDir("parity-cmux-");
+  let before = null;
+  if (closeKeptTabs) {
+    const listed = await run(evalArgv(null), {
+      input: `console.log(${JSON.stringify(TABS_MARK)} + JSON.stringify((await tabs.list()).map((t) => t.id)));`,
+      cwd: workDir,
+    });
+    const line = listed.out.split("\n").find((l) => l.startsWith(TABS_MARK));
+    before = line ? JSON.parse(line.slice(TABS_MARK.length)) : null;
+  }
+  try {
+    for (const cell of cells) {
+      let name = null;
+      if (cell.session) {
+        name = `parity-${scenario}-${cell.session}-${suffix}`;
+        sessions.add(name);
+      }
+      const r = await run(evalArgv(name), { input: cell.code, cwd: workDir });
+      const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
+    }
+  } finally {
+    for (const name of sessions) await run(resetArgv(name), {});
+    if (before) {
+      await run(evalArgv(null), {
+        input: `const open = new Set(${JSON.stringify(before)}); for (const t of await tabs.list()) if (!open.has(t.id)) { try { await (await tabs.use(t.id)).close(); } catch {} }`,
+        cwd: workDir,
+      });
+    }
+    removeTestDir(workDir);
+  }
+  return outputs;
+}
+
+function parseEmits(outputs, cells) {
+  const emits = [];
+  outputs.forEach(({ output, error }, i) => {
+    const plain = [];
+    for (const line of output.split("\n")) {
+      const at = line.indexOf(MARK);
+      if (at < 0) {
+        plain.push(line);
+        continue;
+      }
+      try {
+        emits.push({ ...JSON.parse(line.slice(at + MARK.length)), cmuxOnly: cells[i].cmuxOnly });
+      } catch {
+        emits.push({ k: "__unparsed__", v: line });
+      }
+    }
+    if (cells[i].capture) emits.push({ k: `output:${i + 1}`, v: plain.join("\n"), c: 1 });
+    if (error) emits.push({ k: `__error__:${i + 1}`, v: String(error).split("\n")[0] });
+  });
+  return emits;
+}
+
+// The values a backend must emit. The Rust host backends (host-*) follow
+// cmux-next's automation lease (plans/cmux-next/automation-lease.md); where
+// that intentionally differs from classic, the golden's `lease` section
+// overrides a value (`{"$absent": true}`: the key is not emitted) and names
+// the lease rule in `lease.reasons` (README, "Intentional cmux-next
+// differences"). The `backends` section does the same for one backend.
+export function expectedValues(backend, golden) {
+  if (backend === "oracle") return { ...golden.oracle };
+  const expected = { ...golden.oracle, ...golden.cmux };
+  if (backend.startsWith("host-") && golden.lease) {
+    for (const [key, value] of Object.entries(golden.lease.values || {})) {
+      if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+      else expected[key] = value;
+    }
+  }
+  // One engine's deliberate difference (README, same section): only that
+  // backend gets it.
+  for (const [key, value] of Object.entries(golden.backends?.[backend]?.values || {})) {
+    if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+    else expected[key] = value;
+  }
+  return expected;
+}
+
+// known-failures.json: a scenario whose differing keys are exactly the
+// keys recorded for this platform and backend fails for a known
+// environment reason; returns that reason, else null.
+export function knownFailure(backend, name, problems, platform = process.platform) {
+  if (!problems.length) return null;
+  const file = path.join(root, "known-failures.json");
+  const known = JSON.parse(fs.readFileSync(file, "utf8"));
+  // "*" lists engine differences that hold on every platform.
+  const entry = known[platform]?.[backend]?.[name] ?? known["*"]?.[backend]?.[name];
+  if (!entry) return null;
+  // A scenario that tests a behavior this backend's engine does not have:
+  // any difference is known.
+  if (entry.notApplicable === true) return entry.reason;
+  // Otherwise only value differences can be known: a missing or unexpected
+  // key (an error included) is always a failure.
+  if (problems.some((p) => !p.startsWith('"'))) return null;
+  const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
+  const listed = new Set(entry.keys);
+  const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;
+  return same ? entry.reason : null;
+}
+
+const goldenPath = (name) => path.join(root, "goldens", `${name}.json`);
+const readGolden = (name) => (fs.existsSync(goldenPath(name)) ? JSON.parse(fs.readFileSync(goldenPath(name), "utf8")) : null);
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const dir = path.join(root, "scenarios");
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && (!args.only || f.startsWith(args.only))).sort();
+  const server = await startFixtureServers();
+  let failures = 0;
+  let total = 0;
+  let knownCount = 0;
+  try {
+    for (const file of files) {
+      const scenario = loadScenario(path.join(dir, file));
+      if (args.backend === "oracle" && scenario.oracleSkip) continue;
+      total++;
+      // `cmux-only` cells use APIs with no Playwright counterpart; all their
+      // values are cmux-owned and the oracle does not run them.
+      const cells = scenario.cells
+        .filter((c) => !(c.cmuxOnly && args.backend === "oracle"))
+        .map((c) => ({ ...c, code: wrapCell(server.origins, c) }));
+      let outputs;
+      try {
+        outputs = await backends[args.backend](cells, { scenario: scenario.name });
+      } catch (e) {
+        outputs = [{ output: "", error: `backend failed: ${e.stack || e}` }];
+        cells.length = 1;
+      }
+      const emits = parseEmits(outputs, cells).map((e) => ({ ...e, v: normalize(e.v, server.origins) }));
+      // Behavior keys belong to the oracle unless the scenario skips it.
+      const owner = (e) => (e.c || e.cmuxOnly || scenario.oracleSkip ? "cmux" : "oracle");
+      if (args.mode === "run") {
+        console.log(scenario.name);
+        for (const e of emits) console.log(`  [${owner(e)}] ${e.k} = ${JSON.stringify(e.v).slice(0, 300)}`);
+        if (args.verbose) console.log(outputs.map((o) => o.output).join("\n-----\n"));
+        continue;
+      }
+      if (args.mode === "record") {
+        const errors = emits.filter((e) => e.k.startsWith("__"));
+        const want = args.backend === "oracle" ? "oracle" : "cmux";
+        const golden = readGolden(scenario.name) ?? { oracle: {}, cmux: {} };
+        golden[want] = {};
+        for (const e of emits) if (!e.k.startsWith("__") && owner(e) === want) golden[want][e.k] = e.v;
+        if (errors.length) {
+          failures++;
+          console.log(`NOT RECORDED ${scenario.name}: ${errors.map((e) => `${e.k}: ${e.v}`).join("; ").slice(0, 600)}`);
+          continue;
+        }
+        fs.mkdirSync(path.dirname(goldenPath(scenario.name)), { recursive: true });
+        fs.writeFileSync(goldenPath(scenario.name), JSON.stringify(golden, null, 2) + "\n");
+        console.log(`recorded ${scenario.name}: ${Object.keys(golden[want]).length} ${want} values`);
+        continue;
+      }
+      const golden = readGolden(scenario.name);
+      if (!golden) {
+        failures++;
+        console.log(`FAIL ${scenario.name}: no golden`);
+        continue;
+      }
+      const expected = expectedValues(args.backend, golden);
+      const actual = {};
+      const problems = [];
+      for (const e of emits) {
+        if (args.backend === "oracle" && owner(e) !== "oracle" && !e.k.startsWith("__")) continue;
+        if (e.k in actual) problems.push(`key "${e.k}" emitted twice`);
+        actual[e.k] = e.v;
+      }
+      problems.push(...diffValues(expected, actual));
+      const known = knownFailure(args.backend, scenario.name, problems);
+      if (known) {
+        knownCount++;
+        console.log(`KNOWN ${scenario.name}: ${known}`);
+      } else if (problems.length) {
+        failures++;
+        console.log(`FAIL ${scenario.name}`);
+        for (const p of problems) console.log(`  ${p}`);
+        if (args.verbose) console.log(outputs.map((o) => o.output).join("\n-----\n").slice(-4000));
+      } else console.log(`PASS ${scenario.name}`);
+    }
+  } finally {
+    await stopOwnHost();
+    await server.close();
+  }
+  if (args.mode !== "run") {
+    console.log(`\n${total - failures - knownCount}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}${knownCount ? ` (${knownCount} known environment failure${knownCount > 1 ? "s" : ""}, known-failures.json)` : ""}`);
+    process.exitCode = failures ? 1 : 0;
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    console.error(e.stack || e.message);
+    process.exitCode = 2;
+  });
+}

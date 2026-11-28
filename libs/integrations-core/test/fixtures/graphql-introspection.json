@@ -1,0 +1,29 @@
+{
+  "data": {
+    "__schema": {
+      "queryType": { "name": "Query" },
+      "mutationType": { "name": "Mutation" },
+      "types": [
+        {
+          "kind": "OBJECT", "name": "Query", "fields": [
+            { "name": "project", "description": "One project.", "args": [{ "name": "id", "type": { "kind": "NON_NULL", "ofType": { "kind": "SCALAR", "name": "ID" } } }], "type": { "kind": "OBJECT", "name": "Project" } },
+            { "name": "projects", "args": [{ "name": "first", "type": { "kind": "SCALAR", "name": "Int" } }, { "name": "status", "type": { "kind": "ENUM", "name": "Status" } }], "type": { "kind": "LIST", "ofType": { "kind": "OBJECT", "name": "Project" } } },
+            { "name": "__internal", "args": [], "type": { "kind": "SCALAR", "name": "String" } }
+          ]
+        },
+        {
+          "kind": "OBJECT", "name": "Mutation", "fields": [
+            { "name": "createProject", "args": [{ "name": "input", "type": { "kind": "NON_NULL", "ofType": { "kind": "INPUT_OBJECT", "name": "ProjectInput" } } }], "type": { "kind": "OBJECT", "name": "Project" } },
+            { "name": "deleteProject", "args": [{ "name": "id", "type": { "kind": "NON_NULL", "ofType": { "kind": "SCALAR", "name": "ID" } } }], "type": { "kind": "SCALAR", "name": "Boolean" } },
+            { "name": "deleted", "description": "Not a destructive verb: a noun.", "args": [], "type": { "kind": "SCALAR", "name": "Int" } }
+          ]
+        },
+        { "kind": "OBJECT", "name": "Project", "fields": [{ "name": "id", "args": [], "type": { "kind": "SCALAR", "name": "ID" } }] },
+        { "kind": "INPUT_OBJECT", "name": "ProjectInput", "inputFields": [{ "name": "name", "type": { "kind": "NON_NULL", "ofType": { "kind": "SCALAR", "name": "String" } } }, { "name": "tags", "type": { "kind": "LIST", "ofType": { "kind": "NON_NULL", "ofType": { "kind": "SCALAR", "name": "String" } } } }] },
+        { "kind": "ENUM", "name": "Status", "enumValues": [{ "name": "OPEN" }, { "name": "DONE" }] },
+        { "kind": "SCALAR", "name": "ID" },
+        { "kind": "OBJECT", "name": "__Schema", "fields": [] }
+      ]
+    }
+  }
+}

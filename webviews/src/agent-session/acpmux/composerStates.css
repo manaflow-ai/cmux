@@ -1,0 +1,323 @@
+/* Interaction states for the composer and its menus: every control gets a hover and a pressed
+   state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
+   accent hue appears and every theme keeps its character. Only colors change (never size,
+   padding or borders), so a state never shifts the layout.
+
+   Motion tokens: the native host sends its MotionFade durations with the theme
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
+   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
+   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
+   no-preference, as the transcript's do. */
+:root {
+  --agent-motion-hover: 80ms;
+  --agent-motion-focus: 100ms;
+  --agent-motion-in: 120ms;
+  --agent-motion-out: 80ms;
+  /* The native move spring's timed equivalent (MotionSpring.move). */
+  --agent-motion-move: 190ms;
+  /* Core Animation's easeOut, which the native fades use. */
+  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+}
+
+.acpmux-shell {
+  /* The composer's surface (Leo 10-14), New Tab's box and the chat composer alike, derived from the
+     theme's opaque page color: in a light theme the page lifted toward white, so the composer is
+     lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
+     toward the text, as the theme's elevated surface. Solid, so it sits as chrome over a wallpaper. */
+  --acpmux-composer-surface: light-dark(
+    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
+    color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+  );
+  /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
+     none in a dark one, where a drop shadow on a dark page shows nothing. */
+  --acpmux-composer-shadow: var(--elevation-1);
+  /* One step past hover, for the press. */
+  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+:root[data-theme="dark"] .acpmux-shell {
+  --acpmux-composer-shadow: 0 0 transparent;
+}
+
+/* Composer chips: Plan, the mode, model and effort pickers, and +. */
+.acpmux-picker-button:active,
+.acpmux-plan:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
+}
+.acpmux-plan[aria-pressed="true"]:active {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
+}
+/* A press shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never
+   delays the tone under the button going down. */
+.acpmux-picker-button:active,
+.acpmux-plan:active,
+.acpmux-location-button:active {
+  transition-duration: 0s;
+}
+/* A menu takes focus when it opens so its keys work; a click on its chip never draws a ring around
+   it (WebKit draws one after typing, as keyboard focus). Its rows show the highlight instead. */
+.ui-popup.ui-menu:focus,
+.ui-popup.ui-menu:focus-visible {
+  outline: none;
+}
+
+/* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
+.acpmux-steer {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.acpmux-steer:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-steer:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}
+
+/* Send is the one accent-filled control (the terminal theme's text color, or its own hue with
+   appearance.accent; never the ANSI blue); Stop is the same disc in the text color
+   (composerLocation.css). Each steps toward the base on hover and further on press. */
+.acpmux-send.acpmux-send-ready:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
+}
+.acpmux-send.acpmux-send-ready:active {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
+}
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
+}
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
+}
+
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
+   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
+button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
+  background: var(--acpmux-send-off-bg);
+  color: var(--acpmux-send-off-fg);
+  cursor: default;
+}
+
+/* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
+.acpmux-mic:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-mic:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-mic[data-state="listening"]:hover,
+.acpmux-mic[data-state="finalizing"]:hover {
+  background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
+  color: var(--agent-danger);
+}
+.acpmux-mic[data-state="listening"]:active,
+.acpmux-mic[data-state="finalizing"]:active {
+  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
+}
+.acpmux-dictation-settings:hover,
+.acpmux-dictation-dismiss:hover {
+  background: var(--acpmux-menu-press);
+  color: var(--agent-text);
+}
+.acpmux-dictation-settings:active,
+.acpmux-dictation-dismiss:active {
+  background: color-mix(in srgb, var(--agent-text) 26%, var(--acpmux-base));
+}
+
+/* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
+.acpmux-menu-item:active,
+.acpmux-slash-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* New chat's lists (needs input, in progress, recent): rows hover in styles.css; a press steps further. */
+.acpmux-home-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+@keyframes acpmux-menu-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-picker-button,
+  .acpmux-plan {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-send {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-mic,
+  .acpmux-dictation-settings,
+  .acpmux-dictation-dismiss {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu-item,
+  .acpmux-slash-row,
+  .acpmux-home-row {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu,
+  .acpmux-slash-menu {
+    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+}
+
+/* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
+   glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
+   line height as the markdown prompt, so entering or leaving moves nothing. */
+.acpmux-composer {
+  --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+}
+.acpmux-composer-prompt.is-hidden {
+  display: none;
+}
+.acpmux-shell-prompt {
+  position: relative;
+}
+.acpmux-shell-glyph {
+  position: absolute;
+  left: 16px;
+  top: 15px;
+  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--acpmux-shell-accent);
+  pointer-events: none;
+}
+.acpmux-shell-field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 45px;
+  max-height: calc(22px * 8 + 23px);
+  margin: 0;
+  padding: 15px 16px 8px 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  resize: none;
+  overflow-y: auto;
+  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--agent-text);
+  caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
+}
+.acpmux-shell-field::placeholder {
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
+  opacity: 1;
+}
+/* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
+   composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
+   (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
+   with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
+   the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
+   idle one in every theme (cg-composer focus audit, 10-14). The location strip on the card's top
+   edge takes the same tone, so the focused rim stays one outline. Shell mode takes its own accent,
+   the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+.acpmux-composer,
+.nt-composer {
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 30%, var(--acpmux-composer-edge));
+}
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-edge-focus: transparent;
+}
+.acpmux-composer-box:focus-within {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
+  --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
+}
+/* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
+   sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  box-shadow:
+    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-composer-edge-focus);
+}
+:root[data-borders="none"] .acpmux-composer-box {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) transparent;
+}
+/* A footer chip has no bezel, so the shared ring (desktop.css) set 2 px off it drew an empty
+   rounded box around bare text, the heaviest mark in the row. Under keyboard focus the chip takes
+   its hover wash (the row's own, --acpmux-row-hover in composerLocation.css, never the heavier pane
+   wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
+   circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
+   file). Increase Contrast keeps the shared offset ring. */
+.acpmux-composer-bar .acpmux-picker-button:focus-visible {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  outline-offset: 0;
+}
+/* Its ink steps up as on hover, so focus reads as hover with a ring (unrestricted access keeps its
+   warning color). */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access:not(.acpmux-unrestricted)) .acpmux-picker-button:focus-visible {
+  color: var(--agent-text);
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
+}
+.acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
+}
+/* Under Increase Contrast the edge is already the text color, so the step above would not show:
+   the box takes the shared focus ring, following its rounded corners. */
+@media (prefers-contrast: more) {
+  .acpmux-composer-box:focus-within,
+  .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+    --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}
+.acpmux-composer[data-shell] .acpmux-composer-box {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+
+/* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row
+   focused from the keyboard shows its ring and its actions; an edit takes the text's place. */
+.acpmux-queued-menu {
+  display: contents;
+}
+.acpmux-queued:focus {
+  outline: none;
+}
+.acpmux-queued:focus-visible {
+  border-radius: 6px;
+  background: var(--acpmux-composer-hover);
+}
+.acpmux-queued:focus-visible .acpmux-queued-actions {
+  opacity: 1;
+}
+.acpmux-queued-edit {
+  flex: 1;
+  min-width: 0;
+  max-height: 88px;
+  margin: 2px 0;
+  padding: 2px 6px;
+  resize: none;
+  line-height: 18px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1px;
+  background: var(--acpmux-base);
+  color: var(--agent-text);
+  font: inherit;
+}

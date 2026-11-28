@@ -1,0 +1,2243 @@
+{
+  "schemaVersion": 1,
+  "engines": {
+    "chromium": {
+      "profiles": "chromiumLocalState",
+      "bookmarks": "chromiumJSON",
+      "files": {
+        "bookmarks": "Bookmarks",
+        "history": "History",
+        "passwords": "Login Data",
+        "cookies": "Network/Cookies"
+      }
+    },
+    "firefox": {
+      "profiles": "firefoxProfilesIni",
+      "bookmarks": "firefoxPlaces",
+      "files": {
+        "bookmarks": "places.sqlite",
+        "history": "places.sqlite",
+        "passwords": "logins.json",
+        "cookies": "cookies.sqlite"
+      }
+    },
+    "safari": {
+      "profiles": "single",
+      "bookmarks": "safariPlist",
+      "files": {
+        "bookmarks": "Bookmarks.plist",
+        "history": "History.db"
+      }
+    },
+    "webkit": {
+      "profiles": "single",
+      "bookmarks": "none",
+      "files": {}
+    },
+    "other": {
+      "profiles": "single",
+      "bookmarks": "none",
+      "files": {}
+    }
+  },
+  "browsers": [
+    {
+      "id": "chrome",
+      "name": "Google Chrome",
+      "vendor": "Google",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.google.Chrome"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Google/Chrome"
+      ],
+      "safeStorage": {
+        "service": "Chrome Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/google-chrome.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "chromeBeta",
+      "name": "Google Chrome Beta",
+      "vendor": "Google",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.google.Chrome.beta"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Google/Chrome Beta"
+      ],
+      "safeStorage": {
+        "service": "Chrome Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/google-chrome@beta.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "chromeDev",
+      "name": "Google Chrome Dev",
+      "vendor": "Google",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.google.Chrome.dev"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Google/Chrome Dev"
+      ],
+      "safeStorage": {
+        "service": "Chrome Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/google-chrome@dev.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "chromeCanary",
+      "name": "Google Chrome Canary",
+      "vendor": "Google",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.google.Chrome.canary"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Google/Chrome Canary"
+      ],
+      "safeStorage": {
+        "service": "Chrome Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/google-chrome@canary.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "chromium",
+      "name": "Chromium",
+      "vendor": "The Chromium Project",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "org.chromium.Chromium",
+        "ru.cryptopro.chromium-gost"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Chromium"
+      ],
+      "safeStorage": {
+        "service": "Chromium Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chromium.rb",
+          "note": "Chromium, ungoogled-chromium and Chromium-Gost share this folder (ungoogled-chromium also the bundle id)."
+        }
+      ]
+    },
+    {
+      "id": "arc",
+      "name": "Arc",
+      "vendor": "The Browser Company",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "company.thebrowser.Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Arc/User Data"
+      ],
+      "safeStorage": {
+        "service": "Arc Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/a/arc.rb",
+          "note": "Chromium profiles in Arc/User Data with no Bookmarks file; pinned tabs, folders and Favorites live in Arc/StorableSidebar.json (seen on a real install)."
+        }
+      ],
+      "bookmarks": "arcSidebar",
+      "sidebarFile": "Library/Application Support/Arc/StorableSidebar.json"
+    },
+    {
+      "id": "dia",
+      "name": "Dia",
+      "vendor": "The Browser Company",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "company.thebrowser.dia"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Dia/User Data"
+      ],
+      "safeStorage": {
+        "service": "Dia Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/t/thebrowsercompany-dia.rb",
+          "note": "Dia/User Data holds Local State and Default/Bookmarks (seen on a real install); Keychain name seen in Aside's importer."
+        }
+      ]
+    },
+    {
+      "id": "comet",
+      "name": "Comet",
+      "vendor": "Perplexity",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "ai.perplexity.comet"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Comet"
+      ],
+      "safeStorage": {
+        "service": "Comet Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/driceroland/Search/pull/301",
+          "note": "Profiles directly under Comet/ (no User Data folder); Keychain name seen in Aside's importer."
+        }
+      ]
+    },
+    {
+      "id": "brave",
+      "name": "Brave",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Browser"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-browser.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "braveBeta",
+      "name": "Brave Beta",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser.beta"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Browser-Beta"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-browser@beta.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "braveNightly",
+      "name": "Brave Nightly",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser.nightly"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Browser-Nightly"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-browser@nightly.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "braveOrigin",
+      "name": "Brave Origin",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser.origin"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Origin"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-origin.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "braveOriginBeta",
+      "name": "Brave Origin Beta",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser.origin.beta"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Origin-Beta"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-origin-beta.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "braveOriginNightly",
+      "name": "Brave Origin Nightly",
+      "vendor": "Brave Software",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.brave.Browser.origin.nightly"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BraveSoftware/Brave-Origin-Nightly"
+      ],
+      "safeStorage": {
+        "service": "Brave Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/brave-origin-nightly.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "edge",
+      "name": "Microsoft Edge",
+      "vendor": "Microsoft",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.microsoft.edgemac"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Microsoft Edge"
+      ],
+      "safeStorage": {
+        "service": "Microsoft Edge Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/microsoft-edge.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "edgeBeta",
+      "name": "Microsoft Edge Beta",
+      "vendor": "Microsoft",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.microsoft.edgemac.Beta"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Microsoft Edge Beta"
+      ],
+      "safeStorage": {
+        "service": "Microsoft Edge Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/microsoft-edge@beta.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "edgeDev",
+      "name": "Microsoft Edge Dev",
+      "vendor": "Microsoft",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.microsoft.edgemac.Dev"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Microsoft Edge Dev"
+      ],
+      "safeStorage": {
+        "service": "Microsoft Edge Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/microsoft-edge@dev.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "edgeCanary",
+      "name": "Microsoft Edge Canary",
+      "vendor": "Microsoft",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.microsoft.edgemac.Canary"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Microsoft Edge Canary"
+      ],
+      "safeStorage": {
+        "service": "Microsoft Edge Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/microsoft-edge@canary.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "vivaldi",
+      "name": "Vivaldi",
+      "vendor": "Vivaldi Technologies",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.vivaldi.Vivaldi"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Vivaldi"
+      ],
+      "safeStorage": {
+        "service": "Vivaldi Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/v/vivaldi.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "vivaldiSnapshot",
+      "name": "Vivaldi Snapshot",
+      "vendor": "Vivaldi Technologies",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.vivaldi.Vivaldi.snapshot"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Vivaldi Snapshot"
+      ],
+      "safeStorage": {
+        "service": "Vivaldi Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/v/vivaldi@snapshot.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "opera",
+      "name": "Opera",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.Opera"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.Opera"
+      ],
+      "safeStorage": {
+        "service": "Opera Safe Storage",
+        "confirmed": true
+      },
+      "profiles": "dataDirectory",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/o/opera.rb",
+          "note": "Chromium fork that keeps its one profile in the data folder itself."
+        }
+      ]
+    },
+    {
+      "id": "operaGX",
+      "name": "Opera GX",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.OperaGX"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.OperaGX"
+      ],
+      "safeStorage": {
+        "service": "Opera GX Safe Storage",
+        "confirmed": true
+      },
+      "profiles": "dataDirectory",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/o/opera-gx.rb",
+          "note": "Opera layout; 'Opera GX Safe Storage' seen in the installed binary."
+        }
+      ]
+    },
+    {
+      "id": "operaBeta",
+      "name": "Opera Beta",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.OperaNext"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.OperaNext"
+      ],
+      "safeStorage": {
+        "service": "Opera Safe Storage",
+        "confirmed": false
+      },
+      "profiles": "dataDirectory",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/o/opera@beta.rb",
+          "note": "Chromium fork that keeps its one profile in the data folder itself."
+        }
+      ]
+    },
+    {
+      "id": "operaDeveloper",
+      "name": "Opera Developer",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.OperaDeveloper"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.OperaDeveloper"
+      ],
+      "safeStorage": {
+        "service": "Opera Safe Storage",
+        "confirmed": false
+      },
+      "profiles": "dataDirectory",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/o/opera@developer.rb",
+          "note": "Chromium fork that keeps its one profile in the data folder itself."
+        }
+      ]
+    },
+    {
+      "id": "operaAir",
+      "name": "Opera Air",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.OperaAir"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.OperaAir"
+      ],
+      "safeStorage": {
+        "service": "Opera Safe Storage",
+        "confirmed": false
+      },
+      "profiles": "dataDirectory",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/o/opera-air.rb",
+          "note": "Chromium fork that keeps its one profile in the data folder itself."
+        }
+      ]
+    },
+    {
+      "id": "helium",
+      "name": "Helium",
+      "vendor": "imput",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "net.imput.helium"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/net.imput.helium"
+      ],
+      "safeStorage": {
+        "service": "Helium Storage Key",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/h/helium-browser.rb",
+          "note": "Chromium layout; the Keychain item is 'Helium Storage Key' (string in the installed binary), not '<Name> Safe Storage'."
+        }
+      ]
+    },
+    {
+      "id": "sidekick",
+      "name": "Sidekick",
+      "vendor": "Pushplay Labs",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.pushplaylabs.sidekick"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Sidekick"
+      ],
+      "safeStorage": {
+        "service": "Sidekick Safe Storage",
+        "confirmed": false
+      },
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.meetsidekick.com/",
+          "note": "Shut down 2025-08-03; leftover profiles may still exist. Bundle id and folder kept from earlier builds, not checked on a real install."
+        }
+      ]
+    },
+    {
+      "id": "yandex",
+      "name": "Yandex Browser",
+      "vendor": "Yandex",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "ru.yandex.desktop.yandex-browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Yandex/YandexBrowser"
+      ],
+      "safeStorage": {
+        "service": "Yandex Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/y/yandex.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        },
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/y/yandex.rb",
+          "note": "Passwords live in 'Ya Passman Data' with an extra encryption layer on top of Chromium's; cmux does not read them."
+        }
+      ],
+      "unsupportedKinds": [
+        "passwords"
+      ]
+    },
+    {
+      "id": "thorium",
+      "name": "Thorium",
+      "vendor": "Alex313031",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "org.chromium.Thorium"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Thorium"
+      ],
+      "safeStorage": {
+        "service": "Thorium Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/t/thorium.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "aside",
+      "name": "Aside",
+      "vendor": "Aside",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "at.studio.AsideBrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Aside"
+      ],
+      "safeStorage": {
+        "service": "Aside Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/a/aside.rb",
+          "note": "Chromium layout; 'Aside Safe Storage' in the installed binary."
+        }
+      ]
+    },
+    {
+      "id": "browserOS",
+      "name": "BrowserOS",
+      "vendor": "BrowserOS",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.browseros.BrowserOS"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/BrowserOS"
+      ],
+      "safeStorage": {
+        "service": "BrowserOS Safe Storage",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/browseros.rb",
+          "note": "Open-source agentic Chromium browser; 'BrowserOS Safe Storage' in the installed binary."
+        }
+      ]
+    },
+    {
+      "id": "chatGPTAtlas",
+      "name": "ChatGPT Atlas",
+      "vendor": "OpenAI",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.openai.atlas",
+        "com.openai.atlas.web"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.openai.atlas/browser-data/host"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt-atlas.rb",
+          "note": "Discontinued 2026-08; Local State and profile folders stay in com.openai.atlas/browser-data/host. Keychain item unknown, so no password or cookie import."
+        }
+      ]
+    },
+    {
+      "id": "avast",
+      "name": "Avast Secure Browser",
+      "vendor": "Gen Digital",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.avast.browser",
+        "com.avast.AvastSecureBrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/AVAST Software/Browser"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/a/avast-secure-browser.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "epic",
+      "name": "Epic Privacy Browser",
+      "vendor": "Hidden Reflex",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.hiddenreflex.Epic"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/HiddenReflex/Epic"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/e/epic.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "blisk",
+      "name": "Blisk",
+      "vendor": "Blisk",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "org.blisk.Blisk"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Blisk"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/blisk.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "ghostBrowser",
+      "name": "Ghost Browser",
+      "vendor": "Ghost Browser",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.ghostbrowser.gb1"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/GhostBrowser"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/ghost-browser.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "wavebox",
+      "name": "Wavebox",
+      "vendor": "Bookry",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "io.wavebox.wavebox",
+        "com.bookry.wavebox"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/WaveboxApp"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/w/wavebox.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "ulaa",
+      "name": "Ulaa",
+      "vendor": "Zoho",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.zoho.ulaa",
+        "com.primeum.Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Ulaa"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/u/ulaa.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "browser115",
+      "name": "115 Browser",
+      "vendor": "115.com",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "org.115Browser.115Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/115Browser"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/1/115browser.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "decentr",
+      "name": "Decentr",
+      "vendor": "Decentr",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.Decentr.Decentr"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Decentr"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/d/decentr.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "prismaAccess",
+      "name": "Prisma Access Browser",
+      "vendor": "Palo Alto Networks",
+      "kind": "enterpriseBrowser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.talon-sec.Work"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/PAB"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/p/prisma-access-browser.rb",
+          "note": "Managed enterprise Chromium browser; admin policy may block reading it."
+        }
+      ]
+    },
+    {
+      "id": "iridium",
+      "name": "Iridium",
+      "vendor": "Iridium",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "de.iridiumbrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Iridium"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/i/iridium.rb",
+          "note": "Chromium user data dir with Local State and Default/Profile N folders."
+        }
+      ]
+    },
+    {
+      "id": "safari",
+      "name": "Safari",
+      "vendor": "Apple",
+      "kind": "browser",
+      "engine": "safari",
+      "bundleIDs": [
+        "com.apple.Safari"
+      ],
+      "dataDirectories": [
+        "Library/Safari",
+        "Library/Containers/com.apple.Safari/Data/Library/Safari"
+      ],
+      "cookieFile": "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+      "evidence": [
+        {
+          "url": "https://www.apple.com/safari/",
+          "note": "Bookmarks.plist and History.db in ~/Library/Safari, readable only with Full Disk Access; File > Export > Bookmarks writes Netscape HTML."
+        }
+      ]
+    },
+    {
+      "id": "safariTechnologyPreview",
+      "name": "Safari Technology Preview",
+      "vendor": "Apple",
+      "kind": "browser",
+      "engine": "safari",
+      "bundleIDs": [
+        "com.apple.SafariTechnologyPreview"
+      ],
+      "dataDirectories": [
+        "Library/SafariTechnologyPreview"
+      ],
+      "verified": false,
+      "cookieFile": "Library/Containers/com.apple.SafariTechnologyPreview/Data/Library/Cookies/Cookies.binarycookies",
+      "evidence": [
+        {
+          "url": "https://developer.apple.com/safari/technology-preview/",
+          "note": "Same formats as Safari; the folder is inferred, not checked on a real install."
+        }
+      ]
+    },
+    {
+      "id": "firefox",
+      "name": "Firefox",
+      "vendor": "Mozilla",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "org.mozilla.nightly"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Firefox"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/f/firefox.rb",
+          "note": "Firefox, Beta, ESR, Developer Edition and Nightly share profiles.ini in ~/Library/Application Support/Firefox."
+        }
+      ]
+    },
+    {
+      "id": "zen",
+      "name": "Zen",
+      "vendor": "Zen Team",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "app.zen-browser.zen"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/zen"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/z/zen.rb",
+          "note": "Zen and Zen Twilight share this folder and bundle id."
+        }
+      ]
+    },
+    {
+      "id": "floorp",
+      "name": "Floorp",
+      "vendor": "Ablaze",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "one.ablaze.floorp"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Floorp"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/f/floorp.rb",
+          "note": "Gecko profiles listed in profiles.ini; bookmarks in places.sqlite."
+        }
+      ]
+    },
+    {
+      "id": "librewolf",
+      "name": "LibreWolf",
+      "vendor": "LibreWolf Community",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "org.mozilla.librewolf",
+        "io.gitlab.librewolf-community.librewolf",
+        "net.librewolf.librewolf"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/librewolf"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/l/librewolf.rb",
+          "note": "Gecko profiles listed in profiles.ini; bookmarks in places.sqlite."
+        }
+      ]
+    },
+    {
+      "id": "waterfox",
+      "name": "Waterfox",
+      "vendor": "Waterfox",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "net.waterfox.waterfox",
+        "org.waterfoxproject.waterfox"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Waterfox"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/w/waterfox.rb",
+          "note": "Waterfox and Waterfox Classic share this folder."
+        }
+      ]
+    },
+    {
+      "id": "mullvad",
+      "name": "Mullvad Browser",
+      "vendor": "Mullvad and The Tor Project",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "net.mullvad.mullvadbrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/MullvadBrowser"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/mullvad-browser.rb",
+          "note": "Gecko profiles listed in profiles.ini; bookmarks in places.sqlite."
+        }
+      ]
+    },
+    {
+      "id": "paleMoon",
+      "name": "Pale Moon",
+      "vendor": "Moonchild Productions",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "org.mozilla.pale moon"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Pale Moon"
+      ],
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/p/pale-moon.rb",
+          "note": "Goanna (Gecko fork); profiles.ini and places.sqlite."
+        }
+      ]
+    },
+    {
+      "id": "tor",
+      "name": "Tor Browser",
+      "vendor": "The Tor Project",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "org.torproject.torbrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/TorBrowser-Data/Browser"
+      ],
+      "refusesSessionData": true,
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/t/tor-browser.rb",
+          "note": "profile.default beside the data folder (no profiles.ini); Tor Browser Alpha shares it. Cookies and history are never imported."
+        }
+      ]
+    },
+    {
+      "id": "orion",
+      "name": "Orion",
+      "vendor": "Kagi",
+      "kind": "browser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "com.kagi.kagimacOS"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Orion"
+      ],
+      "bookmarks": "htmlExport",
+      "evidence": [
+        {
+          "url": "https://help.kagi.com/orion/misc/technical.html",
+          "note": "WebKit; bookmarks in Orion/Defaults/favourites.plist (format not documented), profiles in a binary plist. File > Export Bookmarks writes Netscape HTML."
+        }
+      ]
+    },
+    {
+      "id": "duckDuckGo",
+      "name": "DuckDuckGo",
+      "vendor": "DuckDuckGo",
+      "kind": "browser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "com.duckduckgo.macos.browser"
+      ],
+      "dataDirectories": [
+        "Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application Support",
+        "Library/Application Support/DuckDuckGo"
+      ],
+      "bookmarks": "htmlExport",
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://duckduckgo.com/mac",
+          "note": "Sandboxed; bookmarks in an encrypted store. Bookmarks > Export Bookmarks writes Netscape HTML."
+        }
+      ]
+    },
+    {
+      "id": "chromeForTesting",
+      "name": "Google Chrome for Testing",
+      "vendor": "Google",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.google.chrome.for.testing"
+      ],
+      "appNames": [
+        "Google Chrome for Testing"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Google/Chrome for Testing"
+      ],
+      "verified": false,
+      "safeStorage": {
+        "service": "Chrome Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://googlechromelabs.github.io/chrome-for-testing/",
+          "note": "automation build; usually throwaway profiles; low priority"
+        }
+      ]
+    },
+    {
+      "id": "operaNeon",
+      "name": "Opera Neon",
+      "vendor": "Opera",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.operasoftware.OperaNeon"
+      ],
+      "appNames": [
+        "Opera Neon"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.operasoftware.OperaNeon"
+      ],
+      "verified": false,
+      "safeStorage": {
+        "service": "Opera Neon Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/steipete/CodexBar/issues/2429",
+          "note": "agentic browser, GA 2025-12, free tier 2026-08; bundle id/root from a user issue, not Opera docs"
+        }
+      ]
+    },
+    {
+      "id": "gensparkBrowser",
+      "name": "Genspark AI Browser",
+      "vendor": "MainFunc",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "ai.mainfunc.genspark.browser",
+        "ai.mainfunc.genspark.browser.beta"
+      ],
+      "appNames": [
+        "Genspark AI Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Genspark"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.macupdater.net/app_updates/appinfo/ai.mainfunc.genspark.browser.beta/index.html",
+          "note": "beta bundle id from MacUpdater; stable id and root dir unverified; Chromium 141+"
+        }
+      ]
+    },
+    {
+      "id": "fellou",
+      "name": "Fellou",
+      "vendor": "Fellou",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Fellou"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Fellou"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://fellou.ai/download",
+          "note": "agentic browser (CE); bundle id and root unverified; discover by app name + Local State scan"
+        }
+      ]
+    },
+    {
+      "id": "nortonNeo",
+      "name": "Norton Neo",
+      "vendor": "Gen Digital",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Norton Neo"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Neo"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://neobrowser.ai/download",
+          "note": "free AI browser, Chromium 145; pkg installer; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "sigmaBrowser",
+      "name": "Sigma AI Browser",
+      "vendor": "Sigma (Atomic)",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Sigma AI Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Sigma"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.sigmabrowser.com/download",
+          "note": "Apple Silicon only, Chromium 149; distinct from SigmaOS; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "tabbit",
+      "name": "Tabbit",
+      "vendor": "Tabbit",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Tabbit"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Tabbit"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://go.tabbit.ai/",
+          "note": "AI browser, launched on Product Hunt 2026-09; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "strawberry",
+      "name": "Strawberry",
+      "vendor": "Strawberry (Dendrite Systems)",
+      "kind": "browser",
+      "engine": "other",
+      "bundleIDs": [
+        "com.mirror-browser"
+      ],
+      "appNames": [
+        "Strawberry"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/strawberry"
+      ],
+      "verified": false,
+      "bookmarks": "none",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/strawberry.rb",
+          "note": "Electron-based; profile layout unverified"
+        }
+      ]
+    },
+    {
+      "id": "ecosia",
+      "name": "Ecosia Browser",
+      "vendor": "Ecosia",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "org.ecosia.browser"
+      ],
+      "appNames": [
+        "Ecosia Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Ecosia"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.macupdater.net/app_updates/appinfo/org.ecosia.browser/index.html",
+          "note": "root dir name unverified"
+        }
+      ]
+    },
+    {
+      "id": "naverWhale",
+      "name": "NAVER Whale",
+      "vendor": "NAVER",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.naver.Whale"
+      ],
+      "appNames": [
+        "NAVER Whale"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Naver/Whale"
+      ],
+      "verified": false,
+      "safeStorage": {
+        "service": "Whale Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/n/naver-whale.rb",
+          "note": "cask has no Application Support zap; root inferred"
+        }
+      ]
+    },
+    {
+      "id": "avgSecureBrowser",
+      "name": "AVG Secure Browser",
+      "vendor": "Gen Digital",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "AVG Secure Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/AVG/Browser"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.avg.com/en-us/secure-browser",
+          "note": "no cask; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "nortonSecureBrowser",
+      "name": "Norton Secure Browser",
+      "vendor": "Gen Digital",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Norton Secure Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Norton/Browser"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://seekingalpha.com/pr/19471974-norton-launches-secure-browser-for-windows-pc-and-mac",
+          "note": "no cask; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "aloha",
+      "name": "Aloha Browser",
+      "vendor": "Aloha Mobile",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.alohabrowser.alohabrowser"
+      ],
+      "appNames": [
+        "Aloha Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Aloha",
+        "Library/Group Containers/com.alohabrowser.alohabrowser"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/a/aloha-browser.rb",
+          "note": "engine on macOS inferred Chromium; data partly in Group Container"
+        }
+      ]
+    },
+    {
+      "id": "b360ChromePro",
+      "name": "360 Chrome Pro (360极速浏览器Pro)",
+      "vendor": "Qihoo 360",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "360 Chrome Pro (360极速浏览器Pro)"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/360Chrome"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://browser.360.cn/ee/mac/index.html",
+          "note": "Chromium 122 core; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "qqBrowser",
+      "name": "QQ Browser",
+      "vendor": "Tencent",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "QQ Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/QQBrowser"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.32r.com/zt/macllq/",
+          "note": "Mac build v21.x per download sites; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "cocCoc",
+      "name": "Cốc Cốc",
+      "vendor": "Cốc Cốc",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Cốc Cốc"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Coccoc"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://coccoc.com/en/download/mac",
+          "note": "bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "maxthon",
+      "name": "Maxthon",
+      "vendor": "Maxthon",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Maxthon"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Maxthon"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://github.com/maxthon/Maxthon_mac/releases",
+          "note": "Mac App Store build 7.5.x; may be sandboxed under ~/Library/Containers; unverified"
+        }
+      ]
+    },
+    {
+      "id": "slimjet",
+      "name": "Slimjet",
+      "vendor": "FlashPeak",
+      "kind": "browser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Slimjet"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Slimjet"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://slimjet.macupdate.com/",
+          "note": "bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "island",
+      "name": "Island Enterprise Browser",
+      "vendor": "Island",
+      "kind": "enterpriseBrowser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.island.Island"
+      ],
+      "appNames": [
+        "Island Enterprise Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Island"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://www.thenetworkdna.com/2026/04/complete-steps-to-onboard-island.html?m=0",
+          "note": "managed; bundle id from a third-party Intune guide; admin policy may block import"
+        }
+      ]
+    },
+    {
+      "id": "citrixEnterpriseBrowser",
+      "name": "Citrix Enterprise Browser",
+      "vendor": "Citrix",
+      "kind": "enterpriseBrowser",
+      "engine": "chromium",
+      "bundleIDs": [],
+      "appNames": [
+        "Citrix Enterprise Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Citrix Enterprise Browser"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://docs.citrix.com/en-us/citrix-enterprise-browser/whats-new.html",
+          "note": "separate package since Workspace 2511.1; bundle id and root unverified"
+        }
+      ]
+    },
+    {
+      "id": "glide",
+      "name": "Glide Browser",
+      "vendor": "Glide",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "app.glide-browser.glide"
+      ],
+      "appNames": [
+        "Glide Browser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/glide"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/glide-browser.rb",
+          "note": "cask zaps both 'Glide Browser' and 'glide'"
+        }
+      ]
+    },
+    {
+      "id": "seamonkey",
+      "name": "SeaMonkey",
+      "vendor": "SeaMonkey Project",
+      "kind": "browser",
+      "engine": "firefox",
+      "bundleIDs": [
+        "org.mozilla.seamonkey"
+      ],
+      "appNames": [
+        "SeaMonkey"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/SeaMonkey"
+      ],
+      "verified": false,
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/seamonkey.rb",
+          "note": "cask disabled (gatekeeper)"
+        }
+      ]
+    },
+    {
+      "id": "sigmaos",
+      "name": "SigmaOS",
+      "vendor": "SigmaOS",
+      "kind": "browser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "com.sigmaos.sigmaos.macos"
+      ],
+      "appNames": [
+        "SigmaOS"
+      ],
+      "dataDirectories": [
+        "Library/Containers/com.sigmaos.sigmaos.macos"
+      ],
+      "verified": false,
+      "bookmarks": "htmlExport",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/sigmaos.rb",
+          "note": "bundle id inferred from container name"
+        }
+      ]
+    },
+    {
+      "id": "nook",
+      "name": "Nook",
+      "vendor": "Nook Browser",
+      "kind": "browser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "io.browsewithnook.nook"
+      ],
+      "appNames": [
+        "Nook"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Nook"
+      ],
+      "verified": false,
+      "bookmarks": "none",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/n/nook.rb",
+          "note": "open-source; format can be read from source"
+        }
+      ]
+    },
+    {
+      "id": "icab",
+      "name": "iCab",
+      "vendor": "Alexander Clauss",
+      "kind": "browser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "de.icab.iCab"
+      ],
+      "appNames": [
+        "iCab"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/iCab"
+      ],
+      "verified": false,
+      "bookmarks": "htmlExport",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/i/icab.rb",
+          "note": "single profile"
+        }
+      ]
+    },
+    {
+      "id": "qutebrowser",
+      "name": "qutebrowser",
+      "vendor": "qutebrowser",
+      "kind": "browser",
+      "engine": "other",
+      "bundleIDs": [],
+      "appNames": [
+        "qutebrowser"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/qutebrowser"
+      ],
+      "verified": false,
+      "bookmarks": "none",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/q/qutebrowser.rb",
+          "note": "QtWebEngine (Chromium) engine but own text bookmark format"
+        }
+      ]
+    },
+    {
+      "id": "min",
+      "name": "Min",
+      "vendor": "Min",
+      "kind": "browser",
+      "engine": "other",
+      "bundleIDs": [],
+      "appNames": [
+        "Min"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Min"
+      ],
+      "verified": false,
+      "bookmarks": "htmlExport",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/min.rb",
+          "note": "cask disabled for gatekeeper only"
+        }
+      ]
+    },
+    {
+      "id": "chatGPT",
+      "name": "ChatGPT",
+      "vendor": "OpenAI",
+      "kind": "appWithEmbeddedBrowser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.openai.codex"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Codex"
+      ],
+      "bookmarks": "none",
+      "safeStorage": {
+        "service": "ChatGPT Safe Storage",
+        "confirmed": false
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt.rb",
+          "note": "Its in-app Chromium keeps Local State, History and Login Data in Codex/; no Bookmarks file. 'ChatGPT Safe Storage' and 'Aura Safe Storage' are both strings in the binary."
+        }
+      ]
+    }
+  ],
+  "nonBrowsers": [
+    {
+      "name": "Quetta",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "Mac App Store release 2026-08 (v2.0.5); engine on macOS and data layout unverified",
+      "evidence": [
+        {
+          "url": "https://www.quetta.net/releases",
+          "note": "Mac App Store release 2026-08 (v2.0.5); engine on macOS and data layout unverified"
+        }
+      ]
+    },
+    {
+      "name": "Shift",
+      "bundleIDs": [
+        "com.rdbrck.shift"
+      ],
+      "kind": "appContainer",
+      "verdict": "multi-account Electron workstation; per-app Chromium partitions, no general Bookmarks file expected",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/shift.rb",
+          "note": "multi-account Electron workstation; per-app Chromium partitions, no general Bookmarks file expected"
+        }
+      ]
+    },
+    {
+      "name": "Beam",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "development stopped 2022-11; skip",
+      "evidence": [
+        {
+          "url": "https://github.com/beamlegacy/beam",
+          "note": "development stopped 2022-11; skip"
+        }
+      ]
+    },
+    {
+      "name": "Servo",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "engine demo; no bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/servo.rb",
+          "note": "engine demo; no bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Deta Surf",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "not a bookmarks source",
+      "evidence": [
+        {
+          "url": "https://github.com/deta/surf",
+          "note": "verdict: not a bookmarks source"
+        }
+      ]
+    },
+    {
+      "name": "Kosmik",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "sunset 2026-05-31",
+      "evidence": [
+        {
+          "url": "https://www.kosmik.app/downloads",
+          "note": "sunset 2026-05-31"
+        }
+      ]
+    },
+    {
+      "name": "Rill",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "new 2026-10 Mac browser for Claude Code/Codex; engine and storage unverified - recheck after install",
+      "evidence": [
+        {
+          "url": "https://rill.love/",
+          "note": "new 2026-10 Mac browser for Claude Code/Codex; engine and storage unverified - recheck after install"
+        }
+      ]
+    },
+    {
+      "name": "Donut Browser (anti-detect)",
+      "bundleIDs": [
+        "com.donutbrowser"
+      ],
+      "kind": "antiDetect",
+      "verdict": "anti-detect tool; low priority, likely exclude from UI",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/d/donut.rb",
+          "note": "anti-detect tool; low priority, likely exclude from UI"
+        }
+      ]
+    },
+    {
+      "name": "Gologin (Orbita)",
+      "bundleIDs": [
+        "com.gologin.desktop",
+        "com.gologin.orbita"
+      ],
+      "kind": "antiDetect",
+      "verdict": "anti-detect; exclude from default UI",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/g/gologin.rb",
+          "note": "anti-detect; exclude from default UI"
+        }
+      ]
+    },
+    {
+      "name": "Kameleo",
+      "bundleIDs": [],
+      "kind": "antiDetect",
+      "verdict": "anti-detect; exclude from default UI",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/k/kameleo.rb",
+          "note": "anti-detect; exclude from default UI"
+        }
+      ]
+    },
+    {
+      "name": "Polypane",
+      "bundleIDs": [
+        "com.firstversionist.polypane"
+      ],
+      "kind": "devTool",
+      "verdict": "developer multi-viewport browser; not a bookmarks source",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/p/polypane.rb",
+          "note": "developer multi-viewport browser; not a bookmarks source"
+        }
+      ]
+    },
+    {
+      "name": "Sizzy",
+      "bundleIDs": [
+        "com.kitze.sizzy"
+      ],
+      "kind": "devTool",
+      "verdict": "developer multi-viewport browser; not a bookmarks source",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/sizzy.rb",
+          "note": "developer multi-viewport browser; not a bookmarks source"
+        }
+      ]
+    },
+    {
+      "name": "Responsively",
+      "bundleIDs": [
+        "app.responsively"
+      ],
+      "kind": "devTool",
+      "verdict": "developer multi-viewport browser; not a bookmarks source",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/r/responsively.rb",
+          "note": "developer multi-viewport browser; not a bookmarks source"
+        }
+      ]
+    },
+    {
+      "name": "MenubarX",
+      "bundleIDs": [],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/menubarx.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Slidepad",
+      "bundleIDs": [
+        "com.slidepad.slidepad"
+      ],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/slidepad.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Biscuit",
+      "bundleIDs": [
+        "com.eatbiscuit.biscuit"
+      ],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/b/biscuit.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Singlebox",
+      "bundleIDs": [
+        "com.webcatalog.singlebox2"
+      ],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/s/singlebox.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "WebCatalog",
+      "bundleIDs": [
+        "com.webcatalog.jordan"
+      ],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/w/webcatalog.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Coherence X",
+      "bundleIDs": [
+        "com.BZG.CoherenceX5"
+      ],
+      "kind": "appContainer",
+      "verdict": "no importable bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/coherence-x.rb",
+          "note": "verdict: no importable bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "ChatGPT Classic (old desktop app)",
+      "bundleIDs": [
+        "com.openai.chat"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "no local bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt-classic.rb",
+          "note": "verdict: no local bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Claude (desktop app)",
+      "bundleIDs": [
+        "com.anthropic.claudefordesktop"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "no local bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/claude.rb",
+          "note": "verdict: no local bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Perplexity (desktop app)",
+      "bundleIDs": [
+        "ai.perplexity.macv3"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "no local bookmarks (import Comet instead)",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/p/perplexity.rb",
+          "note": "verdict: no local bookmarks (import Comet instead)"
+        }
+      ]
+    },
+    {
+      "name": "Manus Studio",
+      "bundleIDs": [
+        "im.manus.desktop"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "no local bookmarks known",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/m/manus.rb",
+          "note": "verdict: no local bookmarks known"
+        }
+      ]
+    },
+    {
+      "name": "Poe",
+      "bundleIDs": [
+        "com.quora.poe.electron"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "no local bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/p/poe.rb",
+          "note": "verdict: no local bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Devin Desktop (ex-Windsurf) browser",
+      "bundleIDs": [
+        "com.exafunction.windsurf"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "Windsurf Browser deprecated; verdict: no local bookmarks",
+      "evidence": [
+        {
+          "url": "https://codeium.com/changelog",
+          "note": "Windsurf Browser deprecated; verdict: no local bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Zeron (embedded browser)",
+      "bundleIDs": [
+        "sh.zeron.app"
+      ],
+      "kind": "nonBrowserApp",
+      "verdict": "agent workspace with sidebar browser; verdict: no local bookmarks",
+      "evidence": [
+        {
+          "url": "https://github.com/katulevskiy/zeron/issues/231",
+          "note": "agent workspace with sidebar browser; verdict: no local bookmarks"
+        }
+      ]
+    },
+    {
+      "name": "Ladybird",
+      "bundleIDs": [],
+      "kind": "noLocalStore",
+      "verdict": "alpha targeted 2026 for macOS; add row data when alpha ships",
+      "evidence": [
+        {
+          "url": "https://ladybird.org/",
+          "note": "alpha targeted 2026 for macOS; add row data when alpha ships"
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "bundleIDs": [
+        "com.officecommun.search"
+      ],
+      "kind": "noLocalStore",
+      "verdict": "small Swift WebKit browser (2026-09); itself imports from Comet/Arc/Dia/Chrome",
+      "evidence": [
+        {
+          "url": "https://github.com/driceroland/Search/releases",
+          "note": "small Swift WebKit browser (2026-09); itself imports from Comet/Arc/Dia/Chrome"
+        }
+      ]
+    }
+  ]
+}

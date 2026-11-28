@@ -1,0 +1,18 @@
+{
+  "comment": "Browsers whose export steps Import from Another Browser… shows (cx-d0d.65). family picks the steps' text (BrowserFileImportStrings); passwords and bookmarks are the pages a Chromium browser exports from (no bookmarks: the browser has no bookmarks export); 1password and bitwarden are password managers (passwords only). Nothing here names a file of the browser's own.",
+  "browsers": [
+    { "id": "chrome", "name": "Google Chrome", "family": "chromium",
+      "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks",
+      "history": "takeout.google.com" },
+    { "id": "edge", "name": "Microsoft Edge", "family": "chromium",
+      "passwords": "edge://settings/passwords", "bookmarks": "edge://favorites" },
+    { "id": "brave", "name": "Brave", "family": "chromium",
+      "passwords": "brave://password-manager/settings", "bookmarks": "brave://bookmarks" },
+    { "id": "arc", "name": "Arc", "family": "chromium",
+      "passwords": "arc://password-manager/settings" },
+    { "id": "firefox", "name": "Firefox", "family": "firefox" },
+    { "id": "safari", "name": "Safari", "family": "safari" },
+    { "id": "1password", "name": "1Password", "family": "1password" },
+    { "id": "bitwarden", "name": "Bitwarden", "family": "bitwarden" }
+  ]
+}

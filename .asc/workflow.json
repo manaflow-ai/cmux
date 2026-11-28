@@ -1,0 +1,41 @@
+{
+  "workflows": {
+    "ios-app-store-validate": {
+      "description": "Validate the cmux iOS production App Store review package.",
+      "steps": [
+        {
+          "name": "package_files",
+          "run": "test -s ios/AppStoreReview/review-notes.md && test -s ios/AppStoreReview/metadata-screenshots-checklist.md"
+        },
+        {
+          "name": "readiness",
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
+        }
+      ]
+    },
+    "ios-app-store-stage-dry-run": {
+      "description": "Preview App Store version staging after a production iOS upload.",
+      "steps": [
+        {
+          "workflow": "ios-app-store-validate"
+        },
+        {
+          "name": "stage",
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; if [ -n \"${COPY_METADATA_FROM:-}\" ]; then set -- \"$@\" --copy-metadata-from \"$COPY_METADATA_FROM\"; fi; set -- \"$@\" --stage-dry-run; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
+        }
+      ]
+    },
+    "ios-app-store-submit-dry-run": {
+      "description": "Preview App Store review submission for a prepared iOS version.",
+      "steps": [
+        {
+          "workflow": "ios-app-store-validate"
+        },
+        {
+          "name": "submit_dry_run",
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; set -- \"$@\" --submit-dry-run; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
+        }
+      ]
+    }
+  }
+}

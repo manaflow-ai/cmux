@@ -1,0 +1,2373 @@
+<!-- Frozen from https://books.toscrape.com/ by tests/browser-parity/lib/corpus.mjs. -->
+<!doctype html>
+<html lang="en-us" class="no-js"><head>
+        <title>
+    All products | Books to Scrape - Sandbox
+</title>
+
+        
+        
+        
+        <meta name="viewport" content="width=device-width">
+        
+
+        
+        
+
+        
+            <link rel="shortcut icon" href="static/oscar/favicon.ico">
+        
+
+        
+        
+    
+    
+        
+    
+    
+    
+
+
+        
+        
+
+        
+
+        
+            
+            
+
+        
+    <style>html { font-family: sans-serif; text-size-adjust: 100%; }
+body { margin: 0px; }
+article, aside, details, figcaption, figure, footer, header, hgroup, main, nav, section, summary { display: block; }
+a { background: transparent; }
+a:active, a:hover { outline: 0px; }
+b, strong { font-weight: bold; }
+h1 { font-size: 2em; margin: 0.67em 0px; }
+small { font-size: 80%; }
+img { border: 0px; }
+button, input, optgroup, select, textarea { color: inherit; font: inherit; margin: 0px; }
+button { overflow: visible; }
+button, select { text-transform: none; }
+button, html input[type="button"], input[type="reset"], input[type="submit"] { appearance: button; cursor: pointer; }
+@media print {
+* { text-shadow: none !important; color: rgb(0, 0, 0) !important; background: transparent !important; box-shadow: none !important; }
+a, a:visited { text-decoration: underline; }
+a[href]::after { content: " (" attr(href) ")"; }
+tr, img { break-inside: avoid; }
+img { max-width: 100% !important; }
+p, h2, h3 { orphans: 3; widows: 3; }
+h2, h3 { break-after: avoid; }
+}
+* { box-sizing: border-box; }
+::before, ::after { box-sizing: border-box; }
+html { font-size: 10px; -webkit-tap-highlight-color: rgba(0, 0, 0, 0); }
+body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.42857; color: rgb(51, 51, 51); background-color: rgb(255, 255, 255); }
+input, button, select, textarea { font-family: inherit; font-size: inherit; line-height: inherit; }
+a { color: rgb(66, 139, 202); text-decoration: none; }
+a:hover, a:focus { color: rgb(42, 100, 150); text-decoration: underline; }
+a:focus { outline: -webkit-focus-ring-color auto 5px; outline-offset: -2px; }
+img { vertical-align: middle; }
+h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { font-family: inherit; font-weight: 500; line-height: 1.1; color: inherit; }
+h1 small, h2 small, h3 small, h4 small, h5 small, h6 small, .h1 small, .h2 small, .h3 small, .h4 small, .h5 small, .h6 small, h1 .small, h2 .small, h3 .small, h4 .small, h5 .small, h6 .small, .h1 .small, .h2 .small, .h3 .small, .h4 .small, .h5 .small, .h6 .small { font-weight: normal; line-height: 1; color: rgb(119, 119, 119); }
+h1, .h1, h2, .h2, h3, .h3 { margin-top: 20px; margin-bottom: 10px; }
+h1 small, .h1 small, h2 small, .h2 small, h3 small, .h3 small, h1 .small, .h1 .small, h2 .small, .h2 .small, h3 .small, .h3 .small { font-size: 65%; }
+h1, .h1 { font-size: 36px; }
+h3, .h3 { font-size: 24px; }
+p { margin: 0px 0px 10px; }
+small, .small { font-size: 85%; }
+.page-header { padding-bottom: 9px; margin: 40px 0px 20px; border-bottom: 1px solid rgb(238, 238, 238); }
+ul, ol { margin-top: 0px; margin-bottom: 10px; }
+ul ul, ol ul, ul ol, ol ol { margin-bottom: 0px; }
+.container-fluid { margin-right: auto; margin-left: auto; padding-left: 15px; padding-right: 15px; }
+.row { margin-left: -15px; margin-right: -15px; }
+.col-xs-1, .col-sm-1, .col-md-1, .col-lg-1, .col-xs-2, .col-sm-2, .col-md-2, .col-lg-2, .col-xs-3, .col-sm-3, .col-md-3, .col-lg-3, .col-xs-4, .col-sm-4, .col-md-4, .col-lg-4, .col-xs-5, .col-sm-5, .col-md-5, .col-lg-5, .col-xs-6, .col-sm-6, .col-md-6, .col-lg-6, .col-xs-7, .col-sm-7, .col-md-7, .col-lg-7, .col-xs-8, .col-sm-8, .col-md-8, .col-lg-8, .col-xs-9, .col-sm-9, .col-md-9, .col-lg-9, .col-xs-10, .col-sm-10, .col-md-10, .col-lg-10, .col-xs-11, .col-sm-11, .col-md-11, .col-lg-11, .col-xs-12, .col-sm-12, .col-md-12, .col-lg-12 { position: relative; min-height: 1px; padding-left: 15px; padding-right: 15px; }
+.col-xs-1, .col-xs-2, .col-xs-3, .col-xs-4, .col-xs-5, .col-xs-6, .col-xs-7, .col-xs-8, .col-xs-9, .col-xs-10, .col-xs-11, .col-xs-12 { float: left; }
+.col-xs-6 { width: 50%; }
+@media (min-width: 768px) {
+.col-sm-1, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5, .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9, .col-sm-10, .col-sm-11, .col-sm-12 { float: left; }
+.col-sm-8 { width: 66.6667%; }
+.col-sm-4 { width: 33.3333%; }
+}
+@media (min-width: 992px) {
+.col-md-1, .col-md-2, .col-md-3, .col-md-4, .col-md-5, .col-md-6, .col-md-7, .col-md-8, .col-md-9, .col-md-10, .col-md-11, .col-md-12 { float: left; }
+.col-md-9 { width: 75%; }
+.col-md-3 { width: 25%; }
+}
+@media (min-width: 1200px) {
+.col-lg-1, .col-lg-2, .col-lg-3, .col-lg-4, .col-lg-5, .col-lg-6, .col-lg-7, .col-lg-8, .col-lg-9, .col-lg-10, .col-lg-11, .col-lg-12 { float: left; }
+.col-lg-3 { width: 25%; }
+}
+.btn { display: inline-block; margin-bottom: 0px; font-weight: normal; text-align: center; vertical-align: middle; cursor: pointer; background-image: none; border: 1px solid transparent; white-space: nowrap; padding: 6px 12px; font-size: 14px; line-height: 1.42857; border-radius: 4px; user-select: none; }
+.btn:focus, .btn:active:focus, .btn.active:focus { outline: -webkit-focus-ring-color auto 5px; outline-offset: -2px; }
+.btn:hover, .btn:focus { color: rgb(51, 51, 51); text-decoration: none; }
+.btn:active, .btn.active { outline: 0px; background-image: none; box-shadow: rgba(0, 0, 0, 0.125) 0px 3px 5px inset; }
+.btn-primary { color: rgb(255, 255, 255); background-color: rgb(66, 139, 202); border-color: rgb(53, 126, 189); }
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary.active, .open > .dropdown-toggle.btn-primary { color: rgb(255, 255, 255); background-color: rgb(48, 113, 169); border-color: rgb(40, 94, 142); }
+.btn-primary:active, .btn-primary.active, .open > .dropdown-toggle.btn-primary { background-image: none; }
+.btn-block { display: block; width: 100%; }
+.nav { margin-bottom: 0px; padding-left: 0px; list-style: none; }
+.nav > li { position: relative; display: block; }
+.nav > li > a { position: relative; display: block; padding: 10px 15px; }
+.nav > li > a:hover, .nav > li > a:focus { text-decoration: none; background-color: rgb(238, 238, 238); }
+.breadcrumb { padding: 8px 15px; margin-bottom: 20px; list-style: none; background-color: rgb(245, 245, 245); border-radius: 4px; }
+.breadcrumb > li { display: inline-block; }
+.breadcrumb > li + li::before { content: "/ "; padding: 0px 5px; color: rgb(204, 204, 204); }
+.breadcrumb > .active { color: rgb(119, 119, 119); }
+.pager { padding-left: 0px; margin: 20px 0px; list-style: none; text-align: center; }
+.pager li { display: inline; }
+.pager li > a, .pager li > span { display: inline-block; padding: 5px 14px; background-color: rgb(255, 255, 255); border: 1px solid rgb(221, 221, 221); border-radius: 15px; }
+.pager li > a:hover, .pager li > a:focus { text-decoration: none; background-color: rgb(238, 238, 238); }
+.pager .next > a, .pager .next > span { float: right; }
+.thumbnail { display: block; padding: 4px; margin-bottom: 20px; line-height: 1.42857; background-color: rgb(255, 255, 255); border: 1px solid rgb(221, 221, 221); border-radius: 4px; transition: 0.2s ease-in-out; }
+.alert { padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; }
+.alert-warning { background-color: rgb(252, 248, 227); border-color: rgb(250, 235, 204); color: rgb(138, 109, 59); }
+[class^="icon-"], [class*=" icon-"] { font-family: FontAwesome; font-weight: normal; font-style: normal; text-decoration: inherit; -webkit-font-smoothing: antialiased; }
+[class^="icon-"]::before, [class*=" icon-"]::before { text-decoration: inherit; display: inline-block; speak: none; }
+[class^="icon-"], [class*=" icon-"] { display: inline; width: auto; height: auto; line-height: normal; vertical-align: baseline; background-image: none; background-position: 0% 0%; background-repeat: repeat; margin-top: 0px; }
+.icon-star::before { content: ""; }
+.icon-ok::before { content: ""; }
+.icon-star { }
+.icon-ok { }
+body { background-color: rgb(238, 238, 238); }
+.container-fluid { max-width: 1280px; }
+.row { box-sizing: border-box; }
+.page .page_inner { background: rgb(255, 255, 255); border-radius: 0px 0px 6px 6px; box-shadow: rgba(0, 0, 0, 0.15) 0px 1px 2px; }
+.page_inner { padding: 30px; }
+.page_inner::before, .page_inner::after { content: " "; display: table; }
+.page_inner::after { clear: both; }
+.page_inner::before, .page_inner::after { content: " "; display: table; }
+.page_inner::after { clear: both; }
+h1, h2, h3, h4, h5, h6, p, form, .control-group, .table, .page-header, .sub-header { margin: 0px 0px 20px; }
+ul, ol { margin-bottom: 20px; }
+.page-header h1, .sub-header h1, .table h1, .page-header h2, .sub-header h2, .table h2, .page-header h3, .sub-header h3, .table h3, .page-header h4, .sub-header h4, .table h4, .page-header h5, .sub-header h5, .table h5, .page-header h6, .sub-header h6, .table h6, .page-header form, .sub-header form, .table form { margin-bottom: 0px; }
+h1, .h1 { font-size: 30.1px; line-height: 1.3; }
+h3, .h3 { font-size: 17.5px; line-height: 1.4; }
+.h1, .h2, .h3 { margin-top: 0px; margin-bottom: 0px; }
+.page-header h1, .page-header h2 { font-size: 29.96px; line-height: 40px; }
+form::before, form::after { content: " "; display: table; }
+form::after { clear: both; }
+form::before, form::after { content: " "; display: table; }
+form::after { clear: both; }
+.header { position: relative; z-index: 2; }
+@media (min-width: 768px) {
+.header .page_inner { padding: 50px 0px 40px; }
+}
+ol.row, ul.row { margin-left: 0px; padding-left: 0px; list-style: none; }
+.product_pod { height: 370px; overflow: hidden; text-align: center; margin: 20px 0px; position: relative; }
+.product_pod p, .product_pod h3, .product_pod h2, .product_pod form { margin-bottom: 0px; }
+.product_pod h3 { font-family: inherit; font-weight: 500; color: inherit; margin-top: 10px; font-size: 14px; line-height: 1.42857; margin-bottom: 0px; }
+.product_pod .price_color { font-family: inherit; font-weight: 500; margin-top: 10px; margin-bottom: 10px; font-size: 16.1px; line-height: 1.4; color: rgb(92, 184, 92); }
+.product_pod .availability, .product_pod .price_color { min-height: 30px; white-space: nowrap; }
+.product_pod .image_container, .product_pod .availability, .product_pod .price_color { margin-bottom: 10px; }
+.product_pod .product_price { position: absolute; bottom: 0px; width: 100%; }
+.image_container { width: 100%; min-height: 165px; overflow: hidden; text-align: center; position: relative; }
+.image_container img { max-height: 155px; max-width: 100%; width: auto; margin: 0px auto; }
+a:hover .thumbnail { border-color: rgb(66, 139, 202); box-shadow: rgba(0, 105, 214, 0.25) 0px 1px 4px; }
+.availability.instock { color: rgb(92, 184, 92); }
+.price_color { display: block; color: rgb(92, 184, 92); font-weight: bold; }
+.product_pod .price_color { margin-top: 0px; }
+.review_add, .review_all, .review_read, .side_categories { min-height: 20px; padding: 19px; margin-bottom: 20px; background-color: rgb(245, 245, 245); border: 1px solid rgb(227, 227, 227); border-radius: 4px; box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 1px inset; }
+.review_add::before, .review_all::before, .review_read::before, .side_categories::before, .review_add::after, .review_all::after, .review_read::after, .side_categories::after { content: " "; display: table; }
+.review_add::after, .review_all::after, .review_read::after, .side_categories::after { clear: both; }
+.review_add::before, .review_all::before, .review_read::before, .side_categories::before, .review_add::after, .review_all::after, .review_read::after, .side_categories::after { content: " "; display: table; }
+.review_add::after, .review_all::after, .review_read::after, .side_categories::after { clear: both; }
+.review_add li ul, .review_all li ul, .review_read li ul, .side_categories li ul, .review_add li ol, .review_all li ol, .review_read li ol, .side_categories li ol { padding-left: 1.78571em; }
+.star-rating { color: rgb(203, 203, 203); }
+.star-rating i { letter-spacing: -1px; width: auto; }
+.star-rating.One i:first-child { color: rgb(230, 206, 49); }
+.star-rating.Two i:first-child, .star-rating.Two i:first-child + i { color: rgb(230, 206, 49); }
+.star-rating.Three i:first-child, .star-rating.Three i:first-child + i, .star-rating.Three i:first-child + i + i { color: rgb(230, 206, 49); }
+.star-rating.Four i:first-child, .star-rating.Four i:first-child + i, .star-rating.Four i:first-child + i + i, .star-rating.Four i:first-child + i + i + i { color: rgb(230, 206, 49); }
+.star-rating.Five i { color: rgb(230, 206, 49); }
+.clearfix::before, .clearfix::after, .dl-horizontal dd::before, .dl-horizontal dd::after, .container::before, .container::after, .container-fluid::before, .container-fluid::after, .row::before, .row::after, .form-horizontal .form-group::before, .form-horizontal .form-group::after, .btn-toolbar::before, .btn-toolbar::after, .btn-group-vertical > .btn-group::before, .btn-group-vertical > .btn-group::after, .nav::before, .nav::after, .navbar::before, .navbar::after, .navbar-header::before, .navbar-header::after, .navbar-collapse::before, .navbar-collapse::after, .pager::before, .pager::after, .panel-body::before, .panel-body::after, .modal-footer::before, .modal-footer::after { content: " "; display: table; }
+.clearfix::after, .dl-horizontal dd::after, .container::after, .container-fluid::after, .row::after, .form-horizontal .form-group::after, .btn-toolbar::after, .btn-group-vertical > .btn-group::after, .nav::after, .navbar::after, .navbar-header::after, .navbar-collapse::after, .pager::after, .panel-body::after, .modal-footer::after { clear: both; }
+
+
+</style></head>
+
+    <body id="default" class="default">
+        
+        
+    
+    
+    <header class="header container-fluid">
+        <div class="page_inner">
+            <div class="row">
+                <div class="col-sm-8 h1"><a href="/index.html">Books to Scrape</a><small> We love being scraped!</small>
+</div>
+
+                
+            </div>
+        </div>
+    </header>
+
+    
+    
+<div class="container-fluid page">
+    <div class="page_inner">
+        
+    <ul class="breadcrumb">
+        <li>
+            <a href="/index.html">Home</a>
+        </li>
+        <li class="active">All products</li>
+    </ul>
+
+        <div class="row">
+
+            <aside class="sidebar col-sm-4 col-md-3">
+                
+                <div id="promotions_left">
+                    
+                </div>
+                
+    
+    
+        
+        <div class="side_categories">
+            <ul class="nav nav-list">
+                
+                    <li>
+                        <a href="/catalogue/category/books_1/index.html">
+                            
+                                Books
+                            
+                        </a>
+
+                        <ul>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/travel_2/index.html">
+                            
+                                Travel
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/mystery_3/index.html">
+                            
+                                Mystery
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/historical-fiction_4/index.html">
+                            
+                                Historical Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/sequential-art_5/index.html">
+                            
+                                Sequential Art
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/classics_6/index.html">
+                            
+                                Classics
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/philosophy_7/index.html">
+                            
+                                Philosophy
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/romance_8/index.html">
+                            
+                                Romance
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/womens-fiction_9/index.html">
+                            
+                                Womens Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/fiction_10/index.html">
+                            
+                                Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/childrens_11/index.html">
+                            
+                                Childrens
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/religion_12/index.html">
+                            
+                                Religion
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/nonfiction_13/index.html">
+                            
+                                Nonfiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/music_14/index.html">
+                            
+                                Music
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/default_15/index.html">
+                            
+                                Default
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/science-fiction_16/index.html">
+                            
+                                Science Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/sports-and-games_17/index.html">
+                            
+                                Sports and Games
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/add-a-comment_18/index.html">
+                            
+                                Add a comment
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/fantasy_19/index.html">
+                            
+                                Fantasy
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/new-adult_20/index.html">
+                            
+                                New Adult
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/young-adult_21/index.html">
+                            
+                                Young Adult
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/science_22/index.html">
+                            
+                                Science
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/poetry_23/index.html">
+                            
+                                Poetry
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/paranormal_24/index.html">
+                            
+                                Paranormal
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/art_25/index.html">
+                            
+                                Art
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/psychology_26/index.html">
+                            
+                                Psychology
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/autobiography_27/index.html">
+                            
+                                Autobiography
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/parenting_28/index.html">
+                            
+                                Parenting
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/adult-fiction_29/index.html">
+                            
+                                Adult Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/humor_30/index.html">
+                            
+                                Humor
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/horror_31/index.html">
+                            
+                                Horror
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/history_32/index.html">
+                            
+                                History
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/food-and-drink_33/index.html">
+                            
+                                Food and Drink
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/christian-fiction_34/index.html">
+                            
+                                Christian Fiction
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/business_35/index.html">
+                            
+                                Business
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/biography_36/index.html">
+                            
+                                Biography
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/thriller_37/index.html">
+                            
+                                Thriller
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/contemporary_38/index.html">
+                            
+                                Contemporary
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/spirituality_39/index.html">
+                            
+                                Spirituality
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/academic_40/index.html">
+                            
+                                Academic
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/self-help_41/index.html">
+                            
+                                Self Help
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/historical_42/index.html">
+                            
+                                Historical
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/christian_43/index.html">
+                            
+                                Christian
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/suspense_44/index.html">
+                            
+                                Suspense
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/short-stories_45/index.html">
+                            
+                                Short Stories
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/novels_46/index.html">
+                            
+                                Novels
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/health_47/index.html">
+                            
+                                Health
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/politics_48/index.html">
+                            
+                                Politics
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/cultural_49/index.html">
+                            
+                                Cultural
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/erotica_50/index.html">
+                            
+                                Erotica
+                            
+                        </a>
+
+                        </li>
+                        
+                
+                    <li>
+                        <a href="/catalogue/category/books/crime_51/index.html">
+                            
+                                Crime
+                            
+                        </a>
+
+                        </li>
+                        
+                            </ul></li>
+                        
+                
+            </ul>
+        </div>
+    
+    
+
+            </aside>
+
+            <div class="col-sm-8 col-md-9">
+                
+                <div class="page-header action">
+                    <h1>All products</h1>
+                </div>
+                
+
+                
+
+
+
+<div id="messages">
+
+</div>
+
+
+                <div id="promotions">
+                    
+                </div>
+
+                
+    <form method="get" class="form-horizontal">
+        
+        <div style="display:none">
+            
+            
+        </div>
+
+        
+            
+                
+                    <strong>1000</strong> results - showing <strong>1</strong> to <strong>20</strong>.
+                
+            
+            
+        
+    </form>
+    
+        <section>
+            <div class="alert alert-warning" role="alert"><strong>Warning!</strong> This is a demo website for web scraping purposes. Prices and ratings here were randomly assigned and have no real meaning.</div>
+
+            <div>
+                <ol class="row">
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/a-light-in-the-attic_1000/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="A Light in the Attic" class="thumbnail" width="127" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Three">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/a-light-in-the-attic_1000/index.html" title="A Light in the Attic">A Light in the ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£51.77</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/tipping-the-velvet_999/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Tipping the Velvet" class="thumbnail" width="103" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/tipping-the-velvet_999/index.html" title="Tipping the Velvet">Tipping the Velvet</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£53.74</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/soumission_998/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Soumission" class="thumbnail" width="104" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/soumission_998/index.html" title="Soumission">Soumission</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£50.10</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/sharp-objects_997/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Sharp Objects" class="thumbnail" width="119" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Four">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/sharp-objects_997/index.html" title="Sharp Objects">Sharp Objects</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£47.82</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/sapiens-a-brief-history-of-humankind_996/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Sapiens: A Brief History of Humankind" class="thumbnail" width="105" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Five">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/sapiens-a-brief-history-of-humankind_996/index.html" title="Sapiens: A Brief History of Humankind">Sapiens: A Brief History ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£54.23</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/the-requiem-red_995/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="The Requiem Red" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/the-requiem-red_995/index.html" title="The Requiem Red">The Requiem Red</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£22.65</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/the-dirty-little-secrets-of-getting-your-dream-job_994/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="The Dirty Little Secrets of Getting Your Dream Job" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Four">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/the-dirty-little-secrets-of-getting-your-dream-job_994/index.html" title="The Dirty Little Secrets of Getting Your Dream Job">The Dirty Little Secrets ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£33.34</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/the-coming-woman-a-novel-based-on-the-life-of-the-infamous-feminist-victoria-woodhull_993/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Three">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/the-coming-woman-a-novel-based-on-the-life-of-the-infamous-feminist-victoria-woodhull_993/index.html" title="The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull">The Coming Woman: A ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£17.93</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/the-boys-in-the-boat-nine-americans-and-their-epic-quest-for-gold-at-the-1936-berlin-olympics_992/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics" class="thumbnail" width="106" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Four">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/the-boys-in-the-boat-nine-americans-and-their-epic-quest-for-gold-at-the-1936-berlin-olympics_992/index.html" title="The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics">The Boys in the ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£22.60</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/the-black-maria_991/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="The Black Maria" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/the-black-maria_991/index.html" title="The Black Maria">The Black Maria</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£52.15</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/starving-hearts-triangular-trade-trilogy-1_990/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Starving Hearts (Triangular Trade Trilogy, #1)" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Two">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/starving-hearts-triangular-trade-trilogy-1_990/index.html" title="Starving Hearts (Triangular Trade Trilogy, #1)">Starving Hearts (Triangular Trade ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£13.99</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/shakespeares-sonnets_989/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Shakespeare's Sonnets" class="thumbnail" width="96" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Four">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/shakespeares-sonnets_989/index.html" title="Shakespeare's Sonnets">Shakespeare's Sonnets</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£20.66</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/set-me-free_988/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Set Me Free" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Five">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/set-me-free_988/index.html" title="Set Me Free">Set Me Free</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£17.46</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/scott-pilgrims-precious-little-life-scott-pilgrim-1_987/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Scott Pilgrim's Precious Little Life (Scott Pilgrim #1)" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Five">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/scott-pilgrims-precious-little-life-scott-pilgrim-1_987/index.html" title="Scott Pilgrim's Precious Little Life (Scott Pilgrim #1)">Scott Pilgrim's Precious Little ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£52.29</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/rip-it-up-and-start-again_986/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Rip it Up and Start Again" class="thumbnail" width="102" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Five">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/rip-it-up-and-start-again_986/index.html" title="Rip it Up and Start Again">Rip it Up and ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£35.02</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/our-band-could-be-your-life-scenes-from-the-american-indie-underground-1981-1991_985/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991" class="thumbnail" width="106" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Three">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/our-band-could-be-your-life-scenes-from-the-american-indie-underground-1981-1991_985/index.html" title="Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991">Our Band Could Be ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£57.25</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/olio_984/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Olio" class="thumbnail" width="119" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/olio_984/index.html" title="Olio">Olio</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£23.88</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/mesaerion-the-best-science-fiction-stories-1800-1849_983/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Mesaerion: The Best Science Fiction Stories 1800-1849" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating One">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/mesaerion-the-best-science-fiction-stories-1800-1849_983/index.html" title="Mesaerion: The Best Science Fiction Stories 1800-1849">Mesaerion: The Best Science ...</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£37.59</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/libertarianism-for-beginners_982/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Libertarianism for Beginners" class="thumbnail" width="107" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Two">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/libertarianism-for-beginners_982/index.html" title="Libertarianism for Beginners">Libertarianism for Beginners</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£51.33</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                        <li class="col-xs-6 col-sm-4 col-md-3 col-lg-3">
+
+
+
+
+
+
+    <article class="product_pod">
+        
+            <div class="image_container">
+                
+                    
+                    <a href="/catalogue/its-only-the-himalayas_981/index.html"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="It's Only the Himalayas" class="thumbnail" width="109" height="155"></a>
+                    
+                
+            </div>
+        
+
+        
+            
+                <p class="star-rating Two">
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                    <i class="icon-star"></i>
+                </p>
+            
+        
+
+        
+            <h3><a href="/catalogue/its-only-the-himalayas_981/index.html" title="It's Only the Himalayas">It's Only the Himalayas</a></h3>
+        
+
+        
+            <div class="product_price">
+                
+
+
+
+
+
+
+    
+        <p class="price_color">£45.17</p>
+    
+
+<p class="instock availability">
+    <i class="icon-ok"></i>
+    
+        In stock
+    
+</p>
+
+                
+                    
+
+
+
+
+
+
+    
+    <form>
+        <button type="submit" class="btn btn-primary btn-block" data-loading-text="Adding...">Add to basket</button>
+    </form>
+
+
+                
+            </div>
+        
+    </article>
+
+</li>
+                    
+                </ol>
+                
+
+
+
+    <div>
+        <ul class="pager">
+            
+            <li class="current">
+            
+                Page 1 of 50
+            
+            </li>
+            
+                <li class="next"><a href="/catalogue/page-2.html">next</a></li>
+            
+        </ul>
+    </div>
+
+
+            </div>
+        </section>
+    
+
+
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+    
+<footer class="footer container-fluid">
+    
+        
+    
+</footer>
+
+
+        
+        
+  
+            
+            
+            
+        
+  
+
+
+        
+        
+    
+        
+    
+    
+    
+    
+
+    
+    
+
+
+        
+        
+    
+
+    
+
+
+        
+        
+
+        
+        
+        
+    
+
+</body></html>

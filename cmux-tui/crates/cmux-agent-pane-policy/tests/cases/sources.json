@@ -1,0 +1,391 @@
+[
+ {
+  "name": "an added session holds its own source",
+  "steps": [
+   {
+    "add": "s1"
+   }
+  ],
+  "holds": [
+   [
+    {
+     "sessionId": "s1"
+    },
+    true
+   ],
+   [
+    {
+     "sessionId": "s2"
+    },
+    false
+   ],
+   [
+    {},
+    false
+   ],
+   [
+    {
+     "sessionId": 1
+    },
+    false
+   ]
+  ],
+  "contains": [
+   [
+    "s1",
+    true
+   ],
+   [
+    "s2",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "a handoff never seen is outside, even from a held session",
+  "steps": [
+   {
+    "add": "s1"
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h1",
+     "sessionId": "s1"
+    },
+    false
+   ]
+  ],
+  "contains": []
+ },
+ {
+  "name": "a handoff record from a held session holds it",
+  "steps": [
+   {
+    "add": "s1"
+   },
+   {
+    "sent": {
+     "method": "_acpmux/handoff_prepare",
+     "id": "5",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 5,
+     "result": {
+      "handoffId": "h1",
+      "source": {
+       "sessionId": "s1"
+      }
+     }
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h1"
+    },
+    true
+   ],
+   [
+    {
+     "handoffId": "h2"
+    },
+    false
+   ]
+  ],
+  "contains": []
+ },
+ {
+  "name": "a handoff record from a session outside is outside",
+  "steps": [
+   {
+    "add": "s1"
+   },
+   {
+    "sent": {
+     "method": "_acpmux/handoff_get",
+     "id": "6",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 6,
+     "result": {
+      "handoffId": "h1",
+      "source": {
+       "sessionId": "s9"
+      }
+     }
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h1"
+    },
+    false
+   ]
+  ],
+  "contains": []
+ },
+ {
+  "name": "a click lets the pane take a handoff (owned on send)",
+  "steps": [
+   {
+    "sent": {
+     "method": "_acpmux/handoff_start",
+     "id": "7",
+     "handoff": "h3",
+     "owned": true
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h3"
+    },
+    true
+   ]
+  ],
+  "contains": []
+ },
+ {
+  "name": "a click lets the pane take a handoff (owned on its record)",
+  "steps": [
+   {
+    "sent": {
+     "method": "_acpmux/handoff_draft",
+     "id": "8",
+     "handoff": null,
+     "owned": true
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 8,
+     "result": {
+      "handoffId": "h4",
+      "source": {
+       "sessionId": "s9"
+      }
+     }
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h4"
+    },
+    true
+   ]
+  ],
+  "contains": []
+ },
+ {
+  "name": "a reply to a starting request adds its sessions",
+  "steps": [
+   {
+    "sent": {
+     "method": "session/new",
+     "id": "9",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 9,
+     "result": {
+      "sessionId": "s5"
+     }
+    }
+   },
+   {
+    "sent": {
+     "method": "acp.session.fork",
+     "id": "\"f\"",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": "f",
+     "result": {
+      "sessionId": "s6",
+      "targetSessionId": "s7"
+     }
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "sessionId": "s7"
+    },
+    true
+   ]
+  ],
+  "contains": [
+   [
+    "s5",
+    true
+   ],
+   [
+    "s6",
+    true
+   ],
+   [
+    "s7",
+    true
+   ]
+  ]
+ },
+ {
+  "name": "a reply to a request that starts nothing adds nothing",
+  "steps": [
+   {
+    "sent": {
+     "method": "_acpmux/attach",
+     "id": "10",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 10,
+     "result": {
+      "sessionId": "s8"
+     }
+    }
+   }
+  ],
+  "holds": [],
+  "contains": [
+   [
+    "s8",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "a reply nobody waits for adds nothing",
+  "steps": [
+   {
+    "sent": {
+     "method": "session/new",
+     "id": "11",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 12,
+     "result": {
+      "sessionId": "s9"
+     }
+    }
+   }
+  ],
+  "holds": [],
+  "contains": [
+   [
+    "s9",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "a notification is no reply",
+  "steps": [
+   {
+    "sent": {
+     "method": "session/new",
+     "id": "13",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 13,
+     "method": "x",
+     "result": {
+      "sessionId": "s10"
+     }
+    }
+   }
+  ],
+  "holds": [],
+  "contains": [
+   [
+    "s10",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "handoff_start both starts a session and records its handoff",
+  "steps": [
+   {
+    "add": "s1"
+   },
+   {
+    "sent": {
+     "method": "_acpmux/handoff_start",
+     "id": "14",
+     "handoff": null,
+     "owned": false
+    }
+   },
+   {
+    "observe": {
+     "jsonrpc": "2.0",
+     "id": 14,
+     "result": {
+      "handoffId": "h5",
+      "source": {
+       "sessionId": "s1"
+      },
+      "targetSessionId": "s11"
+     }
+    }
+   }
+  ],
+  "holds": [
+   [
+    {
+     "handoffId": "h5"
+    },
+    true
+   ]
+  ],
+  "contains": [
+   [
+    "s11",
+    true
+   ]
+  ]
+ }
+]

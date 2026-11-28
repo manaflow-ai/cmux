@@ -1,0 +1,1192 @@
+{
+  "$comment": [
+    "Coverage of the pinned upstream surface (upstream/openapi.json and upstream/sdk/), checked by test/node/upstream-coverage.test.ts.",
+    "operations: every upstream OpenAPI operation, keyed by operationId, in exactly one state:",
+    "  wrapped  - served by the cmux VM endpoints named in `by` (operationIds in openapi.json);",
+    "  planned  - not wrapped yet; `bead` names the task that will wrap it. A distinct state from denied: the slice that wraps it flips it to wrapped;",
+    "  denied   - deliberately never wrapped; `reason` says why.",
+    "sdk: every public method of every class the upstream SDK declares, as Class.method; cli: every command the upstream CLI exports.",
+    "Each maps to the upstream operations it calls (and so inherits their state), or is denied or local (no request) with a reason."
+  ],
+  "operations": {
+    "get_background_request": {
+      "status": "denied",
+      "reason": "Transport detail of the provider client: a request is backgrounded only when the caller sends the background-after header, which cmux VM never does, and background request ids are account-wide, so they cannot be scoped to a tenant."
+    },
+    "list_certificates": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "request_wildcard": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_domains": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "delete_placeholder_branding": {
+      "status": "denied",
+      "reason": "Placeholder branding is one account-wide setting for every verified domain of every tenant; a tenant cannot own it."
+    },
+    "get_placeholder_branding": {
+      "status": "denied",
+      "reason": "Placeholder branding is one account-wide setting for every verified domain of every tenant; a tenant cannot own it."
+    },
+    "set_placeholder_branding": {
+      "status": "denied",
+      "reason": "Placeholder branding is one account-wide setting for every verified domain of every tenant; letting one tenant set it would change every other tenant's pages."
+    },
+    "evaluate_firewall": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "list_firewall_rules": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "create_firewall_rule": {
+      "status": "wrapped",
+      "by": [
+        "mesh.putMeshAcl",
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice",
+        "mesh.attachMeshVm"
+      ]
+    },
+    "delete_firewall_rule": {
+      "status": "wrapped",
+      "by": [
+        "mesh.putMeshAcl",
+        "mesh.detachMeshVm"
+      ]
+    },
+    "get_firewall_rule": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "list_hardware": {
+      "status": "denied",
+      "reason": "Physical machines attached to the provider account's private networks are operator infrastructure, not tenant resources."
+    },
+    "get_hardware_power": {
+      "status": "denied",
+      "reason": "Physical machine power state is operator infrastructure, not a tenant resource."
+    },
+    "set_hardware_power": {
+      "status": "denied",
+      "reason": "Switches a real power outlet on operator hardware; never exposed to tenants."
+    },
+    "list_identities": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "create_identity": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "delete_identity": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "describe_identity": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_vm_permissions": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "grant_vm_permission": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "revoke_vm_permission": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "describe_vm_permission": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "update_vm_allowed_linux_users": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_access_tokens": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "create_access_token": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "revoke_access_token": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_snapshots": {
+      "status": "wrapped",
+      "by": [
+        "snapshots.listSnapshots"
+      ]
+    },
+    "delete_snapshot": {
+      "status": "wrapped",
+      "by": [
+        "snapshots.deleteSnapshot",
+        "vms.forkVm"
+      ]
+    },
+    "get_snapshot": {
+      "status": "wrapped",
+      "by": [
+        "snapshots.getSnapshot"
+      ]
+    },
+    "update_snapshot": {
+      "status": "planned",
+      "bead": "cx-b4h.9",
+      "reason": "planned in cx-b4h.9"
+    },
+    "list_tls_rules": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "create_tls_rule": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_tls_forward_auth": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "create_tls_forward_auth": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "delete_tls_forward_auth": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "get_tls_forward_auth": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "update_tls_forward_auth": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "delete_tls_rule": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "get_tls_rule": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "update_tls_rule": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_tunnels": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "create_tunnel": {
+      "status": "wrapped",
+      "by": [
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
+      ]
+    },
+    "delete_tunnel": {
+      "status": "wrapped",
+      "by": [
+        "mesh.deleteDevice",
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
+      ]
+    },
+    "get_tunnel": {
+      "status": "wrapped",
+      "by": [
+        "mesh.getTunnel"
+      ]
+    },
+    "update_tunnel": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "rotate_tunnel_key": {
+      "status": "wrapped",
+      "by": [
+        "mesh.rotateDeviceKey"
+      ]
+    },
+    "detach_vpc_from_tunnel": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "attach_vpc_to_tunnel": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "list_verifications": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "create_verification": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "delete_verification": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "get_verification": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "verify_domain": {
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
+    },
+    "list_vms": {
+      "status": "wrapped",
+      "by": [
+        "vms.listVms"
+      ]
+    },
+    "create_vm": {
+      "status": "wrapped",
+      "by": [
+        "vms.createVm",
+        "vms.forkVm"
+      ]
+    },
+    "delete_vm": {
+      "status": "wrapped",
+      "by": [
+        "vms.deleteVm"
+      ]
+    },
+    "get_vm": {
+      "status": "wrapped",
+      "by": [
+        "vms.getVm"
+      ]
+    },
+    "update_vm": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "exec_vm": {
+      "status": "wrapped",
+      "by": [
+        "exec.execVm",
+        "vms.stopVm"
+      ]
+    },
+    "read_dir": {
+      "status": "wrapped",
+      "by": [
+        "files.listFiles"
+      ]
+    },
+    "path_exists": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "make_dir": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "read_file": {
+      "status": "wrapped",
+      "by": [
+        "files.readFile"
+      ]
+    },
+    "remove_path": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "stat_path": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "begin_upload": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "abort_upload": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "upload_status": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "upload_chunk": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "commit_upload": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "write_file": {
+      "status": "wrapped",
+      "by": [
+        "files.writeFile"
+      ]
+    },
+    "update_vm_networks": {
+      "status": "wrapped",
+      "by": [
+        "mesh.attachMeshVm",
+        "mesh.detachMeshVm"
+      ]
+    },
+    "pause_vm": {
+      "status": "wrapped",
+      "by": [
+        "vms.pauseVm"
+      ]
+    },
+    "open_pty": {
+      "status": "wrapped",
+      "by": [
+        "terminals.openTerminal"
+      ]
+    },
+    "list_pty_sessions": {
+      "status": "wrapped",
+      "by": [
+        "terminals.listTerminals"
+      ]
+    },
+    "close_pty_session": {
+      "status": "wrapped",
+      "by": [
+        "terminals.closeTerminal"
+      ]
+    },
+    "attach_pty": {
+      "status": "wrapped",
+      "by": [
+        "terminals.attachTerminal"
+      ]
+    },
+    "resize_vm": {
+      "status": "planned",
+      "bead": "cx-b4h.2",
+      "reason": "planned in cx-b4h.2"
+    },
+    "snapshot_vm": {
+      "status": "wrapped",
+      "by": [
+        "snapshots.createSnapshot",
+        "vms.forkVm"
+      ]
+    },
+    "start_vm": {
+      "status": "wrapped",
+      "by": [
+        "vms.startVm",
+        "vms.resumeVm"
+      ]
+    },
+    "list_vpcs": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "create_vpc": {
+      "status": "wrapped",
+      "by": [
+        "mesh.createMesh"
+      ]
+    },
+    "delete_vpc": {
+      "status": "wrapped",
+      "by": [
+        "mesh.deleteMesh"
+      ]
+    },
+    "get_vpc": {
+      "status": "wrapped",
+      "by": [
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
+      ]
+    },
+    "update_vpc": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "list_vpc_ips": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    },
+    "list_vpc_tunnels": {
+      "status": "planned",
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
+    }
+  },
+  "sdk": {
+    "FreestyleClient.authHeaders": {
+      "status": "denied",
+      "reason": "Returns the provider credential headers; the provider key never leaves the Worker."
+    },
+    "FreestyleClient.url": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
+    "FreestyleClient.fetch": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.get": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.post": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.patch": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.put": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.putEmpty": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.putBytes": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.getBytes": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "FreestyleClient.delete": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "Freestyle.fetch": {
+      "status": "denied",
+      "reason": "Raw transport escape hatch of the provider client; cmux VM exposes no unscoped passthrough, every request goes through a tenant-checked endpoint."
+    },
+    "DomainsNamespace.list": {
+      "operations": [
+        "list_domains"
+      ]
+    },
+    "DomainVerificationsNamespace.create": {
+      "operations": [
+        "create_verification"
+      ]
+    },
+    "DomainVerificationsNamespace.list": {
+      "operations": [
+        "list_verifications"
+      ]
+    },
+    "DomainVerificationsNamespace.get": {
+      "operations": [
+        "get_verification"
+      ]
+    },
+    "DomainVerificationsNamespace.complete": {
+      "operations": [
+        "verify_domain"
+      ]
+    },
+    "DomainVerificationsNamespace.delete": {
+      "operations": [
+        "delete_verification"
+      ]
+    },
+    "DomainCertificatesNamespace.list": {
+      "operations": [
+        "list_certificates"
+      ]
+    },
+    "DomainCertificatesNamespace.createWildcard": {
+      "operations": [
+        "request_wildcard"
+      ]
+    },
+    "DomainPlaceholderNamespace.get": {
+      "operations": [
+        "get_placeholder_branding"
+      ]
+    },
+    "DomainPlaceholderNamespace.set": {
+      "operations": [
+        "set_placeholder_branding"
+      ]
+    },
+    "DomainPlaceholderNamespace.delete": {
+      "operations": [
+        "delete_placeholder_branding"
+      ]
+    },
+    "FirewallRulesNamespace.create": {
+      "operations": [
+        "create_firewall_rule"
+      ]
+    },
+    "FirewallRulesNamespace.list": {
+      "operations": [
+        "list_firewall_rules"
+      ]
+    },
+    "FirewallRulesNamespace.get": {
+      "operations": [
+        "get_firewall_rule"
+      ]
+    },
+    "FirewallRulesNamespace.delete": {
+      "operations": [
+        "delete_firewall_rule"
+      ]
+    },
+    "FirewallNamespace.evaluate": {
+      "operations": [
+        "evaluate_firewall"
+      ]
+    },
+    "IdentityTokensNamespace.create": {
+      "operations": [
+        "create_access_token"
+      ]
+    },
+    "IdentityTokensNamespace.list": {
+      "operations": [
+        "list_access_tokens"
+      ]
+    },
+    "IdentityTokensNamespace.revoke": {
+      "operations": [
+        "revoke_access_token"
+      ]
+    },
+    "IdentityVmPermissionsNamespace.list": {
+      "operations": [
+        "list_vm_permissions"
+      ]
+    },
+    "IdentityVmPermissionsNamespace.grant": {
+      "operations": [
+        "grant_vm_permission"
+      ]
+    },
+    "IdentityVmPermissionsNamespace.get": {
+      "operations": [
+        "describe_vm_permission"
+      ]
+    },
+    "IdentityVmPermissionsNamespace.update": {
+      "operations": [
+        "update_vm_allowed_linux_users"
+      ]
+    },
+    "IdentityVmPermissionsNamespace.revoke": {
+      "operations": [
+        "revoke_vm_permission"
+      ]
+    },
+    "Identity.data": {
+      "operations": [
+        "describe_identity"
+      ]
+    },
+    "Identity.delete": {
+      "operations": [
+        "delete_identity"
+      ]
+    },
+    "IdentitiesNamespace.create": {
+      "operations": [
+        "create_identity"
+      ]
+    },
+    "IdentitiesNamespace.list": {
+      "operations": [
+        "list_identities"
+      ]
+    },
+    "IdentitiesNamespace.get": {
+      "operations": [
+        "describe_identity"
+      ]
+    },
+    "IdentitiesNamespace.ref": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
+    "IdentitiesNamespace.delete": {
+      "operations": [
+        "delete_identity"
+      ]
+    },
+    "TlsForwardAuthNamespace.list": {
+      "operations": [
+        "list_tls_forward_auth"
+      ]
+    },
+    "TlsForwardAuthNamespace.create": {
+      "operations": [
+        "create_tls_forward_auth"
+      ]
+    },
+    "TlsForwardAuthNamespace.get": {
+      "operations": [
+        "get_tls_forward_auth"
+      ]
+    },
+    "TlsForwardAuthNamespace.update": {
+      "operations": [
+        "update_tls_forward_auth"
+      ]
+    },
+    "TlsForwardAuthNamespace.delete": {
+      "operations": [
+        "delete_tls_forward_auth"
+      ]
+    },
+    "TlsRulesNamespace.create": {
+      "operations": [
+        "create_tls_rule"
+      ]
+    },
+    "TlsRulesNamespace.list": {
+      "operations": [
+        "list_tls_rules"
+      ]
+    },
+    "TlsRulesNamespace.get": {
+      "operations": [
+        "get_tls_rule"
+      ]
+    },
+    "TlsRulesNamespace.update": {
+      "operations": [
+        "update_tls_rule"
+      ]
+    },
+    "TlsRulesNamespace.delete": {
+      "operations": [
+        "delete_tls_rule"
+      ]
+    },
+    "TunnelsNamespace.list": {
+      "operations": [
+        "list_tunnels"
+      ]
+    },
+    "TunnelsNamespace.create": {
+      "operations": [
+        "create_tunnel"
+      ]
+    },
+    "TunnelsNamespace.get": {
+      "operations": [
+        "get_tunnel"
+      ]
+    },
+    "TunnelsNamespace.update": {
+      "operations": [
+        "update_tunnel"
+      ]
+    },
+    "TunnelsNamespace.rotateKey": {
+      "operations": [
+        "rotate_tunnel_key"
+      ]
+    },
+    "TunnelsNamespace.delete": {
+      "operations": [
+        "delete_tunnel"
+      ]
+    },
+    "TunnelsNamespace.attachVpc": {
+      "operations": [
+        "attach_vpc_to_tunnel"
+      ]
+    },
+    "TunnelsNamespace.detachVpc": {
+      "operations": [
+        "detach_vpc_from_tunnel"
+      ]
+    },
+    "VmFilesystem.readFile": {
+      "operations": [
+        "read_file"
+      ]
+    },
+    "VmFilesystem.readTextFile": {
+      "operations": [
+        "read_file"
+      ]
+    },
+    "VmFilesystem.readFileStream": {
+      "operations": [
+        "read_file"
+      ]
+    },
+    "VmFilesystem.writeFile": {
+      "operations": [
+        "write_file",
+        "begin_upload",
+        "upload_chunk",
+        "commit_upload",
+        "abort_upload",
+        "upload_status"
+      ]
+    },
+    "VmFilesystem.writeTextFile": {
+      "operations": [
+        "write_file"
+      ]
+    },
+    "VmFilesystem.readDir": {
+      "operations": [
+        "read_dir"
+      ]
+    },
+    "VmFilesystem.mkdir": {
+      "operations": [
+        "make_dir"
+      ]
+    },
+    "VmFilesystem.remove": {
+      "operations": [
+        "remove_path"
+      ]
+    },
+    "VmFilesystem.exists": {
+      "operations": [
+        "path_exists"
+      ]
+    },
+    "VmFilesystem.stat": {
+      "operations": [
+        "stat_path"
+      ]
+    },
+    "Vm.data": {
+      "operations": [
+        "get_vm"
+      ]
+    },
+    "Vm.firewallRules": {
+      "operations": [
+        "list_firewall_rules"
+      ]
+    },
+    "Vm.update": {
+      "operations": [
+        "update_vm"
+      ]
+    },
+    "Vm.start": {
+      "operations": [
+        "start_vm"
+      ]
+    },
+    "Vm.pause": {
+      "operations": [
+        "pause_vm"
+      ]
+    },
+    "Vm.resize": {
+      "operations": [
+        "resize_vm"
+      ]
+    },
+    "Vm.delete": {
+      "operations": [
+        "delete_vm"
+      ]
+    },
+    "Vm.exec": {
+      "operations": [
+        "exec_vm"
+      ]
+    },
+    "Vm.linuxUser": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
+    "Vm.snapshot": {
+      "operations": [
+        "snapshot_vm"
+      ]
+    },
+    "VmLinuxUser.exec": {
+      "operations": [
+        "exec_vm"
+      ]
+    },
+    "VmsNamespace.create": {
+      "operations": [
+        "create_vm"
+      ]
+    },
+    "VmsNamespace.list": {
+      "operations": [
+        "list_vms"
+      ]
+    },
+    "VmsNamespace.get": {
+      "operations": [
+        "get_vm"
+      ]
+    },
+    "VmsNamespace.ref": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
+    "VmsNamespace.delete": {
+      "operations": [
+        "delete_vm"
+      ]
+    },
+    "PtySession.write": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "PtySession.resize": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "PtySession.signal": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "PtySession.detach": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "VmPty.open": {
+      "operations": [
+        "open_pty"
+      ]
+    },
+    "VmPty.attach": {
+      "operations": [
+        "attach_pty"
+      ]
+    },
+    "VmPty.list": {
+      "operations": [
+        "list_pty_sessions"
+      ]
+    },
+    "VmPty.close": {
+      "operations": [
+        "close_pty_session"
+      ]
+    },
+    "VmLinuxUserPty.open": {
+      "operations": [
+        "open_pty"
+      ]
+    },
+    "VmLinuxUserPty.attach": {
+      "operations": [
+        "attach_pty"
+      ]
+    },
+    "VmLinuxUserPty.list": {
+      "operations": [
+        "list_pty_sessions"
+      ]
+    },
+    "VmLinuxUserPty.close": {
+      "operations": [
+        "close_pty_session"
+      ]
+    },
+    "VmSnapshotsNamespace.list": {
+      "operations": [
+        "list_snapshots"
+      ]
+    },
+    "VmSnapshotsNamespace.get": {
+      "operations": [
+        "get_snapshot"
+      ]
+    },
+    "VmSnapshotsNamespace.update": {
+      "operations": [
+        "update_snapshot"
+      ]
+    },
+    "VmSnapshotsNamespace.delete": {
+      "operations": [
+        "delete_snapshot"
+      ]
+    },
+    "VpcTunnelNamespace.list": {
+      "operations": [
+        "list_vpc_tunnels"
+      ]
+    },
+    "Vpc.data": {
+      "operations": [
+        "get_vpc"
+      ]
+    },
+    "Vpc.update": {
+      "operations": [
+        "update_vpc"
+      ]
+    },
+    "Vpc.delete": {
+      "operations": [
+        "delete_vpc"
+      ]
+    },
+    "VpcNamespace.list": {
+      "operations": [
+        "list_vpcs"
+      ]
+    },
+    "VpcNamespace.create": {
+      "operations": [
+        "create_vpc"
+      ]
+    },
+    "VpcNamespace.get": {
+      "operations": [
+        "get_vpc"
+      ]
+    },
+    "VpcNamespace.ref": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
+    "VpcNamespace.delete": {
+      "operations": [
+        "delete_vpc"
+      ]
+    }
+  },
+  "cli": {
+    "accountCommands": {
+      "status": "denied",
+      "reason": "Provider account management (profile, team); cmux tenants are Stack Auth teams managed by cmux."
+    },
+    "authCommands": {
+      "status": "denied",
+      "reason": "Provider CLI login; cmux VM callers authenticate with a cmux session or a cmux VM API key."
+    },
+    "billingCommand": {
+      "status": "denied",
+      "reason": "Provider account billing; cmux bills its tenants itself."
+    },
+    "tokensCommand": {
+      "status": "denied",
+      "reason": "Provider account API keys; cmux VM issues its own per-tenant keys with scopes."
+    },
+    "skillCommand": {
+      "status": "local",
+      "reason": "Installs the provider's agent skill files on the local machine; makes no API request."
+    },
+    "domainCommand": {
+      "operations": [
+        "list_domains",
+        "create_verification",
+        "list_verifications",
+        "get_verification",
+        "verify_domain",
+        "delete_verification",
+        "list_certificates",
+        "request_wildcard",
+        "get_placeholder_branding",
+        "set_placeholder_branding",
+        "delete_placeholder_branding"
+      ]
+    },
+    "firewallCommand": {
+      "operations": [
+        "create_firewall_rule",
+        "list_firewall_rules",
+        "get_firewall_rule",
+        "delete_firewall_rule",
+        "evaluate_firewall"
+      ]
+    },
+    "identityCommand": {
+      "operations": [
+        "list_identities",
+        "create_identity",
+        "describe_identity",
+        "delete_identity",
+        "list_vm_permissions",
+        "grant_vm_permission",
+        "describe_vm_permission",
+        "revoke_vm_permission",
+        "update_vm_allowed_linux_users",
+        "list_access_tokens",
+        "create_access_token",
+        "revoke_access_token"
+      ]
+    },
+    "snapshotCommand": {
+      "operations": [
+        "snapshot_vm",
+        "list_snapshots",
+        "get_snapshot",
+        "update_snapshot",
+        "delete_snapshot",
+        "create_vm"
+      ]
+    },
+    "vmSnapshotCommand": {
+      "operations": [
+        "snapshot_vm",
+        "list_snapshots",
+        "get_snapshot",
+        "update_snapshot",
+        "delete_snapshot"
+      ]
+    },
+    "tlsCommand": {
+      "operations": [
+        "list_tls_rules",
+        "create_tls_rule",
+        "get_tls_rule",
+        "update_tls_rule",
+        "delete_tls_rule",
+        "list_tls_forward_auth",
+        "create_tls_forward_auth",
+        "get_tls_forward_auth",
+        "update_tls_forward_auth",
+        "delete_tls_forward_auth"
+      ]
+    },
+    "tunnelsCommand": {
+      "operations": [
+        "list_tunnels",
+        "create_tunnel",
+        "get_tunnel",
+        "update_tunnel",
+        "rotate_tunnel_key",
+        "delete_tunnel",
+        "attach_vpc_to_tunnel",
+        "detach_vpc_from_tunnel"
+      ]
+    },
+    "vmCommand": {
+      "operations": [
+        "list_vms",
+        "create_vm",
+        "delete_vm",
+        "get_vm",
+        "update_vm",
+        "exec_vm",
+        "read_dir",
+        "path_exists",
+        "make_dir",
+        "read_file",
+        "remove_path",
+        "stat_path",
+        "begin_upload",
+        "abort_upload",
+        "upload_status",
+        "upload_chunk",
+        "commit_upload",
+        "write_file",
+        "update_vm_networks",
+        "pause_vm",
+        "open_pty",
+        "list_pty_sessions",
+        "close_pty_session",
+        "attach_pty",
+        "resize_vm",
+        "snapshot_vm",
+        "start_vm"
+      ]
+    },
+    "vpcCommand": {
+      "operations": [
+        "list_vpcs",
+        "create_vpc",
+        "get_vpc",
+        "update_vpc",
+        "delete_vpc",
+        "list_vpc_ips",
+        "list_vpc_tunnels"
+      ]
+    }
+  }
+}

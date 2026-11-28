@@ -1,0 +1,117 @@
+//! Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
+//!
+//! The one copy ships inside the cmux app bundle, in CmuxNextApps'
+//! resources (`scripts/cmux-next/sync-app-runtime.sh`). The daemon binary
+//! lives in the same bundle (`<App>.app/Contents/Resources/bin/cmux-tui`), so
+//! it resolves that directory from the real path of its own executable: a
+//! daemon started by the app, the CLI or the TUI finds the same packages.
+//!
+//! `CMUX_APPS_FIRST_PARTY_DIR` stays accepted, but only when its real path is
+//! inside that same bundle; any other value is ignored with a log line (a
+//! same-uid environment must not point the daemon at a foreign first-party
+//! set). Outside an app bundle (a standalone or development binary) the
+//! override counts only in debug builds; a release standalone install
+//! ignores it. The variable is read once at startup and removed from the
+//! process environment before any thread starts, so no shell, agent or
+//! server the daemon spawns inherits it. `CMUX_APPS_DIRS` (extra bundled
+//! package directories, never first-party) is taken the same way.
+
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// The override variable (set by the app for the daemon it starts).
+pub const ENV: &str = "CMUX_APPS_FIRST_PARTY_DIR";
+
+/// The first-party directory inside an app bundle, relative to the bundle.
+const IN_BUNDLE: &str =
+    "Contents/Resources/CmuxNext_CmuxNextApps.bundle/Contents/Resources/AppPlatform/first-party";
+
+/// Extra bundled package directories (samples). Their packages are never
+/// first-party.
+pub const DIRS_ENV: &str = "CMUX_APPS_DIRS";
+
+static TAKEN: OnceLock<Option<PathBuf>> = OnceLock::new();
+static TAKEN_DIRS: OnceLock<Option<std::ffi::OsString>> = OnceLock::new();
+
+/// Reads [`ENV`] into this process's once-only setting and removes it from
+/// the process environment.
+///
+/// # Safety
+///
+/// The caller must call this while no other thread exists: removing an
+/// environment variable is unsound while another thread can read it.
+pub unsafe fn take_from_process_env() {
+    let value = std::env::var_os(ENV).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let _ = TAKEN.set(value);
+    let dirs = std::env::var_os(DIRS_ENV).filter(|v| !v.is_empty());
+    let _ = TAKEN_DIRS.set(dirs);
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe {
+        std::env::remove_var(ENV);
+        std::env::remove_var(DIRS_ENV);
+    }
+}
+
+/// The [`ENV`] value this process took at startup, for an owner daemon it
+/// spawns (`server ensure`): only that daemon gets it, never a shell.
+pub fn taken() -> Option<PathBuf> {
+    TAKEN.get().cloned().flatten()
+}
+
+/// [`DIRS_ENV`] as this process started with it (taken at startup), or the
+/// live environment in a process that never took it.
+pub fn apps_dirs() -> Option<std::ffi::OsString> {
+    match TAKEN_DIRS.get() {
+        Some(taken) => taken.clone(),
+        None => std::env::var_os(DIRS_ENV).filter(|v| !v.is_empty()),
+    }
+}
+
+/// The app bundle (`…/<App>.app`) that holds `exe` at
+/// `Contents/Resources/bin/<binary>`, by real path; `None` elsewhere.
+pub fn bundle_of(exe: &Path) -> Option<PathBuf> {
+    let exe = std::fs::canonicalize(exe).ok()?;
+    let bin = exe.parent()?;
+    let resources = bin.parent()?;
+    let contents = resources.parent()?;
+    let bundle = contents.parent()?;
+    let named = |p: &Path, name: &str| p.file_name().is_some_and(|n| n == name);
+    (named(bin, "bin")
+        && named(resources, "Resources")
+        && named(contents, "Contents")
+        && bundle.extension().is_some_and(|e| e == "app"))
+    .then(|| bundle.to_path_buf())
+}
+
+/// The first-party directory for a daemon at `exe` with override `taken`:
+/// the override when its real path is inside `exe`'s bundle, else the
+/// bundle's own directory. With no bundle (a standalone install), the
+/// override in a debug build only, else `apps/first-party` next to the real
+/// path of the binary (a symlink such as `~/.local/bin/cmux-tui` never moves
+/// it into a user-writable directory).
+pub fn resolve(exe: Option<&Path>, taken: Option<&Path>) -> Option<PathBuf> {
+    let bundle = exe.and_then(bundle_of);
+    if let Some(dir) = taken {
+        match (bundle.as_deref(), std::fs::canonicalize(dir)) {
+            (Some(bundle), Ok(real)) if real.starts_with(bundle) => return Some(real),
+            (None, Ok(real)) if cfg!(debug_assertions) => return Some(real),
+            _ => eprintln!(
+                "cmux-tui: {ENV}={} ignored: not inside this daemon's app bundle",
+                dir.display()
+            ),
+        }
+    }
+    if let Some(bundle) = bundle {
+        return Some(bundle.join(IN_BUNDLE));
+    }
+    let real = exe.and_then(|exe| std::fs::canonicalize(exe).ok());
+    real.as_deref().and_then(Path::parent).map(|d| d.join("apps").join("first-party"))
+}
+
+/// This process's first-party directory ([`resolve`] with its own
+/// executable and the override taken at startup).
+pub fn current() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok();
+    let taken = TAKEN.get().cloned().flatten();
+    resolve(exe.as_deref(), taken.as_deref())
+}

@@ -1,0 +1,204 @@
+export type ProviderId = "codex" | "claude" | "opencode";
+
+export type RendererKind = "react" | "solid";
+
+export type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
+
+export type ProviderInfo = {
+  id: ProviderId;
+  displayName: string;
+  executableName: string;
+  transportKind: "stdio-jsonrpc" | "stdio-jsonl" | "http-loopback";
+  arguments: string[];
+  autoStart: boolean;
+};
+
+export type AgentSessionTheme = {
+  isDark: boolean;
+  pageBackground: string;
+  surfaceBackground: string;
+  surfaceElevatedBackground: string;
+  inputBackground: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  mutedText: string;
+  softText: string;
+  accent: string;
+  accentSoft: string;
+  /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
+  accentText?: string;
+  /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
+  onAccent?: string;
+  danger: string;
+  /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
+  warning?: string;
+  /// The primary action (the composer's Send): the theme's ANSI blue.
+  highlight?: string;
+  /// Glyphs on `highlight`.
+  highlightText?: string;
+  shadow: string;
+  /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
+  /// pane sends it. Without it, code keeps the built-in dark hues on the theme's text colors.
+  palette?: string[];
+  /// appearance.borders; `none` sets `data-borders="none"` on the root, which clears the
+  /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
+  /// `borderStrong` are already transparent then. Absent means default.
+  borders?: "default" | "none";
+  /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
+  /// `standard`, `wide` or `wideBlocks`. Absent means standard.
+  chatWidth?: string;
+  /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
+  /// acpmux codexToolRuns.ts). Absent means off.
+  codexToolRuns?: boolean;
+  /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
+  /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
+  /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
+  /// `move` spring's timed equivalent (MotionSpring), 0 when movement is instant.
+  motion?: { hover: number; hoverOut?: number; focus: number; fadeIn: number; fadeOut: number; move?: number };
+};
+
+export type AppContext = {
+  panelId: string;
+  workspaceId: string;
+  renderer: RendererKind;
+  initialProviderId: ProviderId;
+  workingDirectory?: string;
+  rateLimitRows?: AgentSessionRateLimitRow[];
+  copy: AgentSessionCopy;
+  theme: AgentSessionTheme;
+};
+
+export type AgentSessionRateLimitRow = {
+  role: "primary" | "secondary";
+  remainingPercent: number;
+  usedPercent?: number;
+  windowDurationMins?: number;
+  resetsAt?: number;
+};
+
+export type AgentSessionCopy = {
+  start: string;
+  stop: string;
+  send: string;
+  provider: string;
+  rateLimits: string;
+  rateLimitUsageRemaining: string;
+  rateLimitPrimary: string;
+  rateLimitSecondary: string;
+  rateLimitWeekly: string;
+  rateLimitMonthly: string;
+  rateLimitDaysFormat: string;
+  rateLimitHoursFormat: string;
+  rateLimitMinutesFormat: string;
+  rateLimitResets: string;
+  voiceInput: string;
+  promptPlaceholder: string;
+  attachFile: string;
+  addFilesAndMore: string;
+  addPhotosAndFiles: string;
+  removeAttachment: string;
+  copyOutput: string;
+  copyAssistantMessage: string;
+  copiedAssistantMessage: string;
+  copyUserMessage: string;
+  copiedUserMessage: string;
+  shellLabel: string;
+  copyShellContents: string;
+  copiedShellContents: string;
+  collapseShell: string;
+  shellSuccess: string;
+  showMore: string;
+  showLess: string;
+  browseWeb: string;
+  autoContext: string;
+  includeIdeContext: string;
+  ideContext: string;
+  tools: string;
+  changePermissions: string;
+  permissionsDefault: string;
+  permissionsFullAccess: string;
+  permissionsAutoReview: string;
+  permissionsCustom: string;
+  reasoningEffortHigh: string;
+  mentionMenuTitle: string;
+  mentionCurrentWorkspace: string;
+  skillMenuTitle: string;
+  composerNoResults: string;
+  planMode: string;
+  planSuggestionAction: string;
+  planSuggestionDismiss: string;
+  planSuggestionShortcut: string;
+  planSuggestionTitle: string;
+  skillPlan: string;
+  skillCodeReview: string;
+  skillResearch: string;
+  loadingStatus: string;
+  idleStatus: string;
+  startingStatus: string;
+  runningStatus: string;
+  stoppingStatus: string;
+  failedStatus: string;
+  rendererReadyFormat: string;
+  stopped: string;
+  sentCharsFormat: string;
+  providerStarted: string;
+  providerExitedFormat: string;
+  requestFailed: string;
+};
+
+export type AgentSessionAttachment = {
+  dataUrl?: string;
+  fsPath?: string;
+  id: string;
+  kind: "file" | "image";
+  label: string;
+  mimeType?: string;
+  path: string;
+};
+
+export type AgentEvent =
+  | {
+      type: "app.theme";
+      theme: AgentSessionTheme;
+    }
+  | {
+      type: "app.rateLimitRows";
+      rateLimitRows: AgentSessionRateLimitRow[];
+    }
+  | {
+      type: "provider.started";
+      sessionId: string;
+      providerId: ProviderId;
+      executablePath: string;
+      arguments: string[];
+    }
+  | {
+      type: "provider.output";
+      sessionId: string;
+      providerId: ProviderId;
+      stream: "stdout" | "stderr";
+      text: string;
+    }
+  | {
+      type: "provider.activity";
+      sessionId: string;
+      providerId: ProviderId;
+      activityId: string;
+      kind: "command" | "fileChange" | "other";
+      status: "inProgress" | "completed" | "failed" | "stopped";
+      action: string;
+      detail?: string;
+      outputDelta?: string;
+    }
+  | {
+      type: "provider.turnComplete";
+      sessionId: string;
+      providerId: ProviderId;
+    }
+  | {
+      type: "provider.exit";
+      sessionId: string;
+      providerId: ProviderId;
+      status: number;
+    };

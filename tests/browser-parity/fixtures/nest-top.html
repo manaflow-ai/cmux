@@ -1,0 +1,8 @@
+<!doctype html><html><head><title>Nested Frames</title></head><body>
+<h1>Top</h1>
+<button onclick="this.textContent='top clicked ' + event.isTrusted">Top button</button>
+<iframe id="l1" title="Level one" width="560" height="340"></iframe>
+<iframe id="srcdoc" title="Srcdoc" width="300" height="80" srcdoc="<button onclick='this.textContent=&quot;srcdoc clicked &quot; + event.isTrusted'>Srcdoc button</button>"></iframe>
+<script>
+fetch("/origins.json").then((r) => r.json()).then((o) => { document.getElementById("l1").src = o.peer + "/nest-l1.html"; });
+</script></body></html>

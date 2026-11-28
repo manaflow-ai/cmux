@@ -1,0 +1,530 @@
+{
+ "url": "https://vercel.com/",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to content",
+   "boxless": true
+  },
+  {
+   "role": "link",
+   "name": "Vercel",
+   "path": "1.2.0.0.0.0.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Products",
+   "path": "1.2.0.0.0.3.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Resources",
+   "path": "1.2.0.0.0.3.0.2"
+  },
+  {
+   "role": "link",
+   "name": "Enterprise",
+   "path": "1.2.0.0.0.3.0.4"
+  },
+  {
+   "role": "link",
+   "name": "Pricing",
+   "path": "1.2.0.0.0.3.0.5"
+  },
+  {
+   "role": "link",
+   "name": "Get a Demo",
+   "path": "1.2.0.0.0.4.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Log In",
+   "path": "1.2.0.0.0.4.0.0.1"
+  },
+  {
+   "role": "link",
+   "name": "Sign Up",
+   "path": "1.2.0.0.0.4.0.0.2"
+  },
+  {
+   "role": "link",
+   "name": "Get your ticket",
+   "path": "1.2.0.4.1.0.0.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Deploy now",
+   "path": "1.2.0.4.1.1.0.0.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Talk to sales",
+   "path": "1.2.0.4.1.1.0.0.1.2.1"
+  },
+  {
+   "role": "link",
+   "name": "Eve A framework for building durable agents.",
+   "path": "1.2.0.4.1.3.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Passport Secure every internal agent, app, and deployment with your identity provider.",
+   "path": "1.2.0.4.1.3.0.1.0.1"
+  },
+  {
+   "role": "link",
+   "name": "Containers Run production workloads in isolated containers on Vercel.",
+   "path": "1.2.0.4.1.3.0.1.0.2"
+  },
+  {
+   "role": "link",
+   "name": "Deploy now",
+   "path": "1.2.0.4.1.4.0.1.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Onboard your agent",
+   "path": "1.2.0.4.1.4.0.1.0.1"
+  },
+  {
+   "role": "link",
+   "name": "AI SDK",
+   "path": "1.2.0.5.0.0.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "AI Gateway",
+   "path": "1.2.0.5.0.0.0.0.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Sandbox",
+   "path": "1.2.0.5.0.0.0.0.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Workflows",
+   "path": "1.2.0.5.0.0.0.0.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Connect New",
+   "path": "1.2.0.5.0.0.0.0.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Passport New",
+   "path": "1.2.0.5.0.0.0.0.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "eve New",
+   "path": "1.2.0.5.0.0.0.0.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "CI/CD",
+   "path": "1.2.0.5.0.0.0.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Content Delivery",
+   "path": "1.2.0.5.0.0.0.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Fluid Compute",
+   "path": "1.2.0.5.0.0.0.1.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Observability",
+   "path": "1.2.0.5.0.0.0.1.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Platform Security",
+   "path": "1.2.0.5.0.0.0.2.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "WAF",
+   "path": "1.2.0.5.0.0.0.2.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Bot Management",
+   "path": "1.2.0.5.0.0.0.2.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "BotID",
+   "path": "1.2.0.5.0.0.0.2.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel Drop New",
+   "path": "1.2.0.5.0.0.0.3.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel Agent",
+   "path": "1.2.0.5.0.0.0.3.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel Plugin New",
+   "path": "1.2.0.5.0.0.0.3.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Agent Skills",
+   "path": "1.2.0.5.0.0.0.3.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Domains",
+   "path": "1.2.0.5.0.0.0.3.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "v0",
+   "path": "1.2.0.5.0.0.0.3.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "eve New",
+   "path": "1.2.0.5.0.0.0.4.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Next.js",
+   "path": "1.2.0.5.0.0.0.4.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Nuxt",
+   "path": "1.2.0.5.0.0.0.4.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "SvelteKit",
+   "path": "1.2.0.5.0.0.0.4.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Nitro",
+   "path": "1.2.0.5.0.0.0.4.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Turborepo",
+   "path": "1.2.0.5.0.0.0.4.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Tanstack Start",
+   "path": "1.2.0.5.0.0.0.4.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "FastAPI",
+   "path": "1.2.0.5.0.0.0.4.1.7.0"
+  },
+  {
+   "role": "link",
+   "name": "All frameworks",
+   "path": "1.2.0.5.0.0.0.4.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel SDK",
+   "path": "1.2.0.5.0.0.0.5.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Workflow SDK New",
+   "path": "1.2.0.5.0.0.0.5.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Flags SDK",
+   "path": "1.2.0.5.0.0.0.5.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Chat SDK New",
+   "path": "1.2.0.5.0.0.0.5.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Queues SDK New",
+   "path": "1.2.0.5.0.0.0.5.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Streamdown",
+   "path": "1.2.0.5.0.0.0.5.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "AI Apps",
+   "path": "1.2.0.5.0.0.0.6.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Web Apps",
+   "path": "1.2.0.5.0.0.0.6.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Marketing Sites",
+   "path": "1.2.0.5.0.0.0.6.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Platforms",
+   "path": "1.2.0.5.0.0.0.6.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Commerce",
+   "path": "1.2.0.5.0.0.0.6.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Platform Engineers",
+   "path": "1.2.0.5.0.0.0.6.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Design Engineers",
+   "path": "1.2.0.5.0.0.0.6.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Docs",
+   "path": "1.2.0.5.0.0.0.7.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Blog",
+   "path": "1.2.0.5.0.0.0.7.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Changelog",
+   "path": "1.2.0.5.0.0.0.7.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Knowledge Base",
+   "path": "1.2.0.5.0.0.0.7.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Academy",
+   "path": "1.2.0.5.0.0.0.7.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Articles",
+   "path": "1.2.0.5.0.0.0.7.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Community",
+   "path": "1.2.0.5.0.0.0.7.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Is Agentic",
+   "path": "1.2.0.5.0.0.0.7.1.7.0"
+  },
+  {
+   "role": "link",
+   "name": "Customers",
+   "path": "1.2.0.5.0.0.0.8.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Marketplace",
+   "path": "1.2.0.5.0.0.0.8.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Templates",
+   "path": "1.2.0.5.0.0.0.8.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Partner Finder",
+   "path": "1.2.0.5.0.0.0.8.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel + AWS",
+   "path": "1.2.0.5.0.0.0.8.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "About",
+   "path": "1.2.0.5.0.0.0.9.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Careers",
+   "path": "1.2.0.5.0.0.0.9.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Press",
+   "path": "1.2.0.5.0.0.0.9.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Events",
+   "path": "1.2.0.5.0.0.0.9.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Startups",
+   "path": "1.2.0.5.0.0.0.9.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Shipped on Vercel",
+   "path": "1.2.0.5.0.0.0.9.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Open Source Program",
+   "path": "1.2.0.5.0.0.0.9.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Enterprise",
+   "path": "1.2.0.5.0.0.0.9.1.7.0"
+  },
+  {
+   "role": "link",
+   "name": "Pricing",
+   "path": "1.2.0.5.0.0.0.9.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Help",
+   "path": "1.2.0.5.0.0.0.9.1.9.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy Policy",
+   "path": "1.2.0.5.0.0.0.10.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Terms of Service",
+   "path": "1.2.0.5.0.0.0.10.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Cookie Policy",
+   "path": "1.2.0.5.0.0.0.10.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "DPA",
+   "path": "1.2.0.5.0.0.0.10.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Acceptable Use Policy",
+   "path": "1.2.0.5.0.0.0.10.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Legal (all documents)",
+   "path": "1.2.0.5.0.0.0.10.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Trust Center",
+   "path": "1.2.0.5.0.0.0.10.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Status",
+   "path": "1.2.0.5.0.0.0.10.1.7.0"
+  },
+  {
+   "role": "button",
+   "name": "Cookie Preferences",
+   "boxless": true
+  },
+  {
+   "role": "link",
+   "name": "GitHub",
+   "path": "1.2.0.5.0.0.0.11.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "X",
+   "path": "1.2.0.5.0.0.0.11.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "LinkedIn",
+   "path": "1.2.0.5.0.0.0.11.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "YouTube",
+   "path": "1.2.0.5.0.0.0.11.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Instagram",
+   "path": "1.2.0.5.0.0.0.11.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Vercel",
+   "path": "1.2.0.5.0.0.0.12.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "All systems normal.",
+   "path": "1.2.0.5.0.1.0"
+  },
+  {
+   "role": "radio",
+   "name": "system",
+   "boxless": true
+  },
+  {
+   "role": "radio",
+   "name": "light",
+   "boxless": true
+  },
+  {
+   "role": "radio",
+   "name": "dark",
+   "boxless": true
+  },
+  {
+   "role": "button",
+   "name": "View as AI agent",
+   "path": "1.2.0.5.0.1.1.1.0"
+  }
+ ],
+ "hiddenInChrome": 0,
+ "hidden": [
+  "Download Brand Assets",
+  "Brand Guidelines",
+  "to deploy in their native language, with Vercel's API, CLI, MCP, and Skills.",
+  "in Sandboxed VMs, with durable backends, powered by hundreds of models.",
+  "who autonomously investigate errors, plan fixes, and open PRs.",
+  "Paste to your agent"
+ ],
+ "chromeAiSnapshotBytes": 24880
+}

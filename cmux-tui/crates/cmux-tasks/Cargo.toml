@@ -1,0 +1,26 @@
+[package]
+name = "cmux-tasks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux Tasks service: op log store, group commit, event stream, JSON-lines socket server, client and the `cmux task` CLI verbs"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-tasks"
+path = "src/bin/cmux-tasks.rs"
+
+[dependencies]
+cmux-tasks-core = { path = "../cmux-tasks-core" }
+serde.workspace = true
+serde_json.workspace = true
+fs4.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+proptest = { version = "1", default-features = false, features = ["std"] }

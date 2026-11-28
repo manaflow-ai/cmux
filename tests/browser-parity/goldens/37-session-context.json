@@ -1,0 +1,24 @@
+{
+  "oracle": {},
+  "cmux": {
+    "user-tab-keeps-its-user-agent": true,
+    "created-tab-gets-the-user-agent": true,
+    "owner-options-survive-another-session": true,
+    "other-session-acts": "acted",
+    "third-session-acts": "acted"
+  },
+  "lease": {
+    "values": {
+      "other-session-acts": "lease-held",
+      "third-session-acts": "lease-held",
+      "owner-options-survive-another-session": {
+        "$absent": true
+      }
+    },
+    "reasons": {
+      "other-session-acts": "automation-lease.md act rule: the owner session's evaluate took the tab's lease and the owner is still attached, so another session's act is refused with lease_held.",
+      "third-session-acts": "automation-lease.md act rule: the lease stays with the owner session until it ends, so a third session's reload is refused with lease_held.",
+      "owner-options-survive-another-session": "Not emitted under the lease: the third session cannot reload or read the owner's tab while the owner holds its lease."
+    }
+  }
+}

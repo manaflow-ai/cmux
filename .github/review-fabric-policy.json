@@ -1,0 +1,15 @@
+{
+  "schema": "cmux.review-fabric-policy/v1",
+  "minimum_independent_runs": 2,
+  "quorum_roles": ["reviewer"],
+  "required_capability_classes": {
+    "frontier": 1
+  },
+  "blocking_run_dispositions": ["hold", "execute", "reject"],
+  "satisfied_finding_dispositions": [
+    "fixed",
+    "declined_with_rationale",
+    "not_actionable"
+  ],
+  "blocking_severities": ["P0", "P1"]
+}

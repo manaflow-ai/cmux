@@ -1,0 +1,19 @@
+{
+  "name": "cmux.fs.provider/1",
+  "version": 1,
+  "docs": "A file system under a root handle (SSH, S3, ...).",
+  "props": {
+    "schemes": "string[]"
+  },
+  "methods": {
+    "list": "(root, path, cursor?) -> stream<Entry>",
+    "stat": "(root, path) -> Entry",
+    "read": "(root, path, range?) -> bytes",
+    "write": "(root, path, bytes, base_revision?) -> Revision",
+    "watch": "(root, path) -> stream<Change>"
+  },
+  "events": [
+    "fs.changed"
+  ],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

@@ -1,0 +1,4 @@
+{
+  "greeting": {"message": "Hello $1", "placeholders": {"1": {"content": "$1"}}},
+  "probe": {"message": "cmux i18n probe"}
+}

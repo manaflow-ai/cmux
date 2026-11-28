@@ -1,0 +1,15 @@
+{
+  "description": "A named sidebar group (anchor) with two extra member workspaces created inside it, so workspace groups (and groups-on-mobile) have real grouped state to render. Uses --id-format uuids so the captured group id is stable regardless of window numbering.",
+  "steps": [
+    {
+      "args": ["--id-format", "uuids", "workspace", "group", "create", "--name", "Dev Group", "--cwd", "${cwd}", "--json"],
+      "capture": { "group": "group.id" }
+    },
+    {
+      "args": ["--id-format", "uuids", "workspace", "group", "new-workspace", "${group}", "--json"]
+    },
+    {
+      "args": ["--id-format", "uuids", "workspace", "group", "new-workspace", "${group}", "--json"]
+    }
+  ]
+}

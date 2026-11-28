@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "channel": "stable",
+  "sequence": 42,
+  "expires_at": "2030-01-01T00:00:00Z",
+  "min_cmux_version": "0.70.0",
+  "packages": [
+    {
+      "name": "cmux",
+      "version": "0.70.1",
+      "url": "https://files.cmux.com/store/0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c",
+      "sha256": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c",
+      "size": 45000000,
+      "roles": ["all"]
+    },
+    {
+      "name": "postgresql-17",
+      "version": "17.6",
+      "url": "https://files.cmux.com/store/aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
+      "sha256": "aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
+      "size": 68000000,
+      "roles": ["postgres"],
+      "unknown_future_field": true
+    }
+  ]
+}

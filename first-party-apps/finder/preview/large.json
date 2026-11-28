@@ -1,0 +1,1399 @@
+{
+  "scopes": {
+    "host.list": {
+      "scope": "host:read",
+      "class": "read"
+    },
+    "host.connect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "host.disconnect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "fs.roots.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.root.pick": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "fs.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.read": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.thumbnail": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.mkdir": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.rename": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.copy": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.move": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.trash": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.job.cancel": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.resolve": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.undo": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "document.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "host.list": {
+      "conns": [
+        {
+          "conn": "conn_local01",
+          "host": "host_mac01",
+          "kind": "local",
+          "label": "This Mac",
+          "state": "connected",
+          "path": null
+        },
+        {
+          "conn": "conn_srv01",
+          "host": "host_studio01",
+          "kind": "server",
+          "label": "studio",
+          "state": "connected",
+          "path": "direct · 3 ms"
+        },
+        {
+          "conn": "conn_team01",
+          "host": "host_teamvm01",
+          "kind": "team_vm",
+          "label": "acme team VM",
+          "state": "connected",
+          "path": "tunnel · 9 ms"
+        },
+        {
+          "conn": "conn_ssh01",
+          "host": null,
+          "kind": "ssh",
+          "label": "build-box",
+          "state": "disconnected",
+          "path": null
+        }
+      ]
+    },
+    "fs.roots.list": {
+      "roots": [
+        {
+          "root": "root_home01",
+          "conn": "conn_local01",
+          "label": "Home",
+          "kind": "home",
+          "display": "~",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_proj01",
+          "conn": "conn_local01",
+          "label": "orbit",
+          "kind": "workspace",
+          "display": "~/src/orbit",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_dl01",
+          "conn": "conn_local01",
+          "label": "Downloads",
+          "kind": "folder",
+          "display": "~/Downloads",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_team01",
+          "conn": "conn_team01",
+          "label": "acme",
+          "kind": "remote",
+          "display": "acme:/home/dev",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_srv01",
+          "conn": "conn_srv01",
+          "label": "studio",
+          "kind": "remote",
+          "display": "studio:~",
+          "rights": "read"
+        }
+      ]
+    },
+    "fs.job.list": {
+      "jobs": []
+    },
+    "app.storage.get": [
+      {
+        "conn": "conn_local01",
+        "root": "root_proj01",
+        "path": "Sources",
+        "label": "Sources"
+      },
+      {
+        "conn": "conn_team01",
+        "root": "root_team01",
+        "path": "logs",
+        "label": "logs"
+      }
+    ],
+    "fs.list": {
+      "listing": "lst_big01",
+      "entries": [
+        {
+          "name": "trace-000001.log",
+          "kind": "file",
+          "size": 40000,
+          "mtime": 1790919000000
+        },
+        {
+          "name": "trace-000002.log",
+          "kind": "file",
+          "size": 47919,
+          "mtime": 1790918784000
+        },
+        {
+          "name": "trace-000003.log",
+          "kind": "file",
+          "size": 55838,
+          "mtime": 1790918568000
+        },
+        {
+          "name": "trace-000004.log",
+          "kind": "file",
+          "size": 63757,
+          "mtime": 1790918352000
+        },
+        {
+          "name": "trace-000005.log",
+          "kind": "file",
+          "size": 71676,
+          "mtime": 1790918136000
+        },
+        {
+          "name": "trace-000006.log",
+          "kind": "file",
+          "size": 79595,
+          "mtime": 1790917920000
+        },
+        {
+          "name": "trace-000007.log",
+          "kind": "file",
+          "size": 87514,
+          "mtime": 1790917704000
+        },
+        {
+          "name": "trace-000008.log",
+          "kind": "file",
+          "size": 95433,
+          "mtime": 1790917488000
+        },
+        {
+          "name": "trace-000009.log",
+          "kind": "file",
+          "size": 103352,
+          "mtime": 1790917272000
+        },
+        {
+          "name": "trace-000010.log",
+          "kind": "file",
+          "size": 111271,
+          "mtime": 1790917056000
+        },
+        {
+          "name": "trace-000011.log",
+          "kind": "file",
+          "size": 119190,
+          "mtime": 1790916840000
+        },
+        {
+          "name": "trace-000012.log",
+          "kind": "file",
+          "size": 127109,
+          "mtime": 1790916624000
+        },
+        {
+          "name": "trace-000013.log",
+          "kind": "file",
+          "size": 45028,
+          "mtime": 1790916408000
+        },
+        {
+          "name": "trace-000014.log",
+          "kind": "file",
+          "size": 52947,
+          "mtime": 1790916192000
+        },
+        {
+          "name": "trace-000015.log",
+          "kind": "file",
+          "size": 60866,
+          "mtime": 1790915976000
+        },
+        {
+          "name": "trace-000016.log",
+          "kind": "file",
+          "size": 68785,
+          "mtime": 1790915760000
+        },
+        {
+          "name": "trace-000017.log",
+          "kind": "file",
+          "size": 76704,
+          "mtime": 1790915544000
+        },
+        {
+          "name": "trace-000018.log",
+          "kind": "file",
+          "size": 84623,
+          "mtime": 1790915328000
+        },
+        {
+          "name": "trace-000019.log",
+          "kind": "file",
+          "size": 92542,
+          "mtime": 1790915112000
+        },
+        {
+          "name": "trace-000020.log",
+          "kind": "file",
+          "size": 100461,
+          "mtime": 1790914896000
+        },
+        {
+          "name": "trace-000021.log",
+          "kind": "file",
+          "size": 108380,
+          "mtime": 1790914680000
+        },
+        {
+          "name": "trace-000022.log",
+          "kind": "file",
+          "size": 116299,
+          "mtime": 1790914464000
+        },
+        {
+          "name": "trace-000023.log",
+          "kind": "file",
+          "size": 124218,
+          "mtime": 1790914248000
+        },
+        {
+          "name": "trace-000024.log",
+          "kind": "file",
+          "size": 42137,
+          "mtime": 1790914032000
+        },
+        {
+          "name": "trace-000025.log",
+          "kind": "file",
+          "size": 50056,
+          "mtime": 1790913816000
+        },
+        {
+          "name": "trace-000026.log",
+          "kind": "file",
+          "size": 57975,
+          "mtime": 1790913600000
+        },
+        {
+          "name": "trace-000027.log",
+          "kind": "file",
+          "size": 65894,
+          "mtime": 1790913384000
+        },
+        {
+          "name": "trace-000028.log",
+          "kind": "file",
+          "size": 73813,
+          "mtime": 1790913168000
+        },
+        {
+          "name": "trace-000029.log",
+          "kind": "file",
+          "size": 81732,
+          "mtime": 1790912952000
+        },
+        {
+          "name": "trace-000030.log",
+          "kind": "file",
+          "size": 89651,
+          "mtime": 1790912736000
+        },
+        {
+          "name": "trace-000031.log",
+          "kind": "file",
+          "size": 97570,
+          "mtime": 1790912520000
+        },
+        {
+          "name": "trace-000032.log",
+          "kind": "file",
+          "size": 105489,
+          "mtime": 1790912304000
+        },
+        {
+          "name": "trace-000033.log",
+          "kind": "file",
+          "size": 113408,
+          "mtime": 1790912088000
+        },
+        {
+          "name": "trace-000034.log",
+          "kind": "file",
+          "size": 121327,
+          "mtime": 1790911872000
+        },
+        {
+          "name": "trace-000035.log",
+          "kind": "file",
+          "size": 129246,
+          "mtime": 1790911656000
+        },
+        {
+          "name": "trace-000036.log",
+          "kind": "file",
+          "size": 47165,
+          "mtime": 1790911440000
+        },
+        {
+          "name": "trace-000037.log",
+          "kind": "file",
+          "size": 55084,
+          "mtime": 1790911224000
+        },
+        {
+          "name": "trace-000038.log",
+          "kind": "file",
+          "size": 63003,
+          "mtime": 1790911008000
+        },
+        {
+          "name": "trace-000039.log",
+          "kind": "file",
+          "size": 70922,
+          "mtime": 1790910792000
+        },
+        {
+          "name": "trace-000040.log",
+          "kind": "file",
+          "size": 78841,
+          "mtime": 1790910576000
+        },
+        {
+          "name": "trace-000041.log",
+          "kind": "file",
+          "size": 86760,
+          "mtime": 1790910360000
+        },
+        {
+          "name": "trace-000042.log",
+          "kind": "file",
+          "size": 94679,
+          "mtime": 1790910144000
+        },
+        {
+          "name": "trace-000043.log",
+          "kind": "file",
+          "size": 102598,
+          "mtime": 1790909928000
+        },
+        {
+          "name": "trace-000044.log",
+          "kind": "file",
+          "size": 110517,
+          "mtime": 1790909712000
+        },
+        {
+          "name": "trace-000045.log",
+          "kind": "file",
+          "size": 118436,
+          "mtime": 1790909496000
+        },
+        {
+          "name": "trace-000046.log",
+          "kind": "file",
+          "size": 126355,
+          "mtime": 1790909280000
+        },
+        {
+          "name": "trace-000047.log",
+          "kind": "file",
+          "size": 44274,
+          "mtime": 1790909064000
+        },
+        {
+          "name": "trace-000048.log",
+          "kind": "file",
+          "size": 52193,
+          "mtime": 1790908848000
+        },
+        {
+          "name": "trace-000049.log",
+          "kind": "file",
+          "size": 60112,
+          "mtime": 1790908632000
+        },
+        {
+          "name": "trace-000050.log",
+          "kind": "file",
+          "size": 68031,
+          "mtime": 1790908416000
+        },
+        {
+          "name": "trace-000051.log",
+          "kind": "file",
+          "size": 75950,
+          "mtime": 1790908200000
+        },
+        {
+          "name": "trace-000052.log",
+          "kind": "file",
+          "size": 83869,
+          "mtime": 1790907984000
+        },
+        {
+          "name": "trace-000053.log",
+          "kind": "file",
+          "size": 91788,
+          "mtime": 1790907768000
+        },
+        {
+          "name": "trace-000054.log",
+          "kind": "file",
+          "size": 99707,
+          "mtime": 1790907552000
+        },
+        {
+          "name": "trace-000055.log",
+          "kind": "file",
+          "size": 107626,
+          "mtime": 1790907336000
+        },
+        {
+          "name": "trace-000056.log",
+          "kind": "file",
+          "size": 115545,
+          "mtime": 1790907120000
+        },
+        {
+          "name": "trace-000057.log",
+          "kind": "file",
+          "size": 123464,
+          "mtime": 1790906904000
+        },
+        {
+          "name": "trace-000058.log",
+          "kind": "file",
+          "size": 41383,
+          "mtime": 1790906688000
+        },
+        {
+          "name": "trace-000059.log",
+          "kind": "file",
+          "size": 49302,
+          "mtime": 1790906472000
+        },
+        {
+          "name": "trace-000060.log",
+          "kind": "file",
+          "size": 57221,
+          "mtime": 1790906256000
+        },
+        {
+          "name": "trace-000061.log",
+          "kind": "file",
+          "size": 65140,
+          "mtime": 1790906040000
+        },
+        {
+          "name": "trace-000062.log",
+          "kind": "file",
+          "size": 73059,
+          "mtime": 1790905824000
+        },
+        {
+          "name": "trace-000063.log",
+          "kind": "file",
+          "size": 80978,
+          "mtime": 1790905608000
+        },
+        {
+          "name": "trace-000064.log",
+          "kind": "file",
+          "size": 88897,
+          "mtime": 1790905392000
+        },
+        {
+          "name": "trace-000065.log",
+          "kind": "file",
+          "size": 96816,
+          "mtime": 1790905176000
+        },
+        {
+          "name": "trace-000066.log",
+          "kind": "file",
+          "size": 104735,
+          "mtime": 1790904960000
+        },
+        {
+          "name": "trace-000067.log",
+          "kind": "file",
+          "size": 112654,
+          "mtime": 1790904744000
+        },
+        {
+          "name": "trace-000068.log",
+          "kind": "file",
+          "size": 120573,
+          "mtime": 1790904528000
+        },
+        {
+          "name": "trace-000069.log",
+          "kind": "file",
+          "size": 128492,
+          "mtime": 1790904312000
+        },
+        {
+          "name": "trace-000070.log",
+          "kind": "file",
+          "size": 46411,
+          "mtime": 1790904096000
+        },
+        {
+          "name": "trace-000071.log",
+          "kind": "file",
+          "size": 54330,
+          "mtime": 1790903880000
+        },
+        {
+          "name": "trace-000072.log",
+          "kind": "file",
+          "size": 62249,
+          "mtime": 1790903664000
+        },
+        {
+          "name": "trace-000073.log",
+          "kind": "file",
+          "size": 70168,
+          "mtime": 1790903448000
+        },
+        {
+          "name": "trace-000074.log",
+          "kind": "file",
+          "size": 78087,
+          "mtime": 1790903232000
+        },
+        {
+          "name": "trace-000075.log",
+          "kind": "file",
+          "size": 86006,
+          "mtime": 1790903016000
+        },
+        {
+          "name": "trace-000076.log",
+          "kind": "file",
+          "size": 93925,
+          "mtime": 1790902800000
+        },
+        {
+          "name": "trace-000077.log",
+          "kind": "file",
+          "size": 101844,
+          "mtime": 1790902584000
+        },
+        {
+          "name": "trace-000078.log",
+          "kind": "file",
+          "size": 109763,
+          "mtime": 1790902368000
+        },
+        {
+          "name": "trace-000079.log",
+          "kind": "file",
+          "size": 117682,
+          "mtime": 1790902152000
+        },
+        {
+          "name": "trace-000080.log",
+          "kind": "file",
+          "size": 125601,
+          "mtime": 1790901936000
+        },
+        {
+          "name": "trace-000081.log",
+          "kind": "file",
+          "size": 43520,
+          "mtime": 1790901720000
+        },
+        {
+          "name": "trace-000082.log",
+          "kind": "file",
+          "size": 51439,
+          "mtime": 1790901504000
+        },
+        {
+          "name": "trace-000083.log",
+          "kind": "file",
+          "size": 59358,
+          "mtime": 1790901288000
+        },
+        {
+          "name": "trace-000084.log",
+          "kind": "file",
+          "size": 67277,
+          "mtime": 1790901072000
+        },
+        {
+          "name": "trace-000085.log",
+          "kind": "file",
+          "size": 75196,
+          "mtime": 1790900856000
+        },
+        {
+          "name": "trace-000086.log",
+          "kind": "file",
+          "size": 83115,
+          "mtime": 1790900640000
+        },
+        {
+          "name": "trace-000087.log",
+          "kind": "file",
+          "size": 91034,
+          "mtime": 1790900424000
+        },
+        {
+          "name": "trace-000088.log",
+          "kind": "file",
+          "size": 98953,
+          "mtime": 1790900208000
+        },
+        {
+          "name": "trace-000089.log",
+          "kind": "file",
+          "size": 106872,
+          "mtime": 1790899992000
+        },
+        {
+          "name": "trace-000090.log",
+          "kind": "file",
+          "size": 114791,
+          "mtime": 1790899776000
+        },
+        {
+          "name": "trace-000091.log",
+          "kind": "file",
+          "size": 122710,
+          "mtime": 1790899560000
+        },
+        {
+          "name": "trace-000092.log",
+          "kind": "file",
+          "size": 40629,
+          "mtime": 1790899344000
+        },
+        {
+          "name": "trace-000093.log",
+          "kind": "file",
+          "size": 48548,
+          "mtime": 1790899128000
+        },
+        {
+          "name": "trace-000094.log",
+          "kind": "file",
+          "size": 56467,
+          "mtime": 1790898912000
+        },
+        {
+          "name": "trace-000095.log",
+          "kind": "file",
+          "size": 64386,
+          "mtime": 1790898696000
+        },
+        {
+          "name": "trace-000096.log",
+          "kind": "file",
+          "size": 72305,
+          "mtime": 1790898480000
+        },
+        {
+          "name": "trace-000097.log",
+          "kind": "file",
+          "size": 80224,
+          "mtime": 1790898264000
+        },
+        {
+          "name": "trace-000098.log",
+          "kind": "file",
+          "size": 88143,
+          "mtime": 1790898048000
+        },
+        {
+          "name": "trace-000099.log",
+          "kind": "file",
+          "size": 96062,
+          "mtime": 1790897832000
+        },
+        {
+          "name": "trace-000100.log",
+          "kind": "file",
+          "size": 103981,
+          "mtime": 1790897616000
+        },
+        {
+          "name": "trace-000101.log",
+          "kind": "file",
+          "size": 111900,
+          "mtime": 1790897400000
+        },
+        {
+          "name": "trace-000102.log",
+          "kind": "file",
+          "size": 119819,
+          "mtime": 1790897184000
+        },
+        {
+          "name": "trace-000103.log",
+          "kind": "file",
+          "size": 127738,
+          "mtime": 1790896968000
+        },
+        {
+          "name": "trace-000104.log",
+          "kind": "file",
+          "size": 45657,
+          "mtime": 1790896752000
+        },
+        {
+          "name": "trace-000105.log",
+          "kind": "file",
+          "size": 53576,
+          "mtime": 1790896536000
+        },
+        {
+          "name": "trace-000106.log",
+          "kind": "file",
+          "size": 61495,
+          "mtime": 1790896320000
+        },
+        {
+          "name": "trace-000107.log",
+          "kind": "file",
+          "size": 69414,
+          "mtime": 1790896104000
+        },
+        {
+          "name": "trace-000108.log",
+          "kind": "file",
+          "size": 77333,
+          "mtime": 1790895888000
+        },
+        {
+          "name": "trace-000109.log",
+          "kind": "file",
+          "size": 85252,
+          "mtime": 1790895672000
+        },
+        {
+          "name": "trace-000110.log",
+          "kind": "file",
+          "size": 93171,
+          "mtime": 1790895456000
+        },
+        {
+          "name": "trace-000111.log",
+          "kind": "file",
+          "size": 101090,
+          "mtime": 1790895240000
+        },
+        {
+          "name": "trace-000112.log",
+          "kind": "file",
+          "size": 109009,
+          "mtime": 1790895024000
+        },
+        {
+          "name": "trace-000113.log",
+          "kind": "file",
+          "size": 116928,
+          "mtime": 1790894808000
+        },
+        {
+          "name": "trace-000114.log",
+          "kind": "file",
+          "size": 124847,
+          "mtime": 1790894592000
+        },
+        {
+          "name": "trace-000115.log",
+          "kind": "file",
+          "size": 42766,
+          "mtime": 1790894376000
+        },
+        {
+          "name": "trace-000116.log",
+          "kind": "file",
+          "size": 50685,
+          "mtime": 1790894160000
+        },
+        {
+          "name": "trace-000117.log",
+          "kind": "file",
+          "size": 58604,
+          "mtime": 1790893944000
+        },
+        {
+          "name": "trace-000118.log",
+          "kind": "file",
+          "size": 66523,
+          "mtime": 1790893728000
+        },
+        {
+          "name": "trace-000119.log",
+          "kind": "file",
+          "size": 74442,
+          "mtime": 1790893512000
+        },
+        {
+          "name": "trace-000120.log",
+          "kind": "file",
+          "size": 82361,
+          "mtime": 1790893296000
+        },
+        {
+          "name": "trace-000121.log",
+          "kind": "file",
+          "size": 90280,
+          "mtime": 1790893080000
+        },
+        {
+          "name": "trace-000122.log",
+          "kind": "file",
+          "size": 98199,
+          "mtime": 1790892864000
+        },
+        {
+          "name": "trace-000123.log",
+          "kind": "file",
+          "size": 106118,
+          "mtime": 1790892648000
+        },
+        {
+          "name": "trace-000124.log",
+          "kind": "file",
+          "size": 114037,
+          "mtime": 1790892432000
+        },
+        {
+          "name": "trace-000125.log",
+          "kind": "file",
+          "size": 121956,
+          "mtime": 1790892216000
+        },
+        {
+          "name": "trace-000126.log",
+          "kind": "file",
+          "size": 129875,
+          "mtime": 1790892000000
+        },
+        {
+          "name": "trace-000127.log",
+          "kind": "file",
+          "size": 47794,
+          "mtime": 1790891784000
+        },
+        {
+          "name": "trace-000128.log",
+          "kind": "file",
+          "size": 55713,
+          "mtime": 1790891568000
+        },
+        {
+          "name": "trace-000129.log",
+          "kind": "file",
+          "size": 63632,
+          "mtime": 1790891352000
+        },
+        {
+          "name": "trace-000130.log",
+          "kind": "file",
+          "size": 71551,
+          "mtime": 1790891136000
+        },
+        {
+          "name": "trace-000131.log",
+          "kind": "file",
+          "size": 79470,
+          "mtime": 1790890920000
+        },
+        {
+          "name": "trace-000132.log",
+          "kind": "file",
+          "size": 87389,
+          "mtime": 1790890704000
+        },
+        {
+          "name": "trace-000133.log",
+          "kind": "file",
+          "size": 95308,
+          "mtime": 1790890488000
+        },
+        {
+          "name": "trace-000134.log",
+          "kind": "file",
+          "size": 103227,
+          "mtime": 1790890272000
+        },
+        {
+          "name": "trace-000135.log",
+          "kind": "file",
+          "size": 111146,
+          "mtime": 1790890056000
+        },
+        {
+          "name": "trace-000136.log",
+          "kind": "file",
+          "size": 119065,
+          "mtime": 1790889840000
+        },
+        {
+          "name": "trace-000137.log",
+          "kind": "file",
+          "size": 126984,
+          "mtime": 1790889624000
+        },
+        {
+          "name": "trace-000138.log",
+          "kind": "file",
+          "size": 44903,
+          "mtime": 1790889408000
+        },
+        {
+          "name": "trace-000139.log",
+          "kind": "file",
+          "size": 52822,
+          "mtime": 1790889192000
+        },
+        {
+          "name": "trace-000140.log",
+          "kind": "file",
+          "size": 60741,
+          "mtime": 1790888976000
+        },
+        {
+          "name": "trace-000141.log",
+          "kind": "file",
+          "size": 68660,
+          "mtime": 1790888760000
+        },
+        {
+          "name": "trace-000142.log",
+          "kind": "file",
+          "size": 76579,
+          "mtime": 1790888544000
+        },
+        {
+          "name": "trace-000143.log",
+          "kind": "file",
+          "size": 84498,
+          "mtime": 1790888328000
+        },
+        {
+          "name": "trace-000144.log",
+          "kind": "file",
+          "size": 92417,
+          "mtime": 1790888112000
+        },
+        {
+          "name": "trace-000145.log",
+          "kind": "file",
+          "size": 100336,
+          "mtime": 1790887896000
+        },
+        {
+          "name": "trace-000146.log",
+          "kind": "file",
+          "size": 108255,
+          "mtime": 1790887680000
+        },
+        {
+          "name": "trace-000147.log",
+          "kind": "file",
+          "size": 116174,
+          "mtime": 1790887464000
+        },
+        {
+          "name": "trace-000148.log",
+          "kind": "file",
+          "size": 124093,
+          "mtime": 1790887248000
+        },
+        {
+          "name": "trace-000149.log",
+          "kind": "file",
+          "size": 42012,
+          "mtime": 1790887032000
+        },
+        {
+          "name": "trace-000150.log",
+          "kind": "file",
+          "size": 49931,
+          "mtime": 1790886816000
+        },
+        {
+          "name": "trace-000151.log",
+          "kind": "file",
+          "size": 57850,
+          "mtime": 1790886600000
+        },
+        {
+          "name": "trace-000152.log",
+          "kind": "file",
+          "size": 65769,
+          "mtime": 1790886384000
+        },
+        {
+          "name": "trace-000153.log",
+          "kind": "file",
+          "size": 73688,
+          "mtime": 1790886168000
+        },
+        {
+          "name": "trace-000154.log",
+          "kind": "file",
+          "size": 81607,
+          "mtime": 1790885952000
+        },
+        {
+          "name": "trace-000155.log",
+          "kind": "file",
+          "size": 89526,
+          "mtime": 1790885736000
+        },
+        {
+          "name": "trace-000156.log",
+          "kind": "file",
+          "size": 97445,
+          "mtime": 1790885520000
+        },
+        {
+          "name": "trace-000157.log",
+          "kind": "file",
+          "size": 105364,
+          "mtime": 1790885304000
+        },
+        {
+          "name": "trace-000158.log",
+          "kind": "file",
+          "size": 113283,
+          "mtime": 1790885088000
+        },
+        {
+          "name": "trace-000159.log",
+          "kind": "file",
+          "size": 121202,
+          "mtime": 1790884872000
+        },
+        {
+          "name": "trace-000160.log",
+          "kind": "file",
+          "size": 129121,
+          "mtime": 1790884656000
+        },
+        {
+          "name": "trace-000161.log",
+          "kind": "file",
+          "size": 47040,
+          "mtime": 1790884440000
+        },
+        {
+          "name": "trace-000162.log",
+          "kind": "file",
+          "size": 54959,
+          "mtime": 1790884224000
+        },
+        {
+          "name": "trace-000163.log",
+          "kind": "file",
+          "size": 62878,
+          "mtime": 1790884008000
+        },
+        {
+          "name": "trace-000164.log",
+          "kind": "file",
+          "size": 70797,
+          "mtime": 1790883792000
+        },
+        {
+          "name": "trace-000165.log",
+          "kind": "file",
+          "size": 78716,
+          "mtime": 1790883576000
+        },
+        {
+          "name": "trace-000166.log",
+          "kind": "file",
+          "size": 86635,
+          "mtime": 1790883360000
+        },
+        {
+          "name": "trace-000167.log",
+          "kind": "file",
+          "size": 94554,
+          "mtime": 1790883144000
+        },
+        {
+          "name": "trace-000168.log",
+          "kind": "file",
+          "size": 102473,
+          "mtime": 1790882928000
+        },
+        {
+          "name": "trace-000169.log",
+          "kind": "file",
+          "size": 110392,
+          "mtime": 1790882712000
+        },
+        {
+          "name": "trace-000170.log",
+          "kind": "file",
+          "size": 118311,
+          "mtime": 1790882496000
+        },
+        {
+          "name": "trace-000171.log",
+          "kind": "file",
+          "size": 126230,
+          "mtime": 1790882280000
+        },
+        {
+          "name": "trace-000172.log",
+          "kind": "file",
+          "size": 44149,
+          "mtime": 1790882064000
+        },
+        {
+          "name": "trace-000173.log",
+          "kind": "file",
+          "size": 52068,
+          "mtime": 1790881848000
+        },
+        {
+          "name": "trace-000174.log",
+          "kind": "file",
+          "size": 59987,
+          "mtime": 1790881632000
+        },
+        {
+          "name": "trace-000175.log",
+          "kind": "file",
+          "size": 67906,
+          "mtime": 1790881416000
+        },
+        {
+          "name": "trace-000176.log",
+          "kind": "file",
+          "size": 75825,
+          "mtime": 1790881200000
+        },
+        {
+          "name": "trace-000177.log",
+          "kind": "file",
+          "size": 83744,
+          "mtime": 1790880984000
+        },
+        {
+          "name": "trace-000178.log",
+          "kind": "file",
+          "size": 91663,
+          "mtime": 1790880768000
+        },
+        {
+          "name": "trace-000179.log",
+          "kind": "file",
+          "size": 99582,
+          "mtime": 1790880552000
+        },
+        {
+          "name": "trace-000180.log",
+          "kind": "file",
+          "size": 107501,
+          "mtime": 1790880336000
+        },
+        {
+          "name": "trace-000181.log",
+          "kind": "file",
+          "size": 115420,
+          "mtime": 1790880120000
+        },
+        {
+          "name": "trace-000182.log",
+          "kind": "file",
+          "size": 123339,
+          "mtime": 1790879904000
+        },
+        {
+          "name": "trace-000183.log",
+          "kind": "file",
+          "size": 41258,
+          "mtime": 1790879688000
+        },
+        {
+          "name": "trace-000184.log",
+          "kind": "file",
+          "size": 49177,
+          "mtime": 1790879472000
+        },
+        {
+          "name": "trace-000185.log",
+          "kind": "file",
+          "size": 57096,
+          "mtime": 1790879256000
+        },
+        {
+          "name": "trace-000186.log",
+          "kind": "file",
+          "size": 65015,
+          "mtime": 1790879040000
+        },
+        {
+          "name": "trace-000187.log",
+          "kind": "file",
+          "size": 72934,
+          "mtime": 1790878824000
+        },
+        {
+          "name": "trace-000188.log",
+          "kind": "file",
+          "size": 80853,
+          "mtime": 1790878608000
+        },
+        {
+          "name": "trace-000189.log",
+          "kind": "file",
+          "size": 88772,
+          "mtime": 1790878392000
+        },
+        {
+          "name": "trace-000190.log",
+          "kind": "file",
+          "size": 96691,
+          "mtime": 1790878176000
+        },
+        {
+          "name": "trace-000191.log",
+          "kind": "file",
+          "size": 104610,
+          "mtime": 1790877960000
+        },
+        {
+          "name": "trace-000192.log",
+          "kind": "file",
+          "size": 112529,
+          "mtime": 1790877744000
+        },
+        {
+          "name": "trace-000193.log",
+          "kind": "file",
+          "size": 120448,
+          "mtime": 1790877528000
+        },
+        {
+          "name": "trace-000194.log",
+          "kind": "file",
+          "size": 128367,
+          "mtime": 1790877312000
+        },
+        {
+          "name": "trace-000195.log",
+          "kind": "file",
+          "size": 46286,
+          "mtime": 1790877096000
+        },
+        {
+          "name": "trace-000196.log",
+          "kind": "file",
+          "size": 54205,
+          "mtime": 1790876880000
+        },
+        {
+          "name": "trace-000197.log",
+          "kind": "file",
+          "size": 62124,
+          "mtime": 1790876664000
+        },
+        {
+          "name": "trace-000198.log",
+          "kind": "file",
+          "size": 70043,
+          "mtime": 1790876448000
+        },
+        {
+          "name": "trace-000199.log",
+          "kind": "file",
+          "size": 77962,
+          "mtime": 1790876232000
+        },
+        {
+          "name": "trace-000200.log",
+          "kind": "file",
+          "size": 85881,
+          "mtime": 1790876016000
+        }
+      ],
+      "cursor": "cur_0200",
+      "total": 100000,
+      "revision": "1042"
+    },
+    "fs.read": {
+      "text": "# Release notes draft\n\nShipping the file browser prototype this week.\n\n## Done\n- Column view and dual pane\n- Copy between hosts with progress\n- Previews for text, images and PDF\n\n## Next\n- Keyboard selection in lists\n- Drag onto terminals and agents\n",
+      "truncated": false,
+      "size": 2140,
+      "encoding": "utf8"
+    },
+    "fs.thumbnail": {
+      "image": "img_shot01",
+      "width": 2880,
+      "height": 1800
+    }
+  },
+  "events": []
+}

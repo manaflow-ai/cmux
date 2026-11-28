@@ -1,0 +1,286 @@
+{
+  "_comment": "Fixture Actions JSON for tests/test_ci_health_report.py. NOW is 2026-09-22T18:00:00Z and the reported window is 12:00..18:00Z. Every waste pattern the report claims to find is represented here: a macOS job cancelled 42 minutes in, one job failing across three unrelated heads, a shim workflow whose runs are all skipped, a second run over an unchanged head plus a re-run attempt, and a fork pull request paying for macOS minutes with no cache.",
+  "runs": [
+    {
+      "id": 1001,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-a",
+      "head_sha": "aaa1aaa1aaa1",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T16:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1001",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1002,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-a",
+      "head_sha": "aaa1aaa1aaa1",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T17:20:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1002",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1003,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-b",
+      "head_sha": "bbb2bbb2bbb2",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T15:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1003",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1004,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-c",
+      "head_sha": "ccc3ccc3ccc3",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T14:30:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1004",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1005,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-d",
+      "head_sha": "ddd4ddd4ddd4",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T14:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1005",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1006,
+      "name": "Nightly",
+      "path": ".github/workflows/nightly.yml",
+      "event": "push",
+      "head_branch": "main",
+      "head_sha": "eee5eee5eee5",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 2,
+      "created_at": "2026-09-22T13:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1006",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1007,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-a",
+      "head_sha": "aaa1aaa1aaa1",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T17:40:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1007",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1008,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-b",
+      "head_sha": "bbb2bbb2bbb2",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T17:30:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1008",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1009,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-c",
+      "head_sha": "ccc3ccc3ccc3",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T17:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1009",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1010,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-d",
+      "head_sha": "ddd4ddd4ddd4",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T16:30:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1010",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1011,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "main",
+      "head_sha": "eee5eee5eee5",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T15:30:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1011",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1012,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-e",
+      "head_sha": "fff6fff6fff6",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T14:45:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1012",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 1013,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "contributor-fix",
+      "head_sha": "fff6fff6fff6",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T12:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/1013",
+      "head_repository": {"full_name": "outsider/cmux"}
+    }
+  ],
+  "jobs": {
+    "1001": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "cancelled",
+        "created_at": "2026-09-22T16:00:00Z",
+        "started_at": "2026-09-22T16:50:00Z",
+        "completed_at": "2026-09-22T17:32:00Z"
+      },
+      {
+        "name": "changes",
+        "labels": ["blacksmith-4vcpu-ubuntu-2404"],
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-22T16:00:00Z",
+        "started_at": "2026-09-22T16:00:30Z",
+        "completed_at": "2026-09-22T16:02:30Z"
+      }
+    ],
+    "1002": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-22T17:20:00Z",
+        "started_at": "2026-09-22T17:25:00Z",
+        "completed_at": "2026-09-22T17:55:00Z"
+      }
+    ],
+    "1003": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-09-22T15:00:00Z",
+        "started_at": "2026-09-22T15:20:00Z",
+        "completed_at": "2026-09-22T15:50:00Z"
+      }
+    ],
+    "1004": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-09-22T14:30:00Z",
+        "started_at": "2026-09-22T15:40:00Z",
+        "completed_at": "2026-09-22T16:10:00Z"
+      }
+    ],
+    "1005": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-09-22T14:00:00Z",
+        "started_at": "2026-09-22T14:10:00Z",
+        "completed_at": "2026-09-22T14:40:00Z"
+      }
+    ],
+    "1006": [
+      {
+        "name": "build",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-22T13:00:00Z",
+        "started_at": "2026-09-22T13:02:00Z",
+        "completed_at": "2026-09-22T14:00:00Z"
+      }
+    ],
+    "1007": [
+      {
+        "name": "route",
+        "labels": ["blacksmith-4vcpu-ubuntu-2404"],
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-22T17:40:00Z",
+        "started_at": null,
+        "completed_at": null
+      }
+    ],
+    "1013": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-22T12:05:00Z",
+        "started_at": "2026-09-22T13:15:00Z",
+        "completed_at": "2026-09-22T14:15:00Z"
+      }
+    ]
+  }
+}

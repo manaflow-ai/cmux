@@ -1,0 +1,19 @@
+{
+  "asset": "cua-driver-sdk-macos-arm64.tar.gz",
+  "arch": "arm64",
+  "sha256": "c9ebb6eee8d359bbabc59d8c9775c52c6cf1fcf3f641a35b791ac837437f0c62",
+  "r2_bucket": "cmux-cef",
+  "r2_key": "cua-driver-sdk/c9ebb6eee8d359bbabc59d8c9775c52c6cf1fcf3f641a35b791ac837437f0c62/cua-driver-sdk-macos-arm64.tar.gz",
+  "upstream_repo": "https://github.com/trycua/cua",
+  "upstream_tag": "cua-driver-rs-v0.34.0",
+  "upstream_commit": "b0968e1b12834e485dda68789541a3cc57664a9f",
+  "crate": "cua-driver-sdk",
+  "rust_toolchain": "1.97.1-aarch64-apple-darwin",
+  "developer_dir": "/Applications/Xcode_26.6.app/Contents/Developer",
+  "ld": "ld-1267",
+  "license": "MIT",
+  "dylib_sha256": "d1c39a3f8b0274f6b240b41a1947698f4b662c21ca56bfd47b550b12df2ca6bc",
+  "header_sha256": "e952620e41ac81b2d900886c7b0a24ebc6268a4edb8df88cc9971ae34af4ba0d",
+  "build_job": "nx-remote:1008-043935-549af8@cmux-lawrence-2",
+  "note": "build-info.json rustc field shows the host default toolchain (script bug, fixed); cargo built with rust_toolchain"
+}

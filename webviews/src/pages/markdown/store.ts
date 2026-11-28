@@ -1,0 +1,512 @@
+// The markdown page's document state: load, autosave through the host, disk changes and conflicts.
+// The file is written only when the user edited it: saves come from user edits (debounced), the
+// `save` page command (Cmd-S) and page hide, and a save whose text equals the last saved text is
+// skipped. A disk change reloads the page when there are no local edits and raises the conflict
+// banner when there are.
+import { isPageError, type PageClient } from "../shared/pageClient";
+import type { SourceMap } from "./sourceMap";
+import type { DiffViewerAppearance } from "../../appearance";
+import { markdownBehavior } from "./settings";
+import { createEditReporter } from "../shared/editReporter";
+import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
+import {
+  MARKDOWN_CHANGES,
+  MARKDOWN_LOOK,
+  MARKDOWN_CONFIG_OP,
+  MARKDOWN_CONFLICT,
+  MARKDOWN_EDITED_OP,
+  MARKDOWN_SAVE_OP,
+  isMarkdownConfig,
+  type MarkdownChange,
+  type MarkdownConfig,
+  type MarkdownFile,
+  type MarkdownConflict,
+  type MarkdownLook,
+  type MarkdownSaveResult,
+} from "./host";
+
+export type MarkdownMode = "rich" | "source";
+export type SaveStatus = "saved" | "edited" | "saving" | "failed";
+
+export interface MarkdownState {
+  /** `empty`: the host has no file for the page yet; the empty state picks one (openFile). */
+  phase: "loading" | "ready" | "failed" | "disconnected" | "empty";
+  config: MarkdownConfig | null;
+  mode: MarkdownMode;
+  status: SaveStatus;
+  readOnly: boolean;
+  conflict: MarkdownConflict | null;
+  /** The source mode's text. */
+  source: string;
+  /** Bumped when the document is replaced from outside (load, reload), so source views re-read. */
+  revision: number;
+  /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
+  look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
+  /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
+  canBack: boolean;
+  canForward: boolean;
+  /**
+   * The file a followed link (or back/forward) is opening, named in the toolbar in the input's
+   * frame while it loads (plans/cmux-next/zero-latency.md, rule a); null otherwise.
+   */
+  navigating: string | null;
+  /** The last navigation that did not open its file (shown until the next one), or null. */
+  navigationFailed: string | null;
+}
+
+/** One file in the page's link history, with the anchor it opened at and its scroll offset. */
+export interface HistoryEntry {
+  path: string;
+  anchor: string;
+  scroll: number;
+}
+
+/** The editor surface the store drives (MarkdownEditor, or a fake in tests). */
+export interface DocumentEditor {
+  load(text: string): void;
+  snapshot(): SourceMap;
+  commit(map: SourceMap): void;
+  setReadOnly(readOnly: boolean): void;
+}
+
+export type Schedule = (run: () => void, delayMs: number) => () => void;
+
+const defaultSchedule: Schedule = (run, delayMs) => {
+  const timer = setTimeout(run, delayMs);
+  return () => clearTimeout(timer);
+};
+
+export const AUTOSAVE_DELAY_MS = 800;
+
+export class MarkdownStore {
+  private state: MarkdownState = {
+    phase: "loading",
+    config: null,
+    mode: "rich",
+    status: "saved",
+    readOnly: false,
+    conflict: null,
+    source: "",
+    revision: 0,
+    look: { settings: undefined, themeCSS: undefined, appearance: undefined },
+    canBack: false,
+    canForward: false,
+    navigating: null,
+    navigationFailed: null,
+  };
+  private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
+  private readonly listeners = new Set<() => void>();
+  private editor: DocumentEditor | null = null;
+  /** The text on disk as of the last load or save, and its hash. */
+  private savedText = "";
+  private baseHash: string | null = null;
+  /**
+   * A recovered crash draft (R96) the page loaded as unsaved edits, until a save, a reload or
+   * another file replaces it: an editor that mounts after the load shows it, not the file.
+   */
+  private recovered: string | null = null;
+  private cancelAutosave: (() => void) | null = null;
+  private saving: Promise<void> | null = null;
+  private saveAgain = false;
+  private pendingChange: MarkdownChange | null = null;
+  private stopChanges: (() => void) | null = null;
+  private stopLook: (() => void) | null = null;
+  private started = false;
+  private readonly reporter;
+
+  constructor(
+    private readonly client: PageClient | null,
+    private readonly schedule: Schedule = defaultSchedule,
+    reportSchedule: Schedule = defaultSchedule,
+  ) {
+    this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+  }
+
+  /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
+  private reportEdited(): void {
+    const config = this.state.config;
+    if (!config || !this.client || this.state.readOnly) return;
+    this.client
+      .call<unknown>(MARKDOWN_EDITED_OP, { path: config.path, text: this.currentText(), baseHash: this.baseHash })
+      .catch((error) => {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown edited", error);
+      });
+  }
+
+  /** The host's `cmux.markdown.flush`: saves pending edits now; `dirty` when some are still not on disk. */
+  async flush(): Promise<{ dirty: boolean }> {
+    if (this.state.readOnly) return { dirty: false };
+    if (!this.state.conflict && this.currentText() !== this.savedText) await this.save();
+    return { dirty: this.state.conflict !== null || this.currentText() !== this.savedText };
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  getState = (): MarkdownState => this.state;
+
+  private set(patch: Partial<MarkdownState>): void {
+    this.state = { ...this.state, ...patch };
+    for (const listener of this.listeners) listener();
+  }
+
+  /** Loads the config and starts watching the file. */
+  async start(): Promise<void> {
+    const client = this.client;
+    if (!client) return this.set({ phase: "disconnected" });
+    this.set({ phase: "loading" });
+    let config: MarkdownConfig;
+    try {
+      const value = await client.call<unknown>(MARKDOWN_CONFIG_OP, {});
+      if (markdownConfigNeedsPick(value)) {
+        // The empty state still follows the look (terminal appearance) the host sends with it.
+        const look = value as Partial<MarkdownLook>;
+        return this.set({
+          phase: "empty",
+          look: { settings: look.settings, themeCSS: look.themeCSS, appearance: look.appearance },
+        });
+      }
+      if (!isMarkdownConfig(value)) throw new Error("markdown config is malformed");
+      config = value;
+    } catch (error) {
+      console.error("cmux markdown config failed", error);
+      return this.set({
+        phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
+      });
+    }
+    await this.loadConfig(client, config);
+  }
+
+  /**
+   * Opens `path` from the empty state: `cmux.markdown.open` answers its config, which loads as
+   * the page's file. Rejects with the host's error (the empty state shows it).
+   */
+  async openFile(path: string): Promise<void> {
+    const client = this.client;
+    if (!client) throw new Error("markdown page has no host");
+    const value = await client.call<unknown>(MARKDOWN_OPEN_OP, { path });
+    if (!isMarkdownConfig(value)) throw new Error("markdown config is malformed");
+    await this.loadConfig(client, value);
+  }
+
+  private async loadConfig(client: PageClient, config: MarkdownConfig): Promise<void> {
+    this.savedText = config.text;
+    this.baseHash = config.hash;
+    const readOnly = config.readOnly === true;
+    // A recovered draft opens as unsaved edits on the file's current hash (the editor page's rule).
+    this.recovered =
+      !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
+        ? config.recoveredText
+        : null;
+    const text = this.recovered ?? config.text;
+    const look = { settings: config.settings, themeCSS: config.themeCSS, appearance: config.appearance };
+    // The settings' default mode applies when the page opens, not on a later settings change.
+    const mode = this.started ? this.state.mode : markdownBehavior(config.settings).defaultMode;
+    this.started = true;
+    this.set({
+      phase: "ready",
+      config,
+      readOnly,
+      source: text,
+      status: "saved",
+      revision: this.state.revision + 1,
+      look,
+      mode,
+    });
+    this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
+    this.set({ canBack: false, canForward: false });
+    this.editor?.setReadOnly(readOnly);
+    this.editor?.load(text);
+    if (this.recovered !== null) this.edited();
+    if (!this.stopLook) {
+      try {
+        this.stopLook = await client.subscribe<MarkdownLook>(MARKDOWN_LOOK, (look) => this.lookChanged(look));
+      } catch (error) {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown look", error);
+      }
+    }
+    if (!this.stopChanges) {
+      try {
+        this.stopChanges = await client.subscribe<MarkdownChange>(MARKDOWN_CHANGES, (change) =>
+          this.diskChanged(change),
+        );
+      } catch (error) {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown changes", error);
+      }
+    }
+  }
+
+  /** The host re-sent part of the look; the rest stays. Applied in place, never by reloading. */
+  lookChanged(look: MarkdownLook): void {
+    const current = this.state.look;
+    this.set({
+      look: {
+        settings: "settings" in look ? look.settings : current.settings,
+        themeCSS: "themeCSS" in look ? look.themeCSS : current.themeCSS,
+        appearance: look.appearance ?? current.appearance,
+      },
+    });
+  }
+
+  /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
+  attachEditor(editor: DocumentEditor | null): void {
+    this.editor = editor;
+    if (!editor || this.state.phase !== "ready") return;
+    editor.setReadOnly(this.state.readOnly);
+    editor.load(this.state.mode === "source" ? this.state.source : (this.recovered ?? this.savedText));
+  }
+
+  /** The document as the current mode holds it. */
+  currentText(): string {
+    if (this.state.mode === "source" || !this.editor) return this.state.source;
+    return this.editor.snapshot().text;
+  }
+
+  /** A user edit in either mode: the file is edited, and saves after the user pauses. */
+  edited(): void {
+    if (this.state.readOnly || this.state.phase !== "ready") return;
+    this.reporter.edited();
+    if (this.state.status !== "saving") this.set({ status: "edited" });
+    this.cancelAutosave?.();
+    if (this.state.conflict) return;
+    this.cancelAutosave = this.schedule(() => {
+      this.cancelAutosave = null;
+      void this.save();
+    }, AUTOSAVE_DELAY_MS);
+  }
+
+  setSource(text: string): void {
+    this.set({ source: text });
+    this.edited();
+  }
+
+  setMode(mode: MarkdownMode): void {
+    if (mode === this.state.mode) return;
+    if (mode === "source") {
+      this.set({
+        mode,
+        source: this.editor ? this.editor.snapshot().text : this.state.source,
+        revision: this.state.revision + 1,
+      });
+      return;
+    }
+    // Back to rich text: the editor reloads only when the source changed, so its undo history and
+    // save baseline survive a look at the source.
+    const source = this.state.source;
+    const editorText = this.editor?.snapshot().text;
+    this.set({ mode });
+    if (this.editor && editorText !== source) this.editor.load(source);
+  }
+
+  /** Saves now (Cmd-S, page hide). A save already running saves again when it ends. */
+  async save(): Promise<void> {
+    this.cancelAutosave?.();
+    this.cancelAutosave = null;
+    const config = this.state.config;
+    if (!config || !this.client || this.state.readOnly || this.state.conflict) return;
+    if (this.saving) {
+      this.saveAgain = true;
+      return this.saving;
+    }
+    const snapshot = this.state.mode === "rich" && this.editor ? this.editor.snapshot() : null;
+    const text = snapshot ? snapshot.text : this.state.source;
+    if (text === this.savedText) {
+      if (snapshot) this.editor?.commit(snapshot);
+      if (this.state.status !== "saved") this.set({ status: "saved" });
+      return;
+    }
+    this.set({ status: "saving" });
+    this.saving = (async () => {
+      try {
+        const result = await this.client!.call<MarkdownSaveResult>(MARKDOWN_SAVE_OP, {
+          path: config.path,
+          text,
+          baseHash: this.baseHash,
+        });
+        this.savedText = text;
+        this.baseHash = result.hash;
+        this.recovered = null;
+        if (snapshot) this.editor?.commit(snapshot);
+        this.set({ status: this.currentText() === this.savedText ? "saved" : "edited" });
+      } catch (error) {
+        if (isPageError(error) && error.code === MARKDOWN_CONFLICT) {
+          const details = (error.details ?? {}) as MarkdownConflict;
+          this.set({
+            status: "edited",
+            conflict: { hash: details.hash ?? null, text: details.text, deleted: details.deleted },
+          });
+        } else {
+          console.error("cmux markdown save failed", error);
+          this.set({ status: "failed" });
+        }
+      }
+    })();
+    try {
+      await this.saving;
+    } finally {
+      this.saving = null;
+    }
+    const change = this.pendingChange;
+    this.pendingChange = null;
+    if (change) this.diskChanged(change);
+    if (this.saveAgain) {
+      this.saveAgain = false;
+      if (!this.state.conflict && this.state.status !== "saved") await this.save();
+    } else if (this.state.status === "edited" && !this.state.conflict) {
+      this.edited();
+    }
+  }
+
+  /**
+   * Follows a link to another markdown file (or an anchor in this one): saves pending edits, loads
+   * the file in place and pushes it on the link history. Resolves to the entry shown, or null when
+   * the page stays (unsaved edits that would not save, a conflict, a load failure).
+   */
+  async navigate(path: string, anchor: string, scroll: number): Promise<HistoryEntry | null> {
+    if (!(await this.show(path))) return null;
+    const { entries, index } = this.history;
+    if (entries[index]) entries[index].scroll = scroll;
+    const entry = { path: this.state.config!.path, anchor, scroll: 0 };
+    entries.splice(index + 1, entries.length, entry);
+    this.history.index = entries.length - 1;
+    this.set({ canBack: this.history.index > 0, canForward: false });
+    return entry;
+  }
+
+  /** A link to another markdown file was followed: name it now, before anything loads. */
+  beginNavigation(target: string): void {
+    this.set({ navigating: target, navigationFailed: null });
+  }
+
+  /**
+   * The navigation ended. Shown files clear `navigating` themselves; one still set here did not
+   * open, and is named as failed unless `failed` is false (the link went to another viewer).
+   */
+  endNavigation(failed = true): void {
+    const target = this.state.navigating;
+    if (target !== null) this.set({ navigating: null, navigationFailed: failed ? target : null });
+  }
+
+  /** `back` (-1) and `forward` (+1) page commands: the link history entry, shown in place. */
+  async go(delta: -1 | 1, scroll: number): Promise<HistoryEntry | null> {
+    const { entries, index } = this.history;
+    const target = entries[index + delta];
+    if (!target) return null;
+    if (target.path !== this.state.config?.path) this.beginNavigation(target.path);
+    if (!(await this.show(target.path))) {
+      this.endNavigation();
+      return null;
+    }
+    if (entries[index]) entries[index].scroll = scroll;
+    this.history.index = index + delta;
+    this.set({ canBack: this.history.index > 0, canForward: this.history.index < entries.length - 1 });
+    return target;
+  }
+
+  /** Shows `path` in the page; true when it is shown (already, or loaded now). */
+  private async show(path: string): Promise<boolean> {
+    const config = this.state.config;
+    if (!config || !this.client) return false;
+    if (path === config.path) {
+      if (this.state.navigating !== null) this.set({ navigating: null });
+      return true;
+    }
+    // Edits are saved before the page leaves the file; a file that would lose them stays.
+    if (!this.state.readOnly && this.currentText() !== this.savedText) await this.save();
+    if (this.state.conflict || (!this.state.readOnly && this.currentText() !== this.savedText)) return false;
+    let file: MarkdownFile;
+    try {
+      const value = await this.client.call<unknown>(MARKDOWN_OPEN_OP, { path });
+      if (!isMarkdownConfig(value)) throw new Error("markdown file is malformed");
+      file = value;
+    } catch (error) {
+      console.error("cmux markdown load failed", error);
+      return false;
+    }
+    this.cancelAutosave?.();
+    this.cancelAutosave = null;
+    this.savedText = file.text;
+    this.baseHash = file.hash;
+    this.recovered = null;
+    const readOnly = file.readOnly === true;
+    this.set({
+      config: {
+        ...config,
+        path: file.path,
+        text: file.text,
+        hash: file.hash,
+        githubRepository: file.githubRepository,
+        readOnly,
+        assetBase: file.assetBase,
+      },
+      readOnly,
+      source: file.text,
+      status: "saved",
+      conflict: null,
+      revision: this.state.revision + 1,
+      navigating: null,
+    });
+    this.editor?.setReadOnly(readOnly);
+    this.editor?.load(file.text);
+    return true;
+  }
+
+  /** The file changed on disk. */
+  diskChanged(change: MarkdownChange): void {
+    if (this.state.phase !== "ready") return;
+    // Changes of a file the page left (its watcher may still report) are not this file's.
+    if (change.path && this.state.config && change.path !== this.state.config.path) return;
+    if (this.saving) {
+      this.pendingChange = change;
+      return;
+    }
+    if (!change.deleted && change.hash === this.baseHash) return;
+    const edited = this.currentText() !== this.savedText;
+    if (!edited && !change.deleted && typeof change.text === "string") {
+      this.replace(change.text, change.hash);
+      return;
+    }
+    this.cancelAutosave?.();
+    this.cancelAutosave = null;
+    this.set({ conflict: { hash: change.hash, text: change.text, deleted: change.deleted } });
+  }
+
+  /** Conflict banner: drop local edits and load the file from disk. */
+  reloadFromDisk(): void {
+    const conflict = this.state.conflict;
+    if (!conflict || conflict.deleted || typeof conflict.text !== "string") return;
+    this.set({ conflict: null });
+    this.replace(conflict.text, conflict.hash);
+  }
+
+  /** Conflict banner: keep the local edits and write them over the file on disk. */
+  async keepMine(): Promise<void> {
+    const conflict = this.state.conflict;
+    if (!conflict) return;
+    this.baseHash = conflict.deleted ? null : conflict.hash;
+    this.savedText = conflict.deleted ? "" : (conflict.text ?? "");
+    this.set({ conflict: null, status: "edited" });
+    await this.save();
+  }
+
+  private replace(text: string, hash: string | null): void {
+    this.savedText = text;
+    this.baseHash = hash;
+    this.recovered = null;
+    this.set({ source: text, status: "saved", revision: this.state.revision + 1 });
+    this.editor?.load(text);
+  }
+
+  dispose(): void {
+    this.cancelAutosave?.();
+    this.stopChanges?.();
+    this.stopChanges = null;
+    this.stopLook?.();
+    this.stopLook = null;
+  }
+}

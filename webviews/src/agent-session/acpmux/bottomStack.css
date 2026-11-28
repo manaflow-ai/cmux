@@ -1,0 +1,30 @@
+/* The chat's bottom stack (hq#1957, Leo 2026-10-14): everything under the transcript, in the layout
+   flow and in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull
+   request dock (summary/PullRequestDock.tsx), then the composer form, which holds the queued
+   prompts (ComposerQueue.tsx), the location strip and the card. Every part takes its own height,
+   so none draws over another or under the pane's edge. The transcript gives up height first, down
+   to --acpmux-transcript-min; in a pane shorter still, the dock and the queue give up theirs, down
+   to one row, and scroll inside it. A new part joins the flow here; none is laid over the
+   transcript with absolute positioning. */
+/* The stage holds the header (44px, styles.css) over the transcript. */
+.acpmux-main > .acpmux-stage {
+  min-height: calc(44px + var(--acpmux-transcript-min, 96px));
+}
+.acpmux-main > .acpmux-composer {
+  display: flex;
+  flex: 0 1 auto;
+  flex-flow: column nowrap;
+  min-height: 0;
+}
+.acpmux-main > .acpmux-composer > * {
+  flex: none;
+}
+/* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
+   keeps, so the composer card stays in view. */
+.acpmux-main > .acpmux-composer > .acpmux-composer-queue,
+.acpmux-main > .acpmux-pr-dock,
+.acpmux-main > .acpmux-asks-stack {
+  flex: 0 1 auto;
+  min-height: var(--acpmux-stack-row-min, 34px);
+  overflow-y: auto;
+}

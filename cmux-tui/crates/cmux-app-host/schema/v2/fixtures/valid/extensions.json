@@ -1,0 +1,57 @@
+{
+  "manifestVersion": 2,
+  "id": "cmux/extensions",
+  "name": "Extensions fixture",
+  "version": "1.0.0",
+  "description": "Every manifest v2 extension field (app-platform.md 12.5).",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.editor/1": {
+      "export": "renderEditor",
+      "types": ["public.plain-text"],
+      "options": { "capabilities": ["readOnly"], "paneCommands": ["save"] }
+    },
+    "cmux.section/1": { "export": "renderSection", "options": { "defaultRegion": "top", "maxRows": 8 } },
+    "cmux.status/1": { "export": "renderStatus", "options": { "placement": "statusStrip" } }
+  },
+  "consumes": {
+    "interfaces": ["cmux.diff.renderer/1"],
+    "ops": ["feed.list", "feed.item.answer"],
+    "events": ["feed.changed"],
+    "handles": ["document"]
+  },
+  "scopes": {
+    "feed:read": "List your feed.",
+    "feed:answer": "Send the answer you tap.",
+    "host:control": "Open the connect sheet when you click Connect.",
+    "terminal:input": "Insert a path into the focused terminal when you choose Send to Terminal.",
+    "embed:run": "Show files in your editor app.",
+    "power:write": "Keep the Mac awake when you choose a preset."
+  },
+  "handles": {
+    "root": "Folders you add.",
+    "connection": { "reason": "Hosts you connect.", "max": 8, "rights": ["read", "write"], "kinds": ["ssh", "cloud-vm"] },
+    "credential": "The key a connection needs.",
+    "terminal": "The terminal whose command keeps the Mac awake.",
+    "task": "The task whose run keeps the Mac awake."
+  },
+  "server": {
+    "kind": "native",
+    "binaries": { "darwin-arm64": "cmux-usage" },
+    "instances": "machine",
+    "hosts": ["local"],
+    "scopes": {
+      "process:spawn:sr": "Run the router's status command.",
+      "op:coderouter.accounts.usage": "Read account usage."
+    }
+  },
+  "requires": { "hostCapabilities": ["power.assertion/1"], "platforms": ["macos"] },
+  "lifecycle": { "onDisable": "release-owned", "onUninstall": "release-owned" },
+  "documents": [{ "id": "note", "title": "Note", "types": ["net.daringfireball.markdown"], "extensions": ["md"], "symbol": "note.text" }],
+  "openWith": [{ "interface": "cmux.editor/1", "types": ["public.plain-text"], "default": "ask" }],
+  "drag": { "provides": ["file", "directory"] },
+  "drop": { "accepts": ["file", "url", "text"] },
+  "notices": [{ "path": "LICENSE-vendor", "title": "Vendored library" }]
+}

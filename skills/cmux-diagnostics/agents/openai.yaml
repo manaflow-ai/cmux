@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Diagnostics"
+  short_description: "Check cmux hooks, restore, CLI, and settings."
+  default_prompt: "Use $cmux-diagnostics to collect a read-only cmux health report and explain any hook or session restore problems."

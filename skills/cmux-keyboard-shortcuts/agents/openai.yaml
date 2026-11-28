@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Keyboard Shortcuts"
+  short_description: "Customize cmux shortcuts and preset layouts."
+  default_prompt: "Use this skill to help choose and apply cmux keyboard shortcut templates: inspect current bindings, propose layouts, apply selected action paths, validate cmux.json, and report exact revert commands."

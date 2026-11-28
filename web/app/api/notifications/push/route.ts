@@ -1,0 +1,390 @@
+// New encrypted Mac senders may omit the target to fan out to every registered
+// iOS bundle. The encrypted tuple still names each exact bundle and key.
+
+import crypto from "node:crypto";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { env } from "../../../env";
+import { cloudDb } from "../../../../db/client";
+import { resolveApnsProviderConfiguration } from "../../../../services/apns/config";
+import { jsonResponse } from "../../../../services/vms/routeHelpers";
+import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
+import {
+  recordApnsRouteFailure,
+  recordApnsRouteOutcome,
+  withApnsApiRoute,
+} from "../../../../services/apns/routeHandler";
+import {
+  MAX_ENCRYPTED_PUSH_REQUEST_BYTES,
+  MAX_PUSH_REQUEST_BYTES,
+  normalizeApnsBundle,
+  parsePushPayload,
+  readBoundedJsonObject,
+  type PushPayload,
+} from "../../../../services/apns/routePolicy";
+import {
+  sendApnsNotificationReliably,
+  type ApnsConfig,
+} from "../../../../services/apns/sender";
+import type { PushSendSummary } from "../../../../services/apns/response";
+import {
+  makePushDeliveryService,
+  PushDeliveryService,
+  type PushDeliveryError,
+} from "../../../../services/apns/pushDeliveryService";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
+
+// through that loop while staying comfortably below the 120s event TTL.
+export const maxDuration = 45;
+
+function apnsConfig(): ApnsConfig | null {
+  return resolveApnsProviderConfiguration(
+    env.CMUX_APNS_KEY_P8,
+    env.CMUX_APNS_KEY_ID,
+    env.CMUX_APNS_TEAM_ID,
+  );
+}
+
+export const DEFAULT_PUSH_TTL_SECONDS = 120;
+const MAX_PUSH_TTL_SECONDS = 300;
+export type PushProtocol = "legacy-v1" | "e2e-v1";
+
+function pushPayloadFingerprint(
+  payload: PushPayload,
+  targetBundleId: string,
+): string {
+  const canonicalPayload = {
+    targetBundleId,
+    kind: payload.kind,
+    ...(payload.encryptedPayloads?.length
+      ? { encryptedPayloads: payload.encryptedPayloads }
+      : {
+          title: payload.title,
+          subtitle: payload.subtitle,
+          body: payload.body,
+          replyShape: payload.replyShape,
+          workspaceId: payload.workspaceId,
+          surfaceId: payload.surfaceId,
+          macDeviceId: payload.macDeviceId,
+          macInstanceTag: payload.macInstanceTag,
+          notificationId: payload.notificationId,
+          retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
+        }),
+    expirationEpochSeconds: payload.expirationEpochSeconds,
+    dismissedIds: payload.dismissedIds,
+    badgeCount: payload.badgeCount,
+    hideContent: payload.hideContent,
+  };
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(canonicalPayload))
+    .digest("hex");
+}
+
+function validatePushProtocol(
+  protocol: PushProtocol | undefined,
+  encryptedPayloads: readonly Record<string, unknown>[],
+): Response | null {
+  if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
+    return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
+  }
+  if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
+    return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
+  }
+  return null;
+}
+
+function validateEncryptedRecipients(
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  targetNamespace: ReturnType<typeof normalizeApnsBundle>,
+): Response | null {
+  if (encryptedPayloads.length === 0) return null;
+  const matchesOwner = encryptedPayloads.every((envelope) => {
+    const tuple = envelope.tuple;
+    if (!tuple || typeof tuple !== "object" || Array.isArray(tuple)) return false;
+    const tupleRecord = tuple as Record<string, unknown>;
+    const tupleBundle = typeof tupleRecord.iosBuildID === "string"
+      ? normalizeApnsBundle(tupleRecord.iosBuildID)
+      : null;
+    return tupleRecord.accountID === userID
+      && tupleBundle != null
+      && (targetNamespace == null || tupleRecord.iosBuildID === targetNamespace.bundleId)
+      && tupleRecord.macDeviceID === payload.macDeviceId
+      && (tupleRecord.macInstanceTag ?? null) === (payload.macInstanceTag ?? null);
+  });
+  return matchesOwner
+    ? null
+    : jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
+}
+
+function summaryResponse(
+  summary: PushSendSummary,
+  correlationId: string,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(
+    JSON.stringify({ ...summary, correlationId }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-cmux-push-correlation-id": correlationId,
+        ...extraHeaders,
+      },
+    },
+  );
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return POSTWithProtocol(request, "legacy-v1");
+}
+
+export async function POSTWithProtocol(
+  request: Request,
+  protocol: PushProtocol,
+): Promise<Response> {
+  return withApnsApiRoute(
+    request,
+    protocol === "e2e-v1"
+      ? "/api/notifications/push/e2e"
+      : "/api/notifications/push",
+    "send",
+    async () => sendPush(request, {
+      send: sendApnsNotificationReliably,
+      config: apnsConfig(),
+    }, protocol),
+  );
+}
+
+/** Test seam for the APNs transport; production always uses the real sender. */
+export async function sendPushWithTransport(
+  request: Request,
+  send: typeof sendApnsNotificationReliably,
+  config: ApnsConfig | null = apnsConfig(),
+): Promise<Response> {
+  return sendPush(request, { send, config });
+}
+
+async function sendPush(
+  request: Request,
+  dependencies: {
+    send: typeof sendApnsNotificationReliably;
+    config: ApnsConfig | null;
+  },
+  protocol?: PushProtocol,
+): Promise<Response> {
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "notifications.push.auth");
+  }
+  if (!user) return unauthorized();
+
+  const body = await readBoundedJsonObject(
+    request,
+    protocol === "e2e-v1"
+      ? MAX_ENCRYPTED_PUSH_REQUEST_BYTES
+      : MAX_PUSH_REQUEST_BYTES,
+  );
+  if (!body.ok) {
+    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+  }
+
+  const payload = parsePushPayload(body.value);
+  if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  const encryptedPayloads = payload.value.encryptedPayloads ?? [];
+  const routing = validatePushRouting(
+    request,
+    user.id,
+    payload.value,
+    encryptedPayloads,
+    protocol,
+  );
+  if (!routing.ok) return routing.response;
+  const targetNamespace = routing.value;
+  const correlationId =
+    payload.value.correlationId ?? crypto.randomUUID();
+  const payloadFingerprint = pushPayloadFingerprint(
+    payload.value,
+    targetNamespace?.bundleId ?? "legacy",
+  );
+  const startedAt = new Date();
+  const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
+  if (
+    payload.value.expirationEpochSeconds != null
+    && payload.value.expirationEpochSeconds <= nowEpochSeconds
+  ) {
+    recordApnsRouteFailure(correlationId, "event_expired");
+    return correlatedErrorResponse(
+      { error: "push_event_expired", correlationId },
+      410,
+      correlationId,
+    );
+  }
+  const expirationEpochSeconds = Math.min(
+    payload.value.expirationEpochSeconds
+      ?? nowEpochSeconds + DEFAULT_PUSH_TTL_SECONDS,
+    nowEpochSeconds + MAX_PUSH_TTL_SECONDS,
+  );
+  const deliveryPayload = {
+    ...payload.value,
+    correlationId,
+    expirationEpochSeconds,
+  };
+  try {
+    const service = makePushDeliveryService({
+      db: cloudDb(),
+      config: dependencies.config,
+      send: dependencies.send,
+      recordOutcome: recordApnsRouteOutcome,
+    });
+    const program = Effect.gen(function* () {
+      const delivery = yield* PushDeliveryService;
+      return yield* delivery.deliver({
+        userId: user.id,
+        targetBundleId: targetNamespace?.bundleId ?? null,
+        correlationId,
+        payloadFingerprint,
+        startedAt,
+        expirationEpochSeconds,
+        payload: deliveryPayload,
+      });
+    }).pipe(
+      Effect.provide(Layer.succeed(PushDeliveryService, service)),
+    );
+    const result = await Effect.runPromise(Effect.either(program));
+    if (result._tag === "Left") {
+      return deliveryErrorResponse(result.left, correlationId);
+    }
+    return summaryResponse(
+      result.right.summary,
+      correlationId,
+      result.right.replayed
+        ? { "x-cmux-push-replayed": "true" }
+        : {},
+    );
+  } catch {
+    // At this point the request has a safe, validated correlation id. Preserve
+    // it for support without returning or recording payload, token, database,
+    // or provider details from the unexpected exception.
+    recordApnsRouteFailure(correlationId, "unexpected");
+    return correlatedErrorResponse(
+      { error: "push_internal_error", correlationId },
+      500,
+      correlationId,
+    );
+  }
+}
+
+function validatePushRouting(
+  request: Request,
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  protocol: PushProtocol | undefined,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> }
+  | { ok: false; response: Response } {
+  // An omitted header is account-wide fanout. Each encrypted tuple names its
+  // exact iOS bundle, and APNs delivery selects the matching payload per token.
+  // A present-but-unknown value remains a hard error.
+  const targetNamespaceResult = resolveTargetNamespace(
+    request.headers.get("x-cmux-ios-target-namespace"),
+  );
+  if (!targetNamespaceResult.ok) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: targetNamespaceResult.error }, 400),
+    };
+  }
+  const protocolError = validatePushProtocol(protocol, encryptedPayloads);
+  if (protocolError) return { ok: false, response: protocolError };
+  const recipientError = validateEncryptedRecipients(
+    userID,
+    payload,
+    encryptedPayloads,
+    targetNamespaceResult.value,
+  );
+  if (recipientError) return { ok: false, response: recipientError };
+  return { ok: true, value: targetNamespaceResult.value };
+}
+
+function resolveTargetNamespace(
+  requestedNamespace: string | null,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> } | { ok: false; error: string } {
+  if (requestedNamespace === null) {
+    return { ok: true, value: null };
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  return targetNamespace
+    ? { ok: true, value: targetNamespace }
+    : { ok: false, error: "invalid_target_namespace" };
+}
+
+function deliveryErrorResponse(
+  error: PushDeliveryError,
+  correlationId: string,
+): Response {
+  recordApnsRouteFailure(correlationId, error._tag);
+  switch (error._tag) {
+    case "PushDeliveryInProgressError":
+      return new Response(
+        JSON.stringify({ error: "push_event_in_progress", correlationId }),
+        {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(error.retryAfterSeconds),
+            "x-cmux-push-correlation-id": correlationId,
+          },
+        },
+      );
+    case "PushDeliveryCorrelationConflictError":
+      return correlatedErrorResponse(
+        { error: "correlation_payload_mismatch", correlationId },
+        409,
+        correlationId,
+      );
+    case "PushDeliveryRateLimitedError":
+      return correlatedErrorResponse(
+        {
+          error: "rate_limited",
+          retryAfterSeconds: error.retryAfterSeconds,
+          correlationId,
+        },
+        429,
+        correlationId,
+        { "retry-after": String(error.retryAfterSeconds) },
+      );
+    case "PushDeliveryConfigurationError":
+      return correlatedErrorResponse(
+        { error: error.code, correlationId },
+        503,
+        correlationId,
+      );
+    case "PushDeliveryAccountDeletionInProgressError":
+      return correlatedErrorResponse(
+        { error: "account_deletion_in_progress", correlationId },
+        409,
+        correlationId,
+      );
+  }
+}
+
+function correlatedErrorResponse(
+  body: Record<string, unknown>,
+  status: number,
+  correlationId: string,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "x-cmux-push-correlation-id": correlationId,
+      ...headers,
+    },
+  });
+}

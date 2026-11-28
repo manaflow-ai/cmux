@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2PermissionRequest.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "permission.update.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "permission": {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2Permission.json"
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId",
+    "permission"
+  ],
+  "additionalProperties": false
+}

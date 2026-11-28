@@ -1,0 +1,36 @@
+{
+  "family": "github_prs",
+  "owner": "app:cmux/github-prs",
+  "operations": [
+    {
+      "name": "github_prs.refresh",
+      "owner": "app:cmux/github-prs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "refresh",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": {
+          "en": "Refresh Pull Requests",
+          "ja": "プルリクエストを更新"
+        }
+      },
+      "docs": "Reload your open pull requests in the sidebar section.",
+      "since": "github_prs/1",
+      "export": "refresh"
+    }
+  ]
+}

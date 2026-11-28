@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "hint_update",
+  "rev": 43,
+  "payload": {
+    "endpointId": "0fbffe130b96",
+    "homeRelayUrl": "https://use4.relay.cmux.dev/",
+    "updatedAt": "2026-08-27T03:12:00Z"
+  }
+}

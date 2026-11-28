@@ -1,0 +1,8 @@
+{
+  "Type": "com.apple.configuration.legacy",
+  "Identifier": "com.manaflow.cmux.settings",
+  "ServerToken": "1",
+  "Payload": {
+    "ProfileURL": "https://mdm.example.com/profiles/cmux.mobileconfig"
+  }
+}

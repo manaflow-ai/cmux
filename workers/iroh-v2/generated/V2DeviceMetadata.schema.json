@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2DeviceMetadata.json",
+  "type": "object",
+  "properties": {
+    "platform": {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2Platform.json"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "appVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "pairingEnabled": {
+      "type": "boolean"
+    },
+    "capabilities": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "relayURLs": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2048,
+        "format": "uri"
+      }
+    }
+  },
+  "required": [
+    "platform",
+    "displayName",
+    "appVersion",
+    "pairingEnabled",
+    "capabilities",
+    "relayURLs"
+  ],
+  "additionalProperties": false
+}

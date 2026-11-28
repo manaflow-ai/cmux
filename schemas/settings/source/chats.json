@@ -1,0 +1,77 @@
+{
+  "$comment": "HAND-EDITED source of the Chats settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "chats",
+      "section": "general",
+      "group": {
+        "key": "settings.group.chats",
+        "text": "Chats"
+      },
+      "note": "Device-local chat indexing controls; all three keys are privacy decisions for the person.",
+      "rows": [
+        {
+          "key": "agents.chats.enabled",
+          "title": {
+            "key": "settings.chats.enabled",
+            "text": "Enable Chats"
+          },
+          "help": {
+            "key": "settings.chats.enabled.help",
+            "text": "Show chats stored on this device. Nothing is uploaded."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agents",
+            "chats",
+            "privacy"
+          ]
+        },
+        {
+          "key": "agents.chats.discovery",
+          "title": {
+            "key": "settings.chats.discovery",
+            "text": "Discover Chat Folders"
+          },
+          "help": {
+            "key": "settings.chats.discovery.help",
+            "text": "Find harness chat folders automatically. When off, only the listed folders are used."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agents",
+            "chats",
+            "discovery",
+            "privacy"
+          ]
+        },
+        {
+          "key": "agents.chats.roots",
+          "title": {
+            "key": "settings.chats.roots",
+            "text": "Chat Folders"
+          },
+          "help": {
+            "key": "settings.chats.roots.help",
+            "text": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+          },
+          "summary": {
+            "key": "settings.chats.roots.summary",
+            "text": "Extra folders to read chats from"
+          },
+          "kind": "folder_list",
+          "default": [],
+          "keywords": [
+            "agents",
+            "chats",
+            "folders",
+            "roots",
+            "privacy"
+          ]
+        }
+      ]
+    }
+  ]
+}

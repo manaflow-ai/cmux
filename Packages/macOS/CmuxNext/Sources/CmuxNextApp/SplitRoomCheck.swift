@@ -1,0 +1,117 @@
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextLayout
+
+/// What a requested split of a shown pane does, decided from the live layout
+/// geometry before any daemon command (`SplitRoom`). Every split entry point
+/// (split actions, tab and tab group moves, drops) goes through
+/// `AppServices.splitRoom`, so they refuse or reroute the same way.
+enum SplitRoomDecision {
+    /// Split in place.
+    case split
+    /// Columns screen with no room across: open a new column instead.
+    /// `afterColumn` places a moved tab; `spawnAnchor` is the pane a new
+    /// terminal column opens right of.
+    case newColumn(afterColumn: DaemonColumnID?, spawnAnchor: DaemonPaneID)
+    /// No room; the localized reason for the caller to report.
+    case refused(String)
+}
+
+extension AppServices {
+    /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
+    /// was its only tab the pane disappears in the same step, which frees room. The chat dock never
+    /// splits. A pane no window shows (a background workspace driven from the CLI) always splits.
+    func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil) -> SplitRoomDecision {
+        guard let controller = paneController(for: pane), let content = controller.workspace else { return .split }
+        let layoutPane = controller.layoutPaneID
+        if ChatDockRules.isChatDock(pane, services: self) { return .refused(RefusalStrings.chatDockCannotSplit) }
+        let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
+        let removing = source.flatMap { source -> LayoutPaneID? in
+            guard source !== pane, source.tabs.count == 1 else { return nil }
+            return content.handles.paneIDs[source.handle]
+        }
+        switch content.layoutView.splitPlacement(splitting: layoutPane, axis: axis, removing: removing) {
+        case .split:
+            return .split
+        case .refused(.notEnoughRoom):
+            return .refused(RefusalStrings.notEnoughRoomToSplit)
+        case .newColumn:
+            let columns = content.layoutModel.screen(containing: layoutPane)?.layout.columns ?? []
+            guard let index = columns.firstIndex(where: { $0.root.contains(layoutPane) }) else { return .split }
+            // A leading-edge request goes after the previous column; before
+            // the first column there is no slot, so it goes right.
+            if edge == .left, index > 0, let previous = columns[index - 1].root.panes.last,
+               let anchor = content.handles.panes[previous] {
+                return .newColumn(afterColumn: content.handles.columns[columns[index - 1].id], spawnAnchor: anchor)
+            }
+            return .newColumn(afterColumn: content.handles.columns[columns[index].id], spawnAnchor: pane.handle)
+        }
+    }
+
+    /// The daemon handle of the strip column holding `pane`, or nil when no shown screen lays it out in columns.
+    func columnHandle(containing pane: PaneModel) -> DaemonColumnID? {
+        guard let controller = paneController(for: pane), let content = controller.workspace else { return nil }
+        let layoutPane = controller.layoutPaneID
+        guard let column = content.layoutModel.screen(containing: layoutPane)?.layout.columns.first(where: { $0.root.contains(layoutPane) })
+        else { return nil }
+        return content.handles.columns[column.id]
+    }
+
+    /// The ONE rule for a split that opens a new tool (Split Right/Down/Left/Up and Split Browser
+    /// Right/Down, from the chat header's Terminal and Browser buttons, the palette, menus,
+    /// shortcuts and the CLI) (cx-yihq). A person's split from the docked agent chat opens the tool
+    /// as a tab in the scrolling strip, as New Terminal and New Browser do there (cx-ic0); a script's
+    /// split there is refused, so its result stays predictable. Elsewhere it splits when the pane
+    /// has room, and is refused when it has none: a split never opens a column (column-sizing.md).
+    func toolSplit(from pane: PaneModel, edge: PaneEdge, byPerson: Bool) -> ToolSplitDecision {
+        if byPerson, let strip = chatDockStripPane(for: pane) { return .tab(in: strip) }
+        switch splitRoom(for: pane, edge: edge) {
+        case .split: return .split
+        case .refused(let reason): return .refused(reason)
+        case .newColumn: return .refused(RefusalStrings.columnTooNarrowToSplit)
+        }
+    }
+
+    /// The strip pane a tool opened from `pane` goes to when `pane` is the chat dock, else nil. A
+    /// chat dock with no strip to send to (a zoomed screen, a daemon without dock roles) gives nil,
+    /// and `splitRoom` then refuses with `chatDockCannotSplit`.
+    private func chatDockStripPane(for pane: PaneModel) -> PaneController? {
+        guard ChatDockRules.isChatDock(pane, services: self), let controller = paneController(for: pane),
+              case .tab(let target) = ChatColumnPlacement.resolve(from: controller, services: self) else { return nil }
+        return controller.workspace?.panes[target]
+    }
+
+    /// The width to send with a new column next to `pane`, from every path
+    /// that opens one, and `commit`, which the caller runs once the new
+    /// column exists: on a shown workspace it shrinks a lone full-width
+    /// column so both fit (`LayoutModel.commitNewColumnResize`; cmux-tui
+    /// refuses the width while the lone column has no viewport). `source`
+    /// is the pane a moved tab leaves.
+    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> NewColumnSpawn {
+        guard let controller = paneController(for: pane), let content = controller.workspace else {
+            return NewColumnSpawn(width: DesignSettings.shared.defaultColumnWidth, commit: {})
+        }
+        // A pane whose only tab moves out closes, even the anchor itself.
+        let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
+        let model = content.layoutModel
+        let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
+        return NewColumnSpawn(width: request.width, commit: { [weak model] in model?.commitNewColumnResize(request) })
+    }
+}
+
+/// What a split that opens a new tool does (`AppServices.toolSplit`).
+enum ToolSplitDecision {
+    /// Split the pane in place.
+    case split
+    /// Open the tool as a tab in this strip pane (the pane was the chat dock).
+    case tab(in: PaneController)
+    /// No split; the localized reason for the caller to report.
+    case refused(String)
+}
+
+/// A new column's width and the lone column's width change to run after it exists.
+struct NewColumnSpawn {
+    let width: Double
+    let commit: @MainActor () -> Void
+}

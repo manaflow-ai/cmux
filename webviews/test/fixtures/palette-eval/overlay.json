@@ -1,0 +1,359 @@
+[
+  {
+    "id": "workspace:w1",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "cmuxterm-hq",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/cmuxterm-hq",
+      "accessory": "Current",
+      "rankBias": -5,
+      "frecencyKey": "workspace:w1",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w2",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "feat-cmux-next",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/cmuxterm-hq/worktrees/feat-cmux-next",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w2",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w3",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "chatmux",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/chatmux",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w3",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w4",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "subrouter",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/subrouter",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w4",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w5",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "cmux-tui",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/cmuxterm-hq/repo/cmux-tui",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w5",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w6",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "ghostty",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/ghostty",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w6",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "workspace:w7",
+    "section": {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "order": 10
+    },
+    "entry": {
+      "title": "palette ranking",
+      "keywords": ["workspace"],
+      "subtitle": "~/fun/cmuxterm-hq/worktrees/feat-cmux-next-palette-rank",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "workspace:w7",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t1",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "zsh",
+      "keywords": ["tab"],
+      "subtitle": "cmuxterm-hq",
+      "accessory": "Current",
+      "rankBias": 0,
+      "frecencyKey": "tab:t1",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t2",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "Claude Code",
+      "keywords": ["tab"],
+      "subtitle": "cmuxterm-hq",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t2",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t3",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "codex",
+      "keywords": ["tab"],
+      "subtitle": "feat-cmux-next",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t3",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t4",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "nvim ranker.ts",
+      "keywords": ["tab"],
+      "subtitle": "palette ranking",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t4",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t5",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "GitHub - manaflow-ai/cmux",
+      "keywords": ["tab"],
+      "subtitle": "feat-cmux-next",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t5",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t6",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "localhost:3000",
+      "keywords": ["tab"],
+      "subtitle": "chatmux",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t6",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t7",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "htop",
+      "keywords": ["tab"],
+      "subtitle": "subrouter",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t7",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t8",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "Settings",
+      "keywords": ["tab"],
+      "subtitle": "cmuxterm-hq",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t8",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t9",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "ssh cmux-lawrence",
+      "keywords": ["tab"],
+      "subtitle": "subrouter",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t9",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "tab:t10",
+    "section": {
+      "id": "tabs",
+      "title": "Tabs",
+      "order": 20
+    },
+    "entry": {
+      "title": "git log",
+      "keywords": ["tab"],
+      "subtitle": "cmux-tui",
+      "accessory": null,
+      "rankBias": 0,
+      "frecencyKey": "tab:t10",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false
+    }
+  }
+]

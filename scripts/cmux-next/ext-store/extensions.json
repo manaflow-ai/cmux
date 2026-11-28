@@ -1,0 +1,740 @@
+{
+ "_comment": "Curated list for scripts/cmux-next/ext-e2e.py store. Chosen from Chrome Web Store user counts and the developer extensions cmux users ask for; ids are Web Store ids. check: adblock | darkreader | vimium | json_viewer | devtools_panel:<tab text> | password_popup | popup | action_opens_tab | new_tab | worker. unavailable: delisted, recorded but not installed. source: CRX URL used instead of the Web Store.",
+ "extensions": [
+  {
+   "id": "ddkjiahejlhfcafbddmgiahcphecmpfh",
+   "name": "uBlock Origin Lite",
+   "category": "adblock",
+   "check": "adblock"
+  },
+  {
+   "id": "cjpalhdlnbpafiamejdnhcphjbkeiagm",
+   "name": "uBlock Origin (MV2)",
+   "category": "adblock",
+   "check": "adblock",
+   "source": "https://github.com/gorhill/uBlock/releases/download/1.75.0/uBlock0_1.75.0.chromium.crx",
+   "note": "MV2; delisted from the Web Store for Chrome 138+, so the signed CRX comes from the uBlock GitHub release"
+  },
+  {
+   "id": "bgnkhhnnamicmpeenaelnjfhikgbkllg",
+   "name": "AdGuard AdBlocker",
+   "category": "adblock",
+   "check": "adblock"
+  },
+  {
+   "id": "cfhdojbkjhnklbpkdaibdccddilifddb",
+   "name": "Adblock Plus",
+   "category": "adblock",
+   "check": "adblock"
+  },
+  {
+   "id": "gighmmpiobklfepjocnamgkkbiglidom",
+   "name": "AdBlock",
+   "category": "adblock",
+   "check": "adblock"
+  },
+  {
+   "id": "mlomiejdfkolichcflejclcbmpeaniij",
+   "name": "Ghostery",
+   "category": "privacy",
+   "check": "adblock"
+  },
+  {
+   "id": "pkehgijcmpdhfbdbbnkijodmdjhbjlgp",
+   "name": "Privacy Badger",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "bkdgflcldnnnapblkhphbgpggdiikppg",
+   "name": "DuckDuckGo Privacy Essentials",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "ihcjicgdanjaechkgeegckofjjedodee",
+   "name": "Malwarebytes Browser Guard",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "gomekmidlodglbbmalcneegieacbdmki",
+   "name": "Avast Online Security",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "fihnjjcciajhdojfnbdddfaoknhalnja",
+   "name": "I don't care about cookies",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "fhcgjolkccmbidfldomjliifgaodjagh",
+   "name": "Cookie AutoDelete",
+   "category": "privacy",
+   "check": "popup",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "doojmbjmlfjjnbmnoijecmcbfeoakpjm",
+   "name": "NoScript",
+   "category": "privacy",
+   "check": "popup"
+  },
+  {
+   "id": "aeblfdkhhhdcdjpifhhbdiojplfjncoa",
+   "name": "1Password",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "nngceckbapebfimnlniiiahkandclblb",
+   "name": "Bitwarden",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "hdokiejnpimakedhajhdlcegeplioahd",
+   "name": "LastPass",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "fdjamakpfbbddfjaooikfcpapjohcfmg",
+   "name": "Dashlane",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "bfogiafebfohielmmehodmfbbebbbpei",
+   "name": "Keeper",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "fooolghllnmhmmndgjiamiiodkpenpbb",
+   "name": "NordPass",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "pnlccmojcmeohlpggmfnbbiapkmbliob",
+   "name": "RoboForm",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "ghmbeldphafepmbegfdlkpapadhbakde",
+   "name": "Proton Pass",
+   "category": "password",
+   "check": "password_popup"
+  },
+  {
+   "id": "nkbihfbeogaeaoehlefnkodbefgpgknn",
+   "name": "MetaMask",
+   "category": "wallet",
+   "check": "password_popup"
+  },
+  {
+   "id": "kbfnbcaeplbcioakkpcpgfkobkghlhen",
+   "name": "Grammarly",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "oldceeleldhonbafppcapldpdifcinji",
+   "name": "LanguageTool",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "iidnbdjijdkbmajdffnidomddglmieko",
+   "name": "QuillBot",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "cofdbpoegempjloogbagkncekinflcnj",
+   "name": "DeepL",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "aapbdbdomjkkjkaonfhkkikfgjllcleb",
+   "name": "Google Translate",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "mgijmajocgfcbeboacabfgobmjgjcoja",
+   "name": "Google Dictionary",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "eimadpbcbfnmbkopoojfekhnkhdbieeh",
+   "name": "Dark Reader",
+   "category": "appearance",
+   "check": "darkreader"
+  },
+  {
+   "id": "clngdbkpkpeebahjckkjfobafhncgmne",
+   "name": "Stylus",
+   "category": "appearance",
+   "check": "popup"
+  },
+  {
+   "id": "nffaoalbilbmmfgbnbgppjihopabppdk",
+   "name": "Video Speed Controller",
+   "category": "media",
+   "check": "worker"
+  },
+  {
+   "id": "hkgfoiooedgoejojocmhlaklaeopbecg",
+   "name": "Picture-in-Picture Extension (by Google)",
+   "category": "media",
+   "check": "worker"
+  },
+  {
+   "id": "jghecgabfgfdldnmbfkhmffcabddioke",
+   "name": "Volume Master",
+   "category": "media",
+   "check": "popup"
+  },
+  {
+   "id": "mnjggcdmjocbbbhaepdhchncahnbgone",
+   "name": "SponsorBlock",
+   "category": "media",
+   "check": "popup"
+  },
+  {
+   "id": "gebbhagfogifgggkldgodflihgfeippi",
+   "name": "Return YouTube Dislike",
+   "category": "media",
+   "check": "popup"
+  },
+  {
+   "id": "ponfpcnoihfmfllpaingbgckeeldkhle",
+   "name": "Enhancer for YouTube",
+   "category": "media",
+   "check": "popup"
+  },
+  {
+   "id": "oocalimimngaihdkbihfgmpkcpnmlaoa",
+   "name": "Teleparty",
+   "category": "media",
+   "check": "popup"
+  },
+  {
+   "id": "fmkadmapgofadopljbjfkapdkoienihi",
+   "name": "React Developer Tools",
+   "category": "developer",
+   "check": "devtools_panel:Components"
+  },
+  {
+   "id": "nhdogjmejiglipccpnnnanhbledajbpd",
+   "name": "Vue.js devtools",
+   "category": "developer",
+   "check": "devtools_panel:Vue"
+  },
+  {
+   "id": "lmhkpmbekcpmknklioeibfkpmmfibljd",
+   "name": "Redux DevTools",
+   "category": "developer",
+   "check": "devtools_panel:Redux"
+  },
+  {
+   "id": "ienfalfjdbdpebioblfackkekamfmbnh",
+   "name": "Angular DevTools",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "gbmdgpbipfallnflgajpaliibnhdgobh",
+   "name": "JSON Viewer",
+   "category": "developer",
+   "check": "json_viewer",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "bcjindcccaagfpapjjmafapmmgkkhgoa",
+   "name": "JSON Formatter",
+   "category": "developer",
+   "check": "json_viewer"
+  },
+  {
+   "id": "gppongmhjkpfnbhagpmjfkannfbllamg",
+   "name": "Wappalyzer",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "bhlhnicpbhignbdhedgjhgdocnmhomnp",
+   "name": "ColorZilla",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "jabopobgcpjmedljpbcaablpmlmfcogm",
+   "name": "WhatFont",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "mbnbehikldjhnfehhnaidhjhoofhpehk",
+   "name": "CSS Peeper",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "cdockenadnadldjbbgcallicgledbeoc",
+   "name": "VisBug",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "bfbameneiokkgbdmiekhjnmfkcnldhhm",
+   "name": "Web Developer",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "blipmdconlkpinefehnmjammfjpmpbjk",
+   "name": "Lighthouse",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "lhdoppojpmngadmnindnejefpokejbdd",
+   "name": "axe DevTools",
+   "category": "developer",
+   "check": "devtools_panel:axe"
+  },
+  {
+   "id": "jbbplnpkjmmeebjpijfedlgcdilocofh",
+   "name": "WAVE Evaluation Tool",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "idgpnmonknjnojddfkpgkljpfnnfcklj",
+   "name": "ModHeader",
+   "category": "developer",
+   "check": "popup",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "hlkenndednhfkekhgcdicdfddnkalmdm",
+   "name": "Cookie-Editor",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "mdnleldcmiljblolnjhpnblkcekpdkpa",
+   "name": "Requestly",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "aicmkgpgakddgnaphhhpliifpcfhicfo",
+   "name": "Postman Interceptor",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "aejoelaoggembcahagimdiliamlcdmfm",
+   "name": "Talend API Tester",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "hgimnogjllphhhkhlmebbmlgjoejdpjl",
+   "name": "XPath Helper",
+   "category": "developer",
+   "check": "worker",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "ndgimibanhlabgdgjcpbbndiehljcpfh",
+   "name": "SelectorsHub",
+   "category": "developer",
+   "check": "devtools_panel:SelectorsHub"
+  },
+  {
+   "id": "mooikfkahbdckldjjndioackbalphokd",
+   "name": "Selenium IDE",
+   "category": "developer",
+   "check": "worker",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "bkhaagjahfmjljalopjnoealnfndnagc",
+   "name": "Octotree",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "hlepfoohegkhhmjieoechaddaejaokhf",
+   "name": "Refined GitHub",
+   "category": "developer",
+   "check": "worker"
+  },
+  {
+   "id": "nbhcbdghjpllgmfilhnhkllmkecfmpld",
+   "name": "User JavaScript and CSS",
+   "category": "developer",
+   "check": "popup"
+  },
+  {
+   "id": "dhdgffkkebhmkfjojejmpbldmpobfkfo",
+   "name": "Tampermonkey",
+   "category": "userscripts",
+   "check": "popup"
+  },
+  {
+   "id": "jinjaccalgkegednnccohejagnlnfdag",
+   "name": "Violentmonkey",
+   "category": "userscripts",
+   "check": "popup"
+  },
+  {
+   "id": "dbepggeogbaibhgnhhndojpepiihcmeb",
+   "name": "Vimium",
+   "category": "productivity",
+   "check": "vimium"
+  },
+  {
+   "id": "edacconmaakjimmfgnblocblbcdcpbko",
+   "name": "Session Buddy",
+   "category": "productivity",
+   "check": "action_opens_tab"
+  },
+  {
+   "id": "chphlpgkkbolifaimnlloiipkdnihall",
+   "name": "OneTab",
+   "category": "productivity",
+   "check": "action_opens_tab"
+  },
+  {
+   "id": "hddnkoipeenegfoeaoibdmnaalmgkpip",
+   "name": "Toby",
+   "category": "productivity",
+   "check": "worker"
+  },
+  {
+   "id": "ailcmbgekjpnablpdkmaaccecekgdhlh",
+   "name": "Workona",
+   "category": "productivity",
+   "check": "worker"
+  },
+  {
+   "id": "noogafoofpebimajpfpamcfhoaifemoa",
+   "name": "The Marvellous Suspender",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "jhnleheckmknfcgijgkadoemagpecfol",
+   "name": "Auto Tab Discard",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "laookkfknpbbblfpciffpaejjkokdgca",
+   "name": "Momentum",
+   "category": "productivity",
+   "check": "new_tab"
+  },
+  {
+   "id": "dbfmnekepjoapopniengjbcpnbljalfg",
+   "name": "Infinity New Tab",
+   "category": "productivity",
+   "check": "new_tab"
+  },
+  {
+   "id": "knheggckgoiihginacbkhaalnibhilkk",
+   "name": "Notion Web Clipper",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "jldhpllghnbhlbpcmnajkpdmadaolakh",
+   "name": "Todoist",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "pioclpoplcdbaefihamjohnefbikjilc",
+   "name": "Evernote Web Clipper",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "lpcaedmchfhocbbapmcbpinfpgnhiddi",
+   "name": "Google Keep",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "gmbmikajjgmnabiglmofipeabaddhgne",
+   "name": "Save to Google Drive",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "ghbmnnjooekpmoecnnnilnnbdlolhkhi",
+   "name": "Google Docs Offline",
+   "category": "productivity",
+   "check": "worker"
+  },
+  {
+   "id": "efaidnbmnnnibpcajpcglclefindmkaj",
+   "name": "Adobe Acrobat",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "ldgfbffkinooeloadekpmfoklnobpien",
+   "name": "Raindrop.io",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "niloccemoadcdkdjlinkgdfekeahmflj",
+   "name": "Save to Pocket",
+   "category": "productivity",
+   "check": "popup",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "oejgccbfbmkkpaidnkphaiaecficdnfn",
+   "name": "Toggl Track",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "laankejkbhbdhmipfmgcngdelahlfoji",
+   "name": "StayFocusd",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "eiimnmioipafcokbfikbljfdeojpcgbh",
+   "name": "BlockSite",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "kjacjjdnoddnpbbcjilcajfhhbdhkpgk",
+   "name": "Forest",
+   "category": "productivity",
+   "check": "popup"
+  },
+  {
+   "id": "ekhagklcjbdpajgpjgmbionohlpdbjgc",
+   "name": "Zotero Connector",
+   "category": "productivity",
+   "check": "worker"
+  },
+  {
+   "id": "liecbddmkiiihnedobmlmillhodjkdmb",
+   "name": "Loom",
+   "category": "capture",
+   "check": "popup"
+  },
+  {
+   "id": "mmeijimgabbpbgpdklnllpncmdofkcpn",
+   "name": "Screencastify",
+   "category": "capture",
+   "check": "popup"
+  },
+  {
+   "id": "nlipoenfbbikpbjkfpfillcgkoblgpmj",
+   "name": "Awesome Screenshot",
+   "category": "capture",
+   "check": "popup"
+  },
+  {
+   "id": "fdpohaocaechififmbbbbbknoalclacl",
+   "name": "GoFullPage",
+   "category": "capture",
+   "check": "worker"
+  },
+  {
+   "id": "mbniclmhobmnbdlbpiphghaielnnpgdp",
+   "name": "Lightshot",
+   "category": "capture",
+   "check": "worker"
+  },
+  {
+   "id": "kgjfgplpablkjnlkjmjdecgdpfankdle",
+   "name": "Zoom Scheduler",
+   "category": "communication",
+   "check": "popup"
+  },
+  {
+   "id": "jlhmfgmfgeifomenelglieieghnjghma",
+   "name": "Cisco Webex",
+   "category": "communication",
+   "check": "popup"
+  },
+  {
+   "id": "cbhilkcodigmigfbnphipnnmamjfkipp",
+   "name": "Calendly",
+   "category": "communication",
+   "check": "popup"
+  },
+  {
+   "id": "ndnaehgpjlnokgebbaldlmgkapkpjkkb",
+   "name": "Mailtrack",
+   "category": "communication",
+   "check": "worker"
+  },
+  {
+   "id": "pnnfemgpilpdaojpnkjdgfgbnnjojfik",
+   "name": "Streak CRM for Gmail",
+   "category": "communication",
+   "check": "worker"
+  },
+  {
+   "id": "oeopbcgkkoapgobdbedcemjljbihmemj",
+   "name": "Checker Plus for Gmail",
+   "category": "communication",
+   "check": "popup"
+  },
+  {
+   "id": "bmnlcjabgnpnenekpadlanbbkooimhnj",
+   "name": "Honey",
+   "category": "shopping",
+   "check": "popup"
+  },
+  {
+   "id": "chhjbpecpncaggjpdakmflnfcopglcmi",
+   "name": "Rakuten",
+   "category": "shopping",
+   "check": "popup"
+  },
+  {
+   "id": "nenlahapcbofgnanklpelkaejcehkggg",
+   "name": "Capital One Shopping",
+   "category": "shopping",
+   "check": "popup"
+  },
+  {
+   "id": "neebplgakaahbhdphmkckjjcegoiijjo",
+   "name": "Keepa",
+   "category": "shopping",
+   "check": "popup"
+  },
+  {
+   "id": "gpdjojdkbbmdfjfahjcgigfpmkopogic",
+   "name": "Pinterest Save Button",
+   "category": "shopping",
+   "check": "worker"
+  },
+  {
+   "id": "fjoaledfpmneenckfbpdfhkmimnjocfa",
+   "name": "NordVPN",
+   "category": "vpn",
+   "check": "popup"
+  },
+  {
+   "id": "eppiocemhmnlbhjplcgkofciiegomcon",
+   "name": "Urban VPN Proxy",
+   "category": "vpn",
+   "check": "popup"
+  },
+  {
+   "id": "hnmpcagpplmpfojmgmnngilcnanddlhb",
+   "name": "Windscribe",
+   "category": "vpn",
+   "check": "popup"
+  },
+  {
+   "id": "omghfjlpggmjjaagoclmmobgdodcjboh",
+   "name": "Browsec VPN",
+   "category": "vpn",
+   "check": "popup"
+  },
+  {
+   "id": "fgddmllnllkalaagkghckoinaemmogpe",
+   "name": "ExpressVPN",
+   "category": "vpn",
+   "check": "popup"
+  },
+  {
+   "id": "mclkkofklkfljcocdinagocijmpgbhab",
+   "name": "Google Input Tools",
+   "category": "writing",
+   "check": "popup"
+  },
+  {
+   "id": "inomeogfingihgjfjlpeplalcfajhgai",
+   "name": "Chrome Remote Desktop",
+   "category": "communication",
+   "check": "worker"
+  },
+  {
+   "id": "pgjjikdiikihdfpoppgaidccahalehjh",
+   "name": "Speedtest by Ookla",
+   "category": "utility",
+   "check": "popup",
+   "unavailable": "the Chrome Web Store no longer serves it (HTTP 204 for Chrome 154, 130 and 120), checked 2026-09-30"
+  },
+  {
+   "id": "fpnmgdkabkmnadcjpehmlllkndpkmiak",
+   "name": "Wayback Machine",
+   "category": "utility",
+   "check": "popup"
+  },
+  {
+   "id": "ohlencieiipommannpdfcmfdpjjmeolj",
+   "name": "Print Friendly & PDF",
+   "category": "utility",
+   "check": "worker"
+  },
+  {
+   "id": "hehijbfgiekmjfkfjpbkbammjbdenadd",
+   "name": "IE Tab",
+   "category": "utility",
+   "check": "popup"
+  },
+  {
+   "id": "inlikjemeeknofckkjolnjbpehgadgge",
+   "name": "Distill Web Monitor",
+   "category": "utility",
+   "check": "popup"
+  },
+  {
+   "id": "hoklmmgfnpapgjgcpechhaamimifchmp",
+   "name": "Similarweb",
+   "category": "seo",
+   "check": "popup"
+  },
+  {
+   "id": "akdgnmcogleenhbclghghlkkdndkjdjc",
+   "name": "SEOquake",
+   "category": "seo",
+   "check": "popup"
+  },
+  {
+   "id": "hbapdpeemoojbophdfndmlgdhppljgmp",
+   "name": "Keywords Everywhere",
+   "category": "seo",
+   "check": "popup"
+  },
+  {
+   "id": "fadndhdgpmmaapbmfcknlfgcflmmmieb",
+   "name": "FrankerFaceZ",
+   "category": "media",
+   "check": "worker"
+  },
+  {
+   "id": "ajopnjidmegmdimjlfnijceegpefgped",
+   "name": "BetterTTV",
+   "category": "media",
+   "check": "worker"
+  }
+ ]
+}

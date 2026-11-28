@@ -1,0 +1,253 @@
+[
+  {
+    "name": "json add to empty file creates the table",
+    "agent": "claude",
+    "before": "",
+    "change": {
+      "op": "add",
+      "name": "docs",
+      "entry": {
+        "transport": "http",
+        "url": "https://docs.example.com/mcp",
+        "enabled": true
+      }
+    },
+    "after": "{\n  \"mcpServers\": {\n    \"docs\": {\n      \"type\": \"http\",\n      \"url\": \"https://docs.example.com/mcp\"\n    }\n  }\n}\n"
+  },
+  {
+    "name": "json add keeps other keys and their order",
+    "agent": "claude",
+    "before": "{\n  \"theme\": \"dark\",\n  \"mcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"https://mcp.linear.app/mcp\"\n    }\n  },\n  \"tips\": 3\n}\n",
+    "change": {
+      "op": "add",
+      "name": "db",
+      "entry": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@acme/db-mcp"
+        ],
+        "env": {
+          "DB_URL": "postgres://localhost/dev"
+        },
+        "enabled": true
+      }
+    },
+    "after": "{\n  \"theme\": \"dark\",\n  \"mcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"https://mcp.linear.app/mcp\"\n    },\n    \"db\": {\n      \"command\": \"npx\",\n      \"args\": [\n        \"-y\",\n        \"@acme/db-mcp\"\n      ],\n      \"env\": {\n        \"DB_URL\": \"postgres://localhost/dev\"\n      }\n    }\n  },\n  \"tips\": 3\n}\n"
+  },
+  {
+    "name": "json keeps a tab indent",
+    "agent": "gemini",
+    "before": "{\n\t\"mcpServers\": {}\n}\n",
+    "change": {
+      "op": "add",
+      "name": "docs",
+      "entry": {
+        "transport": "http",
+        "url": "https://docs.example.com/mcp",
+        "enabled": true
+      }
+    },
+    "after": "{\n\t\"mcpServers\": {\n\t\t\"docs\": {\n\t\t\t\"type\": \"http\",\n\t\t\t\"url\": \"https://docs.example.com/mcp\"\n\t\t}\n\t}\n}\n"
+  },
+  {
+    "name": "json add of an existing name fails",
+    "agent": "claude",
+    "before": "{\n  \"mcpServers\": {\n    \"docs\": {\n      \"url\": \"x\"\n    }\n  }\n}\n",
+    "change": {
+      "op": "add",
+      "name": "docs",
+      "entry": {
+        "transport": "http",
+        "url": "https://docs.example.com/mcp",
+        "enabled": true
+      }
+    },
+    "error": "mcp.exists"
+  },
+  {
+    "name": "jsonc with comments is refused",
+    "agent": "opencode",
+    "before": "{\n  // mine\n  \"mcp\": {}\n}\n",
+    "change": {
+      "op": "add",
+      "name": "docs",
+      "entry": {
+        "transport": "http",
+        "url": "https://docs.example.com/mcp",
+        "enabled": true
+      }
+    },
+    "error": "config.unparseable"
+  },
+  {
+    "name": "json disable parks the entry when the agent has no flag, enable moves it back",
+    "agent": "claude",
+    "before": "{\n  \"mcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"u\"\n    }\n  }\n}\n",
+    "change": {
+      "op": "disable",
+      "name": "linear"
+    },
+    "after": "{\n  \"mcpServers\": {},\n  \"_cmuxDisabledMcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"u\"\n    }\n  }\n}\n"
+  },
+  {
+    "name": "json enable of a parked entry",
+    "agent": "claude",
+    "before": "{\n  \"mcpServers\": {},\n  \"_cmuxDisabledMcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"u\"\n    }\n  }\n}\n",
+    "change": {
+      "op": "enable",
+      "name": "linear"
+    },
+    "after": "{\n  \"mcpServers\": {\n    \"linear\": {\n      \"type\": \"http\",\n      \"url\": \"u\"\n    }\n  }\n}\n"
+  },
+  {
+    "name": "opencode disable uses its enabled flag",
+    "agent": "opencode",
+    "before": "{\n  \"mcp\": {\n    \"b\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"x\"\n      ],\n      \"enabled\": true\n    }\n  }\n}\n",
+    "change": {
+      "op": "disable",
+      "name": "b"
+    },
+    "after": "{\n  \"mcp\": {\n    \"b\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"x\"\n      ],\n      \"enabled\": false\n    }\n  }\n}\n"
+  },
+  {
+    "name": "opencode add writes local with a command array",
+    "agent": "opencode",
+    "before": "{\n  \"mcp\": {}\n}\n",
+    "change": {
+      "op": "add",
+      "name": "db",
+      "entry": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@acme/db-mcp"
+        ],
+        "env": {
+          "DB_URL": "postgres://localhost/dev"
+        },
+        "enabled": true
+      }
+    },
+    "after": "{\n  \"mcp\": {\n    \"db\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"npx\",\n        \"-y\",\n        \"@acme/db-mcp\"\n      ],\n      \"environment\": {\n        \"DB_URL\": \"postgres://localhost/dev\"\n      },\n      \"enabled\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "json remove deletes a parked entry too",
+    "agent": "gemini",
+    "before": "{\n  \"mcpServers\": {},\n  \"_cmuxDisabledMcpServers\": {\n    \"a\": {\n      \"command\": \"x\"\n    }\n  }\n}\n",
+    "change": {
+      "op": "remove",
+      "name": "a"
+    },
+    "after": "{\n  \"mcpServers\": {}\n}\n"
+  },
+  {
+    "name": "json remove of a missing name fails",
+    "agent": "gemini",
+    "before": "{\n  \"mcpServers\": {}\n}\n",
+    "change": {
+      "op": "remove",
+      "name": "a"
+    },
+    "error": "mcp.not_found"
+  },
+  {
+    "name": "toml add appends a table and an env subtable, other bytes stay",
+    "agent": "codex",
+    "before": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n",
+    "change": {
+      "op": "add",
+      "name": "db",
+      "entry": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@acme/db-mcp"
+        ],
+        "env": {
+          "DB_URL": "postgres://localhost/dev"
+        },
+        "enabled": true
+      }
+    },
+    "after": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n\n[mcp_servers.db]\ncommand = \"npx\"\nargs = [\"-y\", \"@acme/db-mcp\"]\n[mcp_servers.db.env]\nDB_URL = \"postgres://localhost/dev\"\n"
+  },
+  {
+    "name": "toml disable inserts the flag after the header",
+    "agent": "codex",
+    "before": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n",
+    "change": {
+      "op": "disable",
+      "name": "linear"
+    },
+    "after": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nenabled = false\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n"
+  },
+  {
+    "name": "toml enable removes the flag",
+    "agent": "codex",
+    "before": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nenabled = false\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n",
+    "change": {
+      "op": "enable",
+      "name": "linear"
+    },
+    "after": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n"
+  },
+  {
+    "name": "toml disable rewrites an existing flag",
+    "agent": "codex",
+    "before": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nenabled = true\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n",
+    "change": {
+      "op": "disable",
+      "name": "linear"
+    },
+    "after": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nenabled = false\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n"
+  },
+  {
+    "name": "toml remove deletes the table and keeps the next one",
+    "agent": "codex",
+    "before": "model = \"gpt-codex\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n\n[profiles.fast]\nmodel = \"small\"\n",
+    "change": {
+      "op": "remove",
+      "name": "linear"
+    },
+    "after": "model = \"gpt-codex\"\n\n[profiles.fast]\nmodel = \"small\"\n"
+  },
+  {
+    "name": "toml remove takes subtables with it",
+    "agent": "codex",
+    "before": "[mcp_servers.db]\ncommand = \"npx\"\n[mcp_servers.db.env]\nK = \"v\"\n\n[mcp_servers.dbx]\ncommand = \"y\"\n",
+    "change": {
+      "op": "remove",
+      "name": "db"
+    },
+    "after": "\n[mcp_servers.dbx]\ncommand = \"y\"\n"
+  },
+  {
+    "name": "toml quoted table names",
+    "agent": "codex",
+    "before": "[mcp_servers.\"my.server\"]\ncommand = \"x\"\n",
+    "change": {
+      "op": "disable",
+      "name": "my.server"
+    },
+    "after": "[mcp_servers.\"my.server\"]\nenabled = false\ncommand = \"x\"\n"
+  },
+  {
+    "name": "invalid names are refused",
+    "agent": "codex",
+    "before": "",
+    "change": {
+      "op": "add",
+      "name": "bad name",
+      "entry": {
+        "transport": "http",
+        "url": "https://docs.example.com/mcp",
+        "enabled": true
+      }
+    },
+    "error": "config.invalid_name"
+  }
+]

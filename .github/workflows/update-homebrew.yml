@@ -1,0 +1,227 @@
+name: Update Homebrew Cask
+
+on:
+  # Trigger after the release workflow completes (not on release:published,
+  # which fires before assets finish uploading — causing SHA mismatch).
+  workflow_run:
+    workflows: ["Release macOS app"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.58.0 or v0.58.0)'
+        required: true
+
+permissions:
+  contents: read
+  # Reading the triggering release run's jobs, to tell a failed macOS build
+  # apart from a failure in a job the cask does not consume.
+  actions: read
+
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it. The job name the gate
+  # below matches is pinned the same way, by tests/test_release_homebrew_gate.py.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/release.yml
+
+jobs:
+  gate:
+    name: Require a signed macOS build
+    # A release run is red when any job in it fails, and release.yml runs the
+    # iOS App Store screenshot capture alongside the macOS build precisely
+    # because the DMG consumes nothing from it: "a slow or flaky simulator
+    # capture must neither delay nor fail a macOS release" (issue #12149). It
+    # still turns the run red so it stays visible. Gating the cask on the run's
+    # conclusion therefore let a broken screenshot capture stop Homebrew
+    # updates: the tap sat at 0.64.22 from 2026-08-03 while v0.64.23, v0.64.24
+    # and v0.64.25 all shipped a signed, notarized DMG.
+    #
+    # The cask downloads that DMG from the published release and verifies its
+    # SHA256 below, so the only thing it needs from the run is that the signed
+    # build job succeeded.
+    # `workflow_run` matches the source by display name, so a run of any
+    # workflow with that name (a fork pull request's copy, for one) triggers
+    # this. Accept only a real release workflow run from this repository;
+    # everything else about the run is attacker-controlled.
+    #
+    # release.yml runs on both a `v*` tag push and a manual dispatch, and the
+    # dispatch is the recovery path when a tag-push run fails after the DMG
+    # publishes. Both need write access to this repository, so both are
+    # trusted; `pull_request` and the rest stay out.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.path == '.github/workflows/release.yml' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event)
+      ) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Check the signed macOS build job
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch; the operator is asserting the release."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          conclusion="$(gh api \
+            "repos/$REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name == "build-sign-notarize") | .conclusion] | first // ""')"
+          echo "build-sign-notarize concluded: ${conclusion:-<not present>}"
+          if [ "$conclusion" = "success" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This release run produced no signed macOS build; leaving the cask unchanged."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  update-cask:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
+    needs: gate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    if: ${{ needs.gate.outputs.proceed == 'true' }}
+    steps:
+      - name: Get version
+        id: version
+        # Run metadata and the dispatch input reach the script only through
+        # `env:`. Substituted into the script text, a branch name like
+        # `$(cmd)` would run with this job's tap token.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            # workflow_run: extract tag from the triggering workflow's head branch
+            VERSION="$HEAD_BRANCH"
+          fi
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "Could not determine version" >&2
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "Invalid version: ${VERSION}" >&2
+              exit 1
+            fi
+            echo "Skipping homebrew cask update for non-release ref: ${VERSION}"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Updating homebrew cask to version $VERSION"
+
+      - name: Download DMG and get SHA256
+        id: sha
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_CODE=$(curl -sL -w '%{http_code}' "$URL" -o cmux.dmg)
+            FILE_SIZE=$(stat --printf="%s" cmux.dmg 2>/dev/null || stat -f%z cmux.dmg)
+            if [ "$HTTP_CODE" = "200" ] && [ "$FILE_SIZE" -gt 1000000 ]; then
+              echo "Download OK: HTTP $HTTP_CODE, size $FILE_SIZE bytes"
+              break
+            fi
+            echo "Attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE, size ${FILE_SIZE:-0} bytes"
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download DMG after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          SHA256=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "DMG SHA256: $SHA256"
+
+      - name: Checkout homebrew-cmux
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: manaflow-ai/homebrew-cmux
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-cmux
+
+      - name: Update cask formula
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          cat > homebrew-cmux/Casks/cmux.rb << CASKEOF
+          cask "cmux" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
+            name "cmux"
+            desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
+            homepage "https://cmux.com"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: :sonoma
+
+            app "cmux.app"
+            binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+
+            zap trash: [
+              "~/Library/Application Support/cmux",
+              "~/Library/Caches/cmux",
+              "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
+            ]
+          end
+          CASKEOF
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' homebrew-cmux/Casks/cmux.rb
+
+      - name: Verify cask SHA matches DMG
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          CASK_SHA=$(grep 'sha256' homebrew-cmux/Casks/cmux.rb | sed 's/.*"\(.*\)".*/\1/')
+          ACTUAL_SHA=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
+          if [ "$CASK_SHA" != "$ACTUAL_SHA" ]; then
+            echo "SHA mismatch! Cask: $CASK_SHA, Actual: $ACTUAL_SHA" >&2
+            exit 1
+          fi
+          echo "SHA verification passed: $CASK_SHA"
+
+      - name: Commit and push
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd homebrew-cmux
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/cmux.rb
+          if git diff --staged --quiet; then
+            echo "No changes - cask already up to date"
+          else
+            git commit -m "Update cmux to ${VERSION}"
+            git push
+          fi

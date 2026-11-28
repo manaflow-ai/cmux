@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Ghostty"
+  short_description: "Handle Ghostty submodule, fork, and GhosttyKit build workflow safely."
+  default_prompt: "Use this skill when modifying the ghostty submodule, rebuilding GhosttyKit.xcframework, pushing Ghostty fork changes, updating the parent submodule pointer, or editing docs/ghostty-fork.md."

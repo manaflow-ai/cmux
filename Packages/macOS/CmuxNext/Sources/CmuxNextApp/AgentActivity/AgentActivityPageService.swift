@@ -1,0 +1,65 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextBridge
+import CmuxNextBrowser
+import Foundation
+
+/// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
+/// and makes its pages. Each page reads the local CUA host through
+/// `AgentActivitySocketSource`; DEV and NIGHTLY builds can use the demo data
+/// with `CMUX_NEXT_AGENT_ACTIVITY_MOCK=1`.
+@MainActor
+final class AgentActivityPageService {
+    private unowned let services: AppServices
+
+    init(services: AppServices) {
+        self.services = services
+    }
+
+    /// Selects the active window's Agent activity tab, else opens one beside
+    /// the focused tab.
+    func open() {
+        guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
+        for pane in window.content?.panes.values.map({ $0 }) ?? [] {
+            if let tab = pane.pane.tabs.first(where: { AgentActivityPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
+                pane.select(StripTabID(tab.id))
+                return
+            }
+        }
+        guard let pane = window.focusedPane else { return }
+        pane.newBrowserTab(url: AgentActivityPageAddress.url)
+    }
+
+    func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
+        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        followLanes(page)
+        return page
+    }
+
+    /// The lanes view (cx-v9k2f): every acpmux session with its lane while Labs preview features
+    /// are on, and a row click opens that chat.
+    private func followLanes(_ page: AgentActivityPageTab) {
+        page.model.onJump = { [weak self] lane in self?.jump(to: lane) }
+        guard let settings = services.settings else { return }
+        page.lanesFeed = page.model.follow(.shared) { settings.snapshot.previewFeatures }
+    }
+
+    /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the
+    /// `cmux://session/<id>` path every session link takes).
+    func jump(to lane: AgentActivityLane) {
+        do {
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(lane.id, turn: nil)), background: false)
+        } catch {
+            services.registry.refuse(String(describing: error))
+        }
+    }
+
+    private func makeSource() -> any AgentActivitySource {
+        let environment = ProcessInfo.processInfo.environment
+        if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
+            return AgentActivityMockSource()
+        }
+        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))
+    }
+}

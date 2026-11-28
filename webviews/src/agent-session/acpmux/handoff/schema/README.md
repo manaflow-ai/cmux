@@ -1,0 +1,5 @@
+This is the exact published acpmux RPC document from [#16930](https://github.com/manaflow-ai/cmux/pull/16930), pinned at the revision and SHA-256 in `pin.json`. It is a protocol-test fixture, not a runtime capability catalog. Refresh the bytes and provenance together when the daemon owner publishes an agreed schema change.
+
+The v1.1 clarifications keep the handoff payload shapes unchanged: enforcement policy IDs are acpmux permission policies, harness modes are detail only; prepare refuses a reused key with another target; draft replay returns the first write snapshot; and a refused start before target acceptance returns to draft with its prompt ID retained. The default start prompt ID is the handoff ID.
+
+The live UI still requires all five handoff methods in initialize's `_meta.acpmux.operations`. A missing method hides the action. The pinned document establishes the reviewed wire contract, not the capabilities of the running daemon. Live two-way continuation and the forced uncertain-reply retry use the tagged-daemon test hook `ACPMUX_TEST_DROP_HANDOFF_START_REPLY=1` after the app bundles that daemon; this fixture does not claim live validation.

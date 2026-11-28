@@ -1,0 +1,330 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextOnboarding
+import CmuxNextSettings
+import Observation
+
+/// Agent actions. Forks read the agent session the daemon reports for the
+/// focused terminal (`TabModel.agent`, from `list-agents` state) and start
+/// `claude --resume <session> --fork-session` in a new terminal placed by
+/// daemon commands. New Agent Chat opens the React acpmux pane in a tab
+/// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
+/// Start Agent toggles the floating `QuickComposerController` panel.
+/// Computer Use Setup and its two grants run `ComputerUseSetup`.
+/// Terminal-as-chat, Teams, and Computer Use focus/stop are
+/// typed-unavailable.
+enum AgentHandlers {
+    enum Placement {
+        case right, left, above, below, newTab, newWorkspace
+    }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        let forks: [(ActionID, Placement)] = [
+            ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
+            ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
+            ("palette.forkAgentConversationNewTab", .newTab), ("palette.forkAgentConversationNewWorkspace", .newWorkspace),
+        ]
+        for (id, placement) in forks {
+            registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
+        }
+        registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        AgentSessionWorkspace.bind(into: registry, context: context)
+        ChiefInspectorHandlers.bind(into: registry, context: context)
+        AddHarnessHandler.bind(into: registry, context: context)
+        AgentHarnessHandlers.bind(into: registry, context: context)
+        registry.bind("home.toggleChiefSettings", run: { _ in
+            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
+        })
+        registry.bind(HomeChiefControl.stopAction, run: { _ in
+            NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
+        })
+        // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
+        // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
+        // The panel takes the keyboard from the frontmost app, so automation
+        // cannot open it unless it asks for focus.
+        for id: ActionID in ["palette.quickAgentChat", "palette.startAgentFromAnyApp"] {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
+                guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
+                context.services.quickComposer.toggle()
+            })
+        }
+        // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
+        context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
+        // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
+        // Settings card and the onboarding step. Setup opens the guided step; the two grant
+        // actions open their Privacy & Security list.
+        registry.bind("palette.computerUse.setup", run: { _ in
+            context.services.onboarding.computerUseSetup.recheck()
+            context.services.onboarding.show(step: .computerUse)
+        })
+        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
+        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
+        registry.bindAgentPane { invocation in
+            if let pane = context.scope(invocation).pane,
+               DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
+                openNewAgentChat(in: pane, invocation: invocation, context: context)
+            }
+        }
+        registry.bindAgentPaneInspector { invocation in
+            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentPane)
+            }
+            view.toggleInspector()
+        }
+        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
+        // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
+        // is push-to-talk. Outside an agent chat it stops a session still
+        // running in one.
+        registry.bind("palette.toggleDictation", invoke: { invocation in
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                if AgentPaneView.stopDictation() { return }
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.toggleDictation()
+        })
+        // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
+        context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
+            services.map { AgentChatsPalettePage(services: $0).page() }
+        }
+        registry.bind("agentPane.searchChats", run: { _ in
+            context.services.palette.show(page: AgentChatsPalettePage(services: context.services).page(),
+                                          relativeTo: context.activeWindow?.window)
+        })
+        let permissionCommands: [(ActionID, String)] = [
+            ("agentPane.permission.allowOnce", "permissionAllowOnce"),
+            ("agentPane.permission.allowChat", "permissionAllowChat"),
+            ("agentPane.permission.deny", "permissionDeny"),
+            ("agentPane.permission.expand", "permissionExpand"),
+            ("agentPane.permission.retry", "permissionRetry"),
+            ("agentPane.permission.revoke", "permissionRevoke"),
+            ("agentPane.permission.refresh", "permissionRefresh"),
+        ]
+        for (id, command) in permissionCommands {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.runPermissionAction(command, byPerson: invocation.origin == .user)
+            })
+        }
+        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
+        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
+        for (id, forward) in turnSteps {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.stepTurn(forward: forward)
+            })
+        }
+        // Continue in… is a user-facing chooser. Headless callers use the
+        // acpmux-owned CLI operation, so automation cannot open this UI unless
+        // it explicitly requests focus.
+        registry.bind("agentPane.continueIn", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.continueInNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.showContinueIn()
+        })
+        // Switch Model… (Ctrl-Cmd-M) opens the page's model picker; the view gives the page the
+        // keyboard first, so the menu's search field gets it wherever focus was in the pane.
+        registry.bind("agentPane.switchModel", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.switchModelNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.switchModelNeedsAgentChat)
+            }
+            view.showModelPicker()
+        })
+        // Search Files… (Cmd-P, cx-ncc.69) opens the composer's file search, keyboard in its field.
+        registry.bind("agentPane.searchFiles", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.pickerNeedsFocus) }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.searchFilesNeedsAgentChat)
+            }
+            view.showFileSearch()
+        })
+        registry.bind("agentPane.createCheckpoint", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key), view.model.checkpointAvailable else {
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.showCreateCheckpoint()
+        })
+        // Commit and Push run the changes view's own path. Headless callers
+        // use the session host's `cmux git commit|push` instead.
+        for (id, action) in [("agentPane.git.commit", AgentPaneGitAction.commit), ("agentPane.git.push", .push)] as [(ActionID, AgentPaneGitAction)] {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else {
+                    return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
+                }
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.gitNeedsAgentChat)
+                }
+                view.runGitAction(action)
+            })
+        }
+        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
+        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
+        registry.bindUnavailable(
+            ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
+            ActionFailure(message: MiscHandlerStrings.computerUse)
+        )
+    }
+
+    private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
+
+    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        let scope = context.scope(invocation)
+        guard let pane = scope.pane,
+              let key = scope.tab?.id.rawValue ?? pane.currentTabKey,
+              let view = context.services.agentTabs.existingView(key) else {
+            context.refuse(MiscHandlerStrings.noAgentChat)
+            return nil
+        }
+        return view
+    }
+
+    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+        let next = min(max(current + delta,
+                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
+        context.design.agentPaneZoom = CGFloat(next)
+        view.zoom = next
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+    }
+
+    private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        guard let view = focusedAgentView(context, invocation) else { return }
+        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
+        view.zoom = AgentPaneZoomSetting.fallback
+        context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
+    }
+
+    private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+        pane.newAgentTab()
+    }
+
+    /// The shell line that forks `session`, or nil for agents without fork
+    /// support or session ids that are not plain tokens.
+    static func forkCommand(agent: String?, session: String?) -> String? {
+        guard agent?.lowercased().contains("claude") == true, let session, !session.isEmpty,
+              session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        return "claude --resume \(session) --fork-session"
+    }
+
+    private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) throws {
+        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty else {
+            throw ActionFailure(message: MiscHandlerStrings.noTerminal)
+        }
+        guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: MiscHandlerStrings.noAgentSession) }
+        guard let command = forkCommand(agent: status.agent, session: status.session) else {
+            throw ActionFailure(message: MiscHandlerStrings.forkClaudeOnly)
+        }
+        let connection = try context.requireConnection()
+        let handle = pane.pane.handle
+        let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
+        let line = command + "\n"
+        let logger = context.daemon.logger
+        let repair = context.services.emptyWorkspaces
+        // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
+        let key = WorkspaceKey.generate()
+        if placement == .newWorkspace {
+            let windows = context.services.windows
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        }
+        Task {
+            do {
+                let surface: SurfaceID?
+                var workspace: WorkspaceKey?
+                switch placement {
+                case .right, .left:
+                    surface = try await connection.split(handle, direction: .right, options: options).surface
+                    // A split always opens right/below; swap to put the fork first.
+                    if placement == .left { try await connection.swapPane(handle, with: .direction(.right)) }
+                case .below, .above:
+                    surface = try await connection.split(handle, direction: .down, options: options).surface
+                    if placement == .above { try await connection.swapPane(handle, with: .direction(.down)) }
+                case .newTab:
+                    surface = try await connection.newTab(in: handle, options: options).surface
+                case .newWorkspace:
+                    workspace = key
+                    surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
+                    }
+                }
+                if let surface { try await connection.send(surface, text: line) }
+                if let workspace { context.window(showing: workspace.rawValue) }
+            } catch {
+                logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Open File: the agent pane's changed files, the palette and `cmux file open`.
+    /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
+    /// invocation's pane, else the focused one.
+    private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        let path = invocation["path"]?.stringValue ?? ""
+        // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
+        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
+        // The palette and the control socket accept only the catalog's choices;
+        // an in-app caller that passes another place is refused, not ignored.
+        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
+        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
+        // run), so the tab check for WebKit page types no longer applies.
+        if target == .tab {
+            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
+            guard let pane = context.paneController(invocation) else { return }
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            return
+        }
+        let opening: AgentPaneFileOpening
+        do {
+            opening = try AgentPaneFileOpening.plan(path: path, target: target)
+        } catch AgentPaneFileRefusal.relativePath {
+            throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+        } catch AgentPaneFileRefusal.notInTab {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
+        } catch AgentPaneFileRefusal.noEditor {
+            throw ActionFailure(message: MiscHandlerStrings.noEditor)
+        } catch {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
+        }
+        if let editor = opening.editor {
+            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+}

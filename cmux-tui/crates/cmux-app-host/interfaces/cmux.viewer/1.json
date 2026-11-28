@@ -1,0 +1,16 @@
+{
+  "name": "cmux.viewer/1",
+  "version": 1,
+  "docs": "Read-only view of a document (image, PDF, markdown, CSV, log).",
+  "props": {
+    "doc": "doc_ handle",
+    "revealRange": "Range?"
+  },
+  "methods": {
+    "render": "web|scene|native"
+  },
+  "events": [
+    "requestOpen"
+  ],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

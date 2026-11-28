@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# scripts/cmux-next/check-app-capability-references.py fails a tree whose app
+# gates a feature on a daemon capability the same-tree daemon never serves
+# (decision P10). It reads source only, so this test builds a small tree:
+# DaemonEndpoint.swift, one app file, cmux-tui-core with one dependency crate.
+# A planted gate on an unserved capability is red; removing it is green.
+set -euo pipefail
+
+check="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-capability-references.py"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+fail() { echo "FAIL: $*" >&2; exit 1; }
+sources="$tmp/Packages/macOS/CmuxNext/Sources"
+core="$tmp/cmux-tui/crates/cmux-tui-core"
+mkdir -p "$sources/CmuxNextDaemon/Connection" "$sources/CmuxNextApp" "$core/src/server" \
+  "$tmp/cmux-tui/crates/cmux-tui-cloud-conversations/src"
+
+cat > "$tmp/cmux-tui/Cargo.toml" <<'EOF'
+[workspace.dependencies]
+cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
+EOF
+cat > "$core/Cargo.toml" <<'EOF'
+[package]
+name = "cmux-tui-core"
+
+[dependencies]
+cmux-tui-cloud-conversations.workspace = true
+EOF
+cat > "$core/src/server.rs" <<'EOF'
+pub const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+pub const TERMINAL_RESOURCES_CAPABILITY: &str = "terminal-resources-v1";
+EOF
+cat > "$core/src/server/capabilities.rs" <<'EOF'
+pub(super) fn advertised_capabilities() -> Vec<&'static str> {
+    vec![WORKSPACE_REGISTRY_CAPABILITY, "attach-identity-v1", TAB_DRAG_CAPABILITY]
+}
+EOF
+cat > "$tmp/cmux-tui/crates/cmux-tui-cloud-conversations/src/lib.rs" <<'EOF'
+pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
+EOF
+
+write_endpoint() { # optional-identifiers
+  cat > "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" <<EOF
+public struct DaemonCapabilities: Sendable {
+    public static let shared = Self()
+    public let required: [String] = [
+        "workspace-registry-v1",
+    ]
+    public let tabDrag = "tab-drag-v1"
+    public let attachIdentity = "attach-identity-v1"
+    public let cloudConversations = "cloud-conversations-v1"
+    public let terminalResources = "terminal-resources-v1"
+    public var optional: [String] { [$1] }
+    public var unservedByBundledDaemon: [String] { [] }
+}
+EOF
+}
+write_app() { # extra Swift lines
+  cat > "$sources/CmuxNextApp/Feature.swift" <<EOF
+struct TerminalResourcesRequest {
+    static let capability = "terminal-resources-v1"
+}
+struct Feature {
+    func run(daemon: DaemonService) {
+        // daemon.supports("commented-out-v1") is not a reference.
+        if daemon.supports(DaemonCapabilities.shared.tabDrag) {}
+        if daemon.supports("attach-identity-v1") {}
+        if daemon.supports(DaemonCapabilities.shared.cloudConversations) {}
+        registry.bindUnavailable(["later"], ActionFailure.needsDaemonCapability("layout-templates-v1"))
+        let label = #"a raw "string" with { a brace"#, other = "interpolated \(f("}")) text"
+        if ctx.require(DaemonCapabilities.shared.tabDrag, on: daemon) {}
+$1
+    }
+}
+EOF
+}
+run() { python3 -I "$check" --repo "$tmp" 2>&1; }
+
+write_endpoint "tabDrag, attachIdentity, cloudConversations, terminalResources"
+write_app ""
+out="$(run)" || fail "a tree whose daemon serves every gate failed: $out"
+[[ "$out" == *"PASS"* ]] || fail "no PASS line: $out"
+[[ "$out" == *"layout-templates-v1"* ]] || fail "a refusal-only capability is not reported as not built yet: $out"
+[[ "$out" != *"commented-out-v1"* ]] || fail "a commented-out call counted: $out"
+
+# Red: the app gates a feature on a capability no daemon crate defines.
+write_app '        if daemon.supports("planted-unserved-v1") {}'
+if out="$(run)"; then fail "a gate on an unserved capability passed: $out"; fi
+[[ "$out" == *"planted-unserved-v1"* ]] || fail "the failure does not name the planted capability: $out"
+[[ "$out" == *"Feature.swift:"* ]] || fail "the failure does not name the file and line: $out"
+
+# The same through a constant of the type (`Self.capability`) is red too.
+write_app '    }
+    static let planted = "planted-constant-v1"
+    func gate(daemon: DaemonService) {
+        if daemon.supports(Self.planted) {}'
+if out="$(run)"; then fail "a gate through a constant passed: $out"; fi
+[[ "$out" == *"planted-constant-v1"* ]] || fail "the failure does not name the planted constant: $out"
+
+# A literal in a two-argument require is a gate too.
+write_app '        _ = ctx.require("planted-require-v1", on: daemon)'
+if out="$(run)"; then fail "a two-argument require on an unserved capability passed: $out"; fi
+[[ "$out" == *"planted-require-v1"* ]] || fail "the failure does not name planted-require-v1: $out"
+
+# Green: the plant removed.
+write_app ""
+out="$(run)" || fail "the tree failed after the plant was removed: $out"
+
+# A daemon capability the app gates on but leaves out of the lists is red:
+# check-daemon-capabilities.sh would never prove the bundled binary serves it.
+write_endpoint "tabDrag, attachIdentity, cloudConversations"
+if out="$(run)"; then fail "an unlisted daemon capability passed: $out"; fi
+[[ "$out" == *"terminal-resources-v1"* ]] || fail "the failure does not name terminal-resources-v1: $out"
+[[ "$out" == *"optional"* ]] || fail "the failure does not say to list it in optional: $out"
+
+echo "app-capability-references.test.sh: ok"

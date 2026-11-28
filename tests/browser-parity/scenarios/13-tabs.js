@@ -1,0 +1,35 @@
+// Tabs: open, list, use, get, current; popups via page.on("popup") and
+// target=_blank; close.
+const first = await tabs.open(`${PRIMARY}/dynamic.html`);
+emit("current-is-opened", tabs.current() === first && page === first);
+const listed = (await tabs.list()).filter((t) => t.url.startsWith(PRIMARY));
+emit("list-keys", Object.keys(listed[0]).sort());
+emit("list-count", listed.length);
+const popups = [];
+page.on("popup", (p) => popups.push(p));
+const popupP = page.waitForEvent("popup");
+await page.locator("#blank").click();
+const popup = await popupP;
+await popup.waitForLoadState();
+emit("popup-title", await popup.title());
+emit("popup-listener", popups.length === 1 && popups[0] === popup);
+emit("popup-opener", (await popup.opener()) === first);
+emit("popup-not-current", page === first);
+const named = page.waitForEvent("popup");
+await page.locator("#popup").click();
+const second = await named;
+await second.waitForLoadState();
+emit("window-open-url", second.url());
+const bg = await tabs.open(`${PRIMARY}/aria.html`, { background: true });
+emit("background-keeps-current", page === first);
+emit("get-by-id", (await tabs.get(bg.id)) === bg);
+emitCmux("snapshot-other-tab", (await snapshot(bg)).tree.split("\n")[0]);
+emit("one-active", (await tabs.list()).filter((t) => t.active).length);
+await tabs.use(bg);
+emit("use-switches", page === bg);
+emit("use-title", await page.title());
+await tabs.use(first.id);
+emit("use-by-id", page === first);
+await popup.close();
+emit("closed", popup.isClosed());
+emit("after-close", (await tabs.list()).filter((t) => t.url.startsWith(PRIMARY)).length);

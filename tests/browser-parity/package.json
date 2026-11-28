@@ -1,0 +1,8 @@
+{
+  "name": "cmux-browser-parity",
+  "private": true,
+  "description": "Browser REPL scenarios. Playwright is pinned: the oracle and the corpus scripts use its AI snapshot.",
+  "devDependencies": {
+    "playwright": "1.57.0"
+  }
+}

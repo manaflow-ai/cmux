@@ -1,0 +1,217 @@
+//! Port forwards and browser proxy routes (cloud-app.md 3.5): `cloud.port.*`
+//! and `cloud.browser.open`.
+//!
+//! [`Edge`] is the only writer of forward and route state; the op loop is
+//! its only caller. One forward per (machine, port) and one proxy route per
+//! machine. Each listens on 127.0.0.1 and a random port and carries bytes
+//! through the machine's link ([`PortTunnel`]). A forward belongs to one
+//! link generation: when that link goes down (or a new one replaces it) the
+//! forward's listener and connections close and the record shows `down`.
+//! Nothing is queued for a later link; `cloud.port.forward` opens a new
+//! listener on the new link.
+
+pub(crate) mod listener;
+#[cfg(unix)]
+mod loopback;
+pub mod tunnel;
+
+#[cfg(unix)]
+pub use loopback::LoopbackTunnel;
+pub use tunnel::{PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
+
+use crate::fs::transfer::{DaemonTransfer, Transfer};
+use crate::link::Carrier;
+use crate::link::LinkSupervisor;
+use listener::{Handler, Listener, Session};
+use std::collections::BTreeMap;
+use std::net::TcpStream;
+use std::sync::Arc;
+
+mod ops;
+pub(crate) use ops::{live_state_op, run, serves};
+
+/// Forwards plus proxy routes one server keeps at most.
+pub const MAX_LISTENERS: usize = 64;
+
+pub(crate) struct Forward {
+    pub(crate) listener: Option<Listener>,
+    pub(crate) local_port: u16,
+    pub(crate) generation: u64,
+    pub(crate) down: Option<String>,
+}
+
+impl Forward {
+    fn close(&mut self, reason: &str) {
+        if let Some(mut listener) = self.listener.take() {
+            listener.close();
+        }
+        if self.down.is_none() {
+            self.down = Some(reason.to_owned());
+        }
+    }
+}
+
+/// A forward (`port: Some`) or a browser route (`port: None`) that closed
+/// because its link went down or was replaced. The serve loop sends it to
+/// the host as a `cloud.port.changed` line right after the link change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeDown {
+    pub machine: String,
+    pub port: Option<u16>,
+    pub local_port: u16,
+    pub generation: u64,
+    pub reason: String,
+}
+
+/// Files transfers, forwards and proxy routes of this server.
+pub struct Edge {
+    pub(crate) tunnel: Arc<dyn PortTunnel>,
+    pub(crate) transfer: Arc<dyn Transfer>,
+    /// File ops on the machines' daemons (crate::fs::link_files).
+    pub(crate) files: Arc<dyn crate::fs::DaemonFiles>,
+    /// File ops running on workers (crate::fs::jobs); the loop is the only writer.
+    pub(crate) file_jobs: crate::fs::jobs::FileJobs,
+    /// Running file transfers (crate::fs::running); the loop is the only writer.
+    pub(crate) transfers: crate::fs::running::Transfers,
+    pub(crate) forwards: BTreeMap<(String, u16), Forward>,
+    pub(crate) proxies: BTreeMap<String, Forward>,
+    /// Closes by link state since the last [`Edge::take_events`], in order.
+    events: Vec<EdgeDown>,
+}
+
+/// A tunnel for platforms without Unix sockets: every open fails.
+#[cfg(not(unix))]
+struct NoTunnel;
+
+#[cfg(not(unix))]
+impl PortTunnel for NoTunnel {
+    fn open(&self, _: &Carrier, _: &str, _: u16) -> Result<TunnelConn, TunnelError> {
+        Err(TunnelError::Unsupported("port forwarding needs a Unix link socket".into()))
+    }
+}
+
+impl Edge {
+    pub fn new(tunnel: Arc<dyn PortTunnel>, transfer: Box<dyn Transfer>) -> Self {
+        Self {
+            tunnel,
+            transfer: Arc::from(transfer),
+            files: Arc::new(crate::fs::LinkDaemonFiles),
+            file_jobs: crate::fs::jobs::FileJobs::default(),
+            transfers: crate::fs::running::Transfers::new(),
+            forwards: BTreeMap::new(),
+            proxies: BTreeMap::new(),
+            events: Vec::new(),
+        }
+    }
+
+    /// The same edge with `files` for daemon file ops (tests use a fake).
+    pub fn with_files(mut self, files: Arc<dyn crate::fs::DaemonFiles>) -> Self {
+        self.files = files;
+        self
+    }
+
+    /// The same edge with `clock` as the time source of the transfer
+    /// history (tests inject their own time).
+    pub fn with_clock(mut self, clock: Arc<dyn crate::clock::Clock>) -> Self {
+        self.transfers.set_clock(clock);
+        self
+    }
+
+    /// The real tunnel (`loopback-forward-v1` on the link socket) and the
+    /// real transfer and file ops (the machine's daemon on the link).
+    pub fn real() -> Self {
+        #[cfg(unix)]
+        let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
+        #[cfg(not(unix))]
+        let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
+        let files: Arc<dyn crate::fs::DaemonFiles> = Arc::new(crate::fs::LinkDaemonFiles);
+        Self::new(tunnel, Box::new(DaemonTransfer::new(Arc::clone(&files)))).with_files(files)
+    }
+
+    fn listeners(&self) -> usize {
+        self.forwards.values().chain(self.proxies.values()).filter(|f| f.down.is_none()).count()
+    }
+
+    /// Closes every forward and route whose link generation is not the live
+    /// one, and records each close for the host (forwards in (machine, port)
+    /// order, then routes in machine order). Reads link state only; never
+    /// blocks.
+    pub(crate) fn reconcile(&mut self, links: &LinkSupervisor) {
+        const REASON: &str = "the link to the machine went down";
+        let live = |machine: &str| links.carrier(machine).map(|c| c.generation);
+        let forwards = self.forwards.iter_mut().map(|((m, p), f)| (m, Some(*p), f));
+        let routes = self.proxies.iter_mut().map(|(m, f)| (m, None, f));
+        for (machine, port, forward) in forwards.chain(routes) {
+            if forward.down.is_none() && live(machine) != Some(forward.generation) {
+                forward.close(REASON);
+                self.events.push(EdgeDown {
+                    machine: machine.clone(),
+                    port,
+                    local_port: forward.local_port,
+                    generation: forward.generation,
+                    reason: REASON.to_owned(),
+                });
+            }
+        }
+    }
+
+    /// Forwards and routes closed by link state since the last call, in order.
+    pub fn take_events(&mut self) -> Vec<EdgeDown> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// A listener whose connections each open one stream to `host:port`.
+    pub(crate) fn forward_handler(&self, carrier: &Carrier, host: &str, port: u16) -> Handler {
+        let tunnel = Arc::clone(&self.tunnel);
+        let carrier = carrier.clone();
+        let host = host.to_owned();
+        let identity = LinkIdentity::of(&carrier);
+        Arc::new(move |tcp: TcpStream, session: &Session| {
+            // A dead or replaced link fails the open: the connection closes,
+            // nothing waits.
+            if !identity.still(&carrier) {
+                return;
+            }
+            if let Ok(conn) = tunnel.open(&carrier, &host, port) {
+                session.splice(tcp, conn, Vec::new());
+            }
+        })
+    }
+}
+
+/// The link socket file as it was when a forward or route opened. A new link
+/// generation for the same machine binds a new socket file at the same path,
+/// so a listener of an old generation compares the file identity before each
+/// stream and never reaches the new link (the serve loop closes it as soon
+/// as the link change wakes it). `None` when the file did not exist (fakes): then only the tunnel's
+/// own open decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkIdentity(Option<(u64, u64)>);
+
+impl LinkIdentity {
+    pub fn of(carrier: &Carrier) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            Self(std::fs::metadata(&carrier.socket).ok().map(|m| (m.dev(), m.ino())))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = carrier;
+            Self(None)
+        }
+    }
+
+    /// True while the socket file is the one this identity saw.
+    pub fn still(&self, carrier: &Carrier) -> bool {
+        self.0.is_none() || Self::of(carrier) == *self
+    }
+}
+
+impl Drop for Edge {
+    fn drop(&mut self) {
+        for forward in self.forwards.values_mut().chain(self.proxies.values_mut()) {
+            forward.close("the Cloud app server stopped");
+        }
+    }
+}

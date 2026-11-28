@@ -1,0 +1,94 @@
+import AppKit
+import CmuxNextDesign
+import CmuxNextSettings
+
+/// `debug.notifications`: unread tabs with their source, the attention marks
+/// each window draws, banners asked for, the arrival and dismissal log, and
+/// the live preferences. `{"action": "click", "surface": <handle>}` runs the
+/// banner click path (`DesktopNotifier.open`), for windows no one can click;
+/// `{"action": "reply", "surface": <handle>, "id": <banner id>, "text": <text>}` runs a reply
+/// banner's Send (`DesktopNotifier.reply`).
+/// `{"action": "allow" | "deny", "surface": <handle>, "id": <banner id>}` runs an approval
+/// banner's Allow once or Deny (`DesktopNotifier.approve`).
+/// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
+/// workspace's attention rings until a newer notification (cx-epgo).
+enum DebugNotifications {
+    @MainActor
+    static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let center = services.notifications
+        if params["action"]?.stringValue == "click" {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.open(id: params["id"]?.stringValue ?? "", surface: surface)
+        }
+        if params["action"]?.stringValue == "reply", let text = params["text"]?.stringValue {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
+        }
+        if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
+        }
+        let store = services.daemon.store
+        // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
+        if params["action"]?.stringValue == "dismiss_highlight", let id = params["workspace"]?.stringValue,
+           let workspace = store.workspaces.first(where: { $0.id == id }) {
+            center.dismissHighlight(workspace)
+        }
+        var unread: [JSONValue] = []
+        for workspace in store.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for tab in pane.tabs where tab.hasUnread {
+                        unread.append([
+                            "workspace": .string(workspace.id), "pane": .string(pane.id), "tab": .string(tab.id),
+                            "surface": .number(Double(tab.surface.rawValue)),
+                            "notification": .number(Double(tab.notification?.notification.rawValue ?? 0)),
+                            "source": .string(center.source(of: tab).rawValue),
+                        ])
+                    }
+                }
+            }
+        }
+        let windows: [JSONValue] = services.windows.controllers.map { controller in
+            let marks = controller.content?.layoutModel.attention ?? [:]
+            return [
+                "id": .string(controller.state.id),
+                "attention": .array(marks.keys.sorted().map { .string($0.rawValue) }),
+                "focused_tab": NotificationCenterService.contentTab(controller.focus.state.resolved).map(JSONValue.string) ?? .null,
+            ]
+        }
+        let prefs = center.preferences
+        let attention = DesignSettings.shared.attention
+        return [
+            "unread": .array(unread),
+            "windows": .array(windows),
+            "banners": .array(center.desktop.posted.map(banner)),
+            "authorization": .string(center.desktop.authorization),
+            "log": .array(center.log.map(JSONValue.string)),
+            "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
+            "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
+            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
+            "preferences": [
+                "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),
+                "sound": .string(prefs.sound), "muted_workspaces": .array(prefs.mutedWorkspaces.sorted().map(JSONValue.string)),
+                "attention_style": .string(attention.style.rawValue), "attention_width": .number(Double(attention.width)),
+                "shows_on_tab": .bool(attention.showsOnTab), "shows_on_sidebar": .bool(attention.showsOnSidebar),
+            ],
+        ]
+    }
+
+    /// One banner the app asked for, with its status badge (`attachment`:
+    /// byte count and the PNG as base64, null when the banner had none).
+    static func banner(_ banner: DesktopNotifier.Posted) -> JSONValue {
+        [
+            "id": .string(banner.id), "title": .string(banner.title),
+            "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
+            "surface": banner.surface.map { .number(Double($0)) } ?? .null,
+            "reply": .bool(banner.reply), "approval": .bool(banner.approval),
+            "attachment": banner.attachment.map { data in
+                ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
+            } ?? .null,
+        ]
+    }
+}

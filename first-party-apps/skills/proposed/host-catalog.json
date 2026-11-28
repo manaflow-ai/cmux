@@ -1,0 +1,760 @@
+{
+  "family": "agent_config",
+  "operations": [
+    {
+      "class": "read",
+      "cli": {
+        "path": "skills list",
+        "visible": true
+      },
+      "docs": "Skills (SKILL.md folders) each agent loads on that machine, user scope and the given project roots: name, description, source, requests, sandbox profile, enabled.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "roots": {
+            "description": "Project root handles to include besides user scope",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "skill"
+      },
+      "name": "skill.list",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "skills install",
+        "visible": true
+      },
+      "docs": "Install a skill folder from a git repository or the store for the given agents. With dry_run: a diff resource of the new files and what the skill asks for.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "agents": {
+            "description": "Agents to change in one plan",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source": {
+            "description": "{git, ref?, path?} (https or ssh) or {store}",
+            "type": "object"
+          }
+        },
+        "required": [
+          "agents",
+          "source",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skill.install",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "skills enable",
+        "visible": true
+      },
+      "docs": "Turn a skill on for one agent and scope.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skill.enable",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "skills disable",
+        "visible": true
+      },
+      "docs": "Turn a skill off for one agent and scope (the folder moves where the agent does not load it).",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skill.disable",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "skills remove",
+        "visible": true
+      },
+      "docs": "Remove a skill folder (to the trash).",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skill.remove",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "destructive",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "mcp list",
+        "visible": true
+      },
+      "docs": "MCP servers in each agent's own config on that machine: transport, command or URL, names of env keys (never values), source, requests, sandbox profile, enabled.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "roots": {
+            "description": "Project root handles to include besides user scope",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mcp_server"
+      },
+      "name": "mcp_server.list",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "mcp add",
+        "visible": true
+      },
+      "docs": "Add a server to the agents' config files. With dry_run: a diff resource of the exact edits (secrets masked).",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "agents": {
+            "description": "Agents to change in one plan",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entry": {
+            "description": "{transport: stdio|http, command?, args?, url?, env_keys?, enabled}; secret values are never params: the host asks for them in its own sheet",
+            "type": "object"
+          }
+        },
+        "required": [
+          "agents",
+          "scope",
+          "name",
+          "entry"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "mcp_server.add",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "mcp enable",
+        "visible": true
+      },
+      "docs": "Turn a server on with the agent's own flag, or move it back from the parked key.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "mcp_server.enable",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "mcp disable",
+        "visible": true
+      },
+      "docs": "Turn a server off with the agent's own flag, or park it under _cmuxDisabledMcpServers.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "mcp_server.disable",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "mcp remove",
+        "visible": true
+      },
+      "docs": "Remove a server from the agent's config.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          },
+          "agent": {
+            "description": "Agent id (claude, codex, opencode, gemini, ...)",
+            "type": "string"
+          },
+          "scope": {
+            "description": "user (everywhere) or project",
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ]
+          },
+          "root": {
+            "description": "root_ handle of the project folder (project scope)",
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "Plan only: return a diff resource with the exact edits and base revisions; write nothing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "skl_ or mcp_ id from list",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the skill or server",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "mcp_server.remove",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "destructive",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "stream",
+      "cli": null,
+      "docs": "Skill folders changed on that machine (installed, removed, edited by an agent).",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skill.watch",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1"
+    },
+    {
+      "class": "stream",
+      "cli": null,
+      "docs": "An agent config file with MCP servers changed on that machine.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "mcp_server.watch",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1"
+    },
+    {
+      "class": "read",
+      "cli": null,
+      "docs": "The folder of a workspace as a root handle (for project scope); never a path.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "workspace": {
+            "description": "workspace_ id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "workspace.root",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "V5: accept or reject a diff resource. For a planned config change, accept applies every file only if each still has its base revision; otherwise diff.stale.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "diff": {
+            "description": "diff_ handle",
+            "type": "string"
+          },
+          "decisions": {
+            "description": "[{decision: accept|reject, path?, hunk?}]",
+            "type": "array"
+          }
+        },
+        "required": [
+          "diff",
+          "decisions"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "diff.decide",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "skills/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "Open a handle with the user's implementation of an interface (here cmux.diff.renderer/1).",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "interface": {
+            "description": "interface name",
+            "type": "string"
+          },
+          "props": {
+            "type": "object",
+            "description": "interface props"
+          }
+        },
+        "required": [
+          "interface"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "ui.open",
+      "owner": "shell",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "skills/1"
+    }
+  ],
+  "owner": "session_host",
+  "schema_version": 1,
+  "trigger_events": [
+    "skill.changed",
+    "mcp_server.changed"
+  ]
+}
