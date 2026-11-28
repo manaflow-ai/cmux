@@ -83,8 +83,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
       # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
-      # resolve then answers with the last list it read, carried here between runs. The cmux-linux cache is per
-      # host (46137212890 saved its list on one host; 46141489174, on another, found nothing), so without one it waits for the reset.
+      # resolve then answers with the last list it read, carried here between runs. The repo's caches sit at GitHub's
+      # 10 GB limit, so a list this small is evicted within the hour (46137212890's was gone for 46141489174);
+      # without one it waits for the reset.
       - name: The last phone list read
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
