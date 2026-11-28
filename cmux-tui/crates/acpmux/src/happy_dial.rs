@@ -168,9 +168,21 @@ pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Resp
         _ => return Err(WsError::Url(UrlError::UnsupportedUrlScheme)),
     };
     let tcp = connect_tcp(&host, port).await.map_err(WsError::Io)?;
-    // The platform's roots, read once per process, not at every connect.
-    let tls = cmux_hub_host::net::native_tls_config().map(tokio_tungstenite::Connector::Rustls);
-    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, tls).await
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, native_tls_connector())
+        .await
+}
+
+/// The platform's roots, read once per process, not at every connect (#64227). `cmux-hub-host`
+/// is a unix-only dependency, so Windows keeps tungstenite's own default (`None`), as before.
+pub(crate) fn native_tls_connector() -> Option<tokio_tungstenite::Connector> {
+    #[cfg(unix)]
+    {
+        cmux_hub_host::net::native_tls_config().map(tokio_tungstenite::Connector::Rustls)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 /// reqwest's resolver for the daemon's HTTP clients: the system lookup, then [`interleave`].

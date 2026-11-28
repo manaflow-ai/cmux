@@ -86,21 +86,24 @@ UNIX_TARGETS = (
 )
 
 # Comments, strings and char literals become spaces (newlines kept), so offsets and lines match
-# the original text and nothing inside them reads as code.
+# the original text and nothing inside them reads as code. The leading lookahead lets the engine skip
+# every position no branch can start at: without it each branch (and its lookbehind) was tried at every
+# character, 13.9 s of the gate's 25 s over the four crates' 109 MB; with it 5.1 s, same output.
 STRIP_RE = re.compile(
+    r"""(?=[/br"'])(?:"""
     r"""//[^\n]*"""
     r"""|/\*.*?\*/"""
     r"""|(?<![\w])b?r(?P<h>\#*)".*?"(?P=h)"""
     r"""|(?<![\w])b?"(?:\\.|[^"\\])*\""""
-    r"""|(?<![\w])b?'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|.)|[^\\'\n])'""",
+    r"""|(?<![\w])b?'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|.)|[^\\'\n])')""",
     re.S,
 )
 CFG_ATTR_RE = re.compile(r"#\s*(!)?\s*\[\s*cfg\s*\(")
 TOKEN_RE = re.compile(r"\bwhere\b|->|=>|==|!=|<=|>=|<<|>>|[{}()\[\];,<>=]")
 NEXT_RE = re.compile(r"\s*(else\b|as\b|if\b|=>|\.|\?|[-+*/%&|^<>=!]|\S)")
-MAIN_RE = re.compile(r"\bfn\s+main\s*\(")
+MAIN_RE = re.compile(r"(?=f)\bfn\s+main\s*\(")  # the lookahead: STRIP_RE's
 NO_MAIN_RE = re.compile(r"#!\[\s*(?:no_main|cfg_attr\s*\((.*?),\s*no_main\s*\))\s*\]", re.S)
-MOD_RE = re.compile(r"\bmod\s+(?:r#)?(\w+)\s*([;{])")
+MOD_RE = re.compile(r"(?=m)\bmod\s+(?:r#)?(\w+)\s*([;{])")
 # A module-level item's name (functions, types, constants); `mod` is MOD_RE's.
 ITEM_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:const|async|unsafe|extern(?:\s+\"\w+\")?)\s+)*"
                      r"(?:fn|struct|enum|trait|type|const|static|union)\s+(?:r#)?(\w+)\b", re.M)
@@ -361,6 +364,8 @@ class Source:
     items: list[tuple[int, str]] | None = None
     uses: list[tuple[int, list[str]]] | None = None
     rels: list[tuple[int, int, str]] | None = None
+    # Whether code names any of an off-name set, by that set: the test and non-test passes usually share one.
+    off_hit: tuple[frozenset, bool] | None = None
 
     @classmethod
     def load(cls, path: str, text: str) -> "Source":
@@ -894,7 +899,7 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
         for k in off:
             children.setdefault(k[:-1], set()).add(k[-1])
         # A path can only name an item that is off if the file has that item's name in it.
-        off_names = {n for k in off for n in k[1:]}
+        off_names = frozenset(n for k in off for n in k[1:])
         for path, v in visits.items():
             src, dead = v.src, v.dead
             for pos, w, ident in hits[path]:
@@ -904,7 +909,11 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 if ident and _module_at(v, pos) + (ident,) in live_decl:
                     continue
                 found[(path, src.line_of(pos), w)] = None
-            if not off or not any(n in src.code for n in off_names):
+            if not off:
+                continue
+            if src.off_hit is None or src.off_hit[0] != off_names:
+                src.off_hit = (off_names, any(n in src.code for n in off_names))
+            if not src.off_hit[1]:
                 continue
             for at, end, kind in _rels(src):
                 if is_dead(dead, at):
