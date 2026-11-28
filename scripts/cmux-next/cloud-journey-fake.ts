@@ -23,6 +23,8 @@ export type JourneyFixture = {
    * `agentTurn: "fail"` makes the agent's GitHub turn fail at its send.
    */
   github?: { status?: unknown; repos?: unknown; lookup?: Record<string, unknown>; sandbox?: string; script?: { live: string[]; agent: string[] }; agentTurn?: "fail" };
+  /** The fs/write of cloud-github-e2e.sh throws (the request never answers), a raw call outside any step. */
+  scriptWriteThrows?: boolean;
   /**
    * The cold create cell: the size line its own machine's guest answers (`cpu=4 mem_mib=7900 disk_mib=32000`).
    * Without one the run passes `--skip cold`.
@@ -142,6 +144,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   if (route.endsWith("/exec")) { log("exec " + (String(body.command).includes("guest_now") ? "timeline" : "command")); return exec(String(body.command)); }
   if (route.endsWith("/fs/write")) {
     if (String(body.path).includes("/credential-transfer/")) { log("fs/write credential"); return json({ ok: true, value: {} }); }
+    if (fixture.scriptWriteThrows && String(body.path).endsWith("/cloud-github-e2e.sh")) throw new TypeError("fetch failed (fixture)");
     if (fixture.github?.script && String(body.path).endsWith("/cloud-github-e2e.sh")) return json({ ok: true, value: {} });
     return json({ ok: false, error: { code: "not_found" } }, 404);
   }

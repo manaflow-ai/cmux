@@ -306,7 +306,6 @@ select_packages() {
     CmuxMobileTunnel
     CmuxPushRegistration
     CmuxRemote
-    CmuxScreenKit
     CmuxVNCWebRTC
     GlassHost
     CmuxLiveCode

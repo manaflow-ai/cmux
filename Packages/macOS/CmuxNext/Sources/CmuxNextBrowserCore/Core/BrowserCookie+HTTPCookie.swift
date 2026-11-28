@@ -7,6 +7,7 @@ public import Foundation
 nonisolated extension BrowserCookie {
     /// Nil when a field cannot be a cookie (or HttpOnly did not survive).
     public var httpCookie: HTTPCookie? {
+        if let sameSite, !["lax", "strict", "none"].contains(sameSite) { return nil }
         guard Self.isHeaderSafe(name), Self.isHeaderSafe(value), Self.isHeaderSafe(domain), Self.isHeaderSafe(path) else { return nil }
         let host = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         guard !host.isEmpty, let url = URL(string: (secure ? "https://" : "http://") + host + "/") else { return nil }
@@ -14,12 +15,14 @@ nonisolated extension BrowserCookie {
             var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value, .domain: domain, .path: path, .originURL: url]
             if secure { properties[.secure] = "TRUE" }
             if let expires { properties[.expires] = expires }
+            if let sameSite { properties[.sameSitePolicy] = sameSite }
             return HTTPCookie(properties: properties)
         }
         var header = "\(name)=\(value); Path=\(path)"
         if domain.hasPrefix(".") { header += "; Domain=\(domain)" }
         if secure { header += "; Secure" }
         if let expires { header += "; Expires=" + Self.httpDate(expires) }
+        if let sameSite { header += "; SameSite=\(sameSite)" }
         header += "; HttpOnly"
         let parsed = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": header], for: url)
         guard parsed.count == 1, let cookie = parsed.first, cookie.isHTTPOnly, cookie.name == name, cookie.value == value,
