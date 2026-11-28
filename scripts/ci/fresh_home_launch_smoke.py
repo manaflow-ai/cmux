@@ -374,10 +374,17 @@ def detach(mount: Path) -> None:
 # 2026-11-22). A harness that measures a real Sparkle update passes updater=True.
 UPDATER_OFF_VARIABLE = "CMUX_DISABLE_AUTO_UPDATE"
 
+# Stage 0 (LaunchShell) in a no-activate launch (AppEnvironment.launchShellKey). The warm launches set it, so each
+# writes launch_shell.* and the board's saved-image row (app_warm_launch_stub_visible_idle_median_ms) fills beside the
+# relaunch-to-Home row, which then times the launch a person gets, stage 0 included.
+LAUNCH_SHELL_VARIABLE = "CMUX_NEXT_LAUNCH_SHELL"
 
-def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False) -> dict[str, str]:
+
+def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False,
+              launch_shell: bool = False) -> dict[str, str]:
     """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these. The app's updater is
-    off (UPDATER_OFF_VARIABLE) unless UPDATER."""
+    off (UPDATER_OFF_VARIABLE) unless UPDATER. LAUNCH_SHELL: stage 0 (LaunchShell, the saved image of the last
+    window) runs as in a person's launch (LAUNCH_SHELL_VARIABLE); a no-activate launch skips it otherwise."""
     home = root / "h"
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         (home / sub).mkdir(parents=True, exist_ok=True)
@@ -399,6 +406,8 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = Fals
     }
     if not updater:
         env[UPDATER_OFF_VARIABLE] = "1"
+    if launch_shell:
+        env[LAUNCH_SHELL_VARIABLE] = "1"
     return env
 
 
@@ -1514,7 +1523,7 @@ def warm_launches(args: argparse.Namespace, root: Path, app: Path, executable: s
         marks_read, marks_write = os.pipe()
         try:
             try:
-                env = fresh_env(root, socket_path, marks_write)
+                env = fresh_env(root, socket_path, marks_write, launch_shell=True)
                 log(f"==> warm launch {i} of {args.warm}: the same HOME={env['HOME']}, {args.warm_seconds:.0f}s")
                 with open(root / f"app-warm{i}.log", "wb") as app_log:
                     process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),

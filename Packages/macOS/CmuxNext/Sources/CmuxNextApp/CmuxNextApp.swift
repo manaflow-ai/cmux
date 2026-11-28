@@ -83,7 +83,7 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let shell = LaunchShell.atLaunch(bundleID: environment.noActivate || environment.testWindow != nil || environment.relaunchBehind != nil ? nil : environment.launch.bundleID, session: environment.daemonSession) { DebugTimings.markLaunch($0) }; DebugTimings.markLaunch("main.launch_shell_made") // stage 0 (LaunchShell): its plan and image decode while AppKit starts; none for agent, test and relaunch-behind launches
+        let shell = LaunchShell.atLaunch(bundleID: AppEnvironment.showsLaunchShell(noActivate: environment.noActivate, testWindow: environment.testWindow != nil, relaunchBehind: environment.relaunchBehind != nil, environment: ProcessInfo.processInfo.environment) ? environment.launch.bundleID : nil, session: environment.daemonSession) { DebugTimings.markLaunch($0) }; DebugTimings.markLaunch("main.launch_shell_made") // stage 0 (LaunchShell): its plan and image decode while AppKit starts; none for test and relaunch-behind launches, nor agent ones unless a bench sets CMUX_NEXT_LAUNCH_SHELL
         let delegate = AppDelegate(environment: environment, launchReads: (work, launchImages, relaunchWake, chromium, shell), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         DebugTimings.markLaunch("main.delegate_made"); app.delegate = delegate; app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")

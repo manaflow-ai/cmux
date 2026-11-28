@@ -134,6 +134,21 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_LAUNCH_DISPLAY` for `build`: a tagged DEV build defaults to the built-in display (#51115).
     /// NIGHTLY (also cmux NEXT's `.cmux-next`, whose bundle id carries a tag too), RC, staging and
     /// release keep the usual placement unless the variable asks.
+    /// `CMUX_NEXT_LAUNCH_SHELL=1`: the variable a launch bench sets so stage 0 (`LaunchShell`) runs in its
+    /// no-activate launch as it does in a person's. Without it a no-activate launch has no stage 0, so the nightly
+    /// warm launches never wrote `launch_shell.*` and the board's saved-image row
+    /// (`app_warm_launch_stub_visible_idle_median_ms`) never filled. Stage 0 takes no focus there: it only orders
+    /// its window in and makes it key inside an app that refuses activation (`CmuxApplication.refusesActivation`).
+    nonisolated static let launchShellKey = "CMUX_NEXT_LAUNCH_SHELL"
+
+    /// Whether this launch shows stage 0: never for a test window or a relaunch behind the person's app; for a
+    /// no-activate launch only when `launchShellKey` asks (a bench); otherwise always.
+    nonisolated static func showsLaunchShell(noActivate: Bool, testWindow: Bool, relaunchBehind: Bool,
+                                             environment: [String: String]) -> Bool {
+        if testWindow || relaunchBehind { return false }
+        return !noActivate || environment[launchShellKey] == "1"
+    }
+
     nonisolated static func launchDisplay(_ environment: [String: String], build: BuildIdentity) -> LaunchDisplay? {
         LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: build.kind == .dev && build.tag != nil)
     }
