@@ -258,41 +258,6 @@ async fn a_died_runner_stops_counting_within_live_for_and_stays_lost() {
     assert_eq!(hub.bg_running_count(&session), 0);
 }
 
-/// Bench (`cargo test -p acpmux --lib bg_count_bench -- --ignored --nocapture`): one chat with
-/// `RUNNING` tasks whose runners hold their locks and `LOST` whose runners died, counted and
-/// listed as the warm rounds and the GUI's lists do. Prints the time per count and per list.
-#[tokio::test]
-#[ignore]
-async fn bg_count_bench() {
-    const RUNNING: usize = 10;
-    const LOST: usize = 200;
-    const COUNTS: u32 = 2_000;
-    const LISTS: u32 = 200;
-    let (hub, session) = hub_with_chat("bg-count-bench");
-    let held: Vec<_> =
-        (0..RUNNING).map(|_| hub.bg_fake_running(&session, false).unwrap()).collect();
-    for _ in 0..LOST {
-        drop(hub.bg_fake_running(&session, false).unwrap());
-    }
-    // Past the folder's racy window, so its look is reused as a settled folder's is.
-    let dir = hub.bg_dir(&session);
-    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
-    std::fs::File::open(&dir).unwrap().set_modified(old).unwrap();
-    assert_eq!(hub.bg_running_count(&session), RUNNING);
-    let at = std::time::Instant::now();
-    for _ in 0..COUNTS {
-        assert_eq!(hub.bg_running_count(&session), RUNNING);
-    }
-    let count = at.elapsed() / COUNTS;
-    let at = std::time::Instant::now();
-    for _ in 0..LISTS {
-        assert_eq!(hub.bg_list(&session)["tasks"].as_array().unwrap().len(), RUNNING + LOST);
-    }
-    let list = at.elapsed() / LISTS;
-    eprintln!("bg_count_bench running={RUNNING} lost={LOST}: count {count:?}, list {list:?}");
-    drop(held);
-}
-
 /// A listing here before the move re-armed the wait marked the old row `lost` (this machine has no
 /// record of a task that ran on the other one): the move still ends it and takes its call.
 #[tokio::test]
