@@ -1,0 +1,355 @@
+use super::*;
+use std::vec::Vec;
+
+#[test]
+fn test_parse_name() {
+    let bytes = &[
+        0x78, 0x6c, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77, 0x77,
+        0x77, 0x08, 0x66, 0x61, 0x63, 0x65, 0x62, 0x6f, 0x6f, 0x6b, 0x03, 0x63, 0x6f, 0x6d, 0x00,
+        0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x05, 0xf3, 0x00,
+        0x11, 0x09, 0x73, 0x74, 0x61, 0x72, 0x2d, 0x6d, 0x69, 0x6e, 0x69, 0x04, 0x63, 0x31, 0x30,
+        0x72, 0xc0, 0x10, 0xc0, 0x2e, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04,
+        0x1f, 0x0d, 0x53, 0x24,
+    ];
+    let packet = Packet::new_unchecked(bytes);
+
+    let name_vec = |bytes| {
+        let mut v = Vec::new();
+        packet
+            .parse_name(bytes)
+            .try_for_each(|label| label.map(|label| v.push(label)))
+            .map(|_| v)
+    };
+
+    //assert_eq!(parse_name_len(bytes, 0x0c), Ok(18));
+    assert_eq!(
+        name_vec(&bytes[0x0c..]),
+        Ok(vec![&b"www"[..], &b"facebook"[..], &b"com"[..]])
+    );
+    //assert_eq!(parse_name_len(bytes, 0x22), Ok(2));
+    assert_eq!(
+        name_vec(&bytes[0x22..]),
+        Ok(vec![&b"www"[..], &b"facebook"[..], &b"com"[..]])
+    );
+    //assert_eq!(parse_name_len(bytes, 0x2e), Ok(17));
+    assert_eq!(
+        name_vec(&bytes[0x2e..]),
+        Ok(vec![
+            &b"star-mini"[..],
+            &b"c10r"[..],
+            &b"facebook"[..],
+            &b"com"[..]
+        ])
+    );
+    //assert_eq!(parse_name_len(bytes, 0x3f), Ok(2));
+    assert_eq!(
+        name_vec(&bytes[0x3f..]),
+        Ok(vec![
+            &b"star-mini"[..],
+            &b"c10r"[..],
+            &b"facebook"[..],
+            &b"com"[..]
+        ])
+    );
+}
+
+struct Parsed<'a> {
+    packet: Packet<&'a [u8]>,
+    questions: Vec<Question<'a>>,
+    answers: Vec<Record<'a>>,
+    authorities: Vec<Record<'a>>,
+    additionals: Vec<Record<'a>>,
+}
+
+impl<'a> Parsed<'a> {
+    fn parse(bytes: &'a [u8]) -> Result<Self> {
+        let packet = Packet::new_unchecked(bytes);
+        let mut questions = Vec::new();
+        let mut answers = Vec::new();
+        let mut authorities = Vec::new();
+        let mut additionals = Vec::new();
+
+        let mut payload = &bytes[12..];
+
+        for _ in 0..packet.question_count() {
+            let (p, r) = Question::parse(payload)?;
+            questions.push(r);
+            payload = p;
+        }
+        for _ in 0..packet.answer_record_count() {
+            let (p, r) = Record::parse(payload)?;
+            answers.push(r);
+            payload = p;
+        }
+        for _ in 0..packet.authority_record_count() {
+            let (p, r) = Record::parse(payload)?;
+            authorities.push(r);
+            payload = p;
+        }
+        for _ in 0..packet.additional_record_count() {
+            let (p, r) = Record::parse(payload)?;
+            additionals.push(r);
+            payload = p;
+        }
+
+        // Check that there are no bytes left
+        assert_eq!(payload.len(), 0);
+
+        Ok(Parsed {
+            packet,
+            questions,
+            answers,
+            authorities,
+            additionals,
+        })
+    }
+}
+
+#[test]
+fn test_parse_request() {
+    let p = Parsed::parse(&[
+        0x51, 0x84, 0x01, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x67, 0x6f,
+        0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
+    ])
+    .unwrap();
+
+    assert_eq!(p.packet.transaction_id(), 0x5184);
+    assert_eq!(
+        p.packet.flags(),
+        Flags::RECURSION_DESIRED | Flags::AUTHENTIC_DATA
+    );
+    assert_eq!(p.packet.opcode(), Opcode::Query);
+    assert_eq!(p.packet.question_count(), 1);
+    assert_eq!(p.packet.answer_record_count(), 0);
+    assert_eq!(p.packet.authority_record_count(), 0);
+    assert_eq!(p.packet.additional_record_count(), 0);
+
+    assert_eq!(p.questions.len(), 1);
+    assert_eq!(
+        p.questions[0].name,
+        &[
+            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00
+        ]
+    );
+    assert_eq!(p.questions[0].type_, Type::A);
+
+    assert_eq!(p.answers.len(), 0);
+    assert_eq!(p.authorities.len(), 0);
+    assert_eq!(p.additionals.len(), 0);
+}
+
+#[test]
+fn test_parse_response() {
+    let p = Parsed::parse(&[
+        0x51, 0x84, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x06, 0x67, 0x6f,
+        0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0xca, 0x00, 0x04, 0xac, 0xd9, 0xa8, 0xae,
+    ])
+    .unwrap();
+
+    assert_eq!(p.packet.transaction_id(), 0x5184);
+    assert_eq!(
+        p.packet.flags(),
+        Flags::RESPONSE | Flags::RECURSION_DESIRED | Flags::RECURSION_AVAILABLE
+    );
+    assert_eq!(p.packet.opcode(), Opcode::Query);
+    assert_eq!(p.packet.rcode(), Rcode::NoError);
+    assert_eq!(p.packet.question_count(), 1);
+    assert_eq!(p.packet.answer_record_count(), 1);
+    assert_eq!(p.packet.authority_record_count(), 0);
+    assert_eq!(p.packet.additional_record_count(), 0);
+
+    assert_eq!(
+        p.questions[0].name,
+        &[
+            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00
+        ]
+    );
+    assert_eq!(p.questions[0].type_, Type::A);
+
+    assert_eq!(p.answers[0].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[0].ttl, 202);
+    assert_eq!(
+        p.answers[0].data,
+        RecordData::A(Ipv4Address::new(0xac, 0xd9, 0xa8, 0xae))
+    );
+}
+
+#[test]
+fn test_parse_response_multiple_a() {
+    let p = Parsed::parse(&[
+        0x4b, 0x9e, 0x81, 0x80, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x09, 0x72, 0x75,
+        0x73, 0x74, 0x2d, 0x6c, 0x61, 0x6e, 0x67, 0x03, 0x6f, 0x72, 0x67, 0x00, 0x00, 0x01, 0x00,
+        0x01, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00, 0x04, 0x0d, 0xe0,
+        0x77, 0x35, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00, 0x04, 0x0d,
+        0xe0, 0x77, 0x28, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00, 0x04,
+        0x0d, 0xe0, 0x77, 0x43, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00,
+        0x04, 0x0d, 0xe0, 0x77, 0x62,
+    ])
+    .unwrap();
+
+    assert_eq!(p.packet.transaction_id(), 0x4b9e);
+    assert_eq!(
+        p.packet.flags(),
+        Flags::RESPONSE | Flags::RECURSION_DESIRED | Flags::RECURSION_AVAILABLE
+    );
+    assert_eq!(p.packet.opcode(), Opcode::Query);
+    assert_eq!(p.packet.rcode(), Rcode::NoError);
+    assert_eq!(p.packet.question_count(), 1);
+    assert_eq!(p.packet.answer_record_count(), 4);
+    assert_eq!(p.packet.authority_record_count(), 0);
+    assert_eq!(p.packet.additional_record_count(), 0);
+
+    assert_eq!(
+        p.questions[0].name,
+        &[
+            0x09, 0x72, 0x75, 0x73, 0x74, 0x2d, 0x6c, 0x61, 0x6e, 0x67, 0x03, 0x6f, 0x72, 0x67,
+            0x00
+        ]
+    );
+    assert_eq!(p.questions[0].type_, Type::A);
+
+    assert_eq!(p.answers[0].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[0].ttl, 9);
+    assert_eq!(
+        p.answers[0].data,
+        RecordData::A(Ipv4Address::new(0x0d, 0xe0, 0x77, 0x35))
+    );
+
+    assert_eq!(p.answers[1].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[1].ttl, 9);
+    assert_eq!(
+        p.answers[1].data,
+        RecordData::A(Ipv4Address::new(0x0d, 0xe0, 0x77, 0x28))
+    );
+
+    assert_eq!(p.answers[2].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[2].ttl, 9);
+    assert_eq!(
+        p.answers[2].data,
+        RecordData::A(Ipv4Address::new(0x0d, 0xe0, 0x77, 0x43))
+    );
+
+    assert_eq!(p.answers[3].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[3].ttl, 9);
+    assert_eq!(
+        p.answers[3].data,
+        RecordData::A(Ipv4Address::new(0x0d, 0xe0, 0x77, 0x62))
+    );
+}
+
+#[test]
+fn test_parse_response_cname() {
+    let p = Parsed::parse(&[
+        0x78, 0x6c, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77, 0x77,
+        0x77, 0x08, 0x66, 0x61, 0x63, 0x65, 0x62, 0x6f, 0x6f, 0x6b, 0x03, 0x63, 0x6f, 0x6d, 0x00,
+        0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x05, 0xf3, 0x00,
+        0x11, 0x09, 0x73, 0x74, 0x61, 0x72, 0x2d, 0x6d, 0x69, 0x6e, 0x69, 0x04, 0x63, 0x31, 0x30,
+        0x72, 0xc0, 0x10, 0xc0, 0x2e, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04,
+        0x1f, 0x0d, 0x53, 0x24,
+    ])
+    .unwrap();
+
+    assert_eq!(p.packet.transaction_id(), 0x786c);
+    assert_eq!(
+        p.packet.flags(),
+        Flags::RESPONSE | Flags::RECURSION_DESIRED | Flags::RECURSION_AVAILABLE
+    );
+    assert_eq!(p.packet.opcode(), Opcode::Query);
+    assert_eq!(p.packet.rcode(), Rcode::NoError);
+    assert_eq!(p.packet.question_count(), 1);
+    assert_eq!(p.packet.answer_record_count(), 2);
+    assert_eq!(p.packet.authority_record_count(), 0);
+    assert_eq!(p.packet.additional_record_count(), 0);
+
+    assert_eq!(
+        p.questions[0].name,
+        &[
+            0x03, 0x77, 0x77, 0x77, 0x08, 0x66, 0x61, 0x63, 0x65, 0x62, 0x6f, 0x6f, 0x6b, 0x03,
+            0x63, 0x6f, 0x6d, 0x00
+        ]
+    );
+    assert_eq!(p.questions[0].type_, Type::A);
+
+    // cname
+    assert_eq!(p.answers[0].name, &[0xc0, 0x0c]);
+    assert_eq!(p.answers[0].ttl, 1523);
+    assert_eq!(
+        p.answers[0].data,
+        RecordData::Cname(&[
+            0x09, 0x73, 0x74, 0x61, 0x72, 0x2d, 0x6d, 0x69, 0x6e, 0x69, 0x04, 0x63, 0x31, 0x30,
+            0x72, 0xc0, 0x10
+        ])
+    );
+    // a
+    assert_eq!(p.answers[1].name, &[0xc0, 0x2e]);
+    assert_eq!(p.answers[1].ttl, 5);
+    assert_eq!(
+        p.answers[1].data,
+        RecordData::A(Ipv4Address::new(0x1f, 0x0d, 0x53, 0x24))
+    );
+}
+
+#[test]
+fn test_parse_response_nxdomain() {
+    let p = Parsed::parse(&[
+        0x63, 0xc4, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x13, 0x61, 0x68,
+        0x61, 0x73, 0x64, 0x67, 0x68, 0x6c, 0x61, 0x6b, 0x73, 0x6a, 0x68, 0x62, 0x61, 0x61, 0x73,
+        0x6c, 0x64, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x20, 0x00, 0x06,
+        0x00, 0x01, 0x00, 0x00, 0x03, 0x83, 0x00, 0x3d, 0x01, 0x61, 0x0c, 0x67, 0x74, 0x6c, 0x64,
+        0x2d, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x03, 0x6e, 0x65, 0x74, 0x00, 0x05, 0x6e,
+        0x73, 0x74, 0x6c, 0x64, 0x0c, 0x76, 0x65, 0x72, 0x69, 0x73, 0x69, 0x67, 0x6e, 0x2d, 0x67,
+        0x72, 0x73, 0xc0, 0x20, 0x5f, 0xce, 0x8b, 0x85, 0x00, 0x00, 0x07, 0x08, 0x00, 0x00, 0x03,
+        0x84, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x01, 0x51, 0x80,
+    ])
+    .unwrap();
+
+    assert_eq!(p.packet.transaction_id(), 0x63c4);
+    assert_eq!(
+        p.packet.flags(),
+        Flags::RESPONSE | Flags::RECURSION_DESIRED | Flags::RECURSION_AVAILABLE
+    );
+    assert_eq!(p.packet.opcode(), Opcode::Query);
+    assert_eq!(p.packet.rcode(), Rcode::NXDomain);
+    assert_eq!(p.packet.question_count(), 1);
+    assert_eq!(p.packet.answer_record_count(), 0);
+    assert_eq!(p.packet.authority_record_count(), 1);
+    assert_eq!(p.packet.additional_record_count(), 0);
+
+    assert_eq!(p.questions[0].type_, Type::A);
+
+    // SOA authority
+    assert_eq!(p.authorities[0].name, &[0xc0, 0x20]); // com.
+    assert_eq!(p.authorities[0].ttl, 899);
+    assert!(matches!(
+        p.authorities[0].data,
+        RecordData::Other(Type::Soa, _)
+    ));
+}
+
+#[test]
+fn test_emit() {
+    let name = &[
+        0x09, 0x72, 0x75, 0x73, 0x74, 0x2d, 0x6c, 0x61, 0x6e, 0x67, 0x03, 0x6f, 0x72, 0x67, 0x00,
+    ];
+
+    let repr = Repr {
+        transaction_id: 0x1234,
+        flags: Flags::RECURSION_DESIRED,
+        opcode: Opcode::Query,
+        question: Question {
+            name,
+            type_: Type::A,
+        },
+    };
+
+    let mut buf = vec![0; repr.buffer_len()];
+    repr.emit(&mut Packet::new_unchecked(&mut buf));
+
+    let want = &[
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x72, 0x75,
+        0x73, 0x74, 0x2d, 0x6c, 0x61, 0x6e, 0x67, 0x03, 0x6f, 0x72, 0x67, 0x00, 0x00, 0x01, 0x00,
+        0x01,
+    ];
+    assert_eq!(&buf, want);
+}
