@@ -1257,8 +1257,8 @@ export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string
     'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
     `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
     `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
-    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
-    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    'stop TERM; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done; fi',
     `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
     'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");

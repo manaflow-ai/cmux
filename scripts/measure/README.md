@@ -16,13 +16,14 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
 | coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
 | launch-reboot | `launch-reboot.sh` (`--import` after-phase log) | First launch after a real reboot; bounded bundled reader CPU, wall time and RSS (`arm=preread`). |
 | launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
-| launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
+| launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm; bytes= times a new copy's first exec to main against bundle bytes (Resources vs Mach-O filler). |
 | web-vitals | `webviews/scripts/web-perf/vitals.mjs` (any URL; Linux through `cmux-ci test`) | A web page's TTFB, LCP, INP and JS KB in throttled Chromium: cmux.com, docs, webview pages. |
 | launch-matrix | `launch-matrix.sh` (`launch-matrix.swift`, `launch-matrix-summary.py`) | Any .app's launch on one harness: first visible frame, first accepted input, the whole process tree's resources, per scenario (warm, cold-quit, evicted, first-install, update, large-session), the reboot pair and idle growth. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy), `go-back-duress.sh` (mode=go-back) | First launch after an update and its hitches. |
@@ -63,6 +64,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
+| machine-channel-exact-tree | `machine-channel-exact-tree.py` in a cmux checkout (git only, no GitHub calls) | Whether a build made before a merge can be that merge's machine channel build (goal cloud-fix-to-machine): over the newest N feat-cmux-next merges, which moved the v2 tree key, how far each such PR head was behind with how many key moves on base, whether its key matched the merge's, key moves per minute, and the chance a pre-merge build of B minutes sees none. |
 
 
 ## Dev loop
