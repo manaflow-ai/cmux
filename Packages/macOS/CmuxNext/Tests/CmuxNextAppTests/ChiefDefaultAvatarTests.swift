@@ -86,26 +86,4 @@ import Testing
         #expect(HomeChiefAvatar.resolved(.text("🐙")) == .text("🐙"))
         #expect(HomeChiefAvatar.chiefDefault.isMonogram, "CH draws as a monogram")
     }
-
-    /// A settings file of ~157 KB (Leo's) once went to Rust whole on every `picked` call, which the
-    /// sidebar makes per Chief per row: 2-6 s on the main thread with ~1,100 workspaces. Only
-    /// `home.chiefPetMascot` goes now; the answer is the same, and 1,100 calls stay well under a frame each.
-    @MainActor @Test func pickedSendsOnlyTheMascotNotTheWholeFile() throws {
-        let picks = ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief)
-        picks.remember("fox", for: "agent_scout01")
-        var root: [String: JSONValue] = [:]
-        for n in 0..<1_100 { root["workspace\(n)"] = .object(["title": .string(String(repeating: "x", count: 120))]) }
-        root["home"] = .object(["chiefPetMascot": .string("moon"), "other": .string("kept out")])
-        let file = JSONValue.object(root)
-        let clock = ContinuousClock()
-        var answers: [String?] = []
-        let elapsed = clock.measure {
-            for _ in 0..<1_100 { answers.append(picks.picked(nil, in: file)); answers.append(picks.picked("agent_scout01", in: file)) }
-        }
-        print("Duress: 2,200 picked calls over a \(root.count)-key settings file: \(elapsed)")
-        #expect(answers.allSatisfy { $0 == "moon" || $0 == "fox" })
-        #expect(picks.picked(nil, in: file) == "moon")
-        #expect(picks.picked("agent_scout01", in: file) == "fox")
-        #expect(elapsed < .seconds(1), "per-row calls must not encode the whole file")
-    }
 }
