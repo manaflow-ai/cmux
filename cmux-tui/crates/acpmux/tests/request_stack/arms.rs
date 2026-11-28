@@ -377,6 +377,19 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // its hermetic scratch home (`support/daemon_env.rs`), never the person's.
         (method::MUX_PROJECT_NEW, Run(json!({"name": "lso-project"}))),
         (method::MUX_AGENT_LOGIN_START, Skip("starts a real claude or codex sign-in")),
+        (method::MUX_AGENT_LOGIN_RECOVER_START, Skip("starts a real Claude recovery sign-in")),
+        (
+            method::MUX_AGENT_LOGIN_RECOVER_FINISH,
+            Any(
+                json!({"recoverySession": "$S", "loginId": "lso-none"}),
+                "no real recovery sign-in has started, so no pending login can finish",
+            ),
+        ),
+        (
+            method::MUX_AGENT_LOGIN_STATUS,
+            Skip("runs the installed Claude CLI against the real machine login"),
+        ),
+        (method::MUX_AGENT_LOGIN_LOGOUT, Skip("signs out the real machine's Claude login")),
         (
             method::MUX_AGENT_LOGIN_FINISH,
             Any(
@@ -478,6 +491,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
         (method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_GROK_HOOK,
+            Any(json!({}), "the retired Grok hook explicitly returns method not found"),
+        ),
         (
             method::MUX_CONNECTIONS_CHATGPT_IMPORT,
             Any(
