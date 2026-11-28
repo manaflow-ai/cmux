@@ -247,6 +247,25 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
+def superseded(run: Mapping[str, Any], newest: Mapping[str, Any] | None) -> bool:
+    """A feat-cmux-next run a newer push at another commit superseded: that push builds and publishes its own tree
+    (latest wins, as cmux_tui_artifacts_retry.py treats a cancelled run). A run on another branch, or an unreadable
+    newest run (None), is not superseded."""
+    if (run.get("head_branch") or "") != "feat-cmux-next" or not newest or not newest.get("head_sha"):
+        return False
+    return newest["head_sha"] != run.get("head_sha") and int(newest.get("id") or 0) > int(run.get("id") or 0)
+
+
+def newest_feat_push(repo: str) -> Mapping[str, Any] | None:
+    """The newest feat-cmux-next push run of this workflow (one bounded read), or None when it cannot be read."""
+    result = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next"
+                        "&event=push&per_page=1")
+    try:
+        return (json.loads(result.stdout).get("workflow_runs") or [None])[0] if result.returncode == 0 else None
+    except ValueError:
+        return None
+
+
 def _gh(*args: str, run_id: int | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
@@ -393,12 +412,21 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to this one.")
         return
+    newest = newest_feat_push(repo) if any(row[2] == "feat-cmux-next" for row in candidates) else None
     for artifact, deferred, branch, _ in candidates:
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
         if result.returncode != 0 or not result.stdout.strip():
             print(f"::warning::could not read run {deferred} ({branch}): {result.stderr.strip()}")
             continue
-        allowed, why = may_rerun(json.loads(result.stdout))
+        record = json.loads(result.stdout)
+        # A whole-run re-run of an older feat-cmux-next commit rebuilds every target for a tree nothing installs once
+        # a newer push exists: 2026-11-28, the hand-off's re-runs (CI pool and cmux-bot tokens) cost about 2,400
+        # runner-min a day, most of them on such heads.
+        if superseded(record, newest):
+            print(f"Not re-running run {deferred} ({branch}): superseded by run {newest.get('id')} at "
+                  f"{str(newest['head_sha'])[:12]}, a newer feat-cmux-next push that builds its own tree.")
+            continue
+        allowed, why = may_rerun(record)
         if not allowed:
             print(f"Not re-running run {deferred} ({branch}): {why}.")
             continue
