@@ -1720,8 +1720,28 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
     steps:
       - *github-token-for-git
+      # This run's pack of the build source (resolve-nightly-cmux-tui-client): 0 github.com fetches.
+      # actions/checkout below runs only when it is missing. PREPARE_FALLBACK is prepare's reuse gate.
+      - &nightly-source-download
+        name: Download the build source
+        id: nightly-source-get
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-source-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          path: ${{ runner.temp }}/nightly-source
+      - &nightly-source-unpack
+        name: Check out the build source from this run's pack
+        id: nightly-source
+        if: steps.nightly-source-get.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash "$RUNNER_TEMP/nightly-source/unpack.sh" unpack "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" "$RUNNER_TEMP/nightly-source"
       - &checkout-build-ref
         name: Checkout build ref
+        if: steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -2987,8 +3007,10 @@ jobs:
         run: echo "The original run's daemon assets were retained by the unsigned resume."
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3218,6 +3240,26 @@ jobs:
           SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
           FORCE_BUILD: ${{ needs.decide.outputs.force }}
         run: bash scripts/ci/nightly-steps/resolve-choose-build-commit.sh
+      # The build commit's source once per run, from this mirror-served checkout: later jobs unpack it
+      # instead of fetching from github.com (scripts/ci/nightly-source.sh).
+      - name: Pack the build source for later jobs
+        id: source-pack
+        if: steps.build.outputs.build_sha != '' && steps.build.outputs.already_published != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash scripts/ci/nightly-source.sh pack "${{ steps.build.outputs.build_sha }}" "$RUNNER_TEMP/nightly-source"
+      - name: Upload the build source
+        if: steps.source-pack.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-source-${{ steps.build.outputs.build_sha }}
+          path: ${{ runner.temp }}/nightly-source
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+          compression-level: 0
       # The selected build source can differ from this workflow's control SHA.
       - name: Record pending tree dependency
         id: tree-source
@@ -3275,11 +3317,9 @@ jobs:
       fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     steps:
       - *github-token-for-git
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
+      - *nightly-source-download
+      - *nightly-source-unpack
+      - *checkout-build-ref
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -3334,11 +3374,9 @@ jobs:
       sha: ${{ steps.shelf.outcome == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha || '' }}
     steps:
       - *github-token-for-git
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
+      - *nightly-source-download
+      - *nightly-source-unpack
+      - *checkout-build-ref
       - name: Install Linux build dependencies
         run: |
           # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
@@ -3488,9 +3526,11 @@ jobs:
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - &checkout-build-ref-2
         name: Checkout build ref
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        if: (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3715,6 +3755,8 @@ jobs:
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref-2
 
 
@@ -3964,7 +4006,10 @@ jobs:
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - name: Checkout build ref
+        if: steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4607,6 +4652,8 @@ jobs:
       NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
     steps:
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
@@ -4707,6 +4754,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref
 
       # Publication tooling from this workflow's own commit (see publish-nightly).
