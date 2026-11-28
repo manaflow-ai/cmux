@@ -83,6 +83,12 @@ jobs:
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
     timeout-minutes: 8
+    # A push (the dispatch registration, this file changed on feat-cmux-next) keeps one run per branch, the newest
+    # wins. A call or a dispatch never waits on another: its group is its caller's run and attempt plus the
+    # artifact namespace, which tells apart the producers one run calls (ci-web.yml's head and base bundles).
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('cmux-next-compile-preflight-{0}', github.ref) || format('cmux-next-compile-preflight-{0}-{1}-{2}', github.run_id, github.run_attempt, inputs.artifact_prefix) }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     outputs:
       key: ${{ steps.web-bundle-key.outputs.key }}
       transport: ${{ steps.artifact-transport.outputs.transport }}

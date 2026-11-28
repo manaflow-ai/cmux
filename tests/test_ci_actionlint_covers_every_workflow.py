@@ -62,7 +62,9 @@ def main() -> int:
     invocation = [
         line.strip()
         for line in step.splitlines()
-        if '"$RUNNER_TEMP/actionlint"' in line
+        # Only lines that run the linter itself; `ACTIONLINT="$RUNNER_TEMP/actionlint" cmd`
+        # hands the path to another tool (the start lint), not file arguments to actionlint.
+        if line.strip().startswith('"$RUNNER_TEMP/actionlint"')
     ]
     check(
         invocation == ['"$RUNNER_TEMP/actionlint"'],

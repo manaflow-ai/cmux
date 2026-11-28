@@ -1286,7 +1286,7 @@ jobs:
   app-store-shelf-pr:
     needs: [coalesce, workflow-start-lint]
     name: cmux-next App Store shelf (every listing installs and shows something)
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && (github.event_name != 'pull_request' || needs.workflow-start-lint.result == 'success' || needs.workflow-start-lint.result == 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
@@ -1418,7 +1418,7 @@ jobs:
   ios-placeholder-bounds:
     needs: [coalesce, workflow-start-lint]
     name: ios-placeholder-bounds
-    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.ios_placeholder != 'false' || vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.ios_placeholder != 'false' || vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1') && (github.event_name != 'pull_request' || needs.workflow-start-lint.result == 'success' || needs.workflow-start-lint.result == 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:

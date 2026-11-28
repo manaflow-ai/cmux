@@ -91,6 +91,8 @@ SCOPED: dict[str, str] = {
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
+    "pool-build-path.yml": "cmux-tui/crates/** (a crate may include_str! its own Markdown)",
+    "shotdiff.yml": "cmux-tui/crates/cmux-shotdiff/** (its README beside the crate)",
     "rust-workspaces.yml": "the files a run workspace's sources name by literal path (scripts/ci/pr_trigger_paths.py "
                            "rust_workspaces): docs/assets/screenshot.png, cmux-image-linear's compare test fixture, "
                            "and docs/posthog/chief-product-analytics.md, the event catalog optchat-chief's analytics "

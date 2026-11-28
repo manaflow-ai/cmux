@@ -294,7 +294,10 @@ jobs:
                 git -C "$dir" fetch -q --no-tags --no-recurse-submodules --depth=2 --filter=tree:0 \
                   "https://github.com/$GITHUB_REPOSITORY" "$1" >&2; then
                 tree="$(git -C "$dir" rev-parse "$1^{tree}")"
-                if [[ "$(git -C "$dir" log -1 --format='%P%n%cn%n%s' "$1")" =~ ^[0-9a-f]{40}\ [0-9a-f]{40}$'\n'GitHub$'\n'"Merge branch '$BRANCH' into " ]]; then
+                # Two parents, committed by GitHub, subject "Merge branch '<base>' into ...": GitHub's update-branch merge.
+                local nl=$'\n' update_merge
+                update_merge="^[0-9a-f]{40} [0-9a-f]{40}${nl}GitHub${nl}Merge branch '${BRANCH}' into "
+                if [[ "$(git -C "$dir" log -1 --format='%P%n%cn%n%s' "$1")" =~ $update_merge ]]; then
                   parent="$(git -C "$dir" rev-parse "$1^1^{tree}" 2>/dev/null || true)"
                 fi
               fi

@@ -50,6 +50,12 @@ jobs:
     name: nightly pr build route (advisory)
     needs: [coalesce]
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && needs.coalesce.result == 'success' && needs.coalesce.outputs.run != 'false')) }}
+    # A re-run or duplicate push of one tip queues behind the first instead of building it twice. Keyed on the sha and
+    # never cancelled: the window's run is the one that builds, so a newer tip must not cancel it (base-coalesce.yml).
+    # A pull_request call keys on its own run (its caller's group holds it). tests/test_ci_workflow_concurrency.py
+    concurrency:
+      group: ${{ format('nightly-pr-build-route-{0}', github.event_name == 'push' && github.sha || github.run_id) }}
+      cancel-in-progress: false
     runs-on: cmux-linux
     timeout-minutes: 10
     permissions:
@@ -262,9 +268,13 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "nightly pr build: no fleet client on runner $RUNNER_NAME, so no fleet step to cancel"
+            exit 0
+          fi
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2)"
-          if [[ -x "$client" && -n "$step" ]]; then
+          if [[ -n "$step" ]]; then
             "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
           fi
       - name: Record the pass

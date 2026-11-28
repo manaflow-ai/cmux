@@ -166,9 +166,13 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "split table: no fleet client on runner $RUNNER_NAME, so no fleet step to cancel"
+            exit 0
+          fi
           log="$RUNNER_TEMP/split-table/run.log"
           step="$( [[ -r "$log" ]] && grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
-          if [[ -x "$client" && -n "$step" ]]; then
+          if [[ -n "$step" ]]; then
             "$client" cancel "$step" --reason "split table: superseded (run $GITHUB_RUN_ID cancelled)" || true
           fi
       - name: Upload the report

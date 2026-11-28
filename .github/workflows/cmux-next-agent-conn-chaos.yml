@@ -23,6 +23,11 @@ name: cmux-next agent connection chaos
 # has a green fleet Mac run at a feat-cmux-next commit restores the trigger:
 #   pull_request: {branches: [feat-cmux-next], types: [opened, synchronize, reopened, ready_for_review]}
 on:
+  # Register the dispatch entrypoint when this workflow lands off main; a push runs no job (route takes pull
+  # requests only, chaos-fleet skips a push).
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-agent-conn-chaos.yml]
   workflow_dispatch:
     inputs:
       ref:
@@ -36,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-agent-conn-chaos-${{ github.event.pull_request.number || github.run_id }}
+  group: cmux-next-agent-conn-chaos-${{ github.event.pull_request.number || github.event_name == 'push' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -104,9 +109,9 @@ jobs:
     needs: route
     if: >-
       !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
-      (github.event_name != 'pull_request' || (needs.route.outputs.run == 'true' &&
+      github.event_name != 'push' && (github.event_name != 'pull_request' || (needs.route.outputs.run == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
     steps:

@@ -199,11 +199,7 @@ jobs:
         env:
           FETCH_TOKEN: ${{ github.token }}
         run: |
-          # The Macs get 403 from github.com on anonymous requests. Every checkout here sets
-          # persist-credentials: false, so actions/checkout's clean of a reused partial clone (a lazy
-          # promisor fetch, before it sets up auth) and every later git fetch went out with no credential.
-          # One header job-wide: the empty entry clears any header in .git/config (two make GitHub answer
-          # 400); a step that sets its own GIT_CONFIG_COUNT still sends only its own.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-give-git-this-job-s-token-self-hosted-macs-get-403-on-anonym.md
           set -euo pipefail
           [ -n "${FETCH_TOKEN:-}" ] || exit 0
           header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
@@ -978,8 +974,7 @@ jobs:
         id: clean-workdir
         shell: bash
         run: |
-          # Before any checkout or secret: an earlier job's files (a DMG, a feed, notes) never reach this one.
-          # The runner empties its temp dir itself; the workspace stays between jobs on an owned Mac.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-clean-this-job-s-workdir-on-an-owned-mac.md
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           ws="${GITHUB_WORKSPACE:-}"
           if [ -n "$ws" ] && [ -d "$ws" ] && [ "$ws" != / ] && [ "$ws" != "$HOME" ]; then
@@ -1076,8 +1071,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # Last, whatever failed: the next job on this mini finds none of this job's tokens or files. Tokens
-          # live in env and in the runner temp dir (gh_app_token.sh's wrapper state); files in the workspace.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-wipe-this-job-s-credentials-and-files-from-the-owned-mac.md
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           # The runner's own _-prefixed dirs (the event file, step file commands) stay until it ends the job.
           tmp="${RUNNER_TEMP:-}"
@@ -1497,8 +1491,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
-          # Its own goblin App token first (leo-workspace machines/gh-app-roles.json push.actions_secrets
-          # NIGHTLY_HELPER_LOOKUP_TOKEN), then github.token; a 403 waits to the limit's reset, at most 240 s a token.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-record-the-reused-helper-s-build-commit.md
           GH_TOKEN: ${{ secrets.NIGHTLY_HELPER_LOOKUP_TOKEN || github.token }}
           GH_TOKEN_SPARES: ${{ github.token }}
           CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: '240'
@@ -1582,8 +1575,7 @@ jobs:
           set -euo pipefail
           # Keep the pinned archives across jobs on this Mac. The installer checks their hashes on every hit.
           export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"
-          # The verified, patched Zig install itself, at its version-pinned path: a warm Mac reuses it with no
-          # download or extraction (install-zig-ci.sh ZIG_KEEP_DIR; 2.6 min cold in run 45562645699).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-cache-zig-packages.md
           export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
@@ -2448,8 +2440,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
-          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache,
-          # from the install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-restore-the-acpmux-and-optchat-chief-dependency-builds-cmux-.md
           export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
@@ -3477,9 +3468,7 @@ jobs:
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-clear-stale-git-locks-self-hosted-reused-workspace.md
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
           if [ -d "$ws/.git/modules" ]; then
@@ -3701,8 +3690,7 @@ jobs:
           NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
         run: |
           set -euo pipefail
-          # Every primary leg uploaded its prepared app; no API call, so a spent
-          # installation rate limit cannot fail this no-op leg.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-reuse-a-successful-primary-preparation.md
           if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           # This read runs before the checkout (no budget wait yet); a refused one prepares here.
           if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
@@ -3953,9 +3941,7 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-clear-stale-git-locks-self-hosted-reused-workspace.md
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
           if [ -d "$ws/.git/modules" ]; then
@@ -3998,8 +3984,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run != ''
         run: |
           set -euo pipefail
-          # Source-bound notices and entitlements stay at the original commit.
-          # Only the reviewed signing control and its two dependencies advance.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-initialize-cmux-next-notices-submodule.md
           for control in scripts/ci/signing-keychain.sh scripts/ci/lib/signing-runtime-guard.sh scripts/import-apple-developer-id-intermediates.sh; do
             cp ".nightly-signing-control/$control" "$control"
           done
@@ -4448,12 +4433,10 @@ jobs:
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          # The new item carries the bundle's macOS floor (14.0 for cmux-next since 2026-10-13),
-          # so older macOS keeps the previous (legacy) items still in the feed.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-generate-sparkle-appcasts-nightly-1.md
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
-          # nightly-next ships the deltas from its nearest earlier builds with the build itself (hq#13299).
-          # A build tree from before it has no script: that build publishes full-only, as before.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-generate-sparkle-appcasts-nightly.md
           if [ "$TRACK" = nightly-next ] && [ -f scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh ]; then
             bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh
             exit 0
@@ -5225,8 +5208,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
     if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
     runs-on: ${{ needs.route-visual-gate-nightly.outputs.runs_on }}
-    # A warm tour slot builds the DEV app in ~6-10 min; a cold one took 35 min.
-    # The GhosttyKit download reads the R2 cache credentials: ci-cache-writer on main, no environment elsewhere.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-pick-an-idle-owned-session-runner.md
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     permissions:
@@ -5587,8 +5569,7 @@ jobs:
           set -euo pipefail
           run_id=
           cef=false source_archive=false
-          # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
-          # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly.md
           language_packs=true language_packs_run=
           [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
           [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
@@ -7005,12 +6986,10 @@ jobs:
       # Install the budget wrapper from this workflow's trusted tooling checkout before any gh call.
       - name: Wait through GitHub API rate limits in this job's gh calls
         if: inputs.nightly_next_unsigned_run == ''
-        # This job has checked out the workflow's trusted publication tooling above. The split build job
-        # keeps its source-tree fallback because it has no .publish-tooling checkout.
+        # Why: docs/ci/nightly-workflow-notes/2026-11-28-mint-the-release-app-token-for-the-warm-checkout.md
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
       - *claim-publication-mac
-      # Mint only after the claim (signing rule 7a). Only the checkout receives the read-only token.
-      # Its App quota avoids the shared unauthenticated limit hit in run 45744507889.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-mint-the-release-app-token-for-the-warm-checkout-1.md
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-mint-the-release-app-token-for-the-warm-che.md
       - name: Mint the release App token for the warm checkout
         id: warm-fetch-token
@@ -7457,10 +7436,7 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # The deltas follow the feed in their own job (nightly-next-deltas), so published-build and the GitHub release
-      # no longer wait the ~5 min they took here (run 45575194160: 283 s build, 17 s upload; ask-c0123d25e8). This
-      # step only hands it the names and the floor it reads from the signed app; no secret, no bundle code. A newer
-      # nightly-next push waiting skips it, so the deltas job skips too and the signing Mac moves on.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-hand-the-deltas-job-its-inputs.md
       - name: Hand the deltas job its inputs
         id: deltas-inputs
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT && !env.NEWER_PUSH_WAITING"
@@ -7475,10 +7451,7 @@ jobs:
             echo "appcast=$NIGHTLY_APPCAST"
             echo "min_system=$floor"
           } | tee -a "$GITHUB_OUTPUT"
-      # A refused publication is red, not green: run 45607031207 built and signed, its shelf check died (ENOSPC),
-      # the gate refused, and the job showed green with nothing published, so a 3.5 h stall read as healthy
-      # (2026-11-25). A stand-down (writer linux or none, a known-bad commit), a superseded build and a left slot
-      # publish nothing on purpose and stay green.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-fail-when-this-build-s-publication-was-refused.md
       - name: Fail when this build's publication was refused
         if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
         env:
@@ -7794,8 +7767,7 @@ jobs:
     if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
-    # Room for gh_budget_wait.sh's wait through a rate limit: tail run 45925996466 failed its one gh read on
-    # "API rate limit exceeded for installation" (HTTP 403), so build 4592220755201 shipped with no release notes.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-publish-the-variant-and-its-module-outputs.md
     timeout-minutes: 70
     permissions:
       contents: read
@@ -7917,8 +7889,7 @@ jobs:
       - *mint-dispatch-pools
       - *mint-dispatch-spare
       - *wait-through-github-api-rate-l
-      # A run that says published reads the live feeds first: an unmoved feed fails here, red, and a refused build
-      # (nightly-next-one reds a real refusal) asks for no post-publication run (2026-11-25, run 45607031207).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-read-the-feed-back-before-saying-published.md
       - name: Read the feed back before saying published
         id: readback
         env:
@@ -8214,8 +8185,7 @@ jobs:
             # The notes this run signed and published, checked against the content key.
             python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
               --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
-            # The page the reel lists its clips on: raw.githubusercontent.com shows
-            # index.html as text, so the summary carries the list itself.
+            # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-and-publish-the-reel.md
             python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
             import json, sys
             report = json.load(open(sys.argv[1]))
