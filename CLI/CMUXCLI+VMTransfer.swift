@@ -1251,16 +1251,15 @@ extension CMUXCLI {
         return store.filter { $0.value.updatedAtUnix >= cutoff }
     }
 
+    /// Best effort: a binding that cannot be recorded only costs the next run its
+    /// warm machine. The lock keeps a concurrent `vm run` from erasing it.
     static func saveVMRunBinding(workKey: String, machine: String, to url: URL? = nil) {
         let storeURL = url ?? vmRunBindingsStoreURL()
-        var store = loadVMRunBindings(from: storeURL)
-        store[workKey] = VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
-        guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: storeURL, options: [.atomic])
+        try? withVMRunStoreLock(storeURL, name: "bindings") {
+            var store = loadVMRunBindings(from: storeURL)
+            store[workKey] = VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
+            try JSONEncoder().encode(store).write(to: storeURL, options: [.atomic])
+        }
     }
 
     /// Machines this router provisioned, persisted per Mac. This list — never the
@@ -1294,16 +1293,12 @@ extension CMUXCLI {
         try data.write(to: storeURL, options: [.atomic])
     }
 
-    /// Read-modify-write on the pool store under an exclusive advisory lock, so
-    /// two `vm run` processes provisioning at once cannot each write a set that
-    /// only contains its own machine (atomic replacement alone loses the other
-    /// id). The lock file sits beside the store; `flock` releases it on close
-    /// even if the process dies mid-update.
-    /// Fails loudly instead of degrading to an unlocked or unpersisted update: a
-    /// machine the router provisioned but could not record would be orphaned from
-    /// the pool, so the caller must know.
-    static func updateVMRunPool(at url: URL? = nil, _ mutate: (inout Set<String>) -> Void) throws {
-        let storeURL = url ?? vmRunPoolStoreURL()
+    /// Runs `body`, a read-modify-write of a `vm run` state store, under an
+    /// exclusive advisory lock, so two `vm run` processes cannot each write a
+    /// store that only holds their own change (atomic replacement alone loses
+    /// the other one). The lock file sits beside the store; `flock` releases it
+    /// on close even if the process dies mid-update.
+    static func withVMRunStoreLock<T>(_ storeURL: URL, name: String, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -1311,16 +1306,26 @@ extension CMUXCLI {
         let lockPath = storeURL.path + ".lock"
         let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard lockFD >= 0 else {
-            throw CLIError(message: "vm run: could not open the pool lock at \(lockPath): \(String(cString: strerror(errno)))")
+            throw CLIError(message: "vm run: could not open the \(name) lock at \(lockPath): \(String(cString: strerror(errno)))")
         }
         defer { close(lockFD) }
         guard flock(lockFD, LOCK_EX) == 0 else {
-            throw CLIError(message: "vm run: could not lock the pool store at \(lockPath): \(String(cString: strerror(errno)))")
+            throw CLIError(message: "vm run: could not lock the \(name) store at \(lockPath): \(String(cString: strerror(errno)))")
         }
         defer { _ = flock(lockFD, LOCK_UN) }
-        var machines = loadVMRunPool(from: storeURL)
-        mutate(&machines)
-        try saveVMRunPool(machines, to: storeURL)
+        return try body()
+    }
+
+    /// Fails loudly instead of degrading to an unlocked or unpersisted update: a
+    /// machine the router provisioned but could not record would be orphaned from
+    /// the pool, so the caller must know.
+    static func updateVMRunPool(at url: URL? = nil, _ mutate: (inout Set<String>) -> Void) throws {
+        let storeURL = url ?? vmRunPoolStoreURL()
+        try withVMRunStoreLock(storeURL, name: "pool") {
+            var machines = loadVMRunPool(from: storeURL)
+            mutate(&machines)
+            try saveVMRunPool(machines, to: storeURL)
+        }
     }
 
     /// Routing policy, in order:
