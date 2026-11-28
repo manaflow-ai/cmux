@@ -39,37 +39,32 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     /// Whether selecting `item` shows the list from its very top: a top item
     /// (Home, the App Store) or a row with only top items before it (the first
     /// workspace, under a document block's Home), so the pinned items above it
-    /// stay in view (a Cmd-1 to Home, a wrap from the last workspace).
+    /// stay in view (a Cmd-1 to Home, a wrap from the last workspace). Rust
+    /// `sidebar_item_order` `stop`; false when the reducer refuses.
     public func revealsTop(for item: SidebarItem?) -> Bool {
-        guard let stop = stop(for: item) else { return false }
-        if topItems.contains(stop) { return true }
-        guard let index = rows.firstIndex(of: stop) else { return false }
-        return rows[..<index].allSatisfy { if case .topItem = $0 { true } else { false } }
+        RustSidebarItemOrder.stop(for: item, in: self).revealsTop
     }
 
     /// The stop in this order that `item` is at (a workspace in a collapsed group: the group).
+    /// Rust `sidebar_item_order` `stop`; nil when the reducer refuses.
     public func stop(for item: SidebarItem?) -> SidebarItem? {
-        guard let item else { return nil }
-        if items.contains(item) { return item }
-        if case .workspace(let id) = item { return stops[id] }
-        return nil
+        guard item != nil else { return nil }
+        return RustSidebarItemOrder.stop(for: item, in: self).stop
     }
 
     /// The item Cmd-`number` selects: 1…8 count in order; 9 is the last
     /// (`last`) or the ninth (`ninth`). Past the end: the last with `last`,
-    /// nothing with `ninth`. Nil below 1 or for an empty order.
+    /// nothing with `ninth`. Nil below 1 or for an empty order. Rust
+    /// `sidebar_item_order` `pick`; nil when the reducer refuses.
     public func pick(_ number: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
-        let list = items(settings.numbering)
-        guard number >= 1, let last = list.last else { return nil }
-        if settings.cmd9 == .last, number >= 9 { return last }
-        if number <= list.count { return list[number - 1] }
-        return settings.cmd9 == .last ? last : nil
+        RustSidebarItemOrder.pick(number, in: self, settings)
     }
 
     /// The digit whose Cmd-`digit` selects `item` (the inverse of ``pick(_:_:)``, so a shortcut hint
     /// shows the digit that really selects its row: Home and the App Store count first with
     /// `allItems`). Its place when 1...8 (or 9 with `ninth`); 9 for the last item past the eighth
-    /// with `last`; nil for an item no digit selects.
+    /// with `last`; nil for an item no digit selects. Stays in Swift: the shortcut hints and the rail's
+    /// ticks ask it once per drawn row, and the Rust `number` op has no batch form (one FFI call per row).
     public func number(for item: SidebarItem, _ settings: SidebarNavigationSettings) -> Int? {
         let list = items(settings.numbering)
         guard let index = list.firstIndex(of: item) else { return nil }
@@ -81,30 +76,9 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     /// item outside the walked list (or none), +1 starts at the first and -1
     /// at the last. Past an end: wraps, or nil when wrapping is off. `place`,
     /// for a workspace drawn away from its stop: the index in `rows` it draws
-    /// before (`SidebarModel.step`), so the walk goes on from there.
+    /// before (`SidebarModel.step`), so the walk goes on from there. Rust
+    /// `sidebar_item_order` `step`; nil when the reducer refuses.
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings, place: Int? = nil) -> SidebarItem? {
-        var list = items(settings.stepping)
-        guard !list.isEmpty, offset != 0 else { return nil }
-        let next: Int
-        if case .workspace(let id)? = selected, let place {
-            // Drawn between two stops: +1 is the stop after its place, -1 the one before. Its own stop (an opened
-            // fold's row at the end of its list) is not one of them.
-            list.removeAll { $0 == .workspace(id) }
-            guard !list.isEmpty else { return nil }
-            let walked = { (item: SidebarItem) -> Bool in
-                guard item != .workspace(id), settings.stepping != .allItems else { return item != .workspace(id) }
-                if case .topItem = item { return false }
-                return true
-            }
-            let before = (settings.stepping == .allItems ? topItems.count : 0) + rows[..<place].filter(walked).count
-            next = offset > 0 ? before + offset - 1 : before + offset
-        } else if let current = stop(for: selected), let index = list.firstIndex(of: current) {
-            next = index + offset
-        } else {
-            return offset > 0 ? list.first : list.last
-        }
-        if list.indices.contains(next) { return list[next] }
-        guard settings.steppingWraps else { return nil }
-        return list[((next % list.count) + list.count) % list.count]
+        RustSidebarItemOrder.step(from: selected, by: offset, in: self, settings, place: place)
     }
 }

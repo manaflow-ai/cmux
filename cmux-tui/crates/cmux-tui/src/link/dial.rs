@@ -64,10 +64,13 @@ pub(super) async fn serve_dial_line<C, O>(
     let Some(record) = pairings.by_install(&request.host) else {
         return reply(&mut caller, DialReply::failed(DialError::UnknownHost)).await;
     };
-    // A paired peer serves its daemon entry, its owner session to the owner
-    // (the far link decides who that is), and its acpmux listener (acpmux
-    // checks its own token).
-    if !matches!(request.service, Service::Daemon | Service::OwnerSession | Service::Acpmux) {
+    // A paired peer serves its daemon entry, its owner session and phone
+    // chat to the owner (the far link decides who that is), and its acpmux
+    // listener (acpmux checks its own token).
+    if !matches!(
+        request.service,
+        Service::Daemon | Service::OwnerSession | Service::Acpmux | Service::PhoneChat
+    ) {
         return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
     }
     let Some(key) = record.key() else {
