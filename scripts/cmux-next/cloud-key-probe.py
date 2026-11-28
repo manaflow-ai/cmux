@@ -153,6 +153,11 @@ LOGIN_FILES = {
 # Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
 # Only the harnesses' own caches in a home count: a project's `.claude/plugins` (in a workspace) is the person's.
 SHIPPED = re.compile(r"^/opt/|^/(?:root|home/[^/]+)/(?:\.codex/\.tmp/plugins|\.claude/plugins)/")
+# An installed Python library's own tree under /opt: its source and test data name the `"refresh_token":` field (an
+# OAuth client library's grants), so that context is its public text there too. Prod 11-28 (run 46130359207): 6 of 8
+# clean-room findings were these. A key's name given a value stays a finding even here.
+SHIPPED_LIBRARY = re.compile(r"^/opt/.*/(?:site|dist)-packages/")
+SHIPPED_LIBRARY_CONTEXT = frozenset({"an OAuth refresh token"})
 # Programs the machine's installers put in its home, matched only when the file is a program (ELF), each with the only
 # kinds of match it ships: acpmux and cmux carry a secret scanner's list of known public Google keys, and Codex (copied
 # to arg0/apply_patch) its own key prefixes. Any other kind in such a file, or a match in any other program there, is a
@@ -926,8 +931,10 @@ def scan_files(root, deadline, report):
                 # found by its context (a key's name given a secret, or a `"refresh_token":` field, as in an
                 # assignment in /opt/tool/.env) is configuration, a finding anywhere.
                 shipped = shipped_kinds(where, path) or frozenset()
+                library = SHIPPED_LIBRARY_CONTEXT if SHIPPED_LIBRARY.search(where) else frozenset()
                 for line, what in hits:
-                    listed = report["shipped"] if what in shipped and what not in CONTEXTUAL else report["findings"]
+                    public = what in shipped and (what not in CONTEXTUAL or what in library)
+                    listed = report["shipped"] if public else report["findings"]
                     listed.append({"place": "file", "where": where, "line": line, "what": what})
                 if out_of_time:
                     # A file read in part: what it showed is reported, and the walk is cut there.
