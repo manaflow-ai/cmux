@@ -462,6 +462,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_router_ios_fast_skip.py
 
+      - name: Validate app build manifest (#64429)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_build_manifest.py
+
+      - name: Validate same-head rerun rule for own-trigger jobs (#64236)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_same_head_job.py
+
       - name: Validate rust-workspaces disk headroom
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_disk.py
