@@ -369,6 +369,8 @@
     "method:_acpmux/uploads_keep",
     "method:_acpmux/vm_host",
     "method:_acpmux/wait",
+    "method:_acpmux/wait/park",
+    "method:_acpmux/wait/unpark",
     "method:_acpmux/watch_take_over",
     "method:_acpmux/watchdog_hold",
     "method:_acpmux/web_modes",
