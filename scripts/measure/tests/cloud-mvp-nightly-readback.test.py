@@ -4,7 +4,8 @@
 Run 46142896615 (NIGHTLY 4613363345501) failed "auto: no Runs On control on the New Tab page ... the control shows only
 with an active Cloud plan" with 0 AX rows read at launch and at the failure: the read asked no walk budget, read no
 tree_markdown, dropped CuaDriver's errors, and the copy ran without CMUX_NEXT_ACCESSIBILITY, so its CEF pages had no
-tree. The checks: every get_window_state asks timeout_ms 8000 and the tree; a structuredContent answer and its
+tree. Run 46164486946 then got every row from tree_markdown alone and dropped each row's [N], so the composer on
+screen was "not in the tree"; a markdown row keeps its index. The checks: every get_window_state asks timeout_ms 8000 and the tree; a structuredContent answer and its
 tree_markdown rows are read; an error is kept for the note; an empty tree or a page without its composer is the rig's
 (RigFailure), and only a read page without Runs On is a product failure; the launch passes the accessibility switch.
 Run: python3 -I scripts/measure/tests/cloud-mvp-nightly-readback.test.py
@@ -62,6 +63,15 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(sum(1 for e in seen if e.get("label") == "Type a question"), 1)  # indexed once, not twice
         self.assertGreater(rb.LAST_READ["markdown"], 0)
 
+    def test_markdown_only_rows_keep_their_index_so_the_composer_is_clickable(self):
+        # Run 46164486946: `elements` empty, every row from tree_markdown, composer on screen yet "no composer field".
+        seen, _ = self.read({"structuredContent": {"elements": [], "tree_markdown": MARKDOWN}})
+        field = rb.composer(seen)
+        self.assertIsNotNone(field)
+        self.assertEqual(field["element_index"], 3)
+        self.assertEqual(field["_window"], 7)
+        self.assertFalse(rb.clickable(next(e for e in seen if e["role"] == "AXGroup")))  # no [N]: not clickable
+
     def test_an_error_is_kept_and_an_empty_tree_is_the_rigs(self):
         seen, _ = self.read({"error": "exit 1: AX API disabled"})
         self.assertIn("AX API disabled", rb.read_note())
@@ -84,6 +94,45 @@ class ReadTest(unittest.TestCase):
         with self.assertRaises(rb.ProductFailure):
             chat({"elements": [{"role": "AXTextArea", "label": "Type a question", "element_index": 3},
                                {"role": "AXButton", "label": "This Mac", "element_index": 4}]})
+
+    def toggle(self, screens):
+        """step_toggle on a stand-in chat whose tree is SCREENS[face] for the chip's face, plus the menu once open."""
+        state = {"face": "Auto · This Mac", "open": False}
+        chip = {"role": "AXPopUpButton", "label": rb.PLACE, "element_index": 1}
+        rows = {"Local": "local", "Auto": "auto"}
+
+        def nodes(pid):
+            seen = [chip, {"role": "AXStaticText", "value": state["face"]}]
+            if state["open"]:
+                seen += [{"role": "AXMenuItem", "title": label, "element_index": 10 + i} for i, label in enumerate(screens)]
+            return seen
+
+        def press(pid, element):
+            if element is chip:
+                state["open"] = True
+            elif element.get("title") in rows:
+                state["open"], state["face"] = False, "Local" if element["title"] == "Local" else "Auto · This Mac"
+            return {}
+        old = rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep
+        rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep = nodes, press, lambda *a, **k: {}, lambda *a, **k: {}, lambda s: None
+        try:
+            return rb.step_toggle(1, Path("/tmp"))
+        finally:
+            rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep = old
+
+    def test_the_running_chat_turns_autocloud_off_and_back_on(self):
+        step = self.toggle(["Local", "Auto"])
+        self.assertNotIn("failure", step)
+        self.assertEqual(step["off"]["face_before"], "Auto · This Mac")
+        self.assertEqual(step["off"]["face_after"], "Local")
+        self.assertEqual(step["on"]["face_after"], "Auto · This Mac")
+        self.assertIsNotNone(step["off"]["face_s"])
+        self.assertIsNotNone(step["on"]["face_s"])
+
+    def test_a_menu_without_local_is_a_failure_the_step_keeps(self):
+        step = self.toggle(["Auto"])
+        self.assertIn("no 'Local' row", step["failure"])
+        self.assertNotIn("off", step)
 
     def test_the_copy_launches_with_the_accessibility_switch(self):
         script = (ROOT / "scripts/measure/cloud-mvp-nightly-readback.sh").read_text()

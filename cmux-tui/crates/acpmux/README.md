@@ -1776,7 +1776,7 @@ Extensions:
 | --- | --- |
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
-| `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. `{enabled:false}` pauses that and answers `{}`, building no list. |
+| `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. `{enabled:false}` pauses that and answers only the list position (`listEpoch`, `listSeq`), building no list. |
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |

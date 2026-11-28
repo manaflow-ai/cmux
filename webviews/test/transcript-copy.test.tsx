@@ -25,6 +25,7 @@ const globalKeys = [
   "ResizeObserver",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "CSS",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = globalKeys.map((key) => [key, key in globals, globals[key]] as const);
@@ -49,6 +50,9 @@ Object.assign(globals, {
   },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+  // The transcript's motion owner finds a row by CSS.escape(rowId) (#50251) when a fold opens; jsdom has no
+  // CSS namespace, so this harness lends the browser's escape for the ids it draws.
+  CSS: { escape: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`) },
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 const domClasses = Object.getOwnPropertyNames(dom.window).filter(
