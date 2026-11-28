@@ -2,6 +2,10 @@
 # Keep entries sorted by path; scripts/ci/test_execution_registry.py says how it is split.
 
 [[test]]
+path = "tests/test_accounts_nightly_transport.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
@@ -93,6 +97,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_bench_relevance_map.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bench_baselines.py"
 lane = "linux-guard"
 
 [[test]]
@@ -408,6 +416,14 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 -m unittest tests/test_head_tier.py yourself after adding a pull_request workflow to its GATED set or editing a gated workflow's job conditions."
 
 [[test]]
+path = "tests/test_hook_context_dedup_bound.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hook_context_window.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_hook_python.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
@@ -415,6 +431,11 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts
 [[test]]
 path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hot_apply_abi_read_error.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hot_apply_abi_read_error.py"
 
 [[test]]
 path = "tests/test_hung_test_watchdog.py"
@@ -649,6 +670,10 @@ path = "tests/test_network_allowlist.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_new_tab_split_acceptance.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_new_tab_startup_bench.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_new_tab_startup_bench.py"
@@ -729,6 +754,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pattern_download_layout_hint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1061,6 +1090,11 @@ lane = "legacy"
 path = "tests/test_ssvp_host_early_exit_ends_viewer.py"
 lane = "manual"
 reason = "Run by the lane that changes screen-share-vs-pair.sh: python3 tests/test_ssvp_host_early_exit_ends_viewer.py; needs only bash and python3 (a second)."
+
+[[test]]
+path = "tests/test_ssvp_launch_refused_half.py"
+lane = "manual"
+reason = "Run by the lane that changes screen-share-vs-pair-launch.sh: python3 tests/test_ssvp_launch_refused_half.py; needs only bash, git, openssl and python3 (a second)."
 
 [[test]]
 path = "tests/test_stable_next.py"

@@ -25,6 +25,7 @@ whose head_sha is the PR's current head, and trusts it only when the comment's a
 from __future__ import annotations
 
 import argparse
+import contextvars
 import fnmatch
 import json
 import os
@@ -147,6 +148,14 @@ def gate(record: dict | None, suite: str) -> tuple[str, str]:
     return "success", f"{suite} proof at this head: {len(flows)} flows passed" + (f" in {took}s" if took else "")
 
 
+# How long a read waits out a rate limit that names its end (gh_http's rate_budget_s). with_tokens sets it per token:
+# 0 while another token is left (that token reads it now), RATE_WAIT_LAST_S for the last one. Both gates run in
+# 5-min jobs; before, the run token's 403 slept gh_http's 900 s and the job was cancelled at its timeout, unposted.
+RATE_WAIT_LAST_S = 90.0
+_rate_wait_s: contextvars.ContextVar[float] = contextvars.ContextVar("proof_record_rate_wait_s",
+                                                                     default=RATE_WAIT_LAST_S)
+
+
 def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[dict]:
     out: list[dict] = []
     for page in range(1, pages + 1):
@@ -156,7 +165,7 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
                      "X-GitHub-Api-Version": "2022-11-28"})
         # A passing refusal (429, rate-limit 403, 5xx, a dropped connection) is asked again (gh_http): one
         # blip used to turn a passed build into "proof record not read (HTTPError): rerun this job".
-        _, body, _ = gh_http.request(req, 20, raise_errors=True)
+        _, body, _ = gh_http.request(req, 20, raise_errors=True, rate_budget_s=_rate_wait_s.get())
         got = json.loads(body or b"[]")
         out += got
         if len(got) < 100:
@@ -181,12 +190,15 @@ def with_tokens(read: Callable[[str], T], tokens: list[str]) -> T:
     if not tokens:
         raise ValueError("no token")
     for i, token in enumerate(tokens):
+        mark = _rate_wait_s.set(RATE_WAIT_LAST_S if i == len(tokens) - 1 else 0.0)
         try:
             return read(token)
         except urllib.error.HTTPError as e:
             if e.code not in TOKEN_REFUSED or i == len(tokens) - 1:
                 raise
             print(f"read refused (HTTP {e.code}) with token {i + 1} of {len(tokens)}; trying the next", file=sys.stderr)
+        finally:
+            _rate_wait_s.reset(mark)
     raise AssertionError("unreachable")
 
 
