@@ -449,13 +449,21 @@ mod tests {
         let addr = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
         // Loopback may refuse at once; that is the same failure, earlier.
         let Ok(mut relay) = StreamRelay::connect(addr, None, 0) else { return };
+        // Windows retries the SYN after a refusal and a failed nonblocking connect may not
+        // wake WSAPoll or set SO_ERROR (net_windows.rs), so there the relay's connect
+        // deadline ends it ("connect timed out"): the poll gets the real clock, and the test
+        // waits past CONNECT_US. Run 46188133816 (Windows selftest) polled at 0 and never
+        // reached the deadline: "never failed" after 5 s.
         let start = std::time::Instant::now();
+        let bound =
+            std::time::Duration::from_micros(CONNECT_US) + std::time::Duration::from_secs(5);
         let failed = loop {
             sys::wait_ready(&[(relay.raw(), relay.wants_write())], 50);
-            if let Err(why) = relay.poll(0) {
+            let now_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+            if let Err(why) = relay.poll(now_us) {
                 break why;
             }
-            assert!(start.elapsed() < std::time::Duration::from_secs(5), "never failed");
+            assert!(start.elapsed() < bound, "never failed");
         };
         assert!(failed.starts_with("connect"), "{failed}");
         if let Ok(mut late) = StreamRelay::connect(addr, None, 0) {
