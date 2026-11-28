@@ -4160,6 +4160,9 @@ inputs = [
   "cmux-tui/vendor/crossterm/**",
   "cmux-tui/vendor/smoltcp/**",
   "cmux-tui/vendor/terminput-crossterm/**",
+  "cmux-tui/crates/cmux-tailnet-join/**",
+  "cmux-tui/crates/cmux-tailnet/**",
+  "cmux-tui/crates/cmux-vault-e2e/**",
 ]
 # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
 # (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
