@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -38,6 +39,11 @@ class PrPipelineLinuxBatch(unittest.TestCase):
         for w, g in zip(want, got):
             if w.get("uses", "").startswith("actions/checkout"):
                 w["with"] = {"ref": "${{ inputs.sha || '' }}", **w["with"]}
+            if w.get("id") == "run":
+                # The router's nightly gate (pr-pipeline's inputs.only, a step list) is the pull request's alone: the
+                # batch's inputs.only names a job (a bisect probe's `linux`), so it runs every step instead.
+                w["env"].pop("ROUTER_ONLY", None)
+                w["run"] = re.sub(r"# The router's nightly gate.*?\nfi\n", "", w["run"], flags=re.S)
             self.assertEqual(w, g, w.get("name"))
 
     def test_the_batch_runs_every_step_and_the_pull_request_its_scope(self) -> None:
@@ -87,6 +93,13 @@ class PrPipelineLinuxBatch(unittest.TestCase):
         steps = ci_steps.load().steps
         self.assertFalse(steps["security-holes"].pr_scope)
         self.assertFalse(steps["cache-receipts"].pr_scope)
+
+    def test_a_gate_on_the_pull_requests_own_diff_keeps_its_whole_route(self) -> None:
+        # package-conventions-gate fails only on what the pull request adds (--pr); the batch has no pull request.
+        table = ci_steps.load()
+        self.assertFalse(table.steps["package-conventions-gate"].pr_scope)
+        routed = ci_steps.route(table, ["ios/Sources/App.swift"], pr_scope=True).get("linux", [])
+        self.assertIn("package-conventions-gate", routed)
 
 
 if __name__ == "__main__":

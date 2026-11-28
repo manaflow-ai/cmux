@@ -51,6 +51,18 @@ pub trait Dialer: Send + Sync + fmt::Debug {
         true
     }
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError>;
+    /// [`Self::dial`] for a route whose stream will carry TLS (`secure`: a `wss` route), which
+    /// a proxy-aware carrier ([`OsTcpDialer`]) asks the system's proxy settings about as an
+    /// `https` URL. The rest ignore it.
+    async fn dial_secure(
+        &self,
+        host: &str,
+        port: u16,
+        secure: bool,
+    ) -> Result<DialedStream, LinkError> {
+        let _ = secure;
+        self.dial(host, port).await
+    }
 }
 
 /// Resolve a URL host (an IP literal, a bracketed IPv6 literal, or a name) to
@@ -96,7 +108,9 @@ async fn bounded_unless_last<T>(last: bool, connect: impl Future<Output = T>) ->
 
 /// The operating system's TCP stack, hedged over the resolved addresses
 /// ([`super::hedge`]: a new socket when one's SYN goes unanswered), with
-/// Nagle disabled because the link carries keystrokes.
+/// Nagle disabled because the link carries keystrokes; through the system's
+/// proxy when the system names one for the destination ([`super::proxied`]:
+/// never for loopback or tailnet hosts, and a direct route pays nothing more).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsTcpDialer;
 
@@ -107,12 +121,33 @@ impl Dialer for OsTcpDialer {
     }
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
-        let addresses = resolve_dial_target(host, port).await?;
-        let stream =
-            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+        self.dial_secure(host, port, port == 443).await
+    }
+
+    async fn dial_secure(
+        &self,
+        host: &str,
+        port: u16,
+        secure: bool,
+    ) -> Result<DialedStream, LinkError> {
+        let direct = async {
+            let addresses = resolve_dial_target(host, port)
+                .await
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            let stream = super::hedge::connect_tcp(
+                host,
+                port,
+                &addresses,
+                super::hedge::HedgePolicy::INTERNET,
+            )
+            .await?;
+            let _ = stream.set_nodelay(true);
+            Ok(stream)
+        };
+        let (stream, _) =
+            super::proxied::connect(host, port, secure, &cmux_proxy::ProxyConfig::System, direct)
                 .await
                 .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
-        let _ = stream.set_nodelay(true);
         Ok(Box::new(stream))
     }
 }
@@ -144,7 +179,21 @@ impl Dialer for TailnetDialer {
     }
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
+        self.dial_secure(host, port, port == 443).await
+    }
+
+    async fn dial_secure(
+        &self,
+        host: &str,
+        port: u16,
+        secure: bool,
+    ) -> Result<DialedStream, LinkError> {
         let hinted = direct_candidates(host, port, self.mode, self.hints.as_ref());
+        if hinted.is_empty() {
+            // No tailnet address for this host: the operating system's way, through the
+            // system's proxy when it names one (`OsTcpDialer`).
+            return OsTcpDialer.dial_secure(host, port, secure).await;
+        }
         let resolved = match resolve_dial_target(host, port).await {
             Ok(addresses) => addresses,
             Err(_) if !hinted.is_empty() => Vec::new(),

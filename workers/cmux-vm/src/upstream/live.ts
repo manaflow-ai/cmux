@@ -17,6 +17,7 @@ import { vmInstanceIdentity } from "./live-identity.ts";
 import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
@@ -74,6 +75,8 @@ export interface UpstreamConfig {
   readonly backgroundPollMs?: number;
   /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
   readonly startPollMs?: number;
+  /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
+  readonly createAdmission?: CreateAdmissionClient;
 }
 
 /**
@@ -356,8 +359,17 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 }
 
 /**
- * The live client from Worker configuration. The key is wrapped in Redacted at
- * once. Built eagerly, so a bad base URL throws here (src/index.ts answers 503).
+ * The client's configuration from Worker configuration: every field as given, the key wrapped in Redacted at once.
+ * The whole config is spread, never rebuilt field by field: the layer used to copy three named fields, so the
+ * provider create queue src/index.ts passed (`createAdmission`, cmux#61073) never reached the client and staging sent
+ * every create of a burst at once (2026-11-27 08:46Z, no vm_create line with admitWaitMs). The test harness builds
+ * its client through this too, so a dropped field fails the Worker tests.
  */
-export const upstreamLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamClient> =>
-  Layer.succeed(UpstreamClient, makeUpstreamClient({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));
+export const upstreamConfigOf = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): UpstreamConfig => ({
+  ...config,
+  apiKey: Redacted.make(config.apiKey),
+});
+
+/** The live client from Worker configuration. Built eagerly, so a bad base URL throws here (src/index.ts answers 503). */
+export const upstreamLayer = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): Layer.Layer<UpstreamClient> =>
+  Layer.succeed(UpstreamClient, makeUpstreamClient(upstreamConfigOf(config)));

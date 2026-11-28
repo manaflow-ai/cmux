@@ -33,6 +33,11 @@ public nonisolated struct CloudMachineRules: Sendable {
             throw CloudAPIError.decoding("\(context): the app FFI did not answer")
         }
         guard let read = reply.value else { throw CloudAPIError.decoding("\(context): \(reply.error ?? "unreadable")") }
+        // The pinned app FFI can omit the environment the Cloud API supplied.
+        if var machine = read as? CloudMachine, machine.environmentId == nil {
+            machine.environmentId = value["environment_id"]?.stringValue?.nonEmpty ?? value["environmentId"]?.stringValue?.nonEmpty
+            if let restored = machine as? T { return restored }
+        }
         return read
     }
 
@@ -69,7 +74,7 @@ public nonisolated struct CloudMachineRules: Sendable {
 }
 
 /// A Cloud API answer cmux-cloud-machine reads (`models::KINDS`): its fields are the crate's, not
-/// the server's, so ``CloudAPIClient`` reads one only through ``CloudMachineRules/answer(_:as:context:)``.
+/// the server's, so ``CloudDaemon`` reads one only through ``CloudMachineRules/answer(_:as:context:)``.
 public protocol CloudServerModel: Decodable {
     static var cloudModelKind: String { get }
 }
@@ -96,7 +101,7 @@ private struct ModelReadReply<T: Decodable>: Decodable {
     var error: String?
 }
 
-// The answers ``CloudAPIClient`` reads through the crate, each with its `models::KINDS` kind.
+// The answers ``CloudDaemon`` reads through the crate, each with its `models::KINDS` kind.
 extension CloudMachine: CloudServerModel { public static var cloudModelKind: String { "machine_classic" } }
 extension CloudSCPEndpoint: CloudServerModel { public static var cloudModelKind: String { "scp_endpoint" } }
 extension CloudExecResult: CloudServerModel { public static var cloudModelKind: String { "exec_result" } }

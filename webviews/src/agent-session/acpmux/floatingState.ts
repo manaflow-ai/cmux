@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { viewStore } from "./paneViewStore";
 
 /// Start Agent's floating chat (CmuxNextAgentPane AgentPaneFloatingState, cx-b9qi): whether the panel
 /// holds a running chat, floats over other windows, and is folded to its compact bar. The App pushes
@@ -9,11 +9,12 @@ export interface FloatingState {
   readonly collapsed: boolean;
 }
 
-let current: FloatingState = { holding: false, onTop: true, collapsed: false };
-const listeners = new Set<() => void>();
+// One value a pane view (paneViewStore.ts); the page itself is the null view.
+const store = viewStore<FloatingState>({ holding: false, onTop: true, collapsed: false });
 
 /// The App's push; fields it leaves out keep their value.
-export function setFloatingState(value: unknown): void {
+export function setFloatingState(value: unknown, view: string | null = null): void {
+  const current = store.get(view);
   const raw = (value ?? {}) as { holding?: unknown; onTop?: unknown; collapsed?: unknown };
   const next: FloatingState = {
     holding: typeof raw.holding === "boolean" ? raw.holding : current.holding,
@@ -21,16 +22,10 @@ export function setFloatingState(value: unknown): void {
     collapsed: typeof raw.collapsed === "boolean" ? raw.collapsed : current.collapsed,
   };
   if (next.holding === current.holding && next.onTop === current.onTop && next.collapsed === current.collapsed) return;
-  current = next;
-  for (const listener of listeners) listener();
+  store.set(next, view);
 }
 
-export const floatingState = (): FloatingState => current;
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
+export const floatingState = (view: string | null = null): FloatingState => store.get(view);
 
 /// The live floating chat state.
-export const useFloatingState = (): FloatingState => useSyncExternalStore(subscribe, floatingState, floatingState);
+export const useFloatingState = (): FloatingState => store.use();

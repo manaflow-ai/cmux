@@ -21,6 +21,7 @@ import { HomeIcon } from "./icons";
 import {
   activityAt,
   channelIds,
+  chiefNamer,
   chiefState,
   chronological,
   conversationName,
@@ -34,7 +35,6 @@ import {
   threadSummaries,
   threadOf,
   timelineRows,
-  withChiefNames,
   withDraft,
 } from "./model";
 import type { PaletteItem } from "./Palette";
@@ -141,11 +141,13 @@ export function HomeChannelsPage({
   const column = useRef<HTMLDivElement | null>(null);
   const me = snap.me?.id;
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
+  // The renamed conversations of the last pass, kept while their input and name hold (model.ts).
+  const [renameChiefs] = useState(chiefNamer);
   // A Chief's direct message shows the Chief's current name (its record), not the name its
   // conversation was made with ("Chief" for every brain's own DM).
   const conversations = useMemo(
-    () => withChiefNames(snap.conversations, channels, me, sheetState.chiefs),
-    [snap.conversations, channels, me, sheetState.chiefs],
+    () => renameChiefs(snap.conversations, channels, me, sheetState.chiefs),
+    [renameChiefs, snap.conversations, channels, me, sheetState.chiefs],
   );
   const open = snap.selected ? conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
@@ -332,12 +334,17 @@ export function HomeChannelsPage({
     [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
-  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
-    // The order the list shows: my pins first, then newest activity.
+  // The order the list shows (my pins first, then newest activity) and each conversation's place in
+  // it, once per change of the conversations: a move finds the selection without a pass over them.
+  const listed = useMemo(() => {
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
+    return { order, place: new Map(order.map((c, index) => [c.id, index])) };
+  }, [snap.conversations]);
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
+    const { order } = listed;
     const n = order.length;
-    const start = order.findIndex((c) => c.id === snap.selected);
+    const start = snap.selected === undefined ? -1 : (listed.place.get(snap.selected) ?? -1);
     const base = start < 0 ? (delta > 0 ? -1 : n) : start;
     for (let step = 1; step <= n; step += 1) {
       const next = order[(((base + delta * step) % n) + n) % n];

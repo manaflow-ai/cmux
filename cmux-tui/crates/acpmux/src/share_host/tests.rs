@@ -533,6 +533,44 @@ fn the_helpers_own_grant_reading_is_kept_with_the_item_it_is_listed_as() {
 }
 
 #[test]
+fn a_fresh_install_reads_the_helpers_grants_once_before_any_share() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let macos = home.path().join("cmux NIGHTLY Helper.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":true,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut found = 0;
+    helper::read_grants_once(home.path(), || {
+        found += 1;
+        Some(exe.clone())
+    });
+    assert_eq!(found, 1);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], true, "the helper's grant, before any share: {kept}");
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Helper");
+
+    // Once per home: a second ask neither looks the helper up again nor reads it again.
+    let other = tempfile::tempdir().unwrap();
+    let mut looked = 0;
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    assert_eq!(looked, 1);
+    assert_eq!(helper::status_json(other.path())["permissions"], Value::Null);
+}
+
+#[test]
 fn the_joins_install_mark_and_status_are_read_from_its_files() {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -1342,6 +1380,46 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `cmux remote-host share off` on a joined Mac turns the share host's own device off at the hub,
+/// with no app; a machine with no share host keeps the caller's path; a joined Linux machine
+/// names cmux-rd's switch; a failed hub call says why and what to do (design Z4).
+#[test]
+fn share_off_reaches_the_share_hosts_device_only_on_a_joined_mac() {
+    use super::NotRunning;
+    use super::cli::{OffHere, off_outcome};
+    let joined = || -> Result<(), NotRunning> { Ok(()) };
+    let not_joined = || -> Result<(), NotRunning> {
+        Err(NotRunning::new("not_joined", "this machine is not joined"))
+    };
+    let hub_ok = || Ok::<_, NotRunning>("hub");
+    let off = |hub: &&str| {
+        assert_eq!(*hub, "hub");
+        Ok(json!({"shared": false}))
+    };
+    let unreachable = |_: &&str| -> Result<Value, String> { panic!("no hub call expected") };
+
+    assert_eq!(off_outcome(false, joined(), hub_ok, off), OffHere::Off(json!({"shared": false})));
+    for linux in [false, true] {
+        assert_eq!(off_outcome(linux, not_joined(), hub_ok, unreachable), OffHere::NoHost);
+    }
+    let OffHere::Failed(line) = off_outcome(true, joined(), hub_ok, unreachable) else {
+        panic!("a joined Linux machine names cmux-rd's switch")
+    };
+    assert!(line.contains("cmux-rd linux-host share off"), "{line}");
+    let unregistered = || Err::<&str, _>(NotRunning::new("not_registered", "no device yet"));
+    assert_eq!(off_outcome(false, joined(), unregistered, unreachable), OffHere::NoHost);
+    let unreadable = || Err::<&str, _>(NotRunning::new("identity_unreadable", "bad key"));
+    let OffHere::Failed(line) = off_outcome(false, joined(), unreadable, unreachable) else {
+        panic!("an unreadable device is a failure")
+    };
+    assert!(line.contains("bad key") && line.contains("Allow Mac Screen"), "{line}");
+    let refused = |_: &&str| -> Result<Value, String> { Err("hub unreachable".to_owned()) };
+    let OffHere::Failed(line) = off_outcome(false, joined(), hub_ok, refused) else {
+        panic!("a failed hub call is a failure")
+    };
+    assert!(line.contains("hub unreachable") && line.contains("run it again"), "{line}");
+}
+
 /// What `peers` lists as `deviceHub` on a machine only the mesh hub reaches: the device hub's
 /// record of its name (its first label, any case), or that there is none; nothing before the
 /// list was read.
@@ -1370,6 +1448,166 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
             "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
+    // Two equal records: the one seen last, as the app picks, not the one listed last.
+    shared.set_devices(&json!({"devices": [
+        {"id": "new", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 200.0},
+        {"id": "old", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 100.0},
+        {"id": "never", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true},
+    ]}));
+    assert_eq!(shared.device_hub_of("vm").unwrap()["id"], "new");
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos"},
+    ]}));
     // This device's own record is never another machine's.
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
+}
+
+#[test]
+fn a_join_made_while_the_daemon_runs_is_set_up_without_a_restart() {
+    use super::NotRunning;
+    use super::linux::{Step, Tick, tick};
+    let rd = rd_identity(1000, 1);
+    let not_joined = || Err(NotRunning::new("not_joined", "this machine is not joined"));
+    let join = |generation: u64| -> Result<Value, NotRunning> {
+        Ok(json!({"machineId": "m1", "credentialGeneration": generation}))
+    };
+    // The daemon started before the join (the bug: the watcher ended there), then a join, a
+    // leave, and a join again, with cmux-rd installed all along.
+    let timeline = [not_joined(), not_joined(), join(1), join(1), not_joined(), join(2), join(2)];
+    let mut attempted = None;
+    let mut seen = Vec::new();
+    for read in timeline {
+        match tick(read, Value::clone, &mut attempted, Some(rd)) {
+            Tick::NotJoined(why) => {
+                assert_eq!(why.code, "not_joined");
+                assert_eq!(attempted, None, "a leave forgets what was tried");
+                seen.push("not_joined".to_owned());
+            }
+            Tick::Joined(_, key, Step::Enable(id)) => {
+                attempted = Some((id, key.clone()));
+                seen.push(format!("enable {}", key["credentialGeneration"]));
+            }
+            Tick::Joined(_, _, step) => seen.push(format!("{step:?}")),
+        }
+    }
+    assert_eq!(
+        seen,
+        ["not_joined", "not_joined", "enable 1", "Wait", "not_joined", "enable 2", "Wait"]
+    );
+    // A join while cmux-rd is not there yet says so, and its install is set up on its tick.
+    let mut attempted = None;
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, None),
+        Tick::Joined(_, _, Step::NotInstalled)
+    ));
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, Some(rd)),
+        Tick::Joined(_, _, Step::Enable(_))
+    ));
+    assert_eq!(super::JOIN_CHECK_EVERY, Duration::from_secs(60));
+}
+
+#[tokio::test]
+async fn a_status_from_before_a_join_says_the_host_starts_and_wakes_the_check() {
+    use super::state::{not_running_json, refreshed};
+    use super::{NotRunning, joined_since, next_check};
+    // Every join reason, read against a machine joined now: out of date.
+    for state in super::JOIN_STATES {
+        assert!(joined_since(state, false, || true), "{state}");
+        assert!(!joined_since(state, false, || false), "{state}");
+    }
+    // A running host, or one stopped for another reason, never asks about the join.
+    let asked = std::cell::Cell::new(false);
+    let ask = || {
+        asked.set(true);
+        true
+    };
+    assert!(!joined_since("set_up", true, ask));
+    assert!(!joined_since("not_installed", false, ask));
+    assert!(!joined_since("enable_failed", false, ask));
+    assert!(!asked.get());
+    // The daemon's own not-joined status, unchanged while the machine is not joined.
+    let why = NotRunning::new("not_joined", "this machine is not joined");
+    let before = not_running_json(Some(&why), true);
+    assert_eq!(refreshed(before.clone(), || false), before);
+    // Joined since: it says the host starts, and the check is woken now, not in a minute.
+    let after = refreshed(before, || true);
+    assert_eq!(after["state"], "starting");
+    assert_eq!(after["running"], false);
+    assert!(after["detail"].as_str().unwrap().contains("joined since"));
+    tokio::time::timeout(Duration::from_secs(5), next_check(Duration::from_secs(3600)))
+        .await
+        .expect("a recheck wakes the join check at once");
+    // The Linux host's status says the same.
+    let linux = super::linux::status_json("not_joined", "x", Path::new("/rd"), "");
+    assert_eq!(refreshed(linux, || true)["state"], "starting");
+}
+
+#[test]
+fn a_ping_without_a_pong_ends_the_link() {
+    let s = Duration::from_secs;
+    // No ping yet, or one just sent: the socket is fine.
+    assert!(!link::pong_overdue(None, true));
+    assert!(!link::pong_overdue(Some(s(3)), false));
+    // Answered: fine however long ago the ping went out.
+    assert!(!link::pong_overdue(Some(s(25)), true));
+    // Unanswered past the bound: the socket is gone, reconnect.
+    assert!(link::pong_overdue(Some(s(11)), false));
+}
+
+#[test]
+fn a_watching_app_hears_each_time_the_daemon_comes_online_signed_in() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
+        .unwrap();
+    let host = Shared::new(home.path().to_path_buf(), hub);
+    assert_eq!(
+        ask(&host, json!({"id": 1, "method": "device.watch"})),
+        (json!({"id": 1, "ok": true, "result": {}}), After::Watch)
+    );
+    // Not online yet: nothing now, so an app that read no `user_id` waits for the event.
+    let (early, mut early_lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(early);
+    assert!(early_lines.try_recv().is_err());
+    host.update_link(|link| link.state = "online");
+    host.announce_online();
+    let event: Value = serde_json::from_str(&early_lines.try_recv().unwrap()).unwrap();
+    let id = host.hub().device.id.clone();
+    assert_eq!(event, json!({"event": "online", "id": id, "user_id": "u"}));
+    // Online already: a new watcher hears it at once.
+    let (late, mut late_lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(late);
+    assert_eq!(late_lines.try_recv().unwrap(), event.to_string());
+    // A new device (the hub refused the old one) online again: every watcher hears its id.
+    host.set_hub(
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
+            .unwrap(),
+    );
+    host.announce_online();
+    let renewed: Value = serde_json::from_str(&early_lines.try_recv().unwrap()).unwrap();
+    assert_ne!(renewed["id"], json!(id));
+    assert_eq!(renewed["id"], json!(host.hub().device.id));
+    assert_eq!(late_lines.try_recv().unwrap(), renewed.to_string());
+    // Signed out of the hub or not online: no event.
+    let unsigned = shared(home.path());
+    unsigned.update_link(|link| link.state = "online");
+    assert!(unsigned.online_event().is_none());
+}
+
+#[test]
+fn a_stopped_link_offers_no_account_so_the_app_keeps_its_own_device() {
+    let home = tempfile::tempdir().unwrap();
+    let hub =
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("user-1".into()))
+            .unwrap();
+    let shared = Shared::new(home.path().to_path_buf(), hub);
+    let (signed_in, _) = ask(&shared, json!({"id": 1, "method": "device.identity"}));
+    assert_eq!(signed_in["result"]["user_id"], "user-1");
+    // The hub removed this device (socket close 4001): the link stops until the Mac joins again.
+    shared.update_link(|link| link.state = "stopped");
+    let (stopped, _) = ask(&shared, json!({"id": 2, "method": "device.identity"}));
+    assert_eq!(stopped["ok"], true);
+    assert!(stopped["result"].get("user_id").is_none());
 }

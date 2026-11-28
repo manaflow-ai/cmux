@@ -271,11 +271,18 @@ class GitLockLine(unittest.TestCase):
 # A string that is git's words or a git lock's name: ".lock", "index.lock", ".git/shallow.lock" (not "no gui.lock hold").
 _LOCK_WORD = (r"(?:[^\"'\n]*(?:Unable to create|another git process)[^\"'\n]*"
               r"|(?:[^\"'\s]*/)?(?:shallow|index|HEAD|packed-refs|config|FETCH_HEAD|ORIG_HEAD)?\.lock)")
+# A quoted file suffix or name (".json", "Package.swift"), and a comma-separated run of them.
+_NAME = r"\s*[\"'][\w.-]*\.[\w.-]*[\"']"
+_NAMES = r"(?:" + _NAME + r"\s*,)*" + _NAME
 SUBSTRING_LOCK_MATCH = (
     # "x.lock" in err / "Unable to create" in stderr
     re.compile(r"[\"']" + _LOCK_WORD + r"[\"']\s+(?:not\s+)?in\s+[\w.()\[\]]*(?:err|stderr|out|output|text|msg|message)\b"),
-    # LOCK_WORDS = (".lock", "Unable to create", ...), a word list a retry tests `any(word in err ...)` against
-    re.compile(r"^\s*[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*[(\[{].*[\"'](?:\.lock|Unable to create|another git process)[\"']"),
+    # LOCK_WORDS = (".lock", "Unable to create", ...), a word list a retry tests `any(word in err ...)` against;
+    # not a list of file suffixes or names alone, one of them free of "lock" (FOLDER_DATA = (".json", ..., ".lock"),
+    # scripts/ci/tooling_steps.py, #56807: base run 46008833629)
+    re.compile(r"^\s*[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*[(\[{]"
+               r"(?!(?=" + _NAMES + r"\s*,?\s*[)\]}]\s*(?:#.*)?$)(?=(?:" + _NAME + r"\s*,)*\s*[\"'](?![^\"']*lock)))"
+               r".*[\"'](?:\.lock|Unable to create|another git process)[\"']"),
     # grep -q 'index.lock' / grep -qi "unable to create" on a captured error
     re.compile(r"\bgrep\s+(?:-\w+\s+)*[\"']?[^\s\"']*(?:\\?\.lock\b|[Uu]nable to create|another git process)"),
 )
@@ -294,6 +301,8 @@ class NoSubstringLockRetry(unittest.TestCase):
     def test_the_detector_finds_each_shape_and_passes_the_exact_match(self) -> None:
         bad = (
             'GIT_LOCK_WORDS = (".lock", "Unable to create", "another git process")',
+            'LOCK_FILES = (".lock", "index.lock")',
+            'LOCK_HINTS = (".json", "another git process")',
             '        if ".lock" in err:',
             '    if "Unable to create" in result.stderr:',
             '    while "index.lock" in proc.stderr:',
@@ -311,6 +320,7 @@ class NoSubstringLockRetry(unittest.TestCase):
             '        for name in ("shallow.lock", "index.lock", "HEAD.lock"):',
             '    (partial / ".git/index.lock").write_text("")',
             'touch "$tmp/mac/.git/index.lock"',
+            '    FOLDER_DATA = (".json", ".toml", ".txt", ".md", ".zon", "Package.swift", ".plist", ".lock", ".csv")',
             '    check("refuses with no gui.lock hold", rc == 2 and "no gui.lock hold" in err, err)',
         )
         for line in good:

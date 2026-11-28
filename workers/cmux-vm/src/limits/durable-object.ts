@@ -9,6 +9,7 @@ import type { MeshCreationCommand, MeshCreationResult } from "./mesh-creation.ts
 import type { AgentSlotOutcome } from "./agent-slots.ts";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
+import { CreateAdmissionQueue, type CreateAdmission } from "./create-admission.ts";
 import {
   TenantLedger,
   type LedgerStorage,
@@ -26,11 +27,17 @@ import {
 const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): LedgerStorage => ({
   get: (key) => store.get(key), put: (key, value) => store.put(key, value),
   delete: (key) => store.delete(key), list: (options) => store.list(options),
+  getMany: (keys) => store.get([...keys]), deleteMany: (keys) => store.delete([...keys]),
   transaction: (run) => "transaction" in store ? store.transaction((tx) => run(storageOf(tx))) : run(storageOf(store)),
 });
 
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
+  /** Used only by the object named PROVIDER_CREATE_QUEUE_NAME: the environment's provider create queue. */
+  private readonly createQueue = new CreateAdmissionQueue(storageOf(this.ctx.storage));
+
+  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }, background === true); }
+  releaseCreate(holder: string): Promise<void> { return this.createQueue.release(holder); }
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return this.ledger.meshCreation(command, nowMs); }
 
@@ -78,10 +85,15 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);
   }
 
-  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
+  /** true, or the ledger's refusal reason (never swallowed: a bare false became an anonymous 503 on staging). */
+  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<true | string> {
     // Expected stale/conflicting claims return a receipt rather than a rejected RPC promise.
     try { await this.ledger.advance(key, progress, nowMs); return true; }
-    catch { return false; }
+    catch (cause) { return cause instanceof Error && cause.message !== "" ? cause.message : "allocation journal write was not confirmed"; }
+  }
+
+  renew(key: string, nowMs: number): Promise<void> {
+    return this.ledger.renew(key, nowMs);
   }
 
   abandon(key: string, nowMs: number): Promise<void> {

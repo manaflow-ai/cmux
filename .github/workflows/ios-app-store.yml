@@ -108,7 +108,7 @@ jobs:
       INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # main, as resolved by app-source (the commit the source archive holds).
           ref: ${{ needs.app-source.outputs.sha }}
@@ -470,7 +470,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.app-source.outputs.sha }}
           persist-credentials: false

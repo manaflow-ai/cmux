@@ -151,6 +151,11 @@ def path_packages(root):
     if seam is not None:
         return sorted({line.strip() for line in seam.splitlines() if line.strip()})
     ws = root / WORKSPACE
+    # A build-xcframework.sh killed mid-build (a CI step timeout) leaves Cargo.lock patched; --locked below
+    # would refuse it ("cannot update the lock file"), so put the checked-in lock back first.
+    restore = ws / "scripts" / "restore-ios-patch-lock.sh"
+    if restore.is_file():
+        cmd(["bash", str(restore)], ws)
     cmd(["cargo", "fetch", "--locked"], ws)
     meta = json.loads(cmd(["cargo", "metadata", "--format-version", "1", "--locked", "--offline"], ws))
     real = root.resolve()

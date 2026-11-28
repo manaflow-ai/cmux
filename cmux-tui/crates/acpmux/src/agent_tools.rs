@@ -513,6 +513,9 @@ pub struct Inputs {
     /// by default): sessions get `start_session` and the rest
     /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
     pub subsessions: bool,
+    /// Sessions get the forum tools (`forum_mcp.rs`): only on a machine in a team or forum
+    /// ([`crate::forum_mcp::enabled`]), not every chat.
+    pub forum: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -573,6 +576,7 @@ impl Inputs {
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
             subsessions: crate::subsession_settings::enabled(),
+            forum: crate::forum_mcp::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
@@ -1103,6 +1107,21 @@ pub(crate) fn claude_args_and_hooks_for(
     };
     #[cfg(not(unix))]
     let shared = Map::new();
+    // Only a recognized legacy launch establishes that its off choice names our builtin.
+    #[cfg(unix)]
+    let legacy =
+        if !remote_origin && !strict { shared_servers::claude_leftover(env, cwd) } else { None };
+    #[cfg(not(unix))]
+    let legacy: Option<String> = None;
+    let mut launch_env = env.clone();
+    if let (Some(legacy), Some(off)) = (legacy.as_deref(), env.get(OFF_ENV)) {
+        let names: Vec<&str> = off
+            .split(',')
+            .map(str::trim)
+            .map(|name| if name == legacy { crate::acpmux_mcp_names::SERVER_NAME } else { name })
+            .collect();
+        launch_env.insert(OFF_ENV.to_owned(), names.join(","));
+    }
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
         if project_servers.is_empty() && shared.is_empty() {
@@ -1116,7 +1135,7 @@ pub(crate) fn claude_args_and_hooks_for(
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
             .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
-            .without_off(env)
+            .without_off(&launch_env)
             .fit_skills()
             .folded();
         if takes_appended_prompt(args) {
@@ -1128,11 +1147,7 @@ pub(crate) fn claude_args_and_hooks_for(
     // so `--mcp-config` replaces it instead of Claude starting both.
     let ours = tools.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME);
     #[cfg(unix)]
-    let leftover = if ours && !remote_origin && !strict {
-        shared_servers::claude_leftover(env, cwd)
-    } else {
-        None
-    };
+    let leftover = if ours && !remote_origin && !strict { legacy } else { None };
     #[cfg(not(unix))]
     let leftover: Option<String> = None;
     let tools = match leftover {
@@ -1285,15 +1300,18 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
                 .collect(),
         });
     }
-    if let Some(acpmux) = &inputs.acpmux {
+    if let (true, Some(acpmux)) = (inputs.forum, &inputs.acpmux) {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
-        // session with its caller token, like the sub-session server.
+        // session with its caller token, like the sub-session server. Only
+        // in a team or forum ([`Inputs::forum`]).
         servers.push(McpServer {
             name: crate::forum_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
+    }
+    if let Some(acpmux) = &inputs.acpmux {
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
         // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {
@@ -1739,6 +1757,9 @@ impl AgentTools {
     pub fn without_off(mut self, env: &BTreeMap<String, String>) -> Self {
         if let Some(off) = env.get(OFF_ENV) {
             let off: Vec<&str> = off.split(',').map(str::trim).collect();
+            // These names also include the person's unrelated servers. The inventory
+            // migrates proven builtin aliases before producing OFF_ENV; names alone are
+            // insufficient evidence to disable a second server here.
             self.servers.retain(|s| !off.contains(&s.name.as_str()));
         }
         self

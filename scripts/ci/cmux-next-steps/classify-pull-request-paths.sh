@@ -13,6 +13,11 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
     echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
   }
+  # full-ci into feat-cmux-next is one-shot (head_tier.py): only its own labeled event runs the full tier.
+  if [[ "${CI_FULL_CI_ONE_SHOT:-1}" != 0 && "${PR_BASE_REF:-}" == feat-cmux-next ]] &&
+    ! [[ "${EVENT_ACTION:-}" == labeled && "${EVENT_LABEL:-}" == full-ci ]]; then
+    labels="$(tr ',' '\n' <<< "$labels" | grep -vx full-ci | paste -sd, -)" || labels=""
+  fi
 else
   : > "$changed"
 fi
@@ -30,12 +35,17 @@ if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
       echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
       exit 1
     }
-  else
-    [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-      echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-      exit 1
-    }
   fi
+fi
+if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true && -z "$SAME_TREE_SHA" && "$DEV_DAILY_SHA" != "$GITHUB_SHA" ]]; then
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-391
+  # A merge moved feat-cmux-next before this run started: nothing is broken, so end green with every tier off.
+  echo "::notice title=cmux-next dev_daily superseded::dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; nothing builds here and the next dispatcher tick takes the new tip"
+  echo 'superseded=true' >> "$GITHUB_OUTPUT"
+  printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
+  printf '%s=\n' swift_canary_targets swift_filter swift_priority_filter swift_targets >> "$GITHUB_OUTPUT"
+  echo "- superseded dev-daily dispatch: asked for $DEV_DAILY_SHA, feat-cmux-next is at $GITHUB_SHA; every tier is off and the next dispatcher tick builds the new tip." >> "$GITHUB_STEP_SUMMARY"
+elif [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   {
     echo 'native=false'
     echo 'swift_canary=false'

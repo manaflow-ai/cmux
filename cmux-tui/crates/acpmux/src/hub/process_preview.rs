@@ -148,11 +148,15 @@ impl Hub {
         }
     }
 
-    /// An adopted host's processes, read again from the log (`rebuild_processes`), with a
+    /// An adopted host's processes, read again from the log (`rebuild_processes_from`), with a
     /// watch for each still running one that has no preview: a server whose watch ended with
     /// the daemon before it found one is read again (`hosts.rs` `recover_work`).
-    pub(crate) fn recover_processes(self: &Arc<Self>, session: &Arc<Session>) {
-        self.rebuild_processes(session);
+    pub(crate) fn recover_processes(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        saved: Option<super::SavedProcesses>,
+    ) {
+        self.rebuild_processes_from(session, saved);
         self.watch_previews(session);
     }
 

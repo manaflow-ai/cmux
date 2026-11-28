@@ -279,8 +279,20 @@ fn a_claude_chat_carries_the_file_of_its_own_folder() {
     put(&home.path().join(".claude/projects/-Users-me-old").join(&name), "{\"old\":1}\n");
     let own = home.path().join(".claude/projects/-Users-me-src").join(&name);
     put(&own, "{\"turn\":1}\n");
+    // Its own folder's `Task` children go with it (the session-move matrix's
+    // claude-subagents row went red when this path left them); the old folder's stay.
+    let child = own.with_extension("").join("subagents/agent-a1.jsonl");
+    put(&child, "{\"agentId\":\"a1\"}\n");
+    put(
+        &home
+            .path()
+            .join(".claude/projects/-Users-me-old")
+            .join(sid)
+            .join("subagents/agent-b1.jsonl"),
+        "{}\n",
+    );
     let found = native::locate_in(&meta("claude", "claude", sid, "/Users/me/src"), home.path());
-    assert_eq!(found, [("claude-project".to_owned(), own)]);
+    assert_eq!(found, [("claude-project".to_owned(), own), ("claude-subagent".to_owned(), child)]);
 }
 
 /// A history-later move's bundle takes the prepare's copy of the agent's transcript and only

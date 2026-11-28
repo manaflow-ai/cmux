@@ -9,6 +9,7 @@ gh calls of every job on the publish path, with room in timeout-minutes for the 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -132,6 +133,17 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
 
+    def test_a_wait_prints_one_structured_marker_on_stderr_only(self) -> None:
+        # ci-trace classifies waits by `CMUX-WAIT {json}` anywhere in a log line.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        markers = [json.loads(m.group(1)) for m in re.finditer(r"CMUX-WAIT (\{.*\})", result.stderr)]
+        self.assertEqual(markers, [{"on": "github-api-budget", "class": "quota", "bound_s": 1, "waited_s": 1}])
+        self.assertNotIn("CMUX-WAIT", result.stdout)
+        # A caller merging stderr into stdout compares it exactly, so it gets no marker.
+        out = subprocess.run(["bash", "-c", f'"{h.shim}" api x 2>&1'], env=h.env, capture_output=True, text=True)
+        self.assertEqual(out.stdout, "ok api x\n")
+
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
@@ -201,7 +213,9 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", hand_off)
         wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
         timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
-        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
+        # The look is advisory: past 2 minutes of rate limit the head's look is skipped, not waited out on a runner
+        # (about 50 runs slept 1,400 s on 11-24; a merged PR gets its receipt at its merge commit).
+        self.assertLessEqual(wait, 120, "a rate limit past 2 minutes skips this head's look")
         self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
 
     def test_a_refused_spare_token_waits_as_before(self) -> None:
@@ -246,6 +260,24 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
         self.assertEqual(h.waited(), 1)
+
+    def test_a_dispatch_github_could_not_read_the_workflow_for_is_tried_again(self) -> None:
+        # Run 45798252585: dispatch-published-in got "HTTP 422 ... twirp error resource_exhausted: gitmon refuses
+        # to schedule us"; GitHub never read the workflow file, so nothing ran and the same call is tried again.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Invalid Argument - failed to parse "
+                                    "workflow: failed to fetch workflow: getting blob contents: twirp error resource_exhausted: "
+                                    "gitmon refuses to schedule us: fail-fast:network")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"] * 2)
+
+    def test_another_422_is_not_tried_again(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Unexpected inputs provided")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertNotEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"])
 
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
@@ -453,6 +485,9 @@ PUBLISH_PATH = (
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    # The tail's first job: its one read of the publishing run failed on "API rate limit exceeded for
+    # installation" in tail run 45925996466, and build 4592220755201 got no release notes (2026-11-27).
+    "published-build",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
@@ -526,10 +561,17 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    # The tail's first job runs secret-free on the nightly's Linux label (no App keys there), so its two reads
+    # go on github.token and wait through a refusal instead (tail run 45925996466 lost a build's notes on one).
+    ("published-build", "Check the run that published"),
+    ("published-build", "Download its record"),
     ("published-in", "Comment the build on its PRs"),
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
+    # A git fetch of the notes span with the job token (#58154), like published-in's "Fetch the published span":
+    # git's own limit, not the REST core budget.
+    ("sign-release-notes", "Fetch the commits since the newest published notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
     ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
@@ -580,7 +622,11 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+                # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
+                # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
+                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
+                                (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
@@ -591,6 +637,19 @@ class WorkflowTests(unittest.TestCase):
         # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
         # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
         scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        self.assertTrue(scripts)
+        for step in scripts:
+            script = step["with"]["script"]
+            self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+            script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
+            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
+            self.assertIn("x-ratelimit-reset", script, step.get("name"))
+            self.assertIn("deadline", script, step.get("name"))
+
+    def test_the_failure_close_waits_through_a_rate_limit(self) -> None:
+        # Run 45823496118's close-nightly-failure-issue died on "API rate limit exceeded" (2026-11-26). It has no
+        # checkout, so its github-script carries the same wrap inline.
+        scripts = [s for s in self.jobs["close-nightly-failure-issue"]["steps"] if "github-script" in str(s.get("uses", ""))]
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]

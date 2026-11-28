@@ -1,4 +1,4 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
+import { cloudflareTest } from "@cloudflare/vitest-plugin"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"

@@ -15,7 +15,7 @@
  * - a create that failed before any send gives its slot back, and a deleted VM forgets the slot that names it.
  */
 import { Schema } from "effect";
-import type { LedgerStorage } from "./storage.ts";
+import { deleteMany, type LedgerStorage } from "./storage.ts";
 
 /** A create in flight: longer than the idempotency lease (10 minutes), so a slow create never loses its slot. */
 export const ADMIT_TTL_MS = 15 * 60_000;
@@ -43,11 +43,12 @@ export type AgentSlotOutcome =
 /** Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. */
 export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> =>
   storage.transaction(async (tx) => {
-    const held = new Set(ownedVmIds);
+    const held = new Set(ownedVmIds), expired: string[] = [];
     for (const [key, value] of await tx.list({ prefix: prefixOf(agent) })) {
-      if (!isAgentSlot(value) || value.expiresMs <= nowMs) await tx.delete(key);
+      if (!isAgentSlot(value) || value.expiresMs <= nowMs) expired.push(key);
       else held.add(value.vmId ?? key);
     }
+    await deleteMany(tx, expired);
     if (held.size >= limit) return false;
     await tx.put(`${prefixOf(agent)}${slotId}`, { expiresMs: nowMs + ADMIT_TTL_MS });
     return true;
@@ -73,7 +74,9 @@ export const bindAgentCreation = (storage: LedgerStorage, agent: string, creatio
 /** A deleted VM (or its cancelled creation) no longer counts against any agent key's budget. */
 export const forgetAgentVm = (storage: LedgerStorage, vmId: string, creationKey: string | null): Promise<void> =>
   storage.transaction(async (tx) => {
+    const gone: string[] = [];
     for (const [key, value] of await tx.list({ prefix: PREFIX })) {
-      if (isAgentSlot(value) && (value.vmId === vmId || (creationKey !== null && value.creationKey === creationKey))) await tx.delete(key);
+      if (isAgentSlot(value) && (value.vmId === vmId || (creationKey !== null && value.creationKey === creationKey))) gone.push(key);
     }
+    await deleteMany(tx, gone);
   });

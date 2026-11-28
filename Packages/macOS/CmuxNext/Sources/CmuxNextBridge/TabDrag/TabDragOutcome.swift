@@ -170,3 +170,24 @@ public nonisolated enum TabDragResolver {
         }
     }
 }
+
+extension TabDragOutcome {
+    /// The tab move a merge drop on `kind` makes for the workspace's first
+    /// tab; nil for targets a workspace never takes.
+    package static func workspaceMerge(_ kind: TabDropKind) -> TabDragOutcome? {
+        switch kind {
+        case .strip(let stripID, let index, _): .strip(stripID: stripID, index: index, groupID: nil)
+        case .newSplit(let pane, let edge): .newSplit(paneID: pane, edge: edge)
+        case .newColumn(let screen, let after?): .newColumn(screenID: screen, afterColumnID: after)
+        case .newDock(let screen, let edge): .newDock(screenID: screen, edge: edge)
+        case .newColumn(_, nil), .newWorkspace, .workspace: nil
+        }
+    }
+}
+
+extension TabDragContext {
+    /// Workspace drags never resolve tab outcomes; a neutral context.
+    package static func workspaces(count: Int) -> TabDragContext {
+        TabDragContext(sourcePaneID: "", sourcePaneTabCount: 0, sourceWorkspaceID: "", sourceWorkspaceTabCount: 0, draggedTabCount: count)
+    }
+}

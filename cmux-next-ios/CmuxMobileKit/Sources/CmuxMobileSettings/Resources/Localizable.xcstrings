@@ -46,15 +46,15 @@
     "mobile.devices.loadFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices. Pull to retry."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden. Zum Wiederholen nach unten ziehen."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils. Tirez pour réessayer."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة. اسحب لإعادة المحاولة."}},
-        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos. Desliza para volver a intentarlo."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。下拉以重試。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。下拉以重试。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다. 아래로 당겨 다시 시도하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。下に引いて再試行してください。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't load devices."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Geräte konnten nicht geladen werden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de charger les appareils."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تحميل الأجهزة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron cargar los dispositivos."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法載入裝置。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法加载设备。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "기기를 불러오지 못했습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デバイスを読み込めませんでした。"}}
       }
     },
     "mobile.devices.networkUnavailable": {
@@ -223,6 +223,62 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "AutoCloud 会显示在 Mac 睡眠或离线时仍在云端运行的聊天。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "AutoCloud는 Mac이 잠자거나 오프라인일 때 클라우드에서 계속 실행되는 채팅을 표시합니다."}},
         "ja": {"stringUnit": {"state": "translated", "value": "AutoCloud は、Mac がスリープまたはオフラインのときもクラウドで実行され続けるチャットを表示します。"}}
+      }
+    },
+    "mobile.shakeReport.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Report a bug?"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Fehler melden?"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Signaler un bug ?"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "هل تريد الإبلاغ عن خطأ؟"}},
+        "es": {"stringUnit": {"state": "translated", "value": "¿Informar de un error?"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "要回報錯誤嗎？"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "要报告错误吗？"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "버그를 신고할까요?"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "バグを報告しますか？"}}
+      }
+    },
+    "mobile.shakeReport.report": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Logs and Open Report"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Protokolle kopieren und Bericht öffnen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier les journaux et ouvrir le rapport"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ السجلات وفتح البلاغ"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar registros y abrir informe"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "拷貝記錄並開啟回報"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制日志并打开报告"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "로그 복사 후 신고 열기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ログをコピーしてレポートを開く"}}
+      }
+    },
+    "mobile.shakeReport.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "취소"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}}
+      }
+    },
+    "mobile.shakeReport.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This launch's log goes on the clipboard. Paste it into the form's Additional context."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Protokoll dieses Starts kommt in die Zwischenablage. Füge es im Formular unter „Additional context“ ein."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le journal de ce lancement est copié dans le presse-papiers. Collez-le dans le champ « Additional context » du formulaire."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يُنسخ سجل هذا التشغيل إلى الحافظة. الصقه في حقل Additional context في النموذج."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El registro de este inicio se copia al portapapeles. Pégalo en el campo Additional context del formulario."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這次啟動的記錄會拷貝到剪貼簿，請貼到表單的 Additional context 欄位。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "本次启动的日志会复制到剪贴板，请粘贴到表单的 Additional context 字段。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이번 실행의 로그가 클립보드에 복사됩니다. 양식의 Additional context에 붙여 넣으세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "今回の起動のログがクリップボードにコピーされます。フォームの Additional context に貼り付けてください。"}}
       }
     }
   },

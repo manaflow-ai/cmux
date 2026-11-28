@@ -84,7 +84,13 @@ MAC_COMMON = (
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
     "scripts/ci/e2e_warm_derived_data.py", "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
-    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
+    # The owned-Mac fetch token helper (#58082) and the fleet-default fallback note (#56209).
+    "scripts/ci/github_fetch_auth.py", "scripts/ci/fleet_fallback.py",
+    # Step bodies moved out of the workflow (#58103: the size budget).
+    "scripts/ci/cmux-next-steps",
+    "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
 ) + route.FULL_INPUTS + route.VENDORED_PINS + route.GENERATED_INPUTS
 
@@ -106,7 +112,10 @@ SWIFT_TEST = (
     "cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist", "cmux-helper.entitlements",
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
-GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
+# generated-files-linux.sh: the generated-files steps' bodies, moved out of the workflow. toolchain-r2.sh
+# restores the bun and node both jobs build the web bundles with.
+GENERATED = ("scripts/ci/defaults_guard.py", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+             "scripts/ci/toolchain-r2.sh", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
 # generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
@@ -173,7 +182,7 @@ class Job:
 JOBS = {
     # A pure FFI re-pin runs handler coverage only. Never reuse that pass for
     # the full registry, even when the source tree and toolchain are identical.
-    "fast-tier": Job(MAC_TOOLCHAIN + ("suite_scope",)),
+    "fast-tier": Job(MAC_TOOLCHAIN + ("suite_scope",), ("generated_base",)),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
     # generated_base: the base commit when swift-test checks the generated files on its own build
     # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.
@@ -187,6 +196,8 @@ JOBS = {
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+        # Says why the compile runs on a Mac (the build fleet gave no verdict).
+        "scripts/ci/fleet_fallback.py",
     ), whole_tree=True),
     "cmux-tui-artifacts": Job(
         required=(),
@@ -215,6 +226,10 @@ JOBS = {
     "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
                                    NIGHTLY_PRODUCT_FLAGS, product=True,
                                    workflow=".github/workflows/nightly.yml"),
+    # The Nightly's Release compile of the app on a pull request (scripts/ci/nightly_pr_build.py): the
+    # product closure and the arch. The fleet job pins its own Xcode (scripts/ci/xcode-pins.txt, in the
+    # closure), so the runner's toolchain is not part of it.
+    "nightly-pr-build": Job(("arch",), product=True, workflow=".github/workflows/nightly-pr-build.yml"),
 }
 GRAPH = route.GRAPH
 
@@ -349,7 +364,14 @@ def object_ids(root: str, rev: str, paths: list[str]) -> dict[str, str]:
     return {path: found.get(path, "-") for path in paths}
 
 
-def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str | None = None) -> tuple[str, dict]:
+def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str | None = None,
+                workflow_rev: str | None = None, recipe_rev: str | None = None) -> tuple[str, dict]:
+    """Fingerprint a source revision using the workflow and recipe from another revision when needed.
+
+    A reusable workflow runs from its merge ref while the build inputs come from the pull request
+    head. Older heads can therefore predate the workflow and its driver. Keep the source tree in the
+    input closure, but resolve the workflow and recipe blobs from the trusted merge ref.
+    """
     spec = JOBS[job]
     values: dict[str, str] = {}
     for item in extra:
@@ -366,12 +388,19 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
         raise Unresolved(f"no toolchain value for {', '.join(missing)}")
     try:
         commit = git(root, "rev-parse", "--verify", f"{rev}^{{commit}}")
-        workflow = git(root, "rev-parse", "--verify", f"{rev}:{spec.workflow}")
+        recipe = git(root, "rev-parse", "--verify", f"{(recipe_rev or workflow_rev or rev)}^{{commit}}")
+        workflow = git(root, "rev-parse", "--verify", f"{(workflow_rev or recipe)}:{spec.workflow}")
         value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
         if spec.product:
             value["inputs"] = product_inputs(root, commit)
+            if job == "nightly-pr-build" and recipe_rev:
+                # The merge-ref driver is the recipe used by the workflow. The app and helper
+                # contents remain keyed from the PR source revision above.
+                value["inputs"].update(object_ids(root, recipe, [
+                    "scripts/ci/nightly_pr_build.py", ".github/workflows/nightly-pr-build.yml"
+                ]))
         elif spec.inputs is None or spec.whole_tree:
             value["tree"] = git(root, "rev-parse", "--verify", f"{rev}^{{tree}}")
         else:

@@ -138,6 +138,7 @@ final class CEFMediaBridge {
     /// parse of a binding call's message, shared by every binding this bridge answers.
     private static func bindingParams(of head: DevToolsMessageHead, binding: String) -> [String: Any]? {
         guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""), let data = head.json.data(using: .utf8),
+              // main-actor-ok: one binding call already matched by method and name: a page's notification payload, a few fields, per call.
               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == binding else { return nil }

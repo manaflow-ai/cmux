@@ -158,7 +158,10 @@ export const EVERYWHERE: {
     check: (run) => {
       const end = run.traces.at(-1);
       if (!end?.rows || end.working || !end.turnEnded) return [];
-      return want(end.rows.at(-1)?.kind === "turnSummary", `the chat rests on ${end.rows.at(-1)?.kind}, not a footer`);
+      // A fork's own boundary notice ("forked from …") closes its copy of the chat, under the cut turn's
+      // footer (fork-mid-stream); it is not running.
+      const rows = end.rows.filter((row, at) => !(at === end.rows!.length - 1 && row.id.startsWith("forked-from-")));
+      return want(rows.at(-1)?.kind === "turnSummary", `the chat rests on ${rows.at(-1)?.kind}, not a footer`);
     },
   },
 ];
@@ -669,6 +672,14 @@ export const MAP: MapEntry[] = [
     wrong: "A card landed between a run and its reply and broke the fold, or stood the wrong gap.",
     expected: "A card is a block: 24 over it, and it folds nothing.",
     open: "Not played: session_offer, secret_request, memory_offer, subsession, forked.",
+  },
+  {
+    id: "fork-mid-stream",
+    when: "A chat is forked while its reply streams (Fork Conversation on a working chat).",
+    wrong: "The fork lost turns its agent holds, or drew the cut-off reply as still running (#50021, #50094).",
+    expected:
+      "The fork draws the turns its records hold, the cut-off reply with its footer, then its forked-from notice; nothing is live.",
+    scenario: "fork-mid-stream",
   },
   {
     id: "drawn-size",

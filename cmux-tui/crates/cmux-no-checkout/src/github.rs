@@ -159,8 +159,11 @@ impl GitHub {
         if !(url.scheme() == "https" || loopback) {
             bail!("{api} is not an https API; the token goes only to one");
         }
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut builder = reqwest::Client::builder()
+        if api != GITHUB_API && !loopback {
+            // A GitHub Enterprise API the caller named is theirs to reach.
+            cmux_egress::allow_named(api);
+        }
+        let mut builder = cmux_egress::client_builder("cmux_no_checkout::github")
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(CALL_TIMEOUT)
@@ -433,6 +436,10 @@ impl GitWriter for GitHub {
         Self::open_pull(self, title, body, head, base, draft).await
     }
 }
+
+#[cfg(test)]
+#[path = "github_seeded_tests.rs"]
+mod seeded_tests;
 
 #[cfg(test)]
 mod tests {

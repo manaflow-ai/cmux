@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "أوقف مزوّد {harness} هذا الحساب (معطّل أو موقوف)، فلا يمكن تشغيل أي رسالة عليه. استخدم وكيلًا آخر، أو سجّل الدخول بحساب آخر."
+            "state" : "translated",
+            "value" : "أوقف مزوّد {harness} هذا الحساب (معطّل أو موقوف). استخدم وكيلًا آخر، أو سجّل الدخول بحساب آخر."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pružalac za {harness} je isključio ovaj račun (onemogućen ili suspendovan), pa nijedna poruka ne može raditi na njemu. Koristi drugog agenta ili se prijavi drugim računom."
+            "state" : "translated",
+            "value" : "Pružalac usluge {harness} je isključio ovaj račun (onemogućen ili suspendovan). Koristi drugog agenta ili se prijavi drugim računom."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness}-udbyderen har slået denne konto fra (deaktiveret eller suspenderet), så ingen besked kan køre på den. Brug en anden agent, eller log ind med en anden konto."
+            "state" : "translated",
+            "value" : "{harness}s udbyder har slået denne konto fra (deaktiveret eller suspenderet). Brug en anden agent, eller log ind med en anden konto."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Der Anbieter von {harness} hat dieses Konto abgeschaltet (deaktiviert oder gesperrt), daher kann keine Nachricht darauf laufen. Nutze einen anderen Agenten oder melde dich mit einem anderen Konto an."
+            "state" : "translated",
+            "value" : "Der Anbieter von {harness} hat dieses Konto abgeschaltet (deaktiviert oder gesperrt). Nutze einen anderen Agenten oder melde dich mit einem anderen Konto an."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "{harness}'s provider turned this account off (disabled or suspended), so no message can run on it. Use another agent, or sign in with another account."
+            "value" : "{harness}'s provider turned this account off (disabled or suspended). Use another agent, or sign in with another account."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "El proveedor de {harness} desactivó esta cuenta (deshabilitada o suspendida), así que ningún mensaje puede ejecutarse con ella. Usa otro agente o inicia sesión con otra cuenta."
+            "state" : "translated",
+            "value" : "El proveedor de {harness} desactivó esta cuenta (deshabilitada o suspendida). Usa otro agente o inicia sesión con otra cuenta."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le fournisseur de {harness} a désactivé ce compte (désactivé ou suspendu) : aucun message ne peut s’y exécuter. Utilisez un autre agent, ou connectez-vous avec un autre compte."
+            "state" : "translated",
+            "value" : "Le fournisseur de {harness} a coupé ce compte (désactivé ou suspendu). Utilisez un autre agent ou connectez-vous avec un autre compte."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Il fornitore di {harness} ha disattivato questo account (disabilitato o sospeso), quindi nessun messaggio può essere eseguito. Usa un altro agente o accedi con un altro account."
+            "state" : "translated",
+            "value" : "Il provider di {harness} ha spento questo account (disattivato o sospeso). Usa un altro agente o accedi con un altro account."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness} のプロバイダーがこのアカウントを停止しました（無効化または一時停止）。このアカウントではメッセージを実行できません。別のエージェントを使うか、別のアカウントでサインインしてください。"
+            "state" : "translated",
+            "value" : "{harness} のプロバイダーがこのアカウントを停止しました（無効化または一時停止）。別のエージェントを使うか、別のアカウントでサインインしてください。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "អ្នកផ្តល់សេវា {harness} បានបិទគណនីនេះ (បិទ ឬផ្អាក) ដូច្នេះគ្មានសារណាអាចដំណើរការបានទេ។ ប្រើភ្នាក់ងារផ្សេង ឬចូលដោយគណនីផ្សេង។"
+            "state" : "translated",
+            "value" : "អ្នកផ្ដល់សេវា {harness} បានបិទគណនីនេះ (បិទដំណើរការ ឬផ្អាក)។ ប្រើភ្នាក់ងារផ្សេង ឬចូលដោយគណនីផ្សេង។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness} 제공업체가 이 계정을 사용 중지했습니다(비활성화 또는 정지). 이 계정으로는 메시지를 실행할 수 없습니다. 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."
+            "state" : "translated",
+            "value" : "{harness}의 제공자가 이 계정을 껐습니다(비활성화 또는 정지). 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness}-leverandøren har slått av denne kontoen (deaktivert eller suspendert), så ingen melding kan kjøre på den. Bruk en annen agent, eller logg inn med en annen konto."
+            "state" : "translated",
+            "value" : "Leverandøren til {harness} har slått av denne kontoen (deaktivert eller suspendert). Bruk en annen agent, eller logg på med en annen konto."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dostawca {harness} wyłączył to konto (dezaktywowane lub zawieszone), więc żadna wiadomość nie może na nim działać. Użyj innego agenta albo zaloguj się innym kontem."
+            "state" : "translated",
+            "value" : "Dostawca {harness} wyłączył to konto (dezaktywowane lub zawieszone). Użyj innego agenta albo zaloguj się innym kontem."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "O provedor do {harness} desativou esta conta (desativada ou suspensa), então nenhuma mensagem pode rodar nela. Use outro agente ou entre com outra conta."
+            "state" : "translated",
+            "value" : "O provedor de {harness} desligou esta conta (desativada ou suspensa). Use outro agente ou entre com outra conta."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Провайдер {harness} отключил этот аккаунт (деактивирован или заблокирован), поэтому ни одно сообщение не может в нём выполниться. Используйте другого агента или войдите в другой аккаунт."
+            "state" : "translated",
+            "value" : "Провайдер {harness} отключил этот аккаунт (деактивирован или заблокирован). Используйте другого агента или войдите в другой аккаунт."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ผู้ให้บริการ {harness} ปิดบัญชีนี้แล้ว (ปิดใช้งานหรือระงับ) จึงไม่มีข้อความใดทำงานได้ ใช้เอเจนต์อื่น หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"
+            "state" : "translated",
+            "value" : "ผู้ให้บริการของ {harness} ปิดบัญชีนี้แล้ว (ปิดใช้งานหรือระงับ) ใช้เอเจนต์อื่น หรือลงชื่อเข้าด้วยบัญชีอื่น"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness} sağlayıcısı bu hesabı kapattı (devre dışı veya askıya alınmış), bu yüzden hiçbir mesaj çalışamaz. Başka bir ajan kullanın veya başka bir hesapla giriş yapın."
+            "state" : "translated",
+            "value" : "{harness} sağlayıcısı bu hesabı kapattı (devre dışı veya askıda). Başka bir ajan kullanın ya da başka bir hesapla oturum açın."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Постачальник {harness} вимкнув цей обліковий запис (деактивовано або призупинено), тож жодне повідомлення не може в ньому виконатися. Скористайтеся іншим агентом або увійдіть в інший обліковий запис."
+            "state" : "translated",
+            "value" : "Провайдер {harness} вимкнув цей обліковий запис (деактивовано або призупинено). Скористайтеся іншим агентом або увійдіть з іншим обліковим записом."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nhà cung cấp {harness} đã tắt tài khoản này (vô hiệu hóa hoặc tạm ngưng), nên không tin nhắn nào chạy được. Dùng agent khác, hoặc đăng nhập bằng tài khoản khác."
+            "state" : "translated",
+            "value" : "Nhà cung cấp của {harness} đã tắt tài khoản này (bị vô hiệu hóa hoặc tạm ngưng). Hãy dùng tác tử khác hoặc đăng nhập bằng tài khoản khác."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness} 的服务提供方已停用此账户（已禁用或暂停），因此无法在其上运行任何消息。请使用其他智能体，或用另一个账户登录。"
+            "state" : "translated",
+            "value" : "{harness} 的提供方已停用此账户（已禁用或暂停）。请使用其他智能体，或用其他账户登录。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "{harness} 的服務提供方已停用此帳戶（已停用或暫停），因此無法在其上執行任何訊息。請使用其他智慧代理，或以另一個帳戶登入。"
+            "state" : "translated",
+            "value" : "{harness} 的提供者已停用此帳號（已停用或暫停）。請使用其他代理，或以其他帳號登入。"
           }
         }
       }

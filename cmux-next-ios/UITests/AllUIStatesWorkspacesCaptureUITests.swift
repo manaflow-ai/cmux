@@ -50,8 +50,10 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "first-launch-loading", args: ["-cmux-mobile-demo", "retry-first-launch"]),
             Scene(group: g, id: "first-launch-offline", args: ["-cmux-mobile-demo", "retry-first-launch-offline"]),
-            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"]),
-            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"]),
+            // keep: past AutoRetry's 10 s quiet bound, the quiet line is the state shown.
+            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"], ready: .clock(12)),
+            // keep: past AutoRetry's 10 s quiet bound, the quiet line is the state shown.
+            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"], ready: .clock(12)),
             Scene(group: g, id: "refresh-failed-last-known", args: ["-cmux-mobile-demo", "retry-refresh-failed"]),
             // keep: the connect-mac demo's first step; it moves on at about 6 s.
             Scene(group: g, id: "connect-mac", args: ["-cmux-mobile-demo", "connect-mac"], ready: .clock(2.5)),

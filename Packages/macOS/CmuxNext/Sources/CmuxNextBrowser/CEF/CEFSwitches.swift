@@ -38,6 +38,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The staged-update Chromium pre-warm keeps Chromium's code-sign clone enabled so Sparkle can replace the
     /// running bundle without leaving its helpers on the old executable. Ordinary app launches leave it off.
     var keepsCodeSignClone = false
+    /// Every page builds its accessibility tree from launch (`force-renderer-accessibility`): the run
+    /// was launched with `CMUX_NEXT_ACCESSIBILITY=1` (`AssistiveClientRequests.forced`). The per-page
+    /// `SetAccessibilityState` that call turns on (`CEFAccessibility`) left the agent chat's page an
+    /// empty AXWindow on the production GUI probe (cmux24, NIGHTLY 956d6e6, run 45921924964: chat window
+    /// 0 elements, its native twin 280); Chromium's process-wide switch sets every WebContents' mode
+    /// at startup, page by page or not. Off otherwise: the person's VoiceOver still turns pages on
+    /// through `CEFAccessibility`, and a run without a client builds no tree.
+    var forcesRendererAccessibility = false
+
+    /// Chromium's switch for page accessibility on from launch, in every renderer.
+    static let forceRendererAccessibility = "force-renderer-accessibility"
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -186,6 +197,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
             result.append("profile-directory=" + initialProfileDirectory)
         }
+        if forcesRendererAccessibility { result.append(Self.forceRendererAccessibility) }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -304,7 +316,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             asyncLiveResize: asyncLiveResize,
             noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
             initialProfileDirectory: initialProfileDirectory,
-            keepsCodeSignClone: keepsCodeSignClone
+            keepsCodeSignClone: keepsCodeSignClone,
+            forcesRendererAccessibility: AssistiveClientRequests(environment: environment).forced
         )
     }
 

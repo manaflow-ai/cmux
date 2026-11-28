@@ -23,6 +23,16 @@
   --acpmux-attach-height: 32px;
   --acpmux-attach-top: 6px;
 }
+/* A pane about 200 px tall has no room for a 64 px tile band, a line of draft and the controls under
+   the header: the band covered + and Send (ask c-6a24624c5c). There the strip takes the chips size,
+   the shortest one, so the tiles, the draft and the controls all stay in sight. */
+@media (height < 220px) {
+  /* Match the attach-size attribute rule above so a compact strip also takes the chips size. */
+  .acpmux-composer-box[data-attach-size] {
+    --acpmux-attach-height: 32px;
+    --acpmux-attach-top: 6px;
+  }
+}
 .acpmux-attachments {
   /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
      thumbnails under the prompt. */

@@ -678,6 +678,18 @@ pub enum ResourceOperation {
     CloudOwnerGithubRepos,
     #[serde(rename = "cloud.owner.github_connect")]
     CloudOwnerGithubConnect,
+    #[serde(rename = "cloud.owner.op")]
+    CloudOwnerOp,
+    #[serde(rename = "cloud.owner.github_complete")]
+    CloudOwnerGithubComplete,
+    #[serde(rename = "cloud.owner.github_list")]
+    CloudOwnerGithubList,
+    #[serde(rename = "cloud.owner.github_clone_token")]
+    CloudOwnerGithubCloneToken,
+    #[serde(rename = "cloud.owner.slack")]
+    CloudOwnerSlack,
+    #[serde(rename = "cloud.owner.slack_awake")]
+    CloudOwnerSlackAwake,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]
@@ -700,6 +712,8 @@ pub enum ResourceOperation {
     CloudMachineChiefStart,
     #[serde(rename = "cloud.machine.chief_resize")]
     CloudMachineChiefResize,
+    #[serde(rename = "cloud.machine.setup_desktop")]
+    CloudMachineSetupDesktop,
     #[serde(rename = "cloud.machine.fork")]
     CloudMachineFork,
     #[serde(rename = "room.create")]

@@ -272,3 +272,27 @@ test("a resume past the slow bound says it is taking longer and enables Resume m
   await act(async () => button().click());
   expect(clicks).toBe(1);
 });
+
+test("the loading area marks its pane with data-connecting while up, not through a :has() over the pane", async () => {
+  const container = installDom();
+  container.className = "acpmux-main";
+  const stage = container.ownerDocument.createElement("div");
+  container.append(stage);
+  root = createRoot(stage);
+  const render = (reason: "connecting" | "deleted") =>
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason, machine: "remote" } as never}
+        session="session-id"
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResume={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+  await act(async () => render("connecting"));
+  expect(container.hasAttribute("data-connecting")).toBe(true);
+  await act(async () => render("deleted"));
+  expect(container.hasAttribute("data-connecting")).toBe(false);
+});

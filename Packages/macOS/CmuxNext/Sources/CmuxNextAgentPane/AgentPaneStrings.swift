@@ -103,9 +103,10 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .localizedModule)
     }
 
-    /// Shown when the pane's page crashed (it never reloads by itself; the notice offers Reload).
+    /// Shown while the pane's page keeps crashing; it still loads again by itself (``AgentPageCrashRetry``).
     static var crashedMessage: String {
-        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .localizedModule)
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane keeps crashing. cmux will load it again shortly.",
+               bundle: .localizedModule)
     }
 
     /// Shown when automation would open the inspector without an explicit focus request.
@@ -245,6 +246,7 @@ extension AgentPaneView {
             reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
                             defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .localizedModule)
         case .daemonTooOld:
+            // retry-prompt-ok: an approval lets a tool run, and updating the machine replaces binaries
             reason = String(localized: "agentPane.remoteApprovals.failure.tooOld",
                             defaultValue: "the agent daemon there is too old for approvals from cmux. Update the machine, then try again",
                             bundle: .localizedModule)
@@ -268,10 +270,6 @@ extension AgentPaneView {
                defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
                bundle: .localizedModule)
     }
-
-    static var reloadTitle: String {
-        String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .localizedModule)
-    }
 }
 
 extension AgentPaneHostError {
@@ -294,12 +292,13 @@ extension AgentPaneHostError {
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .localizedModule)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .localizedModule)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "cmux couldn't start its agent service. Quit and reopen cmux to try again.", bundle: .localizedModule)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .localizedModule)
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .localizedModule)
         case .daemonRefused(let holder?, _, _, _, _):
+            // retry-prompt-ok: quitting the other cmux build is the person's call; nothing connects while it holds the service
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .localizedModule), holder)
         case .daemonRefused(_, _, _, _, _):
             String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .localizedModule)
@@ -328,6 +327,7 @@ extension AgentPaneDictation {
         case .onDeviceRecognitionUnavailable:
             String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .localizedModule)
         case .modelDownloadFailed:
+            // retry-prompt-ok: downloads a speech model (a download the person started)
             String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
@@ -352,6 +352,7 @@ extension AgentPaneModel {
 
     /// A GitHub method that could not be answered (signed out, offline, or no App here).
     static var gitHubUnavailableMessage: String {
+        // retry-prompt-ok: answers a GitHub action the person started (checkout, connect, write)
         String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .localizedModule)
     }
 
@@ -367,6 +368,7 @@ extension AgentPaneModel {
 
     /// The folder menu's Connect GitHub for a connection the server marked `error`.
     static var gitHubConnectionErrorMessage: String {
+        // retry-prompt-ok: connecting GitHub is a sign-in
         String(localized: "agentPane.github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", bundle: .localizedModule)
     }
 
@@ -411,6 +413,7 @@ extension AgentPaneModel {
 
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
     static func gitHubCloneFailedMessage(_ repo: String) -> String {
+        // retry-prompt-ok: cloning writes a repository to disk (a side effect the person started)
         String(format: String(localized: "agentPane.github.localCloneFailed",
                               defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .localizedModule), repo)
     }
@@ -430,11 +433,19 @@ extension AgentPaneModel {
 extension AgentPaneCloudRepositoryRefusal {
     /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
     nonisolated static func needsAccessMessage(_ repository: String) -> String {
-        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Sign in with GitHub so Cloud can clone %@.", bundle: .localizedModule), repository)
+    }
+
+    /// The same, when the person's own GitHub login was carried to the machine and can't reach it: says which
+    /// account, so they know to sign in with one that can (or add the repository on GitHub).
+    nonisolated static func needsAccessMessage(_ repository: String, login: AgentPaneGitHubLogin) -> String {
+        guard case .carried(let user?) = login else { return needsAccessMessage(repository) }
+        return String(format: String(localized: "agentPane.github.cloneLoginCantReach", defaultValue: "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it.", bundle: .localizedModule), user, repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
     nonisolated static func failedMessage(_ repository: String) -> String {
+        // retry-prompt-ok: a Cloud start clones on a billed machine (a side effect the person started)
         String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .localizedModule), repository)
     }
 }

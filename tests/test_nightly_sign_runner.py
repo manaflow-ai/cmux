@@ -43,7 +43,8 @@ SIGN_PICKERS = {
     "pick-nightly-sign-runner": "needs.pick-nightly-sign-runner.outputs.runner",
     "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# #53861: the verify jobs dropped the PR-shared CI_SIDE_LANE_RUNNER fallback for the nightly's reserved label.
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
@@ -725,15 +726,15 @@ class OwnedVerify(unittest.TestCase):
             "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
         }
         # Nightlies never use Blacksmith: without a pick for this attempt each job takes the owned nightly
-        # slot, then the side lane, then the owned std pool, with the overflow Xcode variable (both name the
+        # slot, then the nightly's reserved std label (never the PR-shared side lane, #53861), with the overflow Xcode variable (both name the
         # same Xcode on the minis).
         cases = (
             ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
@@ -824,9 +825,10 @@ class SnapshotReadToken(unittest.TestCase):
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
     # build-nightly-app mints a read token from it for the unsigned restore, and decide mints a spare read
-    # token from the same read-only routing App.
+    # token from the same read-only routing App. pick-nightly-next-signer reads the signer pick with it first,
+    # so a second push takes the idle signer (#56394).
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
-                  "build-nightly-app", "find-nightly-next-recovery"}
+                  "build-nightly-app", "find-nightly-next-recovery", "pick-nightly-next-signer"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:

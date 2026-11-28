@@ -148,7 +148,11 @@ pub(super) fn parse(
         other => return Err(format!("unknown verb {other} (cmux mcp-servers --help)")),
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let platform = match platform.or_else(|| env("CMUX_PLATFORM_URL")) {
         Some(p) => Some(
@@ -394,6 +398,8 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
+    // Through the egress gate (docs/privacy.md); --platform or CMUX_PLATFORM_URL is a host the person named.
+    cmux_egress::allow_named(&platform);
     let http = match cmux_egress::client_builder("cmux_tui::cli::mcp_servers")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

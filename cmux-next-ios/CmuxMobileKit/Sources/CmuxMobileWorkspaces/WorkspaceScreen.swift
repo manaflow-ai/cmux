@@ -63,6 +63,9 @@ public struct WorkspaceScreen: View {
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
+    /// A navigation transition moves this screen (a swipe back, Back): the composer holds its
+    /// place on the page while it slides (`tabsKitHoldsKeyboard`).
+    @State private var inNavigationTransition = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
@@ -121,11 +124,12 @@ public struct WorkspaceScreen: View {
                 source.openedTab = nil
                 if showsGrid { showsGrid = false }
             }
+            .environment(\.tabsKitHoldsKeyboard, inNavigationTransition)
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             // Its own layer: the Workspaces bar (title, Macs online, Search) never
-            // draws over it through a swipe back (Leo, 2026-11-24).
-            .cmuxMobilePaneLayer()
+            // draws over it through a swipe back (Leo, 2026-11-24); it slides with the list.
+            .cmuxMobilePaneLayer(inTransition: $inNavigationTransition)
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))

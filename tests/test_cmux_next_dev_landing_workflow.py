@@ -22,6 +22,7 @@ import dev_release_product_reuse as reuse  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps, step_run  # noqa: E402
 
 
 def runner(job) -> str:
@@ -35,7 +36,7 @@ def runner(job) -> str:
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.load((ROOT / ".github/workflows/cmux-next.yml").read_text(), Loader=yaml.BaseLoader)["jobs"]
+        cls.jobs = yaml.load(inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text()), Loader=yaml.BaseLoader)["jobs"]
 
     def test_only_feat_cmux_next_landings_run_it(self):
         condition = self.jobs["dev-landing-place"]["if"]
@@ -65,7 +66,7 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["dev-landing-compile"]
         self.assertIn(job["name"], reuse.PRODUCER_JOBS, "the DEV run's lookup refuses a record of an unknown job")
         steps = {step.get("name"): step for step in job["steps"]}
-        self.assertIn("job_input_fingerprint.py dev-release-product", steps["Look up the DEV Release app compiled on the same inputs"]["run"])
+        self.assertIn("job_input_fingerprint.py dev-release-product", step_run(steps["Look up the DEV Release app compiled on the same inputs"]))
         self.assertEqual(steps["Upload the cmux NEXT DEV Release app"]["with"]["name"],
                          reuse.PRODUCT_PREFIX + "${{ github.sha }}")
         self.assertEqual(steps["Upload the DEV Release app record"]["with"]["name"],
@@ -85,7 +86,7 @@ class WorkflowTests(unittest.TestCase):
         upload = steps["Record this host's cache for the next landing's placement"]
         self.assertEqual(upload["with"]["name"], place.HOLDER_PREFIX + "${{ steps.report.outputs.holder }}")
         self.assertEqual(upload["with"]["overwrite"], "true")
-        self.assertIn("scripts/cmux-next/dev-cas-holder.sh", steps["Report the landing compile"]["run"])
+        self.assertIn("scripts/cmux-next/dev-cas-holder.sh", step_run(steps["Report the landing compile"]))
         # The DEV run's host build moves a host's cache too.
         dev = {step.get("name"): step for step in self.jobs["cmux-scheme-compile"]["steps"]}
         self.assertIn("scripts/cmux-next/dev-cas-holder.sh", dev["Record this host's cache for the next landing's placement"]["run"])

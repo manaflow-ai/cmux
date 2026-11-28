@@ -75,14 +75,26 @@ if [[ "$only" != terminal ]]; then
   export PATH="$HOME/.bun/bin:$PATH"
   cd "$root/webviews"
   [[ -d node_modules ]] || bun install --frozen-lockfile >/dev/null
-  [[ -n "${CMUX_CHROME_HEADLESS_SHELL:-}" ]] || [[ ! -x "$root/scripts/ci/ensure-system-chrome.sh" ]] ||
-    eval "$("$root/scripts/ci/ensure-system-chrome.sh" 2>/dev/null | grep '^CMUX_CHROME_HEADLESS_SHELL=' | sed 's/^/export /' || true)"
+  # ensure-system-chrome.sh prints what it did, then `CMUX_CHROME_HEADLESS_SHELL=<path>` as its last line: only that
+  # line is taken (the whole output, eval'd, ran its "system Chrome ... at ..." line as a command and exited 127).
+  if [[ -z "${CMUX_CHROME_HEADLESS_SHELL:-}" && -x "$root/scripts/ci/ensure-system-chrome.sh" ]]; then
+    shell_line="$("$root/scripts/ci/ensure-system-chrome.sh" --optional 2>/dev/null | grep -E '^CMUX_CHROME_HEADLESS_SHELL=' | tail -n 1 || true)"
+    [[ -z "$shell_line" ]] || export "$shell_line"
+  fi
   IFS=, read -r -a each <<<"$links"
   for link in "${each[@]}"; do
     LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" FIXTURE="$fixture" OPEN="$open" CPU="$cpu" LINK_ZLIB="$zlib" \
       bun bench/first-load-after-restart.bench.ts >"$out/chat-$link.log" 2>&1 ||
       { status=1; echo "restart-settled: the chat bench failed on $link:"; grep -v BABEL "$out/chat-$link.log" | tail -n 20; }
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true
+    # PROFILE=1 or WIRE_TRACE=1 (the bench's knobs, passed through the environment): what they print, too.
+    if [[ "${PROFILE:-}" == 1 || "${WIRE_TRACE:-}" == 1 ]]; then
+      grep -E "^wire |relaunch long tasks|^  round |^    [0-9]+-[0-9]+ |profile|^ +[0-9.]+ ms " "$out/chat-$link.log" | head -n 3000 || true
+    fi
+    # RES_TRACE=1: each round's resource timings and user-timing marks (the `RES` block, two-space lines under it).
+    if [[ "${RES_TRACE:-}" == 1 ]]; then
+      awk '/^RES /{on=1; print; next} on && /^  /{print; next} {on=0}' "$out/chat-$link.log" | head -n 3000 || true
+    fi
   done
 fi
 

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { inventoryFailure } from "../scripts/cmux-vm-image/bake";
-import { INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { INVENTORY_STEP_BUDGET_MS, inventoryFailure } from "../scripts/cmux-vm-image/bake";
+import { DETACHED_WAKE_AFTER_FAILED_POLLS, STEP_TIMEOUT_MS, StepLog, type Vm, wakeVm } from "../scripts/cmux-vm-image/guest";
+import { INVENTORY_TRIES, retriesInventory, collectWithRetries } from "../scripts/cmux-vm-image/inventory";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
   test("the provider closing the exec's connection is retried (run 42410303540)", () => {
@@ -39,5 +43,209 @@ describe("image inventory reads the provider status and lets a failed step win",
     expect(retriesInventory(failure, 1)).toBe(false);
     expect(inventoryFailure([{ status: "rejected", reason: reset }, { status: "fulfilled", value: "ok" }])).toBe(reset);
     expect(inventoryFailure([{ status: "fulfilled", value: "a" }, { status: "fulfilled", value: "b" }])).toBeUndefined();
+  });
+});
+
+describe("image inventory steps run detached and outlast a cut poll (rolls 45779971043, 45829777164, 45883186922)", () => {
+  test("a client TimeoutError is retried: the call never reached a guest verdict", () => {
+    const timedOut = new DOMException("The operation timed out.", "TimeoutError");
+    expect(retriesInventory(timedOut, 1)).toBe(true);
+    expect(retriesInventory(new Error("TimeoutError: The operation timed out."), 2)).toBe(true);
+    expect(retriesInventory(timedOut, INVENTORY_TRIES)).toBe(false);
+  });
+
+  test("the budget sits about twice over the slowest measured finish (scan 278 s, manifest 232 s)", () => {
+    expect(INVENTORY_STEP_BUDGET_MS).toBeGreaterThanOrEqual(2 * 278_000);
+    // The old bounds the rolls hit: the 280 s guest timeout and the 300 s exec cap.
+    expect(INVENTORY_STEP_BUDGET_MS).toBeGreaterThan(STEP_TIMEOUT_MS);
+  });
+
+  /** A guest whose status file appears after `pollsUntilDone` polls; `failPolls` polls throw like a cut poll. */
+  function fakeGuest(opts: { pollsUntilDone: number; failPolls?: number; status?: number; stdout?: string }) {
+    const commands: string[] = [];
+    let polls = 0;
+    const vm = {
+      exec: async ({ command }: { command: string; timeoutMs?: number }) => {
+        commands.push(command);
+        expect(command).not.toContain("undefined");
+        if (command.includes("nohup setsid sh -c")) return { statusCode: 0, stdout: "started\n", stderr: "" };
+        if (command.includes("/status 2>/dev/null")) {
+          polls++;
+          if (polls <= (opts.failPolls ?? 0)) throw new DOMException("The operation timed out.", "TimeoutError");
+          return { statusCode: 0, stdout: polls >= opts.pollsUntilDone ? `${opts.status ?? 0}\n` : "", stderr: "" };
+        }
+        return { statusCode: 0, stdout: `${opts.stdout ?? "syft-secs 300"}\n--cmux-detached-stderr--\nwarn\n`, stderr: "" };
+      },
+    } as unknown as Vm;
+    return { vm, commands, polls: () => polls };
+  }
+
+  function clock(stepMs: number) {
+    let t = 0;
+    return { now: () => t, sleep: async () => { t += stepMs; } };
+  }
+
+  test("a step past the old 300 s exec cap finishes, and a poll that timed out is just polled again", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    const guest = fakeGuest({ pollsUntilDone: 40, failPolls: 25 });
+    const c = clock(10_000);
+    const out = await L.detachedStep(guest.vm, "sbom", "echo hi", { dir: "/tmp/cmux-out/job-sbom", budgetMs: 600_000, ...c });
+    expect(out.trim()).toBe("syft-secs 300");
+    expect(L.steps).toEqual([{ label: "sbom", secs: 400 }]);
+    expect(guest.polls()).toBe(40);
+    expect(guest.commands[0]).toContain("timeout -k 10 600 sh /tmp/cmux-out/job-sbom/cmd.sh");
+    // Past half its budget: the workflow turns SLOW_STEP into a warning before the bound is reached.
+    expect(readFileSync(path.join(dir, "inv.log"), "utf8")).toContain("SLOW_STEP [sbom] 400.0s of its 600s budget");
+  });
+
+  test("the guest's timeout (124) is a failed step, not retried", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    const guest = fakeGuest({ pollsUntilDone: 3, status: 124 });
+    const error = await L.detachedStep(guest.vm, "file-manifest", "true", { dir: "/tmp/x", budgetMs: 600_000, ...clock(10_000) }).catch((e: unknown) => e);
+    expect(String(error)).toContain("step file-manifest failed");
+    expect(retriesInventory(error, 1)).toBe(false);
+    expect(readFileSync(path.join(dir, "inv.log"), "utf8")).toContain("its 600 s budget ran out");
+  });
+
+  test("polls that fail past the budget surface the provider's error, which inventory.ts retries", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    const guest = fakeGuest({ pollsUntilDone: 1_000, failPolls: 1_000 });
+    const error = await L.detachedStep(guest.vm, "sbom", "true", { dir: "/tmp/x", budgetMs: 60_000, ...clock(10_000) }).catch((e: unknown) => e);
+    expect((error as { name?: string }).name).toBe("TimeoutError");
+    expect(retriesInventory(error, 1)).toBe(true);
+  });
+});
+
+describe("image inventory wakes a builder the provider paused (roll 46078031124)", () => {
+  function provider(state: string) {
+    const calls: string[] = [];
+    return {
+      calls,
+      vm: {
+        data: async () => { calls.push("data"); return { state }; },
+        start: async () => { calls.push("start"); return { state: "running" }; },
+      } as unknown as Pick<Vm, "data" | "start">,
+    };
+  }
+
+  test("a paused or stopped builder is started and its state logged", async () => {
+    for (const state of ["paused", "stopped", "pausing"]) {
+      const p = provider(state);
+      const lines: string[] = [];
+      expect(await wakeVm(p.vm, (l) => lines.push(l), "b")).toBe(state);
+      expect(p.calls).toEqual(["data", "start"]);
+      expect(lines.join("\n")).toContain(`VM_STATE [b] ${state}: starting it`);
+    }
+  });
+
+  test("a running builder is left alone, but its state still logged", async () => {
+    const p = provider("running");
+    const lines: string[] = [];
+    await wakeVm(p.vm, (l) => lines.push(l), "b");
+    expect(p.calls).toEqual(["data"]);
+    expect(lines).toEqual(["VM_STATE [b] running"]);
+  });
+
+  test("detachedStep wakes the VM after a run of failed polls, and the step then finishes", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    let paused = true;
+    let wakes = 0;
+    let t = 0;
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        if (command.includes("nohup setsid sh -c")) return { statusCode: 0, stdout: "started\n", stderr: "" };
+        if (paused) throw new DOMException("The operation timed out.", "TimeoutError");
+        if (command.includes("/status 2>/dev/null")) return { statusCode: 0, stdout: "0\n", stderr: "" };
+        return { statusCode: 0, stdout: "syft-secs 120\n--cmux-detached-stderr--\n", stderr: "" };
+      },
+    } as unknown as Vm;
+    const out = await L.detachedStep(vm, "sbom", "true", {
+      dir: "/tmp/x", budgetMs: 600_000, now: () => t, sleep: async () => { t += 10_000; },
+      wake: async () => { wakes++; paused = false; },
+    });
+    expect(out.trim()).toBe("syft-secs 120");
+    expect(wakes).toBe(1);
+    expect(DETACHED_WAKE_AFTER_FAILED_POLLS).toBeLessThanOrEqual(3);
+  });
+
+  test("a wake that throws is logged and polling goes on to the provider's error", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    let t = 0;
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        if (command.includes("nohup setsid sh -c")) return { statusCode: 0, stdout: "started\n", stderr: "" };
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+    } as unknown as Vm;
+    const error = await L.detachedStep(vm, "sbom", "true", {
+      dir: "/tmp/x", budgetMs: 60_000, now: () => t, sleep: async () => { t += 10_000; },
+      wake: async () => { throw new Error("401"); },
+    }).catch((e: unknown) => e);
+    expect((error as { name?: string }).name).toBe("TimeoutError");
+    expect(readFileSync(path.join(dir, "inv.log"), "utf8")).toContain("WARN [sbom] wake after 2 failed polls: Error: 401");
+  });
+});
+
+describe("collectWithRetries: a builder that stops answering (roll 46078031124)", () => {
+  const timedOut = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+  const builder = { vm: { id: "builder" } as unknown as Vm, vmId: "vm-builder" };
+  const clone = { vm: { id: "clone" } as unknown as Vm, vmId: "vm-clone" };
+
+  test("retries on a clone of the snapshot once the builder does not answer", async () => {
+    const ran: string[] = [];
+    const lines: string[] = [];
+    const inventory: Record<string, unknown> = {};
+    await collectWithRetries(builder, inventory, (l) => lines.push(l), {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if ((vm as unknown as { id: string }).id === "builder") throw timedOut();
+      },
+      answers: async () => false,
+      clone: async () => clone,
+    });
+    // Before: all three tries on the builder, each timing out (1546.8 s, components=none).
+    expect(ran).toEqual(["builder:1", "clone:2"]);
+    expect(inventory.error).toBeUndefined();
+    expect(inventory.inventoryClone).toBe("vm-clone");
+    expect(lines.some((l) => l.includes("did not answer an exec"))).toBe(true);
+  });
+
+  test("stays on a builder that still answers", async () => {
+    const ran: string[] = [];
+    let clones = 0;
+    await collectWithRetries(builder, {}, () => {}, {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if (attempt === 1) throw new Error("ECONNRESET");
+      },
+      answers: async () => true,
+      clone: async () => { clones++; return clone; },
+    });
+    expect(ran).toEqual(["builder:1", "builder:2"]);
+    expect(clones).toBe(0);
+  });
+
+  test("a step that ran and failed is not retried, on any VM", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw new Error("step sbom failed"); },
+      answers: async () => false,
+      clone: async () => clone,
+    })).rejects.toThrow("step sbom failed");
+    expect(tries).toBe(1);
+  });
+
+  test("without a snapshot id it retries on the builder as before, up to INVENTORY_TRIES", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw timedOut(); },
+      answers: async () => false,
+    })).rejects.toThrow("timed out");
+    expect(tries).toBe(INVENTORY_TRIES);
   });
 });

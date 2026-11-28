@@ -54,6 +54,13 @@
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled,.nt-rows > *):hover .nt-row-icon{color:var(--agent-text)}
 .nt-row-favicon{display:block;border-radius:25%;box-shadow:none;object-fit:contain}
+/* A one-colour favicon (faviconInk.ts) where its own ink would vanish: a dark one on the dark theme, a light one on the
+   light theme. A mark (GitHub) draws in the label colour, as the sidebar's `adaptive` favicon style does; a tile with
+   a knockout (Vercel's black disc, white triangle) draws inverted, so the knockout stays. On the other theme, and any
+   other favicon: as fetched (Lucas 2026-11-26). */
+.nt-row-favicon:is([data-ink="dark"],[data-ink="light"]){background:var(--nt-favicon) center/contain no-repeat}
+:root:not([data-theme="light"]) .nt-row-favicon[data-ink="dark"],:root[data-theme="light"] .nt-row-favicon[data-ink="light"]{background:currentColor;mask:var(--nt-favicon) center/contain no-repeat}
+:root:not([data-theme="light"]) .nt-row-favicon[data-ink="dark-tile"],:root[data-theme="light"] .nt-row-favicon[data-ink="light-tile"]{filter:invert(1)}
 /* The title takes the row's room first and is cut only at the action (or the row's trailing padding); the
    detail takes what is left (flex-basis 0) and goes before the title does (user 34731: a long "Search the
    web for …" stopped at 60% of the row, a third of it empty). */
@@ -1007,8 +1014,11 @@
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
 .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) { --nt-stage-foot: 0px; }
-/* The optional template switch keeps room under the stage footer. */
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) {
+/* The optional template switch (StyleSwitch.tsx) keeps room under the stage footer. The page follows the
+   switch in the pane (pane/PaneBody.tsx), so a sibling combinator finds it, not a `:has()` over the pane: a
+   pane-level `:has()` restyles every row on screen at each composer edit (paneAncestorHas.test.ts). */
+.acpmux-main > .nt-style ~ .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot),
+.acpmux-main > .nt-style ~ * .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {
@@ -1455,6 +1465,47 @@
 .nt-signed-out-actions { display: flex; flex: none; gap: var(--grid-half-step); }
 .nt-signed-out .acpmux-trust-ask-action { height: var(--grid-pill); font-size: var(--text-detail); }
 
+/* HOME-CARDS: appearance.homeCardStyle (CmuxNextDesign HomeCardStyle; theme.ts sets data-home-cards). Absent, the
+   default `standard`, keeps every card above as it is. The cards: the recent chats' cards (.nt-card, never the
+   one-line rows of the list variant), the environment and suggestions cards over the composer (.nt-stage-card) and
+   the Home lists under a new chat's composer (.acpmux-home-list). Fills, edges and shadows only: no card moves. */
+/* flat: a tonal fill, no edge, no shadow. */
+:root[data-home-cards="flat"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  box-shadow: none;
+}
+:root[data-home-cards="flat"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--agent-text) 11%, transparent);
+}
+/* raised: an elevated card, the composer's solid surface with a hairline and a soft shadow. */
+:root[data-home-cards="raised"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base, Canvas)));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+}
+:root[data-home-cards="raised"][data-borders="none"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  box-shadow: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+}
+:root[data-home-cards="raised"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-surface, var(--acpmux-base, Canvas)));
+}
+/* glass: see-through cards over the window's picture, the glass material's rim and depth. No backdrop blur: these
+   cards scroll with the content (design/glass-system.md rules 2 and 7; check-one-material: only .ui-glass paints a
+   blur). Reduce Transparency keeps the rim on an opaque fill. */
+:root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 42%, transparent);
+  box-shadow: var(--glass-material-rim, inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, white 30%, transparent)),
+    var(--glass-material-depth-composer, var(--elevation-2, none));
+}
+:root[data-home-cards="glass"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 58%, transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
+    background: var(--acpmux-composer-surface, var(--acpmux-base, Canvas));
+  }
+}
 /* New Tab's composer: one borderless card (Lucas 2026-11-25, newtab-composer-lab "Unified Card"). The field has the
    first row to itself; one bar inside the card holds +, the permissions and model chips, the mic and Send. The card is the
    theme's text at 4.5 % over its surface (42 % surface over white in light), with no edge, rim or focus shift, and the
@@ -1497,10 +1548,9 @@
   --uc-field-inline: 18px;
   --uc-field-text: calc(var(--text-content) * 14.5 / 14);
   --uc-field-line: calc(var(--text-content) * 1.5);
-  /* The suggestions' rows: 9 px from glyph to title; a shortcut's keycaps 3 px apart, 5 px in. */
+  /* The suggestions' rows: 9 px from glyph to title; a shortcut's keys 3 px apart. */
   --uc-row-gap: 9px;
   --uc-key-gap: 3px;
-  --uc-key-pad: 5px;
 }
 /* The card, not its popups: they read the shared transient material (glass-levels.test.ts). */
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box.nt-composer-surface.ui-glass {
@@ -1771,6 +1821,9 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
   --nt-row-detail: var(--text-detail);
   --acpmux-composer-glyph: 16px;
 }
+/* The rows' list owns the padding (.nt-rows), so the popup has none. Two classes, so a shared `.ui-popup` padding
+   (ui/ui.css, when a chunk brings it in) never adds a second 6 px by load order. */
+.ui-popup.nt-popover { padding: 0; }
 :root .ui-popup.nt-popover .nt-rows > .nt-row {
   gap: var(--uc-row-gap);
   padding-inline: var(--ui-row-padding-inline);
@@ -1784,12 +1837,6 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
 :root .ui-popup.nt-popover .nt-row-detail { font-size: var(--text-detail); letter-spacing: normal; }
 :root .ui-popup.nt-popover .nt-row-return { display: none; }
 :root .ui-popup.nt-popover .nt-row-shortcut { gap: var(--uc-key-gap); }
-:root .ui-popup.nt-popover .nt-row-shortcut kbd {
-  padding: var(--grid-half-step) var(--uc-key-pad);
-  background: color-mix(in srgb, var(--uc-ink) 8%, var(--uc-base));
-  color: var(--uc-muted);
-  font: var(--text-caption) / 1 var(--font-ui);
-}
 
 /* +'s menu: under it, on its left edge (Picker's side), 12 px radius, 5 px padding, 206 to 300 px wide, in the shared
    menu material; 28 px rows at 7 px radius, 9 px padding, 8 px gap, 13 px in the chips' ink, 14 px icons. No subtitles, Return hint

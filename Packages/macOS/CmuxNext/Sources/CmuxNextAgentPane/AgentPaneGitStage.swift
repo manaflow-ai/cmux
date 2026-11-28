@@ -120,6 +120,7 @@ extension AgentPaneGitStage {
 
     /// The hunk is not in the file's diff any more (the file changed since the view read it).
     nonisolated static var hunkMovedMessage: String {
+        // retry-prompt-ok: staging a hunk changes the index (a side effect); the diff view refreshing itself on file change is the root fix, in webviews
         String(localized: "agentPane.error.gitHunkMoved", defaultValue: "That change is no longer in the file. Refresh and try again.",
                bundle: .localizedModule)
     }

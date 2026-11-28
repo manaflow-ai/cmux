@@ -391,7 +391,8 @@ export class MarkdownStore {
   edited(): void {
     if (this.state.readOnly || this.state.phase !== "ready") return;
     this.reporter.edited();
-    if (this.state.status !== "saving") this.set({ status: "edited" });
+    // Only a change of status: a set on each keystroke rendered the whole page again (5 ms a key).
+    if (this.state.status !== "saving" && this.state.status !== "edited") this.set({ status: "edited" });
     this.cancelAutosave?.();
     if (this.state.conflict) return;
     this.cancelAutosave = this.schedule(() => {

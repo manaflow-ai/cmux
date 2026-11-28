@@ -189,7 +189,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
-                                   turn: session.servers.turn,
+                                   turn: session.servers.turn, turnStream: session.servers.turnStream,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth, maxKbps: offer.maxKbps, cursor: offer.cursor,
                                    encodeProfile: offer.encodeProfile))
@@ -338,6 +338,8 @@ nonisolated final class MacScreenRdHost: Sendable {
         var scope: String
         var stun: [String]
         var turn: [MacScreenRdServers.Turn]
+        /// TCP and TLS relays, after the UDP ones, for a network that blocks UDP.
+        var turnStream: [MacScreenRdServers.Turn]
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
@@ -350,6 +352,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         enum CodingKeys: String, CodingKey {
             case session, viewer, scope, stun, turn, display, cursor
             case peerKey = "peer_key"
+            case turnStream = "turn_stream"
             case maxFps = "max_fps"
             case maxWidth = "max_width"
             case maxKbps = "max_kbps"

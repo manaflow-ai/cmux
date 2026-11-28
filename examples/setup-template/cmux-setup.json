@@ -1,0 +1,24 @@
+// A cmux setup repo: one whole look that installs with `cmux setup install github.com/OWNER/REPO`.
+// The process (check, gallery, release, listing, staying working across updates):
+// docs/cmux-next/customization-repos.md in the cmux repository.
+{
+  "cmuxSetup": 1,
+  "id": "OWNER/my-look",
+  "name": "My Look",
+  "tagline": "One line that says what it looks like.",
+  "description": "What the look changes and who it is for. Remove it and everything you had comes back.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/OWNER/REPO",
+  // The oldest cmux you tested with (`cmux --version`); an older one refuses the install with that reason.
+  "engines": { "cmux": ">=1.0.0" },
+  "screenshots": ["screenshots/chat.png", "screenshots/chat-end.png", "screenshots/sidebar.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "my-look",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 760,
+    "sidebar.density": "compact"
+  }
+}

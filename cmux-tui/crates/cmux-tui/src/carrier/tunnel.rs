@@ -597,6 +597,8 @@ impl Supervisor {
         let proof = identity.proof("tunnel", &tunnel.device_id, "", "").map_err(Miss::Fatal)?;
         let origin = tunnel.vm_api_origin.as_deref().unwrap_or(&self.plan.vm_api);
         let url = format!("{origin}/v1/devices/{}/signed/tunnel", tunnel.device_id);
+        // The proxy answer for the VM API, asked off this thread once; the client reads it cached.
+        cmux_proxy::proxy::warm(&url).await;
         let response = client
             .post(url)
             .json(&proof)
@@ -623,7 +625,10 @@ impl Supervisor {
             Ok(space) => space,
             Err(error) => return HubEnd::Final(TunnelStatus::Failed(error.to_string())),
         };
+        // Through the system's proxy when it names one for the VM API (macOS PAC included;
+        // `cmux-proxy`), as the attach's client does. The hub's own WireGuard UDP is not HTTP.
         let client = match cmux_egress::client_builder("cmux_tui::carrier::tunnel")
+            .proxy(reqwest::Proxy::custom(cmux_proxy::proxy::http_proxy_url))
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))

@@ -218,9 +218,11 @@ async function askIn(folder: string, text: string) {
 }
 
 type FieldElement = HTMLElement & { acpmuxMarkdownField?: { type(markdown: string): unknown; value(): string } };
-/// The chat composer's prompt field, once its editor is up.
+/// The chat composer's prompt field, once its editor is up and the reader can reach it: the chat
+/// view a New Tab page parks under itself (App.tsx `parked`) holds an editor too, but inert.
 const promptField = () => {
   const element = host.querySelector<FieldElement>(".acpmux-composer-prompt");
+  if (element?.closest("[inert]")) return undefined;
   return element?.querySelector("[contenteditable]") ? element.acpmuxMarkdownField : undefined;
 };
 const composerText = () => promptField()?.value() ?? "";

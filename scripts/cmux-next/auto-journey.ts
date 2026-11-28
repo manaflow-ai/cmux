@@ -19,7 +19,9 @@
  *   5. chat on Mac    a checkout with a local commit and uncommitted work; `session/new`, Auto on
  *                     (`_acpmux/auto_session/set`), a prompt answered on the Mac; the store holds it as
  *                     `device:<id>` with a snapshot that covers its last event.
- *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; the machine's
+ *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; S4 with the Mac
+ *                     daemon stopped (auto-journey-s4.ts: the phone's read, then timed inbox sends that each run once on
+ *                     the machine; OUT/s4.json); the machine's
  *                     folder has the Mac's commit and uncommitted work; a message sent to the chat
  *                     (POST /v1/auto-sessions/:id/inbox) is answered by the harness on the machine.
  *   7. back home      POST /v1/auto-sessions/:id/move {to: "local", device}; the holder becomes `device:<id>`; the
@@ -44,6 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { phoneSends, s4Detail, type S4Result } from "./auto-journey-s4.ts";
 import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitRunning } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
@@ -52,6 +55,8 @@ type View = { id: string; holder: string; epoch: number; version: number; lastSe
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
 const HARNESS = "auto-journey";
+/** S4's phone sends a run (auto-journey-s4.ts); AUTO_JOURNEY_S4_SENDS changes it. */
+const S4_SENDS = Math.max(1, Math.min(100, Number(process.env.AUTO_JOURNEY_S4_SENDS) || 20));
 /** cmux NEXT's config folder on this side: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567), where the
  * daemon reads harness profiles. The Linux guest keeps `cmux`. */
 const NEXT_DIR = process.platform === "darwin" ? "cmux-next" : "cmux";
@@ -77,9 +82,9 @@ const harnessProfile = (cmuxTui: string, script: string) =>
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
-type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
+export type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
 
-async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
+export async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
   const key = await crypto.subtle.importKey("jwk", state.jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const ch = await http("POST", `${state.api}/v1/auth/challenge`, { user: state.user, install: state.install }, {});
   if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
@@ -100,11 +105,22 @@ async function mintMode(stateFile: string): Promise<number> {
 
 // ---------------------------------------------------------------- the Mac daemon's socket (ACP + acpmux methods)
 
-class Socket {
+export class Socket {
   private buf = "";
   private next = 1;
   private waiting = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>();
   readonly notes: any[] = [];
+  private changes = new Set<() => void>();
+  private closeWaiters = new Set<() => void>();
+  private closed = false;
+  private markClosed() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed"));
+    this.waiting.clear();
+    for (const changed of this.changes) changed();
+    for (const closed of this.closeWaiters) closed();
+  }
   private constructor(private conn: net.Socket) {
     conn.setEncoding("utf8");
     conn.on("data", (chunk: string) => {
@@ -122,6 +138,7 @@ class Socket {
           else w.ok(msg.result);
         } else if (msg.method) {
           this.notes.push(msg);
+          for (const changed of this.changes) changed();
           // A permission request: the stand-in never asks, but a request left unanswered would hang the turn.
           if (msg.id !== undefined && msg.method === "session/request_permission") {
             const allow = (msg.params?.options ?? []).find((o: any) => /allow/.test(String(o.kind ?? "")))?.optionId;
@@ -130,7 +147,9 @@ class Socket {
         }
       }
     });
-    conn.on("close", () => { for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed")); this.waiting.clear(); });
+    conn.on("close", () => {
+      this.markClosed();
+    });
   }
   static open(socketPath: string): Promise<Socket> {
     return new Promise((ok, err) => {
@@ -140,6 +159,7 @@ class Socket {
     });
   }
   call(method: string, params: unknown, timeoutMs = 60_000): Promise<any> {
+    if (this.closed) return Promise.reject(new Error("the daemon's socket closed"));
     const id = this.next++;
     return new Promise((ok, err) => {
       const timer = setTimeout(() => { this.waiting.delete(id); err(new Error(`${method}: no answer in ${timeoutMs} ms`)); }, timeoutMs);
@@ -147,7 +167,46 @@ class Socket {
       this.conn.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
-  close() { this.conn.destroy(); }
+  /** Wait on socket notifications, not a repeated status read. Register before reading so
+   * a change between the read and wait cannot be lost. */
+  async waitUntil(read: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (this.closed) throw new Error("the daemon's socket closed");
+      let wake!: () => void;
+      const changed = new Promise<void>(resolve => { wake = resolve; });
+      this.changes.add(wake);
+      let closeWake!: () => void;
+      const closed = new Promise<void>(resolve => { closeWake = resolve; });
+      this.closeWaiters.add(closeWake);
+      const timers = new Set<ReturnType<typeof setTimeout>>();
+      const timeout = (ms: number) => new Promise<"timeout">(resolve => {
+        const timer = setTimeout(() => { timers.delete(timer); resolve("timeout"); }, ms);
+        timers.add(timer);
+      });
+      try {
+        if (Date.now() >= deadline) return false;
+        const first = await Promise.race([
+          Promise.resolve().then(read).then(value => ({ kind: "read" as const, value })),
+          closed.then(() => ({ kind: "closed" as const })),
+          timeout(deadline - Date.now()),
+        ]);
+        if (first === "timeout") return false;
+        if (first.kind === "closed") throw new Error("the daemon's socket closed");
+        if (first.value) return Date.now() < deadline;
+        const left = deadline - Date.now();
+        if (left <= 0) return false;
+        const next = await Promise.race([changed.then(() => "changed" as const), closed.then(() => "closed" as const), timeout(left)]);
+        if (next === "closed") throw new Error("the daemon's socket closed");
+        if (next === "timeout") return false;
+      } finally {
+        for (const timer of timers) clearTimeout(timer);
+        this.changes.delete(wake);
+        this.closeWaiters.delete(closeWake);
+      }
+    }
+  }
+  close() { this.markClosed(); this.conn.destroy(); }
 }
 
 /** The text of every agent_message_chunk and user_message_chunk the socket saw for `session` since `from`. */
@@ -220,6 +279,7 @@ async function main(): Promise<number> {
   const keep = () => writeFileSync(path.join(out, "owned.json"), JSON.stringify(owned));
   const api = new Api(backend.api);
   let daemon: ChildProcess | null = null;
+  let s4Failed = false;
   let sock: Socket | null = null;
   const store = async (method: string, route: string, body?: unknown, timeoutMs = 30_000) => {
     const r = await http(method, `${backend.api}/v1/auto-sessions${route}`, body, { authorization: `Bearer ${api.bearer}` }, timeoutMs, method === "GET");
@@ -438,6 +498,31 @@ async function main(): Promise<number> {
       if (!v.standby.includes(device)) console.log(`note: the Mac is not listed standby yet (${v.standby.join(",") || "none"})`);
       return { value: v, detail: `holder ${v.holder} epoch ${v.epoch} standby ${v.standby.join(",") || "none"}` };
     });
+    // S4 (the slice's phone step): the Mac asleep, the phone reads and sends to the chat on the machine. It runs here,
+    // before the folder check, so its numbers come in even when a later step fails; a failure still fails the run.
+    await J.step(`S4: the phone reads and sends ${S4_SENDS} messages with the Mac asleep`, async () => {
+      const mac = daemon as ChildProcess | null;
+      if (!mac?.pid || mac.exitCode !== null) throw new Error("the Mac daemon is not running, so it cannot be put to sleep");
+      process.kill(mac.pid, "SIGSTOP");
+      let r: S4Result;
+      try {
+        r = await phoneSends({
+          store, now: () => performance.now(), sleep,
+          ranOnMachine: async () => {
+            const got = await exec(`${GUEST}cat "$HOME/Projects/auto/${id}/${RAN_FILE}" 2>/dev/null; echo "@@done"`, 60_000);
+            if (!/@@done/.test(got.stdout)) throw new Error(`reading the machine's ${RAN_FILE}: exit ${got.code}`);
+            return got.stdout;
+          },
+        }, id, machine, tag, S4_SENDS);
+      } finally {
+        process.kill(mac.pid, "SIGCONT");
+      }
+      writeFileSync(path.join(out, "s4.json"), JSON.stringify(r, null, 2));
+      for (const [k, l] of [["post", r.post], ["ack", r.ack], ["vm_answer", r.turn]] as const) if (l) meta[`s4_${k}_ms`] = `p50 ${l.p50} p99 ${l.p99} max ${l.max} n ${r.n}`;
+      meta.s4_read_ms = String(Math.round(r.readMs));
+      if (!r.ok) throw new Error(s4Detail(r));
+      return { value: null, detail: s4Detail(r) };
+    }).catch(() => { s4Failed = true; });
     // The store moves the holder at once (`assign`, leaseExpiresAt 0); the machine lays the folder out after that (git
     // init, fetch the base, the bundle, the patch: import/folder.rs) and acks the assignment only once the import is
     // done (holder/machine.rs `ImportDone` -> AckAssignment), which is when the store first gives it a lease. A folder
@@ -520,7 +605,7 @@ async function main(): Promise<number> {
       if (v.holder !== device) throw new Error(`holder ${v.holder}`);
       return { value: null, detail: `answered side=mac; holder ${v.holder} epoch ${v.epoch}` };
     });
-    return 0;
+    return s4Failed ? 1 : 0;
   } catch (e) {
     console.error(scrub(String((e as Error)?.stack ?? e), J.secrets));
     return 1;

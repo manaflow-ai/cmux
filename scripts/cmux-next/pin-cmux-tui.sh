@@ -101,6 +101,10 @@
 #   terminal holder too: cmux-tui-holder-<target> goes beside it as cmux-holder
 #   (cmux-holder.sha256), which the daemon starts every holder from; without it
 #   the holder built into cmux-tui-host runs.
+#   The optional login-time pre-read rides the same way: cmux-tui-launch-preread-<target>
+#   goes beside it as cmux-launch-preread (cmux-launch-preread.sha256;
+#   launch_preread_url= and launch_preread_sha256= in the pin). Older
+#   publications without the reader bundle none.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
@@ -109,6 +113,7 @@
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | agent-screen-detection-path [--tree|--pin] (where fetch puts cmux-agent-screen-detection)
+#        | launch-preread-path [--tree|--pin] (where fetch puts cmux-launch-preread)
 #        | acpmux-path (where a tree fetch puts acpmux; CMUX_TUI_TREE_TARGET=x86_64-apple-darwin:
 #          its x86_64 slice, which fetch-acpmux brings when CMUX_NEXT_ACPMUX_ARCHS asks for x86_64)
 #        | resolve-commit (the commit that published this tree; waits for it)
@@ -194,6 +199,12 @@ read_pin() {
   if [[ -n "$pin_agent_screen_detection_url$pin_agent_screen_detection_sha256" ]]; then
     [[ "$pin_agent_screen_detection_url" == https://* && "$pin_agent_screen_detection_sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: malformed pin $pin_file (agent_screen_detection_url= and agent_screen_detection_sha256= go together)" >&2; exit 1; }
+  fi
+  pin_launch_preread_url="$(pin_field launch_preread_url)"
+  pin_launch_preread_sha256="$(pin_field launch_preread_sha256)"
+  if [[ -n "$pin_launch_preread_url$pin_launch_preread_sha256" ]]; then
+    [[ "$pin_launch_preread_url" == https://* && "$pin_launch_preread_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "error: malformed pin $pin_file (launch_preread_url= and launch_preread_sha256= go together)" >&2; exit 1; }
   fi
 }
 
@@ -1025,6 +1036,9 @@ wait_for_tree() {
         echo "  on a trusted pushed commit of feat-cmux-next or feat-cmux-next-acpmux."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
         echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
+        echo "  Only coalesced window runs publish: a 'success' artifacts run at a commit may just be superseded,"
+        echo "  so check the sha256 URL above, not the run's conclusion. A run started at a branch head (a dispatch"
+        echo "  at a pull request) needs that head's tree published: base the branch on a commit whose tree is."
         echo "  A fleet app build can bundle its own daemon without publishing the PR tree."
         echo "  A pull request checks its merge with the base; do not publish a synthetic merge commit from the PR context."
         echo "  When the last trusted run for this tree failed, rerun it from feat-cmux-next."
@@ -1117,7 +1131,7 @@ local_build_matches() {
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
 # (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
 # cmux-browser-host, host -> cmux-tui-host, holder -> cmux-holder, agent-screen-detection ->
-# cmux-agent-screen-detection) that
+# cmux-agent-screen-detection, launch-preread -> cmux-launch-preread) that
 # the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
@@ -1214,6 +1228,7 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" host cmux-tui-host
   fetch_tree_companion "$1" "$2" holder cmux-holder
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
+  fetch_tree_companion "$1" "$2" launch-preread cmux-launch-preread
   # The app bundles acpmux too; a tree published before its build carried
   # acpmux has none, and the app build compiles it (build-acpmux.sh).
   fetch_tree_companion "$1" "$2" acpmux acpmux
@@ -1397,7 +1412,9 @@ tree_published() {
 #                          it ends, scripts/ci/cmux_next_tree_notify.py starts
 #                          the tree jobs (cmux-next same-tree mode)
 #   tree_state=superseded  a push whose artifacts runs were cancelled or skipped
-#                          while the branch moved on: nothing to test
+#                          while the branch moved on: nothing to test (with
+#                          CMUX_TUI_TREE_TIP_SUITE set, a tip suite, deferred
+#                          instead: no newer run tests this exact commit)
 #   tree_state=failed      nothing will publish it (tree_reason says why)
 #   tree_state=skipped     CMUX_TUI_TREE_BASE_FALLBACK=1 and no tree in the
 #                          history is published: the tree jobs do not run
@@ -1497,7 +1514,17 @@ probe_checkout_tree() {
     ended\ *)
       superseded=""
       [[ "$source" == commit:* && -n "$publisher" ]] && superseded="$(superseded_by "$publisher" "$state")"
-      if [[ -n "$superseded" ]]; then
+      if [[ -n "$superseded" && -n "${CMUX_TUI_TREE_TIP_SUITE:-}" ]]; then
+        # A tip suite (cmux-next.yml tip_daemon_suite) is the base's verdict for this exact commit, and in a
+        # landing burst the push that would publish its tree is always cancelled by the next one: until
+        # 2026-11-27 every such run read superseded and skipped daemon-test (one daemon-test verdict in 14
+        # tip daemon suite runs from 21:54Z to 05:23Z). No other run tests this commit's daemon tree, so
+        # the newer head being tested does not apply. Its wait marker (tip_suite, which
+        # cmux_next_tree_notify.is_current keeps past a moved tip) waits for the tree's next publish: the
+        # next window's push with this key, or cmux-tui-tree-request.yml.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was cancelled by a newer push ($superseded), and this tip suite tests this exact commit; tree $key's next publish starts the tree jobs"
+      elif [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then
@@ -1993,6 +2020,11 @@ fetch_pin() {
   else
     rm -f "$dir/cmux-agent-screen-detection"
   fi
+  if [[ -n "$pin_launch_preread_url" ]]; then
+    fetch_pinned "$pin_launch_preread_url" "$pin_launch_preread_sha256" "$dir/cmux-launch-preread" cmux-launch-preread
+  else
+    rm -f "$dir/cmux-launch-preread"
+  fi
 }
 
 cmd="${1:-}"
@@ -2015,12 +2047,12 @@ case "$cmd" in
     manifest_url="$BASE/$commit/manifest.json"
     download "$manifest_url" "$temp_dir/manifest.json" || {
       echo "error: $manifest_url is not published; run the cmux-tui artifacts workflow on $commit (see --help)" >&2; exit 1; }
-    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 agent_screen_detection_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" "cmux-tui-agent-screen-detection-$TARGET" <<'PY'
+    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 agent_screen_detection_sha256 launch_preread_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" "cmux-tui-agent-screen-detection-$TARGET" "cmux-tui-launch-preread-$TARGET" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
 run = re.search(r"/actions/runs/(\d+)", m.get("attestationUrl") or "")
 binaries = m.get("binaries", {})
-print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-", binaries.get(sys.argv[6], "") or "-")
+print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-", binaries.get(sys.argv[6], "") or "-", binaries.get(sys.argv[7], "") or "-")
 PY
 )
     [[ "$run" == - ]] && run=""
@@ -2028,6 +2060,7 @@ PY
     [[ "$cloud_server_sha256" == - ]] && cloud_server_sha256=""
     [[ "$browser_host_sha256" == - ]] && browser_host_sha256=""
     [[ "$agent_screen_detection_sha256" == - ]] && agent_screen_detection_sha256=""
+    [[ "$launch_preread_sha256" == - ]] && launch_preread_sha256=""
     [[ "$manifest_commit" == "$commit" && "$sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: $manifest_url does not describe cmux-tui-$TARGET for $commit" >&2; exit 1; }
     url="$BASE/$commit/cmux-tui-$TARGET"
@@ -2072,6 +2105,15 @@ PY
     else
       echo "note: $commit published no cmux-agent-screen-detection; the pin bundles none"
     fi
+    launch_preread_url=""
+    if [[ "$launch_preread_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      launch_preread_url="$BASE/$commit/cmux-tui-launch-preread-$TARGET"
+      download "$launch_preread_url" "$temp_dir/cmux-launch-preread"
+      [[ "$(sha256_of "$temp_dir/cmux-launch-preread")" == "$launch_preread_sha256" ]] || {
+        echo "error: $launch_preread_url does not match its manifest" >&2; exit 1; }
+    else
+      echo "note: $commit published no cmux-launch-preread; the pin bundles none"
+    fi
     {
       echo "# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help"
       echo "commit=$commit"
@@ -2094,6 +2136,10 @@ PY
       if [[ -n "$agent_screen_detection_url" ]]; then
         echo "agent_screen_detection_url=$agent_screen_detection_url"
         echo "agent_screen_detection_sha256=$agent_screen_detection_sha256"
+      fi
+      if [[ -n "$launch_preread_url" ]]; then
+        echo "launch_preread_url=$launch_preread_url"
+        echo "launch_preread_sha256=$launch_preread_sha256"
       fi
     } > "$pin_file"
     echo "pinned $commit ($version)"
@@ -2161,6 +2207,16 @@ PY
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-agent-screen-detection"
+    fi
+    ;;
+  launch-preread-path)
+    mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-launch-preread"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-launch-preread"
     fi
     ;;
   resolve-commit)

@@ -5,7 +5,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 #[path = "durable_watch_lifecycle/daemon.rs"]
 mod daemon;
-use daemon::{Daemon, next_wake, observe, quiet};
+use daemon::{Daemon, Wakes, next_wake, observe, quiet};
 use serde_json::{Value, json};
 #[path = "durable_watch_lifecycle/peer.rs"]
 mod peer;
@@ -266,5 +266,61 @@ async fn corrupt_watch_file_is_quarantined_and_older_cursors_still_resolve() {
     let mut notes = observe(&a, &sink).await;
     a.prompt(&source, "migrated").await;
     assert!(next_wake(&mut notes).await.contains("is ready"));
+    a.stop().await;
+}
+
+/// A match watch armed on a helper whose last finished turn already said the text is not spent
+/// by that old turn: it waits for a turn that ends after it was added (2026-11-27: a coordinator's
+/// one-shot `match` watch fired at once on the helper's earlier reply, four times in a day, and
+/// the real final reply woke no one). A watch without a match still answers at once.
+#[tokio::test]
+async fn a_match_watch_ignores_the_turn_that_ended_before_it_was_armed() {
+    let mut a = Daemon::new().await;
+    let sink = a.chat("coordinator").await;
+    let plain_sink = a.chat("plain-coordinator").await;
+    let helper = a.chat("helper").await;
+    a.prompt(&helper, "Final. an earlier report").await;
+    let mut wakes = Wakes::observe(&a, &[&sink, &plain_sink]).await;
+    a.watch(&sink, vec![helper.clone()], "ready", true, Some("Final.")).await;
+    a.watch(&plain_sink, vec![helper.clone()], "ready", true, None).await;
+    assert!(wakes.next(&plain_sink).await.contains("is ready"), "a ready source wakes at once");
+    wakes.quiet(&sink).await;
+    a.prompt(&helper, "Final. the real report").await;
+    let wake = wakes.next(&sink).await;
+    assert!(wake.contains("the real report"), "{wake}");
+    wakes.quiet(&sink).await;
+    a.stop().await;
+}
+
+/// `matchIn` picks which text of a turn a match is looked for in. `turn` (the default) is any
+/// reply text of the turn, as before; `reply` is only the final reply after the last tool call, so
+/// interim text that promises the marker does not spend the watch; `replyStart` needs the final
+/// reply to begin with it, so a final reply that only mentions it does not either.
+#[tokio::test]
+async fn match_in_reply_waits_for_the_final_reply_not_interim_text() {
+    let mut a = Daemon::new().await;
+    let turn_sink = a.chat("turn-coordinator").await;
+    let reply_sink = a.chat("reply-coordinator").await;
+    let start_sink = a.chat("start-coordinator").await;
+    let helper = a.chat("helper").await;
+    let mut wakes = Wakes::observe(&a, &[&turn_sink, &reply_sink, &start_sink]).await;
+    a.watch(&turn_sink, vec![helper.clone()], "ready", true, Some("Final.")).await;
+    a.watch_in(&reply_sink, &helper, "Final.", "reply").await;
+    let listed = a.watch_in(&start_sink, &helper, "Final.", "replyStart").await;
+    assert_eq!(listed["matchIn"], "replyStart", "{listed}");
+
+    a.prompt(&helper, "interim-then-final: Final. comes after the merge | still waiting on CI")
+        .await;
+    assert!(wakes.next(&turn_sink).await.contains("still waiting on CI"), "turn keeps its meaning");
+    wakes.quiet(&reply_sink).await;
+    wakes.quiet(&start_sink).await;
+
+    a.prompt(&helper, "interim-then-final: checking | I will send Final. after the merge").await;
+    assert!(wakes.next(&reply_sink).await.contains("I will send Final."));
+    wakes.quiet(&start_sink).await;
+
+    a.prompt(&helper, "interim-then-final: checking | Final. merged").await;
+    let wake = wakes.next(&start_sink).await;
+    assert!(wake.contains("Final. merged"), "{wake}");
     a.stop().await;
 }
