@@ -796,14 +796,17 @@ impl Cloud for Api {
                 command,
                 timeout_ms,
             )),
-            _ => self.runtime.block_on(super::super::cloud_client_session::exec_route(
-                &self.exec_client,
-                &self.scope,
-                &self.credential,
-                &handle,
-                command,
-                timeout_ms,
-            )),
+            _ => self
+                .runtime
+                .block_on(super::super::cloud_client_session::exec_route(
+                    &self.exec_client,
+                    &self.scope,
+                    &self.credential,
+                    &handle,
+                    command,
+                    timeout_ms,
+                ))
+                .map_err(String::from),
         }
         .map_err(fail)?;
         let token = session.map(|s| s.token.as_str()).unwrap_or("");

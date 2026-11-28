@@ -770,3 +770,43 @@ fn exec_without_an_api_or_credential_goes_through_the_app() {
     let new = parse(&strings(&["create", "--target", machine])).unwrap();
     assert_eq!(app_exec(&new, none), None);
 }
+
+#[test]
+fn a_platform_refusal_says_whether_the_same_command_may_be_retried() {
+    // cmux-platform MachineGuest.ts GUEST_REFUSAL: a provider exec that threw answers 502
+    // vm_unavailable "retry" (cloud-chaos run 46116359583 read it as final), a snapshot 503
+    // vm_busy "retry shortly"; a missing or forbidden machine stays final. The body's own
+    // `retryable` wins over the status.
+    for (status, body, retryable) in [
+        (502, json!({ "ok": false, "error": { "code": "vm_unavailable" } }), true),
+        (503, json!({ "ok": false, "error": { "code": "vm_busy" } }), true),
+        (404, json!({ "ok": false, "error": { "code": "vm_not_found" } }), false),
+        (403, json!({ "ok": false, "error": { "code": "vm_forbidden" } }), false),
+        (409, json!({ "ok": false, "error": { "code": "vm_not_running" } }), false),
+        (
+            503,
+            json!({ "ok": false, "error": { "code": "vm_unavailable", "retryable": false } }),
+            false,
+        ),
+        (409, json!({ "ok": false, "error": { "code": "cloud.machine.busy" } }), true),
+    ] {
+        let (origin, _requests) = fake_no_sessions(status, body.to_string());
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let failed =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert_eq!(failed.retryable, retryable, "{status} {body}: {failed}");
+    }
+}
+
+#[test]
+fn a_failure_this_command_decides_itself_stays_final() {
+    // An unreadable answer may follow a command that ran: never offered as a retry.
+    let (origin, _requests) = fake_no_sessions(200, "not json".into());
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let failed = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+        .unwrap_err();
+    assert!(!failed.retryable, "{failed}");
+}

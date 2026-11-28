@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_cloud_client::machine::{Machine, Scope};
+use cmux_cloud_machine::refusals;
 use serde_json::{Value, json};
 
 use super::{OutputMode, UsageError};
@@ -107,7 +108,70 @@ pub(super) fn run_words(global: &super::GlobalArgs, rest: &[String]) -> i32 {
     let stderr = &mut std::io::stderr();
     match run(&command, &api, &credential, global.output, stdout, stderr) {
         Ok(code) => code,
-        Err(message) => fail("cloud_client_session.failed", &message, 1),
+        Err(failed) => super::wire::print_local_error(
+            &json!({
+                "code": "cloud_client_session.failed",
+                "message": format!("cmux: {}", failed.message),
+                "details": {},
+                "retryable": failed.retryable,
+            }),
+            global.output,
+            1,
+        ),
+    }
+}
+
+/// Why this command failed, and whether sending the same command again may work: the cmux API's
+/// own verdict on its refusal ([`refusals::handling`]: the body's `retryable`, else the platform's
+/// row for the code, else a 502, 503 or 504 retries). Before it every failure printed
+/// `retryable: false`, so a provider exec that threw (cmux-platform MachineGuest.ts
+/// `provider_failed`, 502 `vm_unavailable` "the machine did not answer; retry") read as final:
+/// cmuxterm-hq cloud-chaos run 46116359583 failed its session host and agent daemon restarts on it.
+/// Anything this command decides itself (a usage error, an unreadable answer, no answer at all,
+/// where the command may have run) stays final.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Failed {
+    pub message: String,
+    pub retryable: bool,
+}
+
+impl Failed {
+    /// A refusal the cmux API answered with `status`, its body's `code` and maybe `retryable`.
+    fn refused(message: String, status: u16, code: &str, retryable: Option<bool>) -> Self {
+        let code = Some(code).filter(|code| !code.is_empty());
+        let retryable = refusals::handling(status, code, retryable) != refusals::Handling::Final;
+        Failed { message, retryable }
+    }
+}
+
+impl From<String> for Failed {
+    fn from(message: String) -> Self {
+        Failed { message, retryable: false }
+    }
+}
+
+impl From<&str> for Failed {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+impl From<Failed> for String {
+    fn from(failed: Failed) -> Self {
+        failed.message
+    }
+}
+
+impl std::ops::Deref for Failed {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.message
+    }
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
     }
 }
 
@@ -234,7 +298,7 @@ pub(super) fn run(
     output: OutputMode,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<i32, String> {
+) -> Result<i32, Failed> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -246,7 +310,7 @@ pub(super) fn run(
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
-    let io = |e: std::io::Error| e.to_string();
+    let io = |e: std::io::Error| Failed::from(e.to_string());
     // The machine is a handle on this backend and team from here on: no call below names the
     // backend again (lens review 2026-11-05, finding 2).
     let scope = Scope::new(api, command.team.as_deref()).map_err(|e| e.to_string())?;
@@ -275,7 +339,9 @@ pub(super) fn run(
             answer.stderr = redact(&answer.stderr, "", credential);
             return print_exec(&command.machine, &answer, output, out, err).map_err(io);
         }
-        (Err(refusal), _) => return Err(refusal.message),
+        (Err(refusal), _) => {
+            return Err(Failed::refused(refusal.message, refusal.status, refusal.code, None));
+        }
     };
     match &command.verb {
         Verb::Create { token_file } => {
@@ -382,7 +448,7 @@ pub(super) async fn exec_route(
     machine: &Machine,
     command: &str,
     timeout_ms: u64,
-) -> Result<ExecAnswer, String> {
+) -> Result<ExecAnswer, Failed> {
     let url = scope.route(machine, "/exec").map_err(|foreign| foreign.to_string())?;
     let mut request = client
         .post(url)
@@ -405,10 +471,12 @@ pub(super) async fn exec_route(
         let code = known_code(code);
         let code = if code.contains(credential) { "" } else { code };
         let reason = rpc_failure_reason(body.get("error").and_then(|e| e.get("reason")));
-        return Err(match reason {
+        let retryable = body.get("error").and_then(|e| e.get("retryable")).and_then(Value::as_bool);
+        let message = match reason {
             Some(reason) => format!("the cmux API refused the command: {status} {code} ({reason})"),
             None => format!("the cmux API refused the command: {status} {code}"),
-        });
+        };
+        return Err(Failed::refused(message, status.as_u16(), code, retryable));
     }
     let body = body.get("value").filter(|v| v.is_object()).unwrap_or(&body);
     let text = |key: &str| match body.get(key) {
