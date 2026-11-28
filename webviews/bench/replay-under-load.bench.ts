@@ -363,6 +363,7 @@ async function run(): Promise<Reading> {
           "toplevel",
           "devtools.timeline",
           "disabled-by-default-devtools.timeline",
+          "disabled-by-default-devtools.timeline.invalidationTracking",
           "v8",
           "v8.execute",
           "blink.user_timing",
