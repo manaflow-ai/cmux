@@ -682,6 +682,42 @@ impl<T: Default> std::ops::Deref for OnFirstUse<T> {
     }
 }
 
+std::thread_local! {
+    /// The chats whose inbox this thread restores now ([`RestoringInbox`]), by address.
+    static RESTORING_INBOX: std::cell::RefCell<Vec<usize>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// While it lives, this thread restores `session`'s inbox (`Hub::restore_inbox`): a
+/// [`Session::inbox`] of that chat on this thread reads the inbox as it is and never restores it
+/// again, so a restore that reads its own chat's inbox, directly or through a helper, cannot
+/// take `inbox_load` a second time.
+pub(super) struct RestoringInbox(usize);
+
+impl RestoringInbox {
+    pub(super) fn enter(session: &Session) -> Self {
+        let key = std::ptr::from_ref(session).addr();
+        RESTORING_INBOX.with(|r| r.borrow_mut().push(key));
+        Self(key)
+    }
+
+    fn here(session: &Session) -> bool {
+        let key = std::ptr::from_ref(session).addr();
+        RESTORING_INBOX.with(|r| r.borrow().contains(&key))
+    }
+}
+
+impl Drop for RestoringInbox {
+    fn drop(&mut self) {
+        RESTORING_INBOX.with(|r| {
+            let mut r = r.borrow_mut();
+            if let Some(at) = r.iter().rposition(|k| *k == self.0) {
+                r.swap_remove(at);
+            }
+        });
+    }
+}
+
 impl Session {
     /// The pid whose process tree is this chat's agent (`_acpmux/session_resources`): its host's,
     /// which runs the harness and what it starts, or the agent this daemon runs as its own child.
@@ -716,8 +752,17 @@ impl Session {
     /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
     /// before: a reader of many chats (`turn_coming`) never reads their logs.
+    ///
+    /// A read from inside the chat's own restore ([`RestoringInbox`]) reads the inbox as it is:
+    /// `inbox_load` is a std mutex, and the restore's thread may hold it already. Taking it again
+    /// there never returned, and every later reader of the chat parked a runtime worker behind it
+    /// until none was left (2026-11-28: the aged archive of #55412 read `session.inbox()` at the
+    /// end of the restore; the daemon answered nothing a few seconds after each start).
     pub(super) fn inbox(&self) -> std::sync::MutexGuard<'_, super::inbox::Inbox> {
-        if !self.inbox_loaded.load(Ordering::Acquire) && self.log_loaded.load(Ordering::SeqCst) {
+        if !self.inbox_loaded.load(Ordering::Acquire)
+            && self.log_loaded.load(Ordering::SeqCst)
+            && !RestoringInbox::here(self)
+        {
             let _loading = self.inbox_load.lock().unwrap_or_else(|e| e.into_inner());
             if !self.inbox_loaded.load(Ordering::Acquire) {
                 // No hub to read it with: its log load restored it (`Hub::load_session_log`).

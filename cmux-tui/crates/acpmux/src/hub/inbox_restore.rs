@@ -25,6 +25,9 @@ impl Hub {
     /// read on each restart's first prompt, a cost that grew with the chat (cmux#51494: 85 ms
     /// of a 4 GB chat's first send after a restart, 157 ms after the next, 3 ms at 1 MB).
     pub(in crate::hub) fn restore_inbox(&self, session: &Session) {
+        // What this restore calls may read the chat's inbox: it reads it as it is, never
+        // restoring it again under the `inbox_load` its caller may hold (`Session::inbox`).
+        let _restoring = super::super::session::RestoringInbox::enter(session);
         let point = self.read_inbox_point(session);
         // Every record through `through` is in the journal: a point saved at it skips them.
         let through = self.settled_seq(session);

@@ -1549,3 +1549,52 @@ fn an_upload_path_in_the_chats_folder_is_accepted_as_the_platform_spells_it() {
     assert!(super::journal_restore::upload_path("chat-1", dir.to_str().unwrap()).is_none());
     assert!(super::journal_restore::upload_path("chat-2", file).is_none());
 }
+
+/// Runs `read` on its own thread and answers whether it came back within 20 s (a deadlock
+/// leaves the thread behind and fails the test, never hangs it).
+fn returns(read: impl FnOnce() + Send + 'static) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        read();
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(Duration::from_secs(20)).is_ok()
+}
+
+/// 2026-11-28: a chat whose log is read and whose inbox is not restores its inbox in its first
+/// `Session::inbox`, holding `inbox_load`. The restore's aged archive (#55412) read
+/// `session.inbox()` again on the same thread, which took `inbox_load` a second time and never
+/// came back; every later reader of that chat then parked a runtime worker behind it, and the
+/// daemon answered nothing seconds after each start. The first read, and the restore a log
+/// load or an import runs without `inbox_load` (`restore_queue_only`), both come back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_inbox_restore_never_reads_its_own_chat_through_the_lazy_load() {
+    let (hub, session) = hub_with_chat(false).await;
+    hub.append(&session, "mux", "inbox", json!({"promptId": "m1", "threadId": "from:a",
+        "from": "a", "class": "fyi", "text": "hello", "read": true}));
+
+    session.inbox_loaded.store(false, Ordering::Release);
+    session.log_loaded.store(true, Ordering::SeqCst);
+    let first = session.clone();
+    assert!(returns(move || drop(first.inbox())), "the first inbox read never came back");
+    assert!(session.inbox_loaded.load(Ordering::Acquire));
+
+    session.inbox_loaded.store(false, Ordering::Release);
+    let (h, s) = (hub.clone(), session.clone());
+    assert!(
+        returns(move || h.restore_queue_only(&s, None)),
+        "a restore outside the lazy load never came back"
+    );
+
+    // A read of the chat from inside its restore reads the inbox as it is.
+    session.inbox_loaded.store(false, Ordering::Release);
+    let nested = session.clone();
+    assert!(
+        returns(move || {
+            let _restoring = super::session::RestoringInbox::enter(&nested);
+            drop(nested.inbox());
+        }),
+        "a read inside the chat's restore never came back"
+    );
+    assert!(!session.inbox_loaded.load(Ordering::Acquire), "a nested read restored again");
+}
