@@ -151,6 +151,20 @@ jobs:
             done_seeds=$(( done_seeds + n ))
           done
           {
+            # The leg's bug yield, summed over its chunks (sim.rs yield_line): seeds run, reds, reds only by a
+            # known gap, and reds by invariant broken (reading note hq docs/reading/2026-11-21-dst-for-everyone.md).
+            echo "sim-yield total: faults=$SIM_FAULTS resend=$SIM_RESEND base=$SIM_SEED_BASE $(awk '
+              /^sim-yield: / {
+                for (i = 2; i <= 4; i++) { split($i, kv, "="); sum[kv[1]] += kv[2] }
+                c = $0; sub(/.*classes=/, "", c)
+                if (c != "none") { n = split(c, parts, "; "); for (j = 1; j <= n; j++) {
+                  k = parts[j]; v = k; sub(/=[0-9]+$/, "", k); sub(/.*=/, "", v); cls[k] += v } }
+                chunks++
+              }
+              END {
+                out = ""; for (k in cls) out = out (out == "" ? "" : "; ") k "=" cls[k]
+                printf "chunks=%d seeds=%d reds=%d known_gap=%d classes=%s", chunks, sum["seeds"], sum["reds"], sum["known_gap"], (out == "" ? "none" : out)
+              }' "$RUNNER_TEMP/sim.log")" | tee -a "$RUNNER_TEMP/sim.log"
             grep -E '^sim: ' "$RUNNER_TEMP/sim.log" || true
             grep -E '^seed [0-9]+:|replay:' "$RUNNER_TEMP/sim.log" | head -60 || true
           } >> "$GITHUB_STEP_SUMMARY"
