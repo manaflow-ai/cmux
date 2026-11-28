@@ -490,7 +490,9 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
     uses: ./.github/workflows/nightly-pr-build.yml
+    # actions: read is its coalesce job's (skipped on a pull request); GitHub checks the callee's permissions at startup.
     permissions:
+      actions: read
       contents: read
       checks: read
 
