@@ -120,7 +120,9 @@ export function gitURLFolder(url: string): string {
 }
 
 export function isGitURLFolder(folder: string | undefined): boolean {
-  return folder !== undefined && folder.startsWith(GIT_URL_FOLDER_PREFIX) && folder.length > GIT_URL_FOLDER_PREFIX.length;
+  return (
+    folder !== undefined && folder.startsWith(GIT_URL_FOLDER_PREFIX) && folder.length > GIT_URL_FOLDER_PREFIX.length
+  );
 }
 
 /// A repository a Cloud machine clones (`github:owner/name` or `git:URL`): no folder of this Mac, nothing to grant or copy.

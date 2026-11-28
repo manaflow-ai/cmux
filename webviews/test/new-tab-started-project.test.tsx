@@ -697,32 +697,35 @@ test("a Cloud offered after the New Tab mounts still grants the default folder, 
 // Chief relaying the person (2026-11-25): with Where = Cloud the folder chip must name the folder of the last Cloud
 // chat, kept per mode across launches; This Mac keeps its own. Before, Cloud's memory was the page's storage, which
 // ends with the launch: after a relaunch Cloud fell back to This Mac's folder.
-test("after a relaunch, Cloud's New Tab starts where the last Cloud chat did, not in This Mac's last folder (cmux#53226)", async () => {
-  const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
-  const posted: unknown[] = [];
-  (
-    window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }
-  ).cmuxAcpmuxActions = {
-    "newTab.remember": async (params) => void posted.push(params),
-  };
-  try {
-    // This run: the person starts a Cloud chat in a repository; the app is told, to keep it across launches.
-    const first = await cloudTab([theirs], { cloudStartedProject: "github:acme/api" });
-    expect(first.folder).toBe("github:acme/api");
-    expect(posted).toContainEqual({ cloudStarted: "github:acme/api" });
-    // Relaunch: the page's storage and this run's copy are gone; the app's copy names Cloud's last pick, and This
-    // Mac's last folder (`startedProject`) stays This Mac's.
-    stored.clear();
-    forgetAppCloudPickForTests();
-    const page = await cloudTab([theirs], { startedProject: PICKED, cloudStartedProject: "github:acme/api" });
-    expect(page.chip).toContain("acme/api");
-    expect(page.folder).toBe("github:acme/api");
-    expect(stored.get(STARTED_KEY)).toBeUndefined();
-  } finally {
-    delete (window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
-    forgetAppCloudPickForTests();
-  }
-});
+test.each(["github:acme/api", "git:https://github.com/acme/api", "git:https://gitlab.com/acme/api"])(
+  "after a relaunch, Cloud's New Tab restores %s independently of This Mac's last folder (cmux#53226)",
+  async (repository) => {
+    const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
+    const posted: unknown[] = [];
+    (
+      window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }
+    ).cmuxAcpmuxActions = {
+      "newTab.remember": async (params) => void posted.push(params),
+    };
+    try {
+      // This run: the person starts a Cloud chat in a repository; the app is told, to keep it across launches.
+      const first = await cloudTab([theirs], { cloudStartedProject: repository });
+      expect(first.folder).toBe(repository);
+      expect(posted).toContainEqual({ cloudStarted: repository });
+      // Relaunch: the page's storage and this run's copy are gone; the app's copy names Cloud's last pick, and This
+      // Mac's last folder (`startedProject`) stays This Mac's.
+      stored.clear();
+      forgetAppCloudPickForTests();
+      const page = await cloudTab([theirs], { startedProject: PICKED, cloudStartedProject: repository });
+      expect(page.chip).toContain("acme/api");
+      expect(page.folder).toBe(repository);
+      expect(stored.get(STARTED_KEY)).toBeUndefined();
+    } finally {
+      delete (window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      forgetAppCloudPickForTests();
+    }
+  },
+);
 
 // Found in the tagged build: picking Cloud put Cloud's last repository on the chip, and picking This Mac again then
 // showed No folder (a Cloud folder of this Mac would have stayed on This Mac's chip).

@@ -195,7 +195,11 @@ export function SourcePicker({
       rows: [],
       message: t(
         clone.error ??
-          (clone.cloning ? "source.url.cloning" : cloneOnMachine ? "source.url.cloudDestination" : "source.url.destination"),
+          (clone.cloning
+            ? "source.url.cloning"
+            : cloneOnMachine
+              ? "source.url.cloudDestination"
+              : "source.url.destination"),
       ),
     }),
   };

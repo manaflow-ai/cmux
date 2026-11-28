@@ -74,17 +74,20 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     /// The person picked a project (or kept the page's) and sent a prompt there (`started`): later
     /// New Tab pages default to it (Leo 2026-10-21). Agents', CLI and socket chats never send it.
     public var started: String?
-    /// The person started a Cloud chat in this folder of this Mac or GitHub repository (`cloudStarted`,
-    /// `github:owner/name`): later pages with Cloud picked default to it (cmux#53226).
+    /// The person started a Cloud chat in this folder of this Mac or repository (`cloudStarted`,
+    /// `github:owner/name` or `git:URL`): later pages with Cloud picked default to it (cmux#53226).
     public var cloudStarted: String?
     /// The agent pick is for a Cloud machine (`place: "cloud"`): it is Cloud's last pick
     /// (``AgentPaneLastPicks/cloud``), never this Mac's.
     public var forCloud = false
 
-    /// A folder (absolute) or a GitHub repository (`github:owner/name`), at most 4096 characters.
+    /// A folder (absolute) or a repository (`github:owner/name` or `git:URL`), at most 4096 characters.
     public static func isCloudPick(_ value: String) -> Bool {
         guard value.count <= 4096 else { return false }
         if value.hasPrefix("/") { return true }
+        if value.hasPrefix(AgentPaneGitHubFolder.gitURLPrefix) {
+            return AgentPaneGitHubFolder.repository(value) != nil
+        }
         return value.range(of: #"^github:[^/\s]+/[^/\s]+$"#, options: .regularExpression) != nil
     }
 
