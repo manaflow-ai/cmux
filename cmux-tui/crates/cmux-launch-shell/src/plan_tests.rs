@@ -63,14 +63,37 @@ fn a_current_image_is_drawn() {
 }
 
 #[test]
-fn an_image_of_another_build_falls_back_to_the_plain_shell() {
+fn an_image_of_another_build_still_draws_after_an_update() {
+    // An update's relaunch is always another build: its first frame is the window as it was.
     let dir = store("w1", 2200, 1440);
     let w = window("w1", "4293.old/w1/7");
     let p = plan(Some(std::slice::from_ref(&w)), dir.path(), &now(Appearance::Dark, &RETINA));
-    assert_eq!((p.reason, p.image), (Reason::BuildDiffers, None));
-    // The plain shell keeps the saved frame and colors.
+    assert_eq!(p.reason, Reason::Image);
+    assert_eq!(p.image.unwrap(), dir.path().join("w1.7.png"));
     assert_eq!(p.window, Some(w));
     assert!(p.reason.shows_window());
+}
+
+#[test]
+fn stage_zero_never_draws_the_plain_shell() {
+    // Leo, 2026-11-27: "stop putting the opaque thing from the start". Stage 0 is the saved
+    // picture or the bare launch's Home; any other reason makes no window.
+    for reason in [
+        Reason::BuildDiffers,
+        Reason::LayoutDiffers,
+        Reason::ScaleDiffers,
+        Reason::AppearanceDiffers,
+        Reason::ImageUnreadable,
+        Reason::ImageSizeDiffers,
+        Reason::FullScreen,
+        Reason::Upgrade,
+        Reason::SessionDiffers,
+    ] {
+        assert!(!reason.shows_window(), "{reason:?}");
+    }
+    for reason in [Reason::Image, Reason::FreshInstall, Reason::NoWindows] {
+        assert!(reason.shows_window(), "{reason:?}");
+    }
 }
 
 #[test]
@@ -142,7 +165,7 @@ fn a_changed_scale_falls_back_but_keeps_the_window() {
         &now(Appearance::Dark, &lowres),
     );
     assert_eq!(p.reason, Reason::ScaleDiffers);
-    assert!(p.reason.shows_window());
+    assert!(!p.reason.shows_window() && !p.reason.uses_default_frame());
 }
 
 #[test]
@@ -189,7 +212,7 @@ fn no_record_is_bare_on_a_fresh_install_and_todays_launch_on_an_upgrade() {
 }
 
 #[test]
-fn full_screen_makes_no_window_and_a_v1_record_the_plain_shell() {
+fn full_screen_and_a_v1_record_make_no_window() {
     let dir = store("w1", 2200, 1440);
     let mut full = window("w1", &format!("{BUILD}/w1/7"));
     full.fullscreen = true;
@@ -201,18 +224,18 @@ fn full_screen_makes_no_window_and_a_v1_record_the_plain_shell() {
     old.backing_scale = 0.0;
     let p = plan(Some(&[old]), dir.path(), &now(Appearance::Dark, &RETINA));
     assert_eq!((p.reason, p.image), (Reason::BuildDiffers, None));
-    assert!(p.reason.shows_window() && !p.reason.uses_default_frame());
+    assert!(!p.reason.shows_window() && !p.reason.uses_default_frame());
 }
 
 #[test]
-fn another_sessions_windows_get_the_plain_shell_at_the_default_frame() {
+fn another_sessions_windows_make_no_stage_zero_window() {
     let dir = store("w1", 2200, 1440);
     let mut w = window("w1", &format!("{BUILD}/w1/7"));
     w.registry_id = "reg-old".into();
     let with = |registry_id| Now { registry_id, ..now(Appearance::Dark, &RETINA) };
     let p = plan(Some(std::slice::from_ref(&w)), dir.path(), &with(Some("reg-new")));
     assert_eq!((p.reason, p.image), (Reason::SessionDiffers, None));
-    assert!(p.reason.shows_window() && p.reason.uses_default_frame() && !p.reason.shows_bare());
+    assert!(!p.reason.shows_window() && p.reason.uses_default_frame() && !p.reason.shows_bare());
     // The same session, or either id unknown: the image is drawn as before.
     for (saved, current) in [("reg-old", Some("reg-old")), ("", Some("reg-new")), ("reg-old", None)]
     {

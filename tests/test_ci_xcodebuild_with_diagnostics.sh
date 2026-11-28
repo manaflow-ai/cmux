@@ -349,6 +349,36 @@ if [[ "$status" -ne 65 || "$(cat "$TMP_DIR/crash-twice.count")" != 2 ]]; then
   cat "$TMP_DIR/crash-twice.log" >&2
   exit 1
 fi
+# The rerun builds without the compilation cache when the crashed build had it on
+# (nightly-next on ultra1-glaeda, 2026-11-27: every attempt on the kept CAS crashed).
+cat >"$TMP_DIR/fake-cas-crash.sh" <<'EOF2'
+#!/usr/bin/env bash
+count_file="$FAKE_CRASH_COUNT_FILE"
+runs=$(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 ))
+echo "$runs" >"$count_file"
+echo "fake build run $runs args: $*"
+for arg in "$@"; do
+  if [[ "$arg" == COMPILATION_CACHE_ENABLE_CACHING=YES ]]; then
+    echo "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+    exit 65
+  fi
+done
+echo "** BUILD SUCCEEDED **"
+EOF2
+chmod +x "$TMP_DIR/fake-cas-crash.sh"
+set +e
+FAKE_CRASH_COUNT_FILE="$TMP_DIR/crash-cas.count" \
+  "$WRAPPER" -- "$TMP_DIR/fake-cas-crash.sh" -scheme cmux COMPILATION_CACHE_ENABLE_CACHING=YES COMPILATION_CACHE_LIMIT_SIZE=1 \
+  >"$TMP_DIR/crash-cas.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 0 || "$(cat "$TMP_DIR/crash-cas.count")" != 2 ]] \
+  || ! grep -q 'building once more, without the compilation cache' "$TMP_DIR/crash-cas.log" \
+  || ! grep -q 'fake build run 2 args: -scheme cmux COMPILATION_CACHE_ENABLE_CACHING=NO COMPILATION_CACHE_LIMIT_SIZE=1$' "$TMP_DIR/crash-cas.log"; then
+  echo "FAIL: a build service crash with the compilation cache on must rerun with it off, got status $status" >&2
+  cat "$TMP_DIR/crash-cas.log" >&2
+  exit 1
+fi
 # A plain compile error never reruns.
 set +e
 FAKE_XCODEBUILD_ERRORS=1 FAKE_XCODEBUILD_STATUS=65 \

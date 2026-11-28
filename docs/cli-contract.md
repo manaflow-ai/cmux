@@ -124,6 +124,16 @@ frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
 not an agent chat is `invalid_params`; a chat whose page this launch never
 made is `unavailable`.
 
+`app chat perf --page-source` (no `--tab`, no `--seconds`) works with every
+build and answers at once: `agent.chat.perf {"page_source": true}` returns
+`{page_source: {spare_adopted, spare_empty, spare_unready, spare_refused,
+kept, cold, cold_why, refused_why}}`, how each chat page made since launch got
+its page (the warm spare, a Reopen Closed chat's kept page, or a cold build,
+with why as `{reason: count}`), and `pages: {chat, new_tab, frozen,
+released}`: the chat and New Tab pages built now, how many chat pages are
+asleep, and how many were let go while hidden since launch. It reads no tab and runs nothing in a page, so
+an unloaded or asleep chat changes nothing, and it never resets the counts.
+
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
 `{machines: [{id, name, kind, isLocal, linkState, online, serverState,
