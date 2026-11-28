@@ -14,7 +14,7 @@ from argparse import Namespace
 from unittest import mock
 import io
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -29,6 +29,11 @@ import post_merge_batch as pmb  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / pmb.WORKFLOW
 NOW = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+
+
+def ago(minutes: int) -> str:
+    """A created_at this many minutes before the real clock (cmd_tick reads datetime.now)."""
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run(run_id: int, sha: str, created: str, *, status: str = "completed", title: str = "batch tick") -> dict:
@@ -142,6 +147,29 @@ class TickTest(unittest.TestCase):
         self.assertTrue(last["continue-on-error"])
         self.assertIn("inputs.mode != 'probe'", last["if"])
 
+    def test_a_stalled_batch_is_superseded(self) -> None:
+        # Run 46164328032 (11-28 16:17Z): a Mac job stuck in runner setup held every tick 2.5 h and no base row moved.
+        live = [run(9, "b" * 40, "2026-11-21T08:30:00Z", status="in_progress"), run(8, "c" * 40, "2026-11-21T05:00:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, live, NOW, 240)[0], "skip")  # before: held with no bound
+        none_judging = lambda rid: False  # noqa: E731
+        stalled = pmb.stalled_batches(live, NOW, 200, none_judging)
+        self.assertEqual([r["id"] for r in stalled], [9])
+        after = pmb.superseded(live, stalled)
+        self.assertEqual(pmb.tick_decision("a" * 40, after, NOW, 240, judged=lambda rid: rid == 8)[0], "dispatch")
+        # Healthy: younger than the bound, or its judge has started, or the bound is off, or it is the asking run.
+        self.assertEqual(pmb.stalled_batches(live, NOW, 240, none_judging), [])
+        self.assertEqual(pmb.stalled_batches(live, NOW, 200, lambda rid: True), [])
+        self.assertEqual(pmb.stalled_batches(live, NOW, 0, none_judging), [])
+        self.assertEqual(pmb.stalled_batches(live, NOW, 200, none_judging, self_run_id=9), [])
+        probe = [run(10, "b" * 40, "2026-11-21T01:00:00Z", status="in_progress", title="probe web all at x")]
+        self.assertEqual(pmb.stalled_batches(probe, NOW, 200, none_judging), [])
+
+    def test_stall_value(self) -> None:
+        self.assertEqual(pmb.stall_minutes(None), pmb.DEFAULT_STALL_MINUTES)
+        self.assertEqual(pmb.stall_minutes("bad"), pmb.DEFAULT_STALL_MINUTES)
+        self.assertEqual(pmb.stall_minutes("0"), 0)
+        self.assertEqual(pmb.stall_minutes("90"), 90)
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 240)
         self.assertEqual(pmb.window_minutes("bad"), 240)
@@ -186,10 +214,46 @@ class WebTickTest(unittest.TestCase):
             return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
 
         with unittest.mock.patch.object(pmb, "gh_api", covered), \
-                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "b" * 40, "2026-11-21T11:00:00Z", status="in_progress")]), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "b" * 40, ago(60), status="in_progress")]), \
                 unittest.mock.patch("sys.stdout"):
             self.assertEqual(pmb.cmd_tick(args), 0)
         self.assertFalse([p for p in dispatched if pmb.WORKFLOW in p])
+
+    def test_a_tick_cancels_a_stalled_batch_and_starts_the_next(self) -> None:
+        # Detector for a batch that holds the base: run 46164328032's shape, 200+ min live with no judge job.
+        posts = []
+        jobs = {9: [{"name": "pr-pipeline-mac / mac", "status": "in_progress"}],
+                8: [{"name": "judge", "status": "completed", "conclusion": "success"}]}
+
+        def api(path, method="GET", fields=None, **_):
+            if method == "POST":
+                posts.append(path)
+                return None
+            if path.endswith("/commits/feat-cmux-next"):
+                return {"sha": "a" * 40}
+            if "/runs/" in path and "/jobs" in path:
+                return {"jobs": jobs[int(path.split("/runs/")[1].split("/")[0])]}
+            return None
+
+        def tick(runs) -> None:
+            posts.clear()
+            args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="240", dry_run=False, stall_minutes="200")
+            with unittest.mock.patch.object(pmb, "gh_api", api), \
+                    unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: runs), \
+                    unittest.mock.patch.object(pmb, "hourly_kick", lambda *a, **k: "skip"), \
+                    unittest.mock.patch("sys.stdout"):
+                self.assertEqual(pmb.cmd_tick(args), 0)
+
+        dispatch = f"repos/o/r/actions/workflows/{pmb.WORKFLOW}/dispatches"
+        for age, how in ((210, "cancel"), (270, "force-cancel")):
+            tick([run(9, "b" * 40, ago(age), status="in_progress"), run(8, "c" * 40, ago(age + 180))])
+            self.assertEqual(posts, [f"repos/o/r/actions/runs/9/{how}", dispatch])
+        # Under the bound, or its judge started (the batch is ending): the tick leaves it alone.
+        tick([run(9, "b" * 40, ago(150), status="in_progress"), run(8, "c" * 40, ago(330))])
+        self.assertEqual(posts, [])
+        jobs[9].append({"name": "judge", "status": "in_progress"})
+        tick([run(9, "b" * 40, ago(210), status="in_progress"), run(8, "c" * 40, ago(390))])
+        self.assertEqual(posts, [])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
