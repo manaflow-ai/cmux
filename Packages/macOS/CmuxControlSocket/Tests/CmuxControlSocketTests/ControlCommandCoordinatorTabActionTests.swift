@@ -5,6 +5,49 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator tab-action domain")
 struct ControlCommandCoordinatorTabActionTests {
+    @Test func toggleTextBoxPayloadIncludesResultingVisibility() throws {
+        let surfaceID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .completed(ControlTabActionResolution.Outcome(
+            workspaceID: UUID(), surfaceID: surfaceID, windowID: UUID(), paneID: UUID(),
+            extras: .textBoxVisible(true)
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: ["action": .string("toggle-text-box"), "surface_id": .string(surfaceID.uuidString)]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected successful tab.action payload, got \(String(describing: result))")
+            return
+        }
+        #expect(context.actionKey == "toggle_text_box")
+        #expect(payload["action"] == .string("toggle_text_box"))
+        #expect(payload["text_box_visible"] == .bool(true))
+    }
+
+    @Test func toggleTextBoxOnANonTerminalIsAnInvalidState() throws {
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .textBoxNotTerminal
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.action",
+            params: ["action": .string("toggle_text_box"), "surface_id": .string(UUID().uuidString)]
+        ))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected an error, got \(String(describing: result))")
+            return
+        }
+        #expect(code == "invalid_state")
+        #expect(message == "TextBox Input is only available for terminal tabs")
+    }
+
     @Test func toggleFullWidthTabPayloadIncludesResultingMode() throws {
         let windowID = UUID()
         let workspaceID = UUID()

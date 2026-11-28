@@ -12,7 +12,7 @@ import GhosttyKit
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
 final class TerminalPanel: Panel, ObservableObject {
-    private enum TextBoxInputFocusIntent: Equatable {
+    enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
         case textBox
@@ -64,10 +64,10 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
     weak var textBoxInputView: TextBoxInputTextView?
-    private var shouldFocusTextBoxWhenAvailable = false
+    private(set) var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
     private var shouldHideTextBoxOnNextEscape = false
-    private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
+    private(set) var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
@@ -337,6 +337,20 @@ final class TerminalPanel: Panel, ObservableObject {
         return focusTextBoxInput()
     }
 
+    /// The toggle for scripts and the CLI (#22308). It shows the TextBox without
+    /// taking keyboard focus, and hides it without focusing this terminal unless the
+    /// TextBox held the keyboard.
+    @discardableResult
+    func toggleTextBoxInputPreservingFocus() -> Bool {
+        if isTextBoxActive {
+            let textBoxHadKeyboard = textBoxInputView.map { $0.window?.firstResponder === $0 } ?? false
+            hideTextBoxInput(refocusTerminal: textBoxHadKeyboard)
+        } else {
+            showTextBoxInputWhenAvailable()
+        }
+        return isTextBoxActive
+    }
+
     @discardableResult
     func focusTextBoxInputOrTerminal() -> Bool {
         if isTextBoxActive,
@@ -418,7 +432,7 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldHideTextBoxOnNextEscape = false
     }
 
-    private func hideTextBoxInput() {
+    private func hideTextBoxInput(refocusTerminal: Bool = true) {
         shouldHideTextBoxOnNextEscape = false
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -426,7 +440,9 @@ final class TerminalPanel: Panel, ObservableObject {
         preserveTextBoxContentFromView()
         isTextBoxActive = false
         textBoxInputView = nil
-        focusTerminalSurface(respectForeignFirstResponder: false)
+        if refocusTerminal {
+            focusTerminalSurface(respectForeignFirstResponder: false)
+        }
     }
 
     private func preserveTextBoxContentFromView() {
