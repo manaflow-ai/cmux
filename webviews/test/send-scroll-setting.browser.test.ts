@@ -216,11 +216,24 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       [count, read] as const,
     );
 
-  // The slim arm (the product's): the sent prompt is in place in the frame after the send and nothing
+  /// #52754 made one motion the default send motion: a one-commit send glides the prompt to its rest
+  /// once. Each painted frame is no farther from rest than the one before (no backing up, no
+  /// overshoot, within 1px), it rests within about 12 frames, and it stays there in every frame after.
+  const expectOneGlide = (tops: number[]) => {
+    const drawn = tops.filter((top) => Number.isFinite(top));
+    const rest = drawn.at(-1)!;
+    const gaps = drawn.map((top) => Math.abs(top - rest));
+    for (let i = 1; i < gaps.length; i += 1) expect(gaps[i]).toBeLessThanOrEqual(gaps[i - 1] + 1);
+    const placed = gaps.findIndex((gap) => gap <= 1);
+    expect(placed).toBeLessThanOrEqual(12);
+    for (const gap of gaps.slice(placed)) expect(gap).toBeLessThanOrEqual(1);
+  };
+
+  // The slim arm (the product's): the sent prompt glides into place once after the send and nothing
   // settles after it (Leo, 2026-11-09: "the scroll up is extremely sluggish, and it doesn't look great
   // when it's so slow and it lags so much. The whole point is to have, like, fast stuff, like so it
   // feels responsive, right?").
-  test("a send from the latest row puts the prompt in place at once, and nothing moves after", async () => {
+  test("a send from the latest row glides the prompt into place once, and nothing moves after", async () => {
     const page = await open();
     const rows = history();
     await show(page, rows);
@@ -228,18 +241,13 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await sendWith(page, addReply(rows, true));
     const tops = await sampleFrames(page, 24, "prompt");
-    const drawn = tops.filter((top) => Number.isFinite(top));
-    const rest = drawn.at(-1)!;
-    // Drawn where it rests within two painted frames of the send, and still there in every frame after.
-    expect(tops.slice(0, 2).some((top) => Number.isFinite(top) && Math.abs(top - rest) <= 1)).toBe(true);
-    const placed = tops.findIndex((top) => Number.isFinite(top) && Math.abs(top - rest) <= 1);
-    for (const top of tops.slice(placed)) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
+    expectOneGlide(tops);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await page.close();
   });
 
-  test("a send from the latest row is in place immediately (blocks arm)", async () => {
+  test("a send from the latest row glides into place once (blocks arm)", async () => {
     const page = await open("blocks");
     const rows = history();
     await show(page, rows);
@@ -247,12 +255,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await sendWith(page, addReply(rows, true));
     const tops = await sampleFrames(page, 24, "prompt");
-    const drawn = tops.filter((top) => Number.isFinite(top));
-    const rest = drawn.at(-1)!;
-    // The product send token is zero for every follow-motion arm: the prompt is final in the
-    // first painted frame and never takes the old 180 ms glide.
-    expect(drawn[0]).toBeCloseTo(rest, 0);
-    for (const top of drawn) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
+    expectOneGlide(tops);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     const state = await page.evaluate(() =>
@@ -262,7 +265,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send that makes a short chat overflow lands immediately (blocks arm)", async () => {
+  test("a send that makes a short chat overflow glides into place once (blocks arm)", async () => {
     // The longest tail that still fits the view, found on a page of its own: once a tail overflows,
     // the chat has opened, and the send below must come into one that has not.
     let rows = history().slice(0, 2);
@@ -291,10 +294,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       { ...row("sent-reply", "assistant", long), streaming: true },
     ]);
     const tops = await sampleFrames(page, 24, "prompt");
-    const drawn = tops.filter((top) => Number.isFinite(top));
-    const rest = drawn.at(-1)!;
-    expect(drawn[0]).toBeCloseTo(rest, 0);
-    for (const top of drawn) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
+    expectOneGlide(tops);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await page.close();

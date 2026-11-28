@@ -40,7 +40,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     .map(css)
     .join("\n");
   const home = css("pages/home-channels/styles.css");
-  const diff = css("styles.css");
+  // The diff viewer bundles the shared Spinner's sheet: since #50467 its branch picker and status
+  // line render the pages' `Spinner` (Leo, 2026-11-02: "JUST DO THE CHATGPT SPINNER").
+  const diff = css("styles.css") + css("agent-session/acpmux/conversation/spinner.css");
   // The script the app installs at document start in every cmux web view (WebTheme.swift).
   const bootstrap = readWebThemeBootstrap();
   const diagnosticBundle = await Bun.build({
@@ -64,7 +66,11 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="cv-spinner"></span>` +
     working +
     `<span class="hc-writing">writing</span>`;
-  const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
+  // As BranchBasePicker and diff-viewer/Loading.tsx render them while a base or the diff loads.
+  const diffLoops =
+    `<span class="cv-spinner base-picker-spinner"><span class="cv-spinner__arc"></span></span>` +
+    `<div id="status" data-pending="true"><span class="cv-spinner status-spinner"><span class="cv-spinner__arc"></span></span>` +
+    `<span id="status-text">Loading</span></div>`;
 
   let browser: Browser | undefined;
   beforeAll(async () => {
@@ -126,7 +132,8 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
     // Agent work uses the shared spinner by default; no working mark runs the breathing keyframe.
-    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(3);
+    // Four: the pane's plain and running-row spinners, and the diff viewer's branch picker and status line.
+    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(4);
     expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
   });
 
@@ -264,7 +271,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running).toEqual([]);
   });
 
-  test("the diff base picker's spinner stops under Reduce Motion by its own rule", async () => {
+  test("the diff viewer's spinners stop under Reduce Motion on the shared Spinner's sheet", async () => {
     const p = await page(diff, diffLoops, "reduce");
     const running = await loops(p);
     await p.close();
