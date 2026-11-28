@@ -57,6 +57,20 @@ public final class LaunchShell {
         self.mark = mark
     }
 
+    /// `CMUX_NEXT_LAUNCH_SHELL=1`: a launch bench sets it so stage 0 runs in its no-activate launch as in a
+    /// person's. Without it the nightly warm launches wrote no `launch_shell.*` mark, so the board's saved-image
+    /// row (`app_warm_launch_stub_visible_idle_median_ms`) never filled. Stage 0 takes no focus there: it orders its
+    /// window in and makes it key inside an app that refuses activation.
+    public nonisolated static let benchKey = "CMUX_NEXT_LAUNCH_SHELL"
+
+    /// Whether a launch shows stage 0: never for a test window or a relaunch behind the person's app; for a
+    /// no-activate (agent) launch only when `benchKey` asks; otherwise always.
+    public nonisolated static func shows(noActivate: Bool, testWindow: Bool, relaunchBehind: Bool,
+                                         environment: [String: String]) -> Bool {
+        if testWindow || relaunchBehind { return false }
+        return !noActivate || environment[benchKey] == "1"
+    }
+
     /// Stage 0 for this launch, from the app's bundle id (its Application Support folder and
     /// Info.plist build); nil (an agent launch, a test window, an update relaunch behind) shows nothing.
     /// `session` is the daemon session name: with it, stage 0 shows no image of another session's windows.
