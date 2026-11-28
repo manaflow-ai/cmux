@@ -51,13 +51,20 @@ jobs:
         include:
           - job: linux
             name: base linux
+            minutes: 330
           - job: web-browser
             name: base web-browser
+            minutes: 85
     name: ${{ matrix.name }}
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # pr-pipeline.yml's bound for the linux job (the larger of the two): every step of either job can run here.
-    timeout-minutes: 85
+    # web-browser: pr-pipeline.yml's bound for its job. linux: its 23 `alone` steps run one at a time and, with
+    # CI_RUN_ALONE_ON_RED below, every one of them runs on a red base. At 85 min no linux leg finished after
+    # cmux#64297 (11-28 10:05Z): run 46192610419 ended its non-alone steps at 36 min, spent 13 min on
+    # web-lint-hook-tests and 28 min on acpmux-icount (a cold `gate` build), and was cut inside memory-per-item
+    # with 14 alone steps left, so the leg never recorded a green tip, never named a red, and routed every step
+    # again on the next run. 330 min holds the alone steps' observed cost plus the one re-run of failed steps.
+    timeout-minutes: ${{ matrix.minutes }}
     permissions:
       actions: read
       contents: read
