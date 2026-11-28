@@ -32,7 +32,7 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from codegen.ir import load_ir  # noqa: E402
+from codegen.ir import _pairs_to_dict, load_ir  # noqa: E402
 from codegen.swift_app.emit import HEADER_MARK, BindingError, render  # noqa: E402
 from codegen.validate import ValidationError  # noqa: E402
 
@@ -49,8 +49,10 @@ _DECLARATION = re.compile(
 
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        # A repeated key (two "enums" blocks under one family) would keep only the last one and drop
+        # the rest without a word, so the loader refuses duplicates like the schema loader does.
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_pairs_to_dict)
+    except (OSError, ValueError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
         raise BindingError(f"{path} must be an object")

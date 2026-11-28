@@ -19,6 +19,17 @@ SPEC = CMUX_TUI / "spec" / "page-router.json"
 OUTPUT = CMUX_TUI.parent / "webviews" / "src" / "pages" / "shared" / "generated" / "pageRouter.ts"
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Refuse a repeated JSON key; json.loads would keep only the last one silently."""
+    out: dict[str, object] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON object key {key!r} in {SPEC.name}")
+        out[key] = value
+    return out
+
+
+
 def render(spec: dict) -> str:
     pages = {
         page: {
@@ -78,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--write", action="store_true")
     mode.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)
-    text = render(json.loads(SPEC.read_text(encoding="utf-8")))
+    text = render(json.loads(SPEC.read_text(encoding="utf-8"), object_pairs_hook=_no_duplicate_keys))
     if arguments.write:
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         OUTPUT.write_text(text, encoding="utf-8")

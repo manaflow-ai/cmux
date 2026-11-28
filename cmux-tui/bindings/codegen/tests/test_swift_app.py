@@ -266,6 +266,20 @@ class RenderTests(unittest.TestCase):
                 self.assertLess(source.count("\n"), 400)
 
 
+class LoadBindingsTests(unittest.TestCase):
+    def test_a_repeated_key_is_refused_not_silently_dropped(self) -> None:
+        # Two "enums" blocks under one family once dropped the first block's enums from the base.
+        text = '{"families": {"Creation": {"enums": {"ColumnSide": {}}, "enums": {"ColumnDockEdge": {}}}}}'
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "bindings.json"
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "duplicate JSON object key 'enums'"):
+                generate.load_bindings(path)
+
+    def test_the_checked_in_bindings_have_no_repeated_key(self) -> None:
+        generate.load_bindings(generate.DEFAULT_BINDINGS)
+
+
 class BindingErrorTests(unittest.TestCase):
     def assert_refused(self, message: str, document: dict[str, Any] | None = None,
                        bindings: dict[str, Any] | None = None) -> None:
