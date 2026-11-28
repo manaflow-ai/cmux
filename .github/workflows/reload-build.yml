@@ -209,13 +209,22 @@ jobs:
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
+        env:
+          BUILD_PLATFORM: ${{ inputs.platform }}
         run: |
           set -euo pipefail
-          # Cap the newest-SDK ranking at the repo's pinned toolchain major:
-          # hosted images now also carry the Xcode 27 RC, whose SDK main's
-          # iOS SwiftUI does not compile under (toolbarMinimizeBehavior).
-          pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
-          CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
+          # A macOS build takes the newest Xcode on the runner (Xcode 27.2 on
+          # the fleet and on Blacksmith's macos-26 image), which still deploys
+          # to macOS 14. Only an iOS build caps the SDK at the repo's pinned
+          # major: Xcode 27's SDK broke iOS SwiftUI (toolbarMinimizeBehavior).
+          # The macOS cap made every Blacksmith build fail here once that image
+          # carried only Xcode 27.2 ("maximum major is 26").
+          if [ "$BUILD_PLATFORM" = ios ]; then
+            pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
+            CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
+          else
+            ./scripts/select-ci-xcode.sh
+          fi
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
