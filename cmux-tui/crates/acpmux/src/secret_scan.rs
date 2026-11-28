@@ -349,9 +349,9 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
 });
 
 /// A credential label in words, any case, a space, `_` or `-` inside it ("Client secret", "API
-/// key", "access token"): the shapes leo-workspace `tools/secret_scrub.py` (`LABEL`) reads, so a
-/// value a person gives after one in prose is masked here as it is redacted there (card
-/// d-08bd4815d1: a "Client secret" label alone on its line with the value below it, and an
+/// key", "access token"). The label shapes: a credential label followed by its value, or alone
+/// on its line with the value below, so a value a person gives after one in prose is masked
+/// (card d-08bd4815d1: a "Client secret" label alone on its line with the value below it, and an
 /// "API key: ..." line, reached the chat index in clear; the assignment rule reads only
 /// `client_secret=` / `api_key:` spellings).
 const LABEL: &str = r"(?:client|app|consumer|api|signing|webhook|shared)[ _-]?secret|secret(?:[ _-]?key)?|api[ _-]?key|access[ _-]?key|private[ _-]?key|(?:access|refresh|auth|bearer|api|personal[ _-]access)[ _-]?token|token|password|passwd|passphrase|bearer";
@@ -376,7 +376,7 @@ static LABEL_WORD: LazyLock<Option<Regex>> =
     LazyLock::new(|| compile(&format!(r"(?i)(?:^|[^\w-])((?:{LABEL}))(?:[^\w-]|$)")));
 static LABEL_RUN: LazyLock<Option<Regex>> = LazyLock::new(|| compile(r"[A-Za-z0-9_+/=-]{24,}"));
 /// A code expression after a label (`secret = compute_secret(input)`, `token = self.config.token`),
-/// not its value. Port of `secret_scrub.CODE_VALUE`, matched whole; a token prefix is never code.
+/// not its value, matched whole; a known token prefix is never code.
 static CODE_VALUE: LazyLock<Option<Regex>> = LazyLock::new(|| {
     compile(concat!(
         r"^(?:(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*[(\[].*",
@@ -455,8 +455,7 @@ fn names_a_thing(word: &str) -> bool {
 
 /// Whether `value`, given right after a credential label, is the credential: anything with a
 /// letter and a digit, a URL (a share link), or a long random-looking run. `alone`: it sits on
-/// its own line under the label, where a long run of digits is one too. Port of
-/// `secret_scrub._labelled`.
+/// its own line under the label, where a long run of digits is one too.
 fn labelled(value: &str, alone: bool) -> bool {
     let core = value.trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
     if core.is_empty()

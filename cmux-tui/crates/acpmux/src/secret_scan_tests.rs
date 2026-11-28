@@ -356,9 +356,8 @@ const MIN_RECALL_PERCENT: usize = 70;
 const MAX_FLAGGED_NEGATIVES: usize = 50;
 
 /// A value given after a credential label in words (card d-08bd4815d1): the label alone on its
-/// line with the value below it, `API key: value`, and a random run next to a label. The corpus
-/// is leo-workspace `tools/test_secret_scrub.py`'s `Labelled` class, case for case: a shape one
-/// redactor learns, the other is asserted on too. Every value is fake, built at run time.
+/// line with the value below it, `API key: value`, and a random run next to a label. Every value
+/// is fake, built at run time.
 mod labelled {
     use super::*;
 
@@ -446,7 +445,7 @@ mod labelled {
             "password:\nreset",
             "Client secret\nTBD",
             "rotate the client secret today",
-            "secret_scrub misses 2e845eef3c0030c3560938b3850ccbfc08a6e70e",
+            "the scrubber misses 2e845eef3c0030c3560938b3850ccbfc08a6e70e",
             "API URL: https://api.example.com",
             "token budget is 120000",
             "the token count was high",

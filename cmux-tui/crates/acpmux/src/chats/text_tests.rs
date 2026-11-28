@@ -707,10 +707,9 @@ fn an_older_builds_json_copy_is_read_then_written_anew_and_removed() {
 }
 
 /// A credential pasted into a chat never reaches `chat-index/text-v2.bin` in clear (card
-/// d-08bd4815d1, 2026-11-28: two of Leo's messages held an OAuth client secret below a
+/// d-08bd4815d1, 2026-11-28: two chat messages held an OAuth client secret below a
 /// "Client secret" label and an "API key: ..." line, and this index kept both). Every value is
-/// fake, built at run time; the shapes are those of leo-workspace `tools/test_secret_scrub.py`'s
-/// `Labelled` corpus, which `secret_scan_tests.rs` asserts too. Both entry points are read: a
+/// fake, built at run time; the shapes are the label corpus `secret_scan_tests.rs` asserts. Both entry points are read: a
 /// chat read whole (`Doc::of_turns`) and one followed by its newest turns (`Doc::edit`).
 #[test]
 fn a_secret_said_in_a_chat_is_not_saved_in_clear() {
