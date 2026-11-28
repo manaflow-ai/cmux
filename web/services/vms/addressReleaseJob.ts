@@ -3,6 +3,7 @@ import { isSandboxRunVm } from "../runs/model";
 import {
   addressReleaseFromMetadata,
   addressReleaseIneligibleReason,
+  addressReleaseRestorable,
   pausedAddressReleaseHours,
   VM_ADDRESS_RELEASE_BATCH_LIMIT,
   VM_ADDRESS_RELEASE_SNAPSHOT_NAME,
@@ -53,7 +54,7 @@ export function releasePausedAddresses(input: {
     let skipped = 0;
     let errors = 0;
     for (const row of rows) {
-      const outcome = yield* parkRow(repo, providers, row, now).pipe(
+      const outcome = yield* parkRow(repo, providers, row, now, input.env ?? process.env).pipe(
         Effect.catchAll((error) => {
           console.warn("[VM] address release failed", JSON.stringify({ vmId: row.id, error: String(error) }));
           return Effect.succeed<Outcome>("error");
@@ -67,7 +68,13 @@ export function releasePausedAddresses(input: {
   });
 }
 
-function parkRow(repo: VmRepositoryShape, providers: VmProviderGatewayShape, row: CloudVmRow, now: () => number) {
+function parkRow(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  now: () => number,
+  env: Readonly<Record<string, string | undefined>>,
+) {
   return Effect.gen(function* () {
     const writeRelease = repo.writeAddressRelease!;
     const getPauseState = providers.getPauseState!;
@@ -76,6 +83,10 @@ function parkRow(repo: VmRepositoryShape, providers: VmProviderGatewayShape, row
     if (!providerVmId) return "skipped" as Outcome;
     if (previous && previous.state !== "parking") return "skipped" as Outcome;
     if (!previous && addressReleaseIneligibleReason(row, isSandboxRunVm(row)) !== null) return "skipped" as Outcome;
+    // The same shape recordOwnedSnapshot writes and the restore checks.
+    if (!previous && !addressReleaseRestorable(row.billingPlanId, snapshotResourceReservation(row.providerMetadata, null), env)) {
+      return "skipped" as Outcome;
+    }
 
     const state = yield* getPauseState(row.provider, providerVmId);
     if (previous && state === "destroyed") {

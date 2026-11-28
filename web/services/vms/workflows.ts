@@ -3007,6 +3007,8 @@ export function restoreVm(input: {
   readonly idempotencyKey?: string;
   /** Same contract as createVm: queue at a full network instead of failing. */
   readonly waitForCapacity?: boolean;
+  /** Read the snapshot's recorded shape on every plan, not only paid ones (parked restores). */
+  readonly readOwnedSnapshotShape?: boolean;
   /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
@@ -3027,7 +3029,9 @@ export function restoreVm(input: {
       return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
     }
     let snapshotReservation: VmResourceReservation | null = null;
-    if (isPaidVmPlan(input.billingPlanId) && repo.ownedSnapshotResourceReservation) {
+    // A parked machine's restore reads the shape the park recorded on every
+    // plan; without it the plan check has no memory to compare and refuses.
+    if ((isPaidVmPlan(input.billingPlanId) || input.readOwnedSnapshotShape) && repo.ownedSnapshotResourceReservation) {
       snapshotReservation = yield* repo.ownedSnapshotResourceReservation({
         userId: input.userId,
         billingTeamId: input.billingTeamId,
@@ -3123,6 +3127,7 @@ export function resumeParkedVm(input: {
       provider: vm.provider,
       snapshotId: release.snapshotId,
       idempotencyKey: parkedRestoreIdempotencyKey(vm.id),
+      readOwnedSnapshotShape: true,
       waitForCapacity: input.waitForCapacity,
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
