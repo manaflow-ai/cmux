@@ -4557,6 +4557,15 @@ class TerminalController {
                 break
             }
         }
+        // AI account requests share this wrapper with Cloud VM ones. Their
+        // client already names the failure (which backend step, which HTTP
+        // status, which command to retry); the generic Cloud VM line hid it
+        // (#21754). Keep the wrapper's own filter, which hides text naming an
+        // origin or credentials.
+        if let accountsError = error as? AIAccountsClientError {
+            let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(accountsError.description)
+            return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        }
         // An ownership rejection is app-owned copy naming the workspace rule
         // that blocked the open; the generic Cloud VM line would hide it.
         if let rejection = error as? SurfaceTransferRejection {

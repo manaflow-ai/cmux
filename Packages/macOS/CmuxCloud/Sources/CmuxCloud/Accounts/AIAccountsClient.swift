@@ -2,7 +2,7 @@ import CmuxAuthRuntime
 import CmuxControlSocket
 import Foundation
 
-enum AIAccountsClientError: Error, CustomStringConvertible {
+public enum AIAccountsClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
     case httpStatus(Int, String)
@@ -12,15 +12,15 @@ enum AIAccountsClientError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .notSignedIn:
-            return "Not signed in. Run `cmux auth login`, then retry."
+            return String(localized: "cloud.aiAccounts.error.notSignedIn", defaultValue: "Not signed in. Run `cmux auth login`, then retry.")
         case .sessionRefreshFailed:
-            return "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment."
+            return String(localized: "cloud.aiAccounts.error.sessionRefreshFailed", defaultValue: "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment.")
         case let .httpStatus(status, body):
             return AIAccountsClient.formatHTTPError(status: status, body: body)
         case let .malformedResponse(message):
-            return "The AI accounts service returned an unexpected response: \(message)"
+            return String(localized: "cloud.aiAccounts.error.malformedResponse", defaultValue: "The AI accounts service returned an unexpected response: \(message)")
         case let .backendUnreachable(url, detail):
-            return "Could not reach the cmux backend at \(url): \(detail)"
+            return String(localized: "cloud.aiAccounts.error.backendUnreachable", defaultValue: "Could not reach the cmux backend at \(url): \(detail)")
         }
     }
 }
@@ -49,11 +49,11 @@ public actor AIAccountsClient {
         try ensureOK(http, data: data)
         let object = try decodeJSONObject(data)
         guard let accounts = object["accounts"] as? [[String: Any]] else {
-            throw AIAccountsClientError.malformedResponse("missing `accounts` array")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.missingAccounts", defaultValue: "missing `accounts` array"))
         }
         return try accounts.map { account in
             guard let value = JSONValue(foundationObject: account) else {
-                throw AIAccountsClientError.malformedResponse("account entry is not valid JSON")
+                throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.invalidAccountEntry", defaultValue: "account entry is not valid JSON"))
             }
             return value
         }
@@ -76,7 +76,7 @@ public actor AIAccountsClient {
     }
 
     public func remove(id accountID: String, teamID: String?) async throws -> JSONValue {
-        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let escaped = try pathSegment(accountID)
         let (data, http) = try await request("DELETE", path: "/api/subrouter/accounts/\(escaped)", teamID: teamID)
         try ensureOK(http, data: data)
         return try bridgedJSONObject(data)
@@ -87,12 +87,12 @@ public actor AIAccountsClient {
     /// otherwise inject extra path components into the request URL; `.` and
     /// `..` are rejected because URL normalization would resolve them into a
     /// different backend route instead of an account-id segment.
-    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+    private func pathSegment(_ value: String) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
         guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
               !encoded.isEmpty, encoded != ".", encoded != ".." else {
-            throw AIAccountsClientError.malformedResponse("invalid \(fieldName)")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.invalidAccountID", defaultValue: "invalid account id"))
         }
         return encoded
     }
@@ -100,7 +100,7 @@ public actor AIAccountsClient {
     private func bridgedJSONObject(_ data: Data) throws -> JSONValue {
         let object = try decodeJSONObject(data)
         guard let value = JSONValue(foundationObject: object) else {
-            throw AIAccountsClientError.malformedResponse("response is not valid JSON")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.invalidJSON", defaultValue: "response is not valid JSON"))
         }
         return value
     }
@@ -126,14 +126,14 @@ public actor AIAccountsClient {
         let resolvedTeamID = await auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
-            throw AIAccountsClientError.malformedResponse("the cmux backend URL is misconfigured")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.misconfiguredBackendURL", defaultValue: "the cmux backend URL is misconfigured"))
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
         if !queryItems.isEmpty {
             comps.queryItems = queryItems
         }
         guard let url = comps.url else {
-            throw AIAccountsClientError.malformedResponse("could not build the request URL")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.requestURL", defaultValue: "could not build the request URL"))
         }
 
         var req = URLRequest(url: url)
@@ -164,7 +164,7 @@ public actor AIAccountsClient {
             }
         }
         guard let http = response as? HTTPURLResponse else {
-            throw AIAccountsClientError.malformedResponse("non-HTTP response")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.nonHTTPResponse", defaultValue: "non-HTTP response"))
         }
         return (data, http)
     }
@@ -179,17 +179,17 @@ public actor AIAccountsClient {
     private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
-            throw AIAccountsClientError.malformedResponse("expected a JSON object")
+            throw AIAccountsClientError.malformedResponse(String(localized: "cloud.aiAccounts.error.detail.expectedJSONObject", defaultValue: "expected a JSON object"))
         }
         return obj
     }
 
     public static func formatHTTPError(status: Int, body: String) -> String {
         if status == 503 {
-            return "AI accounts are not configured on this cmux backend."
+            return String(localized: "cloud.aiAccounts.error.notConfigured", defaultValue: "AI accounts are not configured on this cmux backend.")
         }
         if status == 401 {
-            return "Not signed in or session expired. Run `cmux auth login`, then retry."
+            return String(localized: "cloud.aiAccounts.error.sessionExpired", defaultValue: "Not signed in or session expired. Run `cmux auth login`, then retry.")
         }
 
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -200,9 +200,9 @@ public actor AIAccountsClient {
             serverError = redactSecrets(value)
         }
         if let serverError, !serverError.isEmpty {
-            return "AI accounts request failed (HTTP \(status)): \(serverError)"
+            return String(localized: "cloud.aiAccounts.error.httpStatusWithMessage", defaultValue: "AI accounts request failed (HTTP \(status)): \(serverError)")
         }
-        return "AI accounts request failed (HTTP \(status))."
+        return String(localized: "cloud.aiAccounts.error.httpStatus", defaultValue: "AI accounts request failed (HTTP \(status)).")
     }
 
     static func redactSecrets(_ value: String) -> String {
