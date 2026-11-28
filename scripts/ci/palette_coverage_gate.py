@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Palette coverage gate: a pull request adds no CLI, menu-bar or right-click action without a palette entry.
+"""Palette coverage gate: a pull request adds no CLI, menu-bar, right-click, keyboard-shortcut or Settings-page action without a palette entry.
 
 scripts/cmux-next/palette-coverage.py lists what the command palette is missing (NOW's
 code_shape.palette_coverage reads the same count; cmuxterm-hq goals/palette-coverage-gate-all-surfaces.md). Nothing
@@ -23,12 +23,13 @@ import tempfile
 from pathlib import Path
 
 SCRIPT = "scripts/cmux-next/palette-coverage.py"
-# The script and every file it reads (palette-coverage.py's KEEP, SURFACES, MENUS, CATALOG, KEY_MAP).
+# The script and every file it reads (palette-coverage.py's KEEP, SURFACES, MENUS, CATALOG, SETTINGS, KEY_MAP).
 INPUTS = (
     SCRIPT,
     "plans/cmux-next/palette-coverage.json",
     "plans/cmux-next/action-surfaces.json",
     "plans/cmux-next/action-catalog.json",
+    "schemas/settings/settings-schema.json",
     "cmux-tui/crates/cmux-action-catalog/src/hand_built_menus.rs",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteKeyMap.swift",
 )
@@ -94,7 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::palette coverage: {line}")
     if added:
         print("Add a palette entry for the action, or a {verb, palette} / {verb, reason: \"keep: ...\"} row in "
-              "plans/cmux-next/palette-coverage.json (python3 scripts/cmux-next/palette-coverage.py lists them).")
+              "plans/cmux-next/palette-coverage.json; a setting takes SettingDescriptor.hiddenFromPalette(\"why\") "
+              "(python3 scripts/cmux-next/palette-coverage.py lists them).")
         return 1
     return 0
 
