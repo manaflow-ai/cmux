@@ -453,10 +453,14 @@ public final class CloudPlaceFlows {
     /// The AutoSize rows of `machine` (`cloud_autosize_chat`, ``autosize_row::Row`` each, oldest first); nil for none.
     func autoSizeRows(machine: String) -> [Any]? {
         _ = autoSizeRevision // observed: a new row re-reads the header
-        // main-actor-ok: one machine id; Rust answers at most 50 small rows.
-        guard let request = try? JSONSerialization.data(withJSONObject: ["machine": machine]),
+        guard let request = Self.autoSizeRowsRequest(machine: machine),
               let reply = core("cloud_autosize_chat", request) else { return nil }
         return Self.autoSizeRowsAnswer(reply)
+    }
+
+    /// `cloud_autosize_chat`'s ask: one machine id.
+    nonisolated static func autoSizeRowsRequest(machine: String) -> Data? {
+        try? JSONSerialization.data(withJSONObject: ["machine": machine])
     }
 
     /// The `rows` of Rust's `cloud_autosize_chat` answer (at most 50 small rows); nil for none.
