@@ -147,5 +147,36 @@ class FetchRunsRetryTest(unittest.TestCase):
         self.assertIn("x-ratelimit-remaining=0", str(cm.exception))
         self.assertIn("rate limit", str(cm.exception))
 
+class ResolveCacheTest(unittest.TestCase):
+    # Runs 46116606886 and 46125947911 died at resolve: "API rate limit exceeded for installation".
+    RUNS = [{"id": 9, "conclusion": "success", "created_at": "2026-11-28T05:17:48Z",
+             "display_title": "cmux-next-ios INTERNAL " + "a" * 40}]
+
+    @staticmethod
+    def refused(repo, token):
+        raise SystemExit("::error::GitHub answered 403 for the ios-internal-nightly runs (x-ratelimit-remaining=0)")
+
+    def test_fresh_read_fills_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "c" / "phones.txt"
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=lambda r, t: self.RUNS)
+            self.assertTrue(fresh)
+            self.assertEqual(lines, ["a" * 40 + " 9 2026-11-28T05:17:48Z"])
+            self.assertEqual(cache.read_text(), lines[0] + "\n")
+
+    def test_rate_limited_read_answers_from_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "phones.txt"
+            cache.write_text("b" * 40 + " 8 2026-11-28T00:49:41Z\n")
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=self.refused)
+            self.assertFalse(fresh)
+            self.assertEqual(lines, ["b" * 40 + " 8 2026-11-28T00:49:41Z"])
+
+    def test_rate_limited_read_without_a_cache_still_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit):
+                mop.resolve("o/r", "t", 3, Path(d) / "none.txt", fetch=self.refused)
+
+
 if __name__ == "__main__":
     unittest.main()
