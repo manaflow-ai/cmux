@@ -547,7 +547,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
 }
 
 #[test]
-fn the_default_is_the_users_login_or_the_configured_coderouter_route() {
+fn the_default_is_the_users_own_login_even_with_a_coderouter_route() {
     use optchat_chief::host::{DEFAULT_HARNESS, default_harness};
     // `MUX_HARNESS` unset in the test process: the child takes the default.
     let flags = optchat_chief::cli::Flags::default();
@@ -564,23 +564,24 @@ fn the_default_is_the_users_login_or_the_configured_coderouter_route() {
     assert_eq!(default_harness(&plain), "claude");
     let admitted = optchat_chief::harness_gate::admit(&plain, default_harness(&plain)).unwrap();
     assert_eq!(admitted.argv0, "/u/bin/claude");
-    // A configured route: the Chief uses it.
+    // A CodeRouter route acpmux still lists: never the default (Leo: "For
+    // cmux next, just rip it out for now then"); asked for by name it runs.
     let routed = json!({"harnesses": {
         "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
         "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
         "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
     }});
-    assert_eq!(default_harness(&routed), "claude-cr");
+    assert_eq!(default_harness(&routed), "claude");
     let admitted = optchat_chief::harness_gate::admit(&routed, "claude-cr").unwrap();
     assert_eq!(admitted.profile, "claude-cr");
-    // A configured route acpmux could not run: refused with its reason
-    // (posted in the Chief chat), never a silent move to another account.
+    // A route asked for by name that acpmux could not run: refused with its
+    // reason (posted in the Chief chat), never a silent move to another account.
     let down = json!({"harnesses": {
         "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
         "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/cr", "team-route"],
                       "unavailable": "`cr team-route --version` failed: unknown command"},
     }});
-    assert_eq!(default_harness(&down), "claude-cr");
+    assert_eq!(default_harness(&down), "claude");
     let refused = optchat_chief::harness_gate::admit(&down, "claude-cr").unwrap_err();
     assert!(
         refused.contains("unavailable") && refused.contains("unknown command"),

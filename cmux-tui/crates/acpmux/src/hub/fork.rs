@@ -1,7 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. `session/fork`: a new session from a
-//! parent's conversation. Its per-session env is the fork request's own,
-//! never the parent's (session_env.rs). `through` (a Claude or Codex chat
-//! only) forks through an earlier turn instead of the chat's end (`fork_at.rs`).
+//! parent's conversation. The fork request supplies its per-session env. The
+//! fork keeps the parent's cmux tools answer and same-harness Claude account
+//! choice. `through` forks a Claude or Codex chat through an earlier turn
+//! (`fork_at.rs`).
 //!
 //! A chat whose turn runs forks now, as it is (never "fork when the turn ends"):
 //! a Claude or Codex chat resumes a copy of its transcript as it stands, another
@@ -26,6 +27,9 @@ enum Made {
     ClaudeResume,
     /// The agent's `session/fork` answer and its new session id.
     Agent(Value, String),
+    /// OpenCode's `session/fork` in the fork's own process when it starts
+    /// (`fork_own_process.rs`); no agent call now.
+    AgentInFork,
     /// A new agent session that gets acpmux's transcript of the chat with its first
     /// prompt (`rehydrate`): the agent could not fork the working chat.
     Fresh,
@@ -377,6 +381,36 @@ impl Hub {
             }
             None => (None, None),
         };
+        // These forks do not carry the source's model connection. Refuse before copying
+        // history that the new agent would otherwise replay on the machine's default.
+        if !empty
+            && target.is_none()
+            && ((matches!(
+                parent_meta.family.as_deref().unwrap_or(&parent_meta.harness),
+                "gemini" | "grok"
+            ) && (parent_meta.credential_withdrawn || self.has_delivered_credential(session)))
+                || self.uses_local_chatgpt_plan(session).await)
+        {
+            return Err(super::credentials::credential_needed());
+        }
+        let keeps_claude_auth = target.is_none() && subsession.is_none();
+        if is_claude
+            && keeps_claude_auth
+            && !empty
+            && super::spawn::launch_requires_claude_machine_login(&parent_meta)
+        {
+            // Read native Claude transcripts from the store used by the parent's launch.
+            let account = crate::server::claude_machine_login_env(&*self.config.read().await)
+                .ok_or_else(super::spawn::claude_route_unavailable)?;
+            fork_env.remove("CLAUDE_CONFIG_DIR");
+            let config_dir = account
+                .get("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .or_else(|| account.get("HOME").map(|home| Path::new(home).join(".claude")));
+            if let Some(dir) = config_dir {
+                fork_env.insert("CLAUDE_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+            }
+        }
         // What this fork shares with the chat, logged once it is made (`fork_spec.rs`).
         let spec = crate::fork_spec::ForkSpec::hub(
             checked.is_some(),
@@ -394,6 +428,8 @@ impl Hub {
         let sid = parent_meta
             .agent_session_id
             .clone()
+            // A fork whose own agent has not forked its chat yet holds that chat's conversation.
+            .or_else(|| session.agent_fork_parent())
             .or_else(|| (empty || target.is_some() || subagent).then(String::new))
             .ok_or_else(|| {
                 if before.is_some() {
@@ -540,6 +576,22 @@ impl Hub {
         } else {
             None
         };
+        // An OpenCode chat is forked by the fork's own agent as it starts (`fork_own_process.rs`).
+        let own_process = !empty
+            && target.is_none()
+            && cut.is_none()
+            && !is_claude
+            && super::fork_own_process::applies(
+                {
+                    let cfg = self.config.read().await;
+                    cfg.profile(&parent_meta.harness)
+                        .is_some_and(|p| super::policy_mode::is_opencode(&parent_meta, p))
+                },
+                offers_fork(session.meta().agent_capabilities.as_ref()),
+                cwd == parent_meta.cwd,
+            );
+        // The chat's input, held from the cut until the fork's agent asks for the fork.
+        let mut parent_hold = None;
         // The subagent's own conversation, copied (`fork_subagent.rs`).
         let mut sub_copy: Option<super::fork_subagent::SubagentCopy> = None;
         let made = if empty {
@@ -661,6 +713,11 @@ impl Hub {
             }
         } else if let Some(copy) = idle_codex_copy {
             Made::Copy(copy)
+        } else if own_process {
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            rules_at_copy = Some(session.read_meta(rules_of));
+            parent_hold = Some(handoff);
+            Made::AgentInFork
         } else if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
@@ -791,7 +848,7 @@ impl Hub {
         let (res, new_sid) = match &made {
             Made::Agent(res, sid) => (res.clone(), Some(sid.clone())),
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
-            Made::ClaudeResume | Made::Fresh | Made::Empty => (json!({}), None),
+            Made::ClaudeResume | Made::AgentInFork | Made::Fresh | Made::Empty => (json!({}), None),
         };
         // An agent's `session/fork` took its cut as its request was written (above); any other
         // fork takes it now.
@@ -836,6 +893,21 @@ impl Hub {
         let rules_kept = !fresh
             && !moved
             && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
+        // A same-harness conversation keeps the parent's explicit Claude account choice.
+        let keeps_claude_recovery =
+            keeps_claude_auth && super::credentials::uses_claude_machine_login(&parent_meta);
+        let mut session_env =
+            super::cmux_tools_answer::inherited(session_env, &parent_meta.session_env);
+        if keeps_claude_auth {
+            let team = crate::claude_cloud_auth::REQUIRED_TEAM;
+            if super::spawn::launch_requires_claude_team(&parent_meta) {
+                session_env.insert(team.into(), "1".into());
+                session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+            } else if super::spawn::launch_requires_claude_machine_login(&parent_meta) {
+                session_env.remove(team);
+                session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+            }
+        }
         // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
         let (title, title_source) = super::titles::fork_title(&parent_meta);
         // Its parent's namespace while it works in the same folder (`session_manifest.rs`).
@@ -853,6 +925,14 @@ impl Hub {
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
+            credential_connection: None,
+            credential_withdrawn: false,
+            credential_model: None,
+            claude_token_recovery: parent_meta
+                .claude_token_recovery
+                .filter(|_| keeps_claude_recovery),
+            // The fork has no previous host to restart.
+            claude_login_restart_pending: keeps_claude_recovery.then_some(false),
             launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
@@ -979,9 +1059,7 @@ impl Hub {
             // onto another harness is that device's new chat ([`Retarget::remote`]).
             remote_origin: parent_meta.remote_origin || target.as_ref().is_some_and(|t| t.remote),
             vm_boundary: parent_meta.vm_boundary,
-            // Never inherited: the fork request sets its own or runs without one; but for the
-            // answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
-            session_env: super::cmux_tools_answer::inherited(session_env, &parent_meta.session_env),
+            session_env,
             workspace_id,
             // The fork resumes the parent from its store, and its conversation lands there.
             chat_store: parent_meta.chat_store.clone(),
@@ -1098,6 +1176,11 @@ impl Hub {
         let new = self.make_session(meta);
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
+            Made::AgentInFork => {
+                if let Some(hold) = parent_hold.take() {
+                    self.arm_agent_fork(&new, sid.clone(), hold);
+                }
+            }
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
             Made::Fresh => {
                 // A fork onto another harness: its agent is told it was forked from the chat, and

@@ -773,12 +773,14 @@ impl Hub {
         } else {
             None
         };
+        steps.step("fence");
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
             let (meta, replace) =
                 self.guard_session(&bundle, g, text("cwd"), &from, replaceable.as_deref()).await?;
             replace_native = replace;
+            steps.step("guard");
             // The chat it imports is the one the receive was refused or allowed for.
             if Some(meta.id.as_str()) != manifest["sessionId"].as_str() {
                 return Err(transfer_error("schema", "session.json names another chat"));
@@ -809,6 +811,7 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
+        steps.step("meta_edits");
         if let Some(old) = old.as_ref() {
             if let Some(g) = &guard
                 && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
@@ -828,6 +831,7 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             self.retire_transfer_instance(old).await?;
+            steps.step("retire");
         }
         let source_store = if replacing_durable {
             crate::store::folder_to_replace(self.store.as_ref(), id)
@@ -856,6 +860,7 @@ impl Hub {
         } else {
             None
         };
+        steps.step("backup");
         let transfer_id = manifest["transferId"].clone();
         let name = text("name").map(str::to_owned);
         let guarded = guard

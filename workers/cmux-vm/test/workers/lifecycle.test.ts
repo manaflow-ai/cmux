@@ -186,6 +186,22 @@ describe("createVm", () => {
     expect(JSON.stringify(body)).not.toContain("infrastructure overloaded");
     expect(JSON.stringify(body)).not.toContain("capacity queue wait expired");
   });
+
+  it("answers a VM call past the rate limit 429 before 404, though both are read at once", async () => {
+    const t = await harness({ ratePerMinute: { write: 2 } });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const keyB = await t.addKey(TENANT_B, ["vm:write"]);
+    const start = () => t.request(`/v1/vms/${vmId}/start`, bearer(keyB), { method: "POST" });
+
+    // Another tenant's VM is 404 while the caller is under its limit, and is never started.
+    expect((await start()).status).toBe(404);
+    expect((await start()).status).toBe(404);
+    // Past the limit it is 429: the limit is judged before ownership, as when they were read in turn.
+    const limited = await start();
+    expect(limited.status).toBe(429);
+    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", budget: "rate" });
+    expect(t.upstream.callsTo("POST", /\/start$/)).toHaveLength(0);
+  });
 });
 
 describe("idempotency keys on create", () => {
