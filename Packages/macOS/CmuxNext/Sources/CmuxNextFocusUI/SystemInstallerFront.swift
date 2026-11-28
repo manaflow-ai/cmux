@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 
 /// macOS's own install dialogs that a command typed in a cmux terminal starts, brought in front of cmux.
@@ -9,16 +9,16 @@ import CmuxNextCompat
 /// active app in front of an app that a background process launched, so cmux yields to the installer when it
 /// launches while cmux is active, and the installer comes forward as if the person had opened it.
 @MainActor
-final class SystemInstallerFront {
+public final class SystemInstallerFront {
     /// macOS's Command Line Tools installer (`/System/Library/CoreServices/Install Command Line Developer Tools.app`),
     /// the one a missing `git`, `make`, `clang` or `python3` starts.
-    nonisolated static let installerBundleIDs: Set<String> = ["com.apple.dt.CommandLineTools.installondemand"]
+    public nonisolated static let installerBundleIDs: Set<String> = ["com.apple.dt.CommandLineTools.installondemand"]
 
     private let bundleIDs: Set<String>
     private let bundleID: @MainActor (NSRunningApplication) -> String?
     private let isActive: @MainActor () -> Bool
     private let bringForward: @MainActor (NSRunningApplication) -> Void
-    /// The launch observer; it lives as long as cmux does (one per app, `AppDelegate`).
+    /// The launch observer; it lives as long as cmux does (one per app, the App's `AppDelegate`).
     private var observer: MainActorObservation?
 
     /// - Parameters:
@@ -28,7 +28,7 @@ final class SystemInstallerFront {
     ///   - isActive: whether cmux is the active app; an installer that launched while the person works in another
     ///     app stays where macOS put it.
     ///   - bringForward: yields cmux's activation to the installer and activates it.
-    init(center: NotificationCenter = NSWorkspace.shared.notificationCenter, bundleIDs: Set<String> = installerBundleIDs,
+    public init(center: NotificationCenter = NSWorkspace.shared.notificationCenter, bundleIDs: Set<String> = installerBundleIDs,
          bundleID: @escaping @MainActor (NSRunningApplication) -> String? = { $0.bundleIdentifier },
          isActive: @escaping @MainActor () -> Bool = { NSApp.isActive },
          bringForward: @escaping @MainActor (NSRunningApplication) -> Void = SystemInstallerFront.yield(to:)) {
@@ -48,7 +48,7 @@ final class SystemInstallerFront {
     }
 
     /// Hands activation to `app` and asks it to come forward, as a click on its Dock icon would.
-    static func yield(to app: NSRunningApplication) {
+    public static func yield(to app: NSRunningApplication) {
         NSApp.yieldActivation(to: app)
         app.activate(from: .current, options: [])
     }

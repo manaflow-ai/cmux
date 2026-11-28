@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
+import CmuxNextFocusUI
 import Testing
 
 /// First-run findings row 17: `git` on a Mac with no developer tools started macOS's "Install Command Line Developer

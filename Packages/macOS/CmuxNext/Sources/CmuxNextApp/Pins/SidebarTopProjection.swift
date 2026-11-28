@@ -58,7 +58,5 @@ struct SidebarWorkspaceItems {
 
     /// An unnamed workspace whose shell idles at its home on this Mac or a Cloud machine reads "Terminal" while
     /// workspaces auto-name (`MachineRegistry.homeNamesAccount`).
-    private static func homeShellTitle(_ autoNames: Bool) -> (MachineID) -> String? {
-        { autoNames && MachineRegistry.homeNamesAccount($0.rawValue) ? Strings.untitledTerminal : nil }
-    }
+    private static func homeShellTitle(_ autoNames: Bool) -> (MachineID) -> String? { { autoNames && MachineRegistry.homeNamesAccount($0.rawValue) ? Strings.untitledTerminal : nil } }
 }
