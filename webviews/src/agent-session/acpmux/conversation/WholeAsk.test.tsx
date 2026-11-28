@@ -10,7 +10,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { NextStepCard } from "./NextStepCard";
 import { nextStepAsk } from "./nextStepAsk";
-import { HatQuestions, hasCutText, type HatQuestionActions } from "../question/HatQuestions";
+import { hasCutText } from "../question/cutText";
+import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import type { HatQuestion } from "../question/hatModel";
 
 let dom: JSDOM | undefined;
