@@ -24,7 +24,7 @@ fn meta(spawn_argv: Option<&[&str]>) -> SessionMeta {
 async fn stale(profile: &[&str], started: Option<&[&str]>) -> bool {
     let hub = hub(profile);
     let p = hub.config.read().await.harnesses["lane"].clone();
-    hub.legacy_stale(&p, &meta(started), &BTreeMap::new()).await
+    hub.legacy_stale(&p, &meta(started), &BTreeMap::new()).await.unwrap_or(false)
 }
 
 #[tokio::test]
@@ -51,5 +51,36 @@ async fn a_remote_origin_legacy_agent_is_not_judged() {
     let p = hub.config.read().await.harnesses["lane"].clone();
     let mut m = meta(Some(&["/u/bin/claude"]));
     m.remote_origin = true;
-    assert!(!hub.legacy_stale(&p, &m, &BTreeMap::new()).await);
+    assert_eq!(hub.legacy_stale(&p, &m, &BTreeMap::new()).await, None);
+}
+
+/// An adopted chat found current keeps the catalog's digest: the next sweeps compare strings
+/// and build no launch (one daemon, 2026-11-28: 1,170 builds in 3 minutes for 48 chats).
+#[tokio::test]
+async fn a_legacy_agent_found_current_is_built_once_not_every_sweep() {
+    let argv = ["/u/bin/claude", "--autocompact", "402530"];
+    let hub = hub(&argv);
+    let p = hub.config.read().await.harnesses["lane"].clone();
+    let now = p.launch_digest();
+    let session = hub.insert_test_session(meta(Some(&argv)));
+    LEGACY_BUILDS.with(|n| n.set(0));
+    for _ in 0..28 {
+        let m = session.meta();
+        assert!(!hub.launch_changed(&session, &m, &now, &p, &BTreeMap::new()).await);
+    }
+    // Before: 28 builds, one per sweep.
+    assert_eq!(LEGACY_BUILDS.with(|n| n.get()), 1);
+    assert_eq!(session.meta().launch_digest.as_deref(), Some(now.as_str()));
+    // A later profile change is seen by its digest, with no build.
+    assert!(hub.launch_changed(&session, &session.meta(), "other", &p, &BTreeMap::new()).await);
+    assert_eq!(LEGACY_BUILDS.with(|n| n.get()), 1);
+
+    // A stale one keeps no digest: it is marked, and the respawn records the new one.
+    let stale = hub.insert_test_session({
+        let mut m = meta(Some(&["/u/bin/claude"]));
+        m.id = "t".into();
+        m
+    });
+    assert!(hub.launch_changed(&stale, &stale.meta(), &now, &p, &BTreeMap::new()).await);
+    assert_eq!(stale.meta().launch_digest, None);
 }
