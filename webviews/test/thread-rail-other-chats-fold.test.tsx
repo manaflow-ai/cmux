@@ -1,11 +1,10 @@
 // l10n-allow-file: synthetic senders and prompts, and the visible copy they read as.
-// Messages from other chats next to each other share one tick on the prompt rail (Leo, 2026-11-03:
-// "i've always been on the fence about messages from other chats showing up in that prompt jump
-// scroll rail individual elements"; incoming.experiment.ts, default `folded`). The person's
-// prompts keep a tick each; a run of other chats' messages is one tick, in the same column, whose card
-// reads "Received N messages" from its senders, as the transcript's row for them does. The folded
-// tick jumps to the run's first message, takes its place in the Tab and arrow order, and bookmarks
-// that first message; a mark on any message of the run shows on it, and its toggle takes that off.
+// Messages from other chats get no tick on the prompt rail: it ticks only the person's prompts (Leo,
+// 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore"). Before, a run of
+// them folded into one "Received N messages" tick (Leo, 2026-11-03: "i've always been on the fence
+// about messages from other chats showing up in that prompt jump scroll rail individual elements").
+// The person's prompts keep a tick each, their order and their jumps; the right-click "received"
+// choice still ticks the messages (thread-minimap-filter-fades.test.tsx).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
@@ -124,70 +123,42 @@ async function mount(marked: number[]) {
   return { host, scroller, tick, focus, calls, unmount };
 }
 
-test("a run of other chats' messages is one tick whose card reads Received N messages", async () => {
+test("other chats' messages get no tick; the person's prompts keep one each, in order", async () => {
   const rail = await mount([]);
   try {
-    // Prompt, the ux-owner run, prompt, the single picker message: four ticks, not six.
-    expect(rail.host.querySelectorAll("[data-tick]").length).toBe(4);
-    expect(rail.tick(1).closest("li")!.getAttribute("aria-setsize")).toBe("4");
-    expect(rail.tick(1).hasAttribute("data-incoming")).toBe(true);
-    expect(rail.tick(2).hasAttribute("data-incoming")).toBe(false);
-    // Other chats' ticks draw at the person's weight at rest, so the rail keeps one rhythm.
-    expect(rail.host.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-incoming-dim")).toBe(false);
-
+    // Prompt, three ux-owner messages, prompt, one picker message: two ticks, not six.
+    expect(rail.host.querySelectorAll("[data-tick]").length).toBe(2);
+    expect(rail.tick(0).closest("li")!.getAttribute("aria-setsize")).toBe("2");
+    expect(rail.host.querySelector("[data-tick][data-incoming]")).toBeNull();
+    await rail.focus(0);
+    expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toContain("Plan the change");
     await rail.focus(1);
-    // The run's one sender has a session id, so the card names it as the transcript does.
-    expect(rail.host.querySelector(".acpmux-minimap__from")!.textContent).toBe("lane-box-1/ux-owner · Other session");
-    expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toBe("Received 3 messages");
-    expect(rail.tick(1).getAttribute("aria-label")).toContain("Received 3 messages");
-    // A single message keeps its own words.
-    await rail.focus(3);
-    expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toContain("Status 16");
+    expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toContain("Land it");
+    expect(rail.host.querySelector(".acpmux-minimap__from")).toBeNull();
 
-    // The arrow keys step over the run as one tick.
-    await rail.focus(1);
+    // The arrow keys step from one of the person's prompts to the next.
+    await rail.focus(0);
     await act(async () =>
-      rail.tick(1).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+      rail.tick(0).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
     );
-    expect((dom.window.document.activeElement as HTMLElement).dataset.tick).toBe("2");
+    expect((dom.window.document.activeElement as HTMLElement).dataset.tick).toBe("1");
   } finally {
     await rail.unmount();
   }
 });
 
-test("the folded tick jumps to the run's first message and bookmarks it", async () => {
+test("a tick jumps to its own prompt, past the messages before it, and bookmarks it", async () => {
   const rail = await mount([]);
   try {
     await act(async () => rail.tick(1).click());
     await settle();
-    // Row 2 is the run's first message (user-4); its top is 800.
-    const landed = rail.scroller.scrollTop;
-    await act(async () => rail.tick(0).click());
-    await settle();
-    expect(landed).toBeGreaterThan(rail.scroller.scrollTop);
-    expect(landed).toBeLessThan(1200);
-
+    // "Land it" (user-13) is row 8; its top is 3200.
+    expect(rail.scroller.scrollTop).toBeGreaterThan(2400);
     await rail.focus(1);
     await act(async () => rail.host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!.click());
     await settle();
-    expect(rail.calls).toEqual([{ seq: 4, bookmarked: true }]);
+    expect(rail.calls).toEqual([{ seq: 13, bookmarked: true }]);
     expect(rail.tick(1).hasAttribute("data-bookmarked")).toBe(true);
-  } finally {
-    await rail.unmount();
-  }
-});
-
-test("a mark on a later message of the run shows on the folded tick, and its toggle takes it off", async () => {
-  const rail = await mount([10]);
-  try {
-    expect(rail.tick(1).hasAttribute("data-bookmarked")).toBe(true);
-    await rail.focus(1);
-    const bookmark = rail.host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
-    expect(bookmark.getAttribute("aria-pressed")).toBe("true");
-    await act(async () => bookmark.click());
-    await settle();
-    expect(rail.calls).toEqual([{ seq: 10, bookmarked: false }]);
-    expect(rail.tick(1).hasAttribute("data-bookmarked")).toBe(false);
   } finally {
     await rail.unmount();
   }
