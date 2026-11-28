@@ -3,7 +3,7 @@
   "id": "manaflow-ai/dense-setup",
   "name": "Dense",
   "tagline": "Everything small and in view",
-  "description": "Everything small and in view: ultra-compact chrome, a sidebar rail, the tab bar at the bottom. For people on a small laptop screen or who run many workspaces.",
+  "description": "Everything small and in view: small controls, a slim sidebar and the tab bar at the bottom. Good for a small laptop screen or many workspaces.",
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/setups/dense",

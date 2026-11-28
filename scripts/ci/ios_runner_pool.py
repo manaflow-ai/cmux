@@ -487,9 +487,11 @@ def live_owned_pool(pools: Sequence[str], runners: Sequence[Mapping[str, Any]] |
     A label routes while one online runner carries it (pr_runner_pool.routing_slots). `runner: owned`
     reads no queue, so without this a pin whose every carrier is offline queues its jobs until a
     lander cancels them (hosted#1034: 46 minutes on glaeda-std-xcode-27.2, 0 of 4 online). An
-    unreadable or empty listing keeps the first pool: the listing failing is not the pool failing.
+    unread listing (None: no route token, or the call failed) keeps the first pool: the listing
+    failing is not the pool failing. An empty listing is an answer: no runner carries the pin, so
+    the pick refuses as it does when every carrier is offline.
     """
-    if not runners:
+    if runners is None:
         return pools[0]
     registered = {pool: 0 for pool in pools}
     for pool in pools:
@@ -593,6 +595,17 @@ def resolve(
             if free and free.pool and free.sim:
                 log(f"live: {label} has an idle {SIM_LABEL} runner and simulator capacity")
                 return Route(label, retry_label(default), True)
+        # Every pool is full: the fast verdict is one simulator step (glaeda classes pr-pipeline's ios-fast so), so
+        # it takes a mini's sim-first runner when one is idle, as the sim-first lanes do, instead of Blacksmith's
+        # queue and a cold build (cmux#61812: 6 min queued on blacksmith-6vcpu-macos-26, then 645 s).
+        sim_first = pr_runner_pool.sim_first_label(pr_xcode_app)
+        pools = pr_runner_pool.owned_pools(pr_xcode_app)
+        standard = load.pipeline_pools.get(pools[0]) if pools else None
+        if (lane == "pipeline" and needed and sim_first and standard is not None and pools[0] in limits.order
+                and standard.sim_first >= needed):
+            log(f"no configured pool has a free {SIM_LABEL} runner and simulator; {standard.sim_first} {sim_first} "
+                f"free -> {sim_first}")
+            return Route(sim_first, retry_label(default), True)
         log(f"no configured pool has a free {SIM_LABEL} runner and simulator; staying on {default}")
         return starved(default)
     if load.live is not None:
@@ -879,7 +892,8 @@ def build_route(route: Route, *, lane: str, swift_package: str | None, sim_first
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
               now: dt.datetime, capacity: int, placements: Placements | None = None,
               jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
-              sim_first_label: str = "", idle_sim_only: bool = False) -> LiveFree:
+              sim_first_label: str = "", idle_sim_only: bool = False,
+              sim_first_runners: Sequence[Mapping[str, Any]] | None = None) -> LiveFree:
     """The pool's idle runners and its free simulator minis, less what in-flight iOS runs will take.
 
     `recent` are the in-flight runs of the last SIM_WINDOW_MINUTES and `jobs`
@@ -904,7 +918,7 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     charged = sum(item.sims for item in holds)
     # One sim-first runner per mini, offline while its simulator is taken; a
     # running simulator job's mini is left out in case the listing lags it.
-    first_hosts = sim_first_hosts(runners, sim_first_label)
+    first_hosts = sim_first_hosts(runners if sim_first_runners is None else sim_first_runners, sim_first_label)
     first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
                     sim=max(0, sim_room - charged),
@@ -1166,8 +1180,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                             continue
                         members = [r for r in runners if pr_runner_pool.carries_office_pool_label(r, label)]
                         if members:
+                            # The standard pool also counts its minis' idle sim-first runners (the whole listing:
+                            # that runner carries no pool label), for when no pool has room (resolve()).
+                            first = pr_runner_pool.sim_first_label(args.pr_xcode_app) if label == pools[0] else ""
                             available[label] = live_free(members, label, recent, now=now, capacity=capacity,
-                                                         placements=placements, jobs=jobs, idle_sim_only=True)
+                                                         placements=placements, jobs=jobs, idle_sim_only=True,
+                                                         sim_first_label=first, sim_first_runners=runners)
                     if available:
                         return IOSLoad(None, pipeline_pools=available)
                     raise RuntimeError("no runner carries a configured pipeline simulator pool")
