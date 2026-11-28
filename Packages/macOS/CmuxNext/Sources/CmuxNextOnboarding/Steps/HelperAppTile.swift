@@ -31,7 +31,8 @@ final class HelperAppTile: NSView, NSDraggingSource {
 
     init(appURL: URL) {
         self.appURL = appURL
-        icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
+        // The helper's own icon, else Computer Use's: a helper that names no icon would draw the blank app.
+        icon = NSImageView(image: ComputerUseAppIcon.image(forApp: appURL))
         name = OnboardingLabel.make(Self.displayName(appURL), font: Typography.system(size: TypeScale.body))
         content = NSStackView(views: [icon, name])
         super.init(frame: .zero)
@@ -88,7 +89,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
         // The whole row's content (icon and name) follows the pointer, as a row picked out of a list.
-        item.setDraggingFrame(content.frame, contents: snapshot(of: content) ?? NSWorkspace.shared.icon(forFile: appURL.path))
+        item.setDraggingFrame(content.frame, contents: snapshot(of: content) ?? icon.image ?? ComputerUseAppIcon.image(forApp: appURL))
         beginDraggingSession(with: [item], event: event, source: self)
         content.alphaValue = 0
     }
