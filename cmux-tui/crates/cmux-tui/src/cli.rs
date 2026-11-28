@@ -336,6 +336,8 @@ mod pane_context;
 mod pane_identify;
 mod raw;
 #[cfg(unix)]
+pub(crate) mod rd_agent;
+#[cfg(unix)]
 mod remote_host;
 #[cfg(unix)]
 mod remote_host_agent;
@@ -1241,6 +1243,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
+        .or_else(|| rd_agent::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
         .or_else(|| share_requests::run_if_requested(args))
         .or_else(|| tmux_attach::run_if_requested(args))

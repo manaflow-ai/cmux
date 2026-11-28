@@ -1,0 +1,7 @@
+interface:
+  display_name: "cmux Screen Sharing"
+  short_description: "See and operate another of your devices' screens through a cmux Screen Sharing tab: screenshot, click, type, key."
+  default_prompt: "To see or use the whole screen of another of the person's devices that cmux Screen Sharing shows, use $cmux-screen-sharing: cmux rd screenshot, click (fractions of the display), type and key, each with --json. On a refusal, run the error's next command."
+
+policy:
+  allow_implicit_invocation: true

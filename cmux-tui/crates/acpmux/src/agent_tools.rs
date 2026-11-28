@@ -421,6 +421,11 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // `cmux rd screenshot|click|type|key` on a device a Screen Sharing tab shows.
+    (
+        "cmux-screen-sharing/SKILL.md",
+        include_str!("../../../../skills/cmux-screen-sharing/SKILL.md"),
+    ),
     // UI work shown in the chat: live mode, the preview tab turn shots capture, how to try it (hq RFD 0150).
     ("cmux-ui-preview/SKILL.md", include_str!("../../../../skills/cmux-ui-preview/SKILL.md")),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq

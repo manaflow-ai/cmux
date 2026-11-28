@@ -98,6 +98,8 @@ cmux-tailnet-join.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
+# `cmux rd key`: cmux Computer Use's key combo vocabulary (cli/rd_agent.rs).
+cmux-computer-use.workspace = true
 # `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
 # cmux-conversation, no new crate.
 pulldown-cmark = { version = "0.13", default-features = false }
