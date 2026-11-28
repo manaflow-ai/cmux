@@ -46,8 +46,7 @@ extension UpdaterService {
             }
             actions = [.install]
             // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
-            if let prs = stagedPullRequests, !prs.isEmpty,
-               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+            if let prs = stagedPullRequests, !prs.isEmpty, case .object(var members) = Self.settingsJSON(prs) {
                 members["title"] = .string(UpdaterStrings.pullRequestsTitle)
                 members["other"] = .string(UpdaterStrings.pullRequestsOther)
                 json["prs"] = .object(members)
@@ -69,6 +68,24 @@ extension UpdaterService {
         json["schedule"] = .array(settingsSchedule().map { ["id": .string($0.id), "label": .string($0.label), "value": .string($0.value)] })
         json["actions"] = .array(actions.map { ["id": .string($0.rawValue), "title": .string($0.title), "prominent": .bool($0.isProminent)] })
         return .object(json)
+    }
+
+    /// The staged span's PRs as the page reads them (``BuildPullRequests``' Codable keys; a nil area or author is left
+    /// out), built as values rather than encoded and parsed again on the main actor.
+    static func settingsJSON(_ prs: BuildPullRequests) -> JSONValue {
+        .object([
+            "groups": .array(prs.groups.map { group in
+                var members: [String: JSONValue] = ["items": .array(group.items.map { item in
+                    var row: [String: JSONValue] = ["pr": JSONValue(item.pr), "title": .string(item.title),
+                                                    "url": .string(item.url.absoluteString), "build": .string(item.build)]
+                    if let author = item.author { row["author"] = .string(author) }
+                    return .object(row)
+                })]
+                if let area = group.area { members["area"] = .string(area) }
+                return .object(members)
+            }),
+            "internalCount": JSONValue(prs.internalCount),
+        ])
     }
 
     /// The card's Last Updated and Next Check lines. Last Updated is when this build's bundle was put in place

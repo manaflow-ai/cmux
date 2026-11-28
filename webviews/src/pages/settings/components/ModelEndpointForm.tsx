@@ -9,7 +9,7 @@ import type { ModelConnection } from "../ops";
 import { Icon } from "../icons";
 import { azureResource, bedrockRegion, providerCredentials, type OpenAIEndpoint } from "../providerCatalog";
 import { t } from "../strings";
-import { ConnectionError, ConnectionFooter, ConnectionRegion, SecretField, validKey } from "./ModelConnectionFields";
+import { ConnectionError, ConnectionActions, ConnectionRegion, SecretField, validKey } from "./ModelConnectionFields";
 
 import { modelEndpointBackend } from "./modelConnections";
 
@@ -393,7 +393,7 @@ export function ModelEndpointForm({
         <p className="row-help">{t("settingsWindow.models.endpoint.bedrockShortTerm")}</p>
       )}
       {(failure || next.failed) && <ConnectionError>{failure ?? next.failed}</ConnectionError>}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onCancel}
         disabled={!canConnect}
         busy={busy}

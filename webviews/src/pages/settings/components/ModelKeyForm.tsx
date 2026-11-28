@@ -3,7 +3,7 @@ import { Button } from "../../../ui/Button";
 import type { ModelConnection } from "../ops";
 import { providerCredentials, type KeyProvider } from "../providerCatalog";
 import { t } from "../strings";
-import { ConnectionError, ConnectionFooter, SecretField, validKey } from "./ModelConnectionFields";
+import { ConnectionError, ConnectionActions, SecretField, validKey } from "./ModelConnectionFields";
 import type { Run } from "./modelConnections";
 
 export function ModelKeyForm({
@@ -104,7 +104,7 @@ export function ModelKeyForm({
           {t("settingsWindow.models.saving")}
         </output>
       )}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onCancel}
         disabled={!valid}
         busy={busy}

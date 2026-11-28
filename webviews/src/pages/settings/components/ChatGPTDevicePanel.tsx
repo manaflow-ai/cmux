@@ -3,7 +3,7 @@ import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import type { ChatGPTDeviceState, ModelDeviceProvider, ModelsState } from "../ops";
 import { t } from "../strings";
-import { ConnectionError, ConnectionFooter, SignInWaiting } from "./ModelConnectionFields";
+import { ConnectionError, ConnectionActions, SignInWaiting } from "./ModelConnectionFields";
 import { chatgptErrorText, type Run } from "./modelConnections";
 
 const successDisplayMs = 1500;
@@ -193,7 +193,7 @@ export function ChatGPTDeviceForm({
                 : null)}
         </ConnectionError>
       )}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onCancel}
         busy={busy}
         disabled={connected || requiresOtherBuild}

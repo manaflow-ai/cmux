@@ -22,7 +22,7 @@ import { t } from "../strings";
 import { ChatGPTBrowserForm, ChatGPTDeviceForm } from "./ChatGPTDevicePanel";
 import { ClaudeLoginForm } from "./ClaudeLoginForm";
 import { ClaudeSetupTokenForm, ClaudeTokenForm } from "./ClaudeSetupTokenForm";
-import { ConnectionError, ConnectionFooter, ConnectionRegion, SignInWaiting } from "./ModelConnectionFields";
+import { ConnectionError, ConnectionActions, ConnectionRegion, SignInWaiting } from "./ModelConnectionFields";
 import { ModelEndpointForm } from "./ModelEndpointForm";
 import { ModelKeyForm } from "./ModelKeyForm";
 import type { RowAction } from "./ModelConnectionRow";
@@ -268,7 +268,7 @@ export function ModelConnectionDialog({
                   });
                 }}
               >
-                <ConnectionFooter busy={busy} onClose={dismiss} />
+                <ConnectionActions busy={busy} onClose={dismiss} />
               </form>
             ))}
           {!accountFamily && directClaude && !(allowClaudeToken && tokenPending) && (
@@ -498,7 +498,7 @@ function LocalSignInForm({
     >
       {waiting && <SignInWaiting>{t("settingsWindow.models.waiting.browser")}</SignInWaiting>}
       {(failure || error) && <ConnectionError>{failure ?? error}</ConnectionError>}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onCancel}
         busy={busy}
         failed={!!(failure || error)}
@@ -596,7 +596,7 @@ function ModelRowActionForm({
         </label>
       )}
       {(failure || error) && <ConnectionError>{failure ?? error}</ConnectionError>}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onClose}
         busy={busy}
         disabled={!valid}

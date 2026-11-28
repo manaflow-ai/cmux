@@ -276,8 +276,7 @@ final class ComputerUseFloatingPreviewView: NSView {
         pointerLayer.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)
         pointerLayer.cornerRadius = 6 // radius-allow: the agent pointer is a 12 pt round dot, not a button
         pointerLayer.backgroundColor = NSColor.systemBlue.cgColor
-        pointerLayer.borderColor = NSColor.white.cgColor
-        pointerLayer.borderWidth = 2
+        pointerLayer.borderWidth = 2 // its color is the theme's stroke, set in layout()
         pointerLayer.isHidden = true
         frameLayer.addSublayer(pointerLayer)
         closeButton.target = self
@@ -291,6 +290,11 @@ final class ComputerUseFloatingPreviewView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
     }
 
     /// Dragging anywhere but a button moves the panel.
@@ -345,6 +349,8 @@ final class ComputerUseFloatingPreviewView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         frameLayer.frame = bounds
+        // The pointer dot's ring is the theme's stroke (rule R6), re-read on a theme or appearance change.
+        pointerLayer.borderColor = performWithTheme { Palette.separator.cgColor }
         CATransaction.commit()
         let side: CGFloat = 22
         closeButton.frame = NSRect(x: 8, y: bounds.maxY - side - 8, width: side, height: side) // concentric-allow: round buttons over the picture, like the window's traffic lights

@@ -5,7 +5,8 @@ import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
 
-const reasonLabels = {
+/// Each reason's words, read where the picker draws them beside the row's sign-in action.
+export const cloudReasonLabels = {
   none: "composer.envNotConnected",
   signedOut: "turn.signInAgain",
   off: "picker.cloud.connectionOff",
@@ -44,9 +45,9 @@ export function cloudPickerState(served: CloudServed | undefined, harness: strin
   return ready === undefined ? undefined : ready ? "ready" : "disconnected";
 }
 
-export function cloudPickerReason(served: CloudServed | undefined, harness: string) {
+export function cloudPickerReason(served: CloudServed | undefined, harness: string): CloudConnectionReason {
   const family = cloudPickerFamily(served, harness);
-  return reasonLabels[(family && served?.reasons?.[family]) || "none"];
+  return (family && served?.reasons?.[family]) || "none";
 }
 
 /// No readiness answer (including a host that predates runnableFamilies) leaves the local picker.

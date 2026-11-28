@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import type { ModelsState } from "../ops";
 import { t } from "../strings";
-import { ConnectionError, ConnectionFooter, SecretField, SignInWaiting } from "./ModelConnectionFields";
+import { ConnectionError, ConnectionActions, SecretField, SignInWaiting } from "./ModelConnectionFields";
 import type { Run } from "./modelConnections";
 
 function loginMessage(error: string) {
@@ -138,7 +138,7 @@ export function ClaudeLoginForm({
       )}
       {login?.apiKey && <p>{t("settingsWindow.models.claude.keyWins")}</p>}
       {failure && <ConnectionError>{failure}</ConnectionError>}
-      <ConnectionFooter
+      <ConnectionActions
         onClose={onCancel}
         busy={busy}
         disabled={disabled || (fallback && !valid)}

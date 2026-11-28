@@ -1,6 +1,8 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -46,6 +48,9 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var builtWithBorders = true
     /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
     var offlineExpanded = false
+    /// This Mac's hub note ("Connecting this Mac to the device hub…", or why it could not register yet) waits out
+    /// ``NoticeTiming/connectionQuiet``: a registration that lands under it says nothing; a longer one redraws with it.
+    let hubNoteHold = QuietHold(owner: "macScreen.home.hubNote", delay: NoticeTiming.connectionQuiet)
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
@@ -143,7 +148,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     // MARK: Drawing
 
     /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
-    private func render() {
+    func render() {
         let snapshot = withObservationTracking { MacScreenHomeSnapshot(home: self) } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
