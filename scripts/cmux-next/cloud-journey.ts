@@ -507,23 +507,36 @@ const BACKGROUND_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
  * The final answer of a provider request sent with BACKGROUND_AFTER. Freestyle's edge cuts a request it holds open at
  * about 120 s (an exec-await of a 290 s command answered 524 after 125 s, production 2026-11-21), so a request still
  * running after 60 s answers 202 with a request id, and GET /v5/background-requests/{id} (with the same `headers`)
- * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Five failed
- * polls in a row (no answer, 429 or 5xx), or no answer by `deadlineAt`, throw: the command may have run. cmux-vm
+ * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Failed polls
+ * (no answer, 429 or 5xx) back off and keep going, past `deadlineAt` too, until none has answered for `outageMs`
+ * (Freestyle answered 503 to every poll for 9 min in rebake 45960390204, 2026-11-27, while the command ran on); no
+ * answer then, or by the deadline with the provider answering, throws: the command may have run. cmux-vm
  * (workers/cmux-vm/src/upstream/live-background.ts) and the CLI (cmux-cloud-api background.rs) do the same.
  */
-export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http): Promise<Answer> {
+export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http, outageMs = 300_000): Promise<Answer> {
   if (answer.status !== 202) return answer;
   const id = answer.headers?.get("x-freestyle-background-request-id") ?? answer.body?.requestId ?? answer.body?.request_id;
   if (typeof id !== "string" || !BACKGROUND_ID.test(id)) throw new Error("background request: the 202 names no request");
   const url = `${apiBase.replace(/\/+$/, "")}/v5/background-requests/${id}`;
-  let failures = 0;
-  while (Date.now() + pollMs < deadlineAt) {
-    await new Promise((r) => setTimeout(r, pollMs));
-    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, deadlineAt - Date.now()))).catch(() => null);
-    if (poll && poll.status === 202) failures = 0;
-    else if (poll && poll.status !== 429 && poll.status < 500) return poll;
-    else if (++failures >= 5) break;
+  let lastAnswerAt = Date.now();
+  let wait = pollMs;
+  let failing = false;
+  for (;;) {
+    const until = failing ? Math.max(deadlineAt, lastAnswerAt + outageMs) : deadlineAt;
+    if (Date.now() + wait >= until) break;
+    await new Promise((r) => setTimeout(r, wait));
+    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, until - Date.now()))).catch(() => null);
+    if (poll && poll.status === 202) {
+      lastAnswerAt = Date.now();
+      wait = pollMs;
+      failing = false;
+    } else if (poll && poll.status !== 429 && poll.status < 500) return poll;
+    else {
+      failing = true;
+      wait = Math.min(15_000, wait * 2);
+    }
   }
+  if (failing) throw new Error(`background request ${id}: provider outage, no poll answered for ${Math.round(outageMs / 1000)} s (the command may have run)`);
   throw new Error(`background request ${id}: no answer by the deadline (the command may have run)`);
 }
 
@@ -4501,6 +4514,28 @@ export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
 }
 /**
+ * The `ttl_seconds` a CI journey's own machines are created with, so the platform's alarm (cmux-platform
+ * TestMachines.ts, `expires_at`) deletes a machine its run left behind once no run can still use it, instead of
+ * waiting for a later journey's sweep at STALE_JOURNEY_MS. A short run's invocation runs well under an hour (its whole
+ * job is at most half of STALE_JOURNEY_MS, the test above checks it), so half of STALE_JOURNEY_MS is past any run that
+ * named the machine; a long run's (` long`) gets LONG_JOURNEY_MS. 2026-11-27 23:23Z: the production journey team sat
+ * at its 20-machine cap (paused ones included) with 12 paused journey leftovers, all under 3 h old, so every sweep
+ * deleted 0 and the live journey failed `cloud.quota.exceeded` (cmux-platform run 46080502496).
+ * CLOUD_JOURNEY_MACHINE_TTL_S overrides it (300 to 604800, the create's bounds; 0 = none). Outside CI a hand run has no
+ * timeout, so its machines get none unless that is set.
+ */
+export function journeyMachineTtl(long: boolean, env: Record<string, string | undefined> = process.env): { ttl_seconds?: number } {
+  const raw = env.CLOUD_JOURNEY_MACHINE_TTL_S;
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (n === 0) return {};
+    if (!Number.isInteger(n) || n < 300 || n > 604_800) throw new Error(`CLOUD_JOURNEY_MACHINE_TTL_S: not 0 or a whole 300 to 604800: ${JSON.stringify(raw)}`);
+    return { ttl_seconds: n };
+  }
+  if (env.GITHUB_ACTIONS !== "true") return {};
+  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+}
+/**
  * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
  * the ids in EXCLUDE. A create can leave a second machine under the run's name besides the id it answered: run
  * 46059808882 (jr-mwzf7mv7, an 86.8 s create) deleted the answered vm_5e22ac9cfbb7343202e5 at its end while a second
@@ -5536,6 +5571,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
   const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
+  // A CI run's own machines carry a ttl, so the platform deletes one this run leaves behind (journeyMachineTtl).
+  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -6109,7 +6146,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (n) J.firstText.reset();
             J.firstText.mark("create");
             createSentAt = Date.now();
-            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(keep ? {} : machineTtl), ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
           });
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
@@ -6318,7 +6355,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           let deadline = Date.now() + COLD_CREATE_BOUND_MS;
           let room: { value: any; waitedMs: number; refusals: number };
           try {
-            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE, ...(keep ? {} : machineTtl) }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
           } catch (error) {
             // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
             coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
@@ -6502,7 +6539,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
-        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(keep ? {} : machineTtl) }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
         const m = await waitRunning(api, gatewayMachine, 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
