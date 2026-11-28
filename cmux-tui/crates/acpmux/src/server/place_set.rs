@@ -348,7 +348,7 @@ fn begin(
     pending::save(p).map_err(|e| format!("could not keep the move: {e}"))?;
     hub.set_place_mode(session, Some(p.pin.clone()))
         .map_err(|e| format!("could not store the pick: {}", e.message))?;
-    move_line(hub, session, to, machine, p);
+    move_line(hub, session, to, machine, &p.why, &p.move_id, &p.was);
     Ok(())
 }
 
@@ -480,12 +480,13 @@ fn move_line(
     session: &Arc<crate::hub::Session>,
     to: &str,
     machine: Option<&str>,
-    p: &Pending,
+    why: &str,
+    move_id: &str,
+    was: &PlaceMode,
 ) {
     let from = crate::hub::host_label();
-    let why = p.why.as_str();
     let mut line = json!({"text": pm::move_line(to, why), "to": to, "from": from, "why": why,
-                          "moveId": p.move_id, "undo": {"machine": from, "mode": p.was}});
+                          "moveId": move_id, "undo": {"machine": from, "mode": was}});
     if let (Some(machine), Some(o)) = (machine, line.as_object_mut()) {
         o.insert("machine".into(), json!(machine));
     }
@@ -523,13 +524,16 @@ pub(super) async fn move_for_wake(
     limit: Duration,
 ) -> Result<(), String> {
     let id = session.id.clone();
-    move_line(hub, session, to, None, WAKE_WHY);
+    // Its own move id ties its move line to its failed line, as a pick's `Pending` does.
+    let move_id = uuid::Uuid::now_v7().to_string();
+    let was = hub.place_mode_of(session);
+    move_line(hub, session, to, None, WAKE_WHY, &move_id, &was);
     let outcome = match tokio::time::timeout(limit, session_move(&id, to, None)).await {
         Ok(outcome) => outcome,
         Err(_) => Err(format!("the move ran past {}s", limit.as_secs())),
     };
     if let Err(reason) = &outcome {
-        fail_line(hub, &id, to, reason);
+        fail_line(hub, &id, to, reason, &move_id);
     }
     outcome
 }
