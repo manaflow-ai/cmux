@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-25",
+  "row": "app_lines",
+  "allow": 11,
+  "why": "cmux https://github.com/manaflow-ai/cmux/issues/56159: terminal and chat tiles in the sidebar workspace hover card had no picture. The App only wires: WindowRootView tells its window before a workspace hides (WindowController hands that to AgentPanePictures.willHide), TabContentCache gains the disk store of card pictures (a second BrowserPageFrames), its TerminalCardPictures call on conceal, the read fallback and the removal on release, AppServices builds and prefetches the store, the quit stops it, and the sidebar's provider asks with prompts: true. When a terminal is pictured is in CmuxNextTerminal (TerminalCardPictures), when a chat is in CmuxNextAgentPane (AgentPanePictures).",
+  "author": "issue-56159 agent (claude opus)",
+  "owner": "issue-56159 agent (claude opus)",
+  "receipt": "Review (claude opus subagent ab6da79f082be8a79): SHIP at f492d496fcba1a12d61728c35c87ea0d108a9f59",
+  "expiry": "2026-12-25"
+}

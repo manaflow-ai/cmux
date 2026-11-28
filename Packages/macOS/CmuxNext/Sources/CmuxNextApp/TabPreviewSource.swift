@@ -17,14 +17,16 @@ final class TabPreviewSource: TabPreviewProvider {
 
     init(cache: TabContentCache, pages: InternalPageTabStore, images: AgentPaneLaunchImages, chats: @escaping @MainActor (String) -> AgentPaneView?) {
         (self.cache, self.pages) = (cache, pages)
-        self.chats = AgentPanePictures(view: chats, images: images, keep: { [previews = cache.previews] in previews.insert($1, for: $0) })
+        self.chats = AgentPanePictures(view: chats, images: images, keep: { [previews = cache.previews] in previews.insert($1, for: $0) }, persist: { [weak cache] in cache?.keepCardPicture($1, for: $0) })
     }
 
-    func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+    func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? { await previewImage(for: tab, maxPixelSize: maxPixelSize, prompts: false) }
+    /// `prompts`: a shell showing only its prompt is pictured too (the sidebar workspace card's tiles, #56159).
+    func previewImage(for tab: TabID, maxPixelSize: CGSize, prompts: Bool) async -> CGImage? {
         if let page = pages.existingView(tab.rawValue) { return await pages.pictures.picture(of: page, maxPixelSize: maxPixelSize) }
         let image = await chats.picture(tab.rawValue, fit: maxPixelSize) { [key = tab.rawValue] in
             await pictures.picture(key, terminalChanges: cache.terminals[key]?.session.frameChanges.generation, pageVersion: cache.browsers[key]?.tab.state.pictureVersion,
-                                   maxPixelSize: maxPixelSize) { await cache.previewImage(for: key, maxPixelSize: maxPixelSize) }
+                                   maxPixelSize: maxPixelSize) { await cache.previewImage(for: key, maxPixelSize: maxPixelSize, prompts: prompts) }
         }
         return await Self.shown(image, key: tab.rawValue, cache: cache)
     }
