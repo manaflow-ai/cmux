@@ -3904,14 +3904,30 @@ async fn dispatch_method(
                     // the worker, not queued on the blocking pool. Under load the pool's queue
                     // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
                     // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
-                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let before = params.get("before").and_then(Value::as_u64);
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads_page(&s, limit, before)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let thread = thread()?;
                     // Held messages that left memory are read from the log (`inbox_surge.rs`),
                     // off the worker and not behind the blocking pool's queue, as above.
-                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let mut reply =
+                        crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))?;
+                    // A page of the newest `limit` messages; `more` says the rest are there.
+                    if let (Some(limit), Some(list)) =
+                        (limit, reply.get_mut("messages").and_then(Value::as_array_mut))
+                    {
+                        let total = list.len();
+                        list.truncate(limit.max(1));
+                        if let Some(map) = reply.as_object_mut() {
+                            map.insert("total".into(), json!(total));
+                            map.insert("more".into(), json!(total > limit.max(1)));
+                        }
+                    }
+                    Ok(reply)
                 }
                 _ => {
                     let text = text_of("text")
