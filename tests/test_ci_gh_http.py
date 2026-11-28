@@ -186,7 +186,7 @@ class JobDeadline(unittest.TestCase):
     4)` at 04:48:16Z and GitHub cancelled the job at 04:53:22Z: a wait past the job's bound turned a readable 403
     into a silent cancel. GH_HTTP_DEADLINE_S caps every wait at the job's bound and gives up loudly instead."""
 
-    def call(self, env, answers, started_ago=0.0):
+    def call(self, env, answers, started_ago=0.0, **kwargs):
         clock, slept, lines, calls = [100.0], [], [], []
 
         def fake(request, seconds, **_):
@@ -202,7 +202,8 @@ class JobDeadline(unittest.TestCase):
             for name in (gh_http.DEADLINE_ENV, gh_http.DEADLINE_AT_ENV):
                 if name not in env:
                     os.environ.pop(name, None)
-            result = gh_http.request(URL, sleep=sleep, clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append)
+            result = gh_http.request(URL, sleep=sleep, clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append,
+                                     **kwargs)
         return result, slept, lines, calls
 
     def limited(self):
@@ -215,7 +216,8 @@ class JobDeadline(unittest.TestCase):
                             for l in lines), lines)
 
     def test_without_a_bound_the_same_wait_is_taken(self):
-        (status, _, _), slept, _, _ = self.call({}, [self.limited(), answer(200)])
+        # A caller that opts in to the long rate budget (#64150 made the default the caller's own budget_s).
+        (status, _, _), slept, _, _ = self.call({}, [self.limited(), answer(200)], rate_budget_s=gh_http.RATE_BUDGET_S)
         self.assertEqual((status, slept), (200, [406.0]))
 
     def test_a_wait_inside_the_bound_is_still_taken(self):

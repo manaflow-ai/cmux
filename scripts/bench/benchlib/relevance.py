@@ -23,6 +23,8 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
+import json
+import posixpath
 import random
 import re
 import statistics
@@ -179,6 +181,10 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
+        # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
+        # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
+        self.probes = 0
+        self.compiles = 0
         self.situation_by_name: dict[str, list[Rule]] = {}
         # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
         # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
@@ -197,6 +203,7 @@ class Index:
         if got is None:
             got = [(r, re.compile(pattern_of(g)), spec) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
+            self.compiles += len(got)
         return got
 
     def candidates(self, path: str):
@@ -215,6 +222,7 @@ class Index:
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
         for rule, pattern, spec in self.candidates(path):
+            self.probes += 1
             if not pattern.match(path):
                 continue
             if rule.kind == "situation":
@@ -392,18 +400,35 @@ def run_one(run: dict, timeout: float, root: Path = ROOT, repeats: int = 1) -> d
 
 
 def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: int = 1,
-                baseline_docs: dict | None = None) -> list[dict]:
+                baseline_docs: dict | None = None, base_root: Path | None = None) -> list[dict]:
     """Every bench the plan's areas name. With baseline_docs (baselines.fetch), each result also carries its
-    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status."""
+    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status.
+
+    A bench with no baseline for this machine class and a base_root (the pull request's base, checked out on this
+    same runner) runs there too, `repeats` times, and its median is the baseline: verdict BASE_REGRESSED or
+    within-baseline, with baseline_source "base". That compare is a notice, never a red (fail open: no recorded
+    baseline means the check warns and passes)."""
     results = [run_one(r, timeout, root, repeats) for r in runs_for(plan_)]
     if baseline_docs is None:
         return results
     from . import baselines
     for r in results:
         value, area = baselines.lookup(baseline_docs, r["areas"], r["cmd"])
-        verdict = baselines.judge(r.get("repeats_s") or [], value) if r["status"] in (OK, OVER) else \
-            baselines.NO_MEASURE
-        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict)
+        measured = r["status"] in (OK, OVER)
+        verdict = baselines.judge(r.get("repeats_s") or [], value) if measured else baselines.NO_MEASURE
+        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict,
+                 baseline_source="nightly" if value is not None else None)
+        if verdict == baselines.NO_BASELINE and base_root is not None and measured:
+            base = run_one({"cmd": r["cmd"], "areas": r["areas"], "budget_s": None}, timeout, base_root, repeats)
+            reps = base.get("repeats_s") or []
+            if base["status"] == OK and len(reps) >= baselines.REPEATS:
+                value = round(statistics.median(reps), 4)
+                verdict = baselines.judge(r["repeats_s"], value)
+                if verdict == baselines.REGRESSED:
+                    verdict = baselines.BASE_REGRESSED  # a notice: the status stays OK
+                r.update(baseline_s=value, baseline_source="base", base_repeats_s=reps, verdict=verdict)
+            else:
+                r.update(base_detail=f"base run {base['status']} {base.get('detail', '')}".strip())
         if verdict == baselines.REGRESSED and r["status"] == OK:
             r["status"] = REGRESSED
     return results
@@ -544,19 +569,64 @@ def _crate_deps(root: Path, crate_dir: str) -> set[str]:
 
 
 def reverse_dependents(root: Path, crate_dirs: list[str]) -> dict[str, list[str]]:
-    """crate name -> the crates of its own workspace that depend on it directly (a change to it can break them).
+    """crate name -> the crates that depend on it directly (a change to it can break them), across workspaces.
 
     Direct only: a crate's own tests plus its direct dependents' tests catch the API and format breaks the
     folder layout misses (cmux-history's Visit field broke cmux-tui-core; a new cmux-action-catalog action
-    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200."""
-    by_ws: dict[str, dict[str, set[str]]] = {}
+    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200.
+    Across workspaces: cmux-app-ffi is its own workspace and path-depends on cmux-tui's crates."""
+    crates = {_crate_name(root, d): _crate_deps(root, d) for d in crate_dirs}
+    return {name: sorted(c for c, deps in crates.items() if name in deps and c != name) for name in crates}
+
+
+def _toml(path: Path) -> dict:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def cargo_workspace(root: Path, crate_dir: str) -> str:
+    """The folder whose Cargo.toml is the crate's workspace root, the way cargo finds it: the crate's own
+    [workspace]; else its package.workspace key; else the nearest ancestor with a [workspace] that lists it as a
+    member (and does not exclude it); else the crate alone. cmux-app-ffi and the crates it lists
+    (cmux-launch-shell, ...) are their own workspace inside cmux-tui/, so `--manifest-path cmux-tui/Cargo.toml
+    -p cmux-app-ffi` names no package."""
+    crate_dir = posixpath.normpath(crate_dir)
+    doc = _toml(root / crate_dir / "Cargo.toml")
+    if "workspace" in doc:
+        return crate_dir
+    key = (doc.get("package") or {}).get("workspace")
+    if isinstance(key, str):
+        return posixpath.normpath(posixpath.join(crate_dir, key))
+    parts = crate_dir.split("/")
+    for depth in range(len(parts) - 1, 0, -1):
+        ws = "/".join(parts[:depth])
+        ws_doc = (_toml(root / ws / "Cargo.toml") or {}).get("workspace")
+        if ws_doc is None:
+            continue
+        rel_dir = "/".join(parts[depth:])
+        excluded = any(rel_dir == posixpath.normpath(e) or rel_dir.startswith(posixpath.normpath(e) + "/")
+                       for e in ws_doc.get("exclude", []))
+        members = {posixpath.normpath(m.rstrip("/")) for pat in ws_doc.get("members", [])
+                   for m in ([pat] if not any(ch in pat for ch in "*?[")
+                             else [str(x.relative_to(root / ws)) for x in (root / ws).glob(pat)])}
+        return ws if rel_dir in members and not excluded else crate_dir
+    return crate_dir
+
+
+def cargo_test_commands(root: Path, crate_dirs: list[str]) -> list[str]:
+    """One `cargo test --manifest-path WS/Cargo.toml -p A -p B` per workspace the crates belong to."""
+    by_ws: dict[str, list[str]] = {}
     for d in crate_dirs:
-        by_ws.setdefault(d.rsplit("/crates/", 1)[0], {})[_crate_name(root, d)] = _crate_deps(root, d)
-    out: dict[str, list[str]] = {}
-    for crates in by_ws.values():
-        for name in crates:
-            out[name] = sorted(c for c, deps in crates.items() if name in deps and c != name)
-    return out
+        by_ws.setdefault(cargo_workspace(root, d), []).append(_crate_name(root, d))
+    return [f"cargo test --manifest-path {ws}/Cargo.toml " + " ".join(f"-p {c}" for c in names)
+            for ws, names in by_ws.items()]
+
+
+TOOLING_TREES = ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend", "workers", "evals", "examples",
+                 "first-party-apps", ".github", "plans", "skills", "release-notes", "design", "experiments",
+                 "Native", "ci", "persisted-formats", "Packages")
 
 
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
@@ -574,6 +644,7 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
     crate_dirs = [d for d in sorted(dirs) if len(d.split("/")) >= 2 and d.split("/")[-2] == "crates"
                   and (root / d / "Cargo.toml").is_file()]
     rdeps = reverse_dependents(root, crate_dirs)
+    crate_dir_of = {_crate_name(root, d): d for d in crate_dirs}
 
     def add(name: str, path: str, tests: list[str] | None = None, dependents: list[str] | None = None):
         units.append({"name": name, "paths": [path + "/**"], "tests": tests or [], "dependents": dependents or []})
@@ -586,12 +657,9 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         parts = d.split("/")
         # Rust crates: cmux-tui/crates/X, cmux-next-ios/rust/crates/X, any */crates/X with a Cargo.toml.
         if len(parts) >= 2 and parts[-2] == "crates" and (root / d / "Cargo.toml").is_file():
-            workspace = "/".join(parts[:-2])
             crate = _crate_name(root, d)
             deps = rdeps.get(crate, [])
-            tests = [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"]
-            if deps:
-                tests.append(f"cargo test --manifest-path {workspace}/Cargo.toml " + " ".join(f"-p {c}" for c in deps))
+            tests = cargo_test_commands(root, [d]) + cargo_test_commands(root, [crate_dir_of[c] for c in deps])
             add(f"rust:{crate}", d, tests, deps)
         # Swift packages: <pkg>/Sources/<Module> and <pkg>/Tests/<Target> with a Package.swift beside them.
         elif len(parts) >= 3 and parts[-2] in ("Sources", "Tests") and (root / "/".join(parts[:-2]) / "Package.swift").is_file():
@@ -604,16 +672,34 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend",
-                                              "workers", "evals", "examples", "first-party-apps", ".github",
-                                              "plans", "skills", "release-notes", "design", "experiments",
-                                              "Native", "ci", "persisted-formats") and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
         elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
         elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
             add(f"binding:{parts[2]}", d)
+        # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
+        # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
+        # change runs that package's tests instead of falling back to its top-level folder.
+        elif (root / d / "Package.swift").is_file():
+            add(f"swiftpkg:{d}", d, [f"swift test --package-path {d}"] if (root / d / "Tests").is_dir() else [])
+        elif (root / d / "go.mod").is_file():
+            add(f"go:{d}", d, [f"cd {d} && go test ./..."])
+        elif (root / d / "Cargo.toml").is_file() and "crates" not in parts:
+            doc = _toml(root / d / "Cargo.toml")
+            add(f"cargo:{d}", d, [f"cargo test --manifest-path {d}/Cargo.toml"] if "package" in doc else [])
+        elif (root / d / "package.json").is_file() and "node_modules" not in parts:
+            try:
+                scripts_ = json.loads((root / d / "package.json").read_text(encoding="utf-8")).get("scripts") or {}
+            except (OSError, ValueError, AttributeError):
+                scripts_ = {}
+            add(f"node:{d}", d, [f"npm test --prefix {d}"] if "test" in scripts_ else [])
+    # Files directly in a tooling tree (scripts/foo.py, docs/x.md): the tree's top level, not its default.
+    for tree in TOOLING_TREES:
+        if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
+            units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
+                          "dependents": []})
     return units
 
 

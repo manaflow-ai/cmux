@@ -91,7 +91,7 @@ impl Pool {
 
     /// When the pending hover is due (ms), so the host arms one timer; None: nothing pending.
     pub fn due_at(&self) -> Option<u64> {
-        self.pending.as_ref().map(|(_, at)| at + self.debounce_ms)
+        self.pending.as_ref().map(|(_, at)| at.saturating_add(self.debounce_ms))
     }
 
     /// An idle moment: make pages up to capacity (one per call, so a host's idle turns stay short).
@@ -133,7 +133,7 @@ impl Pool {
     /// The debounce timer fired (or any later moment): applies the pending hover once it rested.
     pub fn tick(&mut self, now: u64) -> Vec<Effect> {
         let Some((session, at)) = self.pending.clone() else { return Vec::new() };
-        if now < at + self.debounce_ms {
+        if now < at.saturating_add(self.debounce_ms) {
             return Vec::new();
         }
         let Some(index) = self.pick(&session) else {
@@ -141,7 +141,7 @@ impl Pool {
             return Vec::new();
         };
         self.pending = None;
-        let slot = &mut self.slots[index];
+        let Some(slot) = self.slots.get_mut(index) else { return Vec::new() };
         slot.last_used = now;
         if slot.session.as_deref() == Some(session.as_str()) {
             return Vec::new();
@@ -190,10 +190,11 @@ impl Pool {
         if self.capacity == 0 {
             self.pending = None;
         }
-        let mut order: Vec<usize> = (0..self.slots.len()).collect();
-        order.sort_by_key(|&i| self.slots[i].last_used);
+        let mut order: Vec<(u64, SlotId)> =
+            self.slots.iter().map(|s| (s.last_used, s.id)).collect();
+        order.sort_by_key(|&(last_used, _)| last_used);
         let excess = self.slots.len().saturating_sub(self.capacity);
-        let doomed: Vec<SlotId> = order.iter().take(excess).map(|&i| self.slots[i].id).collect();
+        let doomed: Vec<SlotId> = order.iter().take(excess).map(|&(_, id)| id).collect();
         self.slots.retain(|s| !doomed.contains(&s.id));
         doomed.into_iter().map(|slot| Effect::Close { slot }).collect()
     }

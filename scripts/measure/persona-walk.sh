@@ -12,6 +12,8 @@
 # mode=p0-casual    p0, then P0's first tasks the way a terminal person does them: a shell in a new tab, more tabs, a
 #                   split, switching by keyboard, a 2,000-line paste, Find, Settings.
 # mode=p0-hardcore  p0-casual, then a million lines of output, 20 tabs, and quit and reopen (tabs come back).
+# mode=p2           p0, then P2 (2025): claude in two worktree tabs, a background tab's ask, the needs-you mark and its
+#                   click (scripts/measure/persona-walk-p2.sh).
 # New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
 # Each task is judged by its effect, not by the keys sent: the command typed writes a marker file, and a task whose
 # marker never appears is a STUCK line (a person would have been stuck there too).
@@ -92,7 +94,12 @@ memory() { # memory LABEL PID: the app's physical footprint (what Force Quit sho
   printf '{"label":"%s","footprint":"%s"}\n' "$1" "$(footprint "$2" 2>/dev/null | grep -i "footprint" | head -1 | tr -s ' ' | tr -d '"')" >>"$out/memory.jsonl"; }
 CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
 cua() { HOME=$(eval echo "~$(id -un)") to 30 env -u CFFIXED_USER_HOME "$CUA" call "$@"; }
-shot() { cua get_desktop_state "{\"screenshot_out_file\":\"$PWD/$out/shots/$1.png\"}" >"$out/state-$1.json" 2>&1; note "shot $1 rc=$?"; }
+# Without its Accessibility or Screen Recording grant cua answers permissions_pending and does nothing: the run is
+# blind (no shot, no input), so it ends red (exit 3) instead of timing keystrokes that never arrived.
+blind=0
+pending() { grep -q 'permissions_pending' "$@" 2>/dev/null; }
+shot() { cua get_desktop_state "{\"screenshot_out_file\":\"$PWD/$out/shots/$1.png\"}" >"$out/state-$1.json" 2>&1; note "shot $1 rc=$?"
+  if pending "$out/state-$1.json"; then blind=1; note "BLIND shot $1: cua-driver permissions_pending (no Accessibility or Screen Recording grant)"; fi; }
 step() { # step NAME START_MS: one timed step in timings.json
   printf '{"step":"%s","ms":%s}\n' "$1" "$(( $(now_ms) - $2 ))" >>"$out/timings.jsonl"; note "step $1 $(( $(now_ms) - $2 )) ms"; }
 sleep_s() { python3 -c "import time;time.sleep($1)"; }
@@ -108,6 +115,8 @@ main_window() {
 # (same_pid_keyboard_ambiguity). A refused input is a stuck point, never a timed step.
 ui() { # ui TOOL ARGS_JSON_WITHOUT_BRACES: one input; fails when cua refuses it
   local o; o=$(cua "$1" "{\"pid\":$pid,\"window_id\":${wid:-0},\"delivery_mode\":\"foreground\",$2}" 2>&1); echo "$o" >>"$log"
+  if echo "$o" | grep -q 'permissions_pending'; then
+    blind=1; note "BLIND input not delivered ($1): cua-driver permissions_pending"; return 1; fi
   if echo "$o" | grep -q '"effect" *: *"refused"'; then
     note "STUCK input refused ($1): $(echo "$o" | grep -o '"code" *: *"[^"]*"' | head -1)"; return 1; fi; }
 keys() { # keys K...: one shortcut, e.g. keys cmd t
@@ -149,6 +158,7 @@ p0() {
   launch first_window
   memory first-window "$pid"
   shot 01-first-window
+  [ "$blind" = 1 ] && { note "STOP blind: nothing below would be delivered or timed"; return 3; }
   sleep_s 5
   shot 02-after-5s
   memory after-5s "$pid"
@@ -230,6 +240,8 @@ case "$mode" in
   p0) p0 && finish ;;
   p0-casual) p0 && p0_casual; finish ;;
   p0-hardcore) p0 && p0_casual && p0_hardcore; finish ;;
+  p2) . scripts/measure/persona-walk-p2.sh; p0 && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
+[ "$blind" = 1 ] && { note "done BLIND: this host's cua-driver lacks its grants; no timing here is valid"; exit 3; }
 note "done"

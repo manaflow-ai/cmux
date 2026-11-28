@@ -414,3 +414,25 @@ test("a start in another mode is another start; one with no pick keeps its key",
   expect(cloudStartFingerprint({ task: "go", harness: "claude", mode: "bypassPermissions" })).not.toBe(plain);
   expect(cloudStartFingerprint({ task: "go", harness: "claude" })).toBe(plain);
 });
+
+// Austin, 2026-11-27: "We should store a state for the local models and a different state for the
+// cloud+autocloud so that we can remain consistent". A new page with Cloud picked and nothing held on it
+// shows Cloud's own last pick (cloudLastPick.ts), never the agent This Mac picked last; This Mac's page
+// still shows This Mac's.
+test("with Cloud picked and nothing held on the page, the chips show Cloud's last pick, not This Mac's", async () => {
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/cloudLastPick");
+  const { rememberPick, lastPick } = await import("../src/agent-session/acpmux/lastPick");
+  const sent: { method: string; params: Record<string, unknown> }[] = [];
+  const post = async (method: string, params: Record<string, unknown>) => void sent.push({ method, params });
+  rememberPick({ harness: "claude", model: "default" }, FOLDER, post);
+  rememberCloudPick({ harness: "codex" }, post);
+  await render(await newChat(true, "claude"));
+  expect(chipText()).toBe("Full access");
+  await render(await newChat(false, "claude"));
+  expect(chipText()).toBe("Bypass permissions");
+  expect(lastPick(FOLDER)?.harness).toBe("claude");
+  expect(sent.map((call) => call.params)).toEqual([
+    { agent: "claude", model: "default", folder: FOLDER },
+    { agent: "codex", place: "cloud" },
+  ]);
+});

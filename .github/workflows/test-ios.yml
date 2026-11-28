@@ -149,6 +149,8 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     continue-on-error: true
     permissions:
       actions: read

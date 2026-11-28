@@ -362,6 +362,14 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
     if let Some(code) = digits_after("(close ") {
         return Some(code);
     }
+    // How an ssh run exited when its link ended (`the ssh link ended (ssh
+    // exit 255)`): 255 is ssh's own failure, any other the remote command's.
+    if let Some(code) = digits_after("(ssh exit ") {
+        return Some(format!("exit_{code}"));
+    }
+    if let Some(signal) = digits_after("(ssh signal ") {
+        return Some(format!("signal_{signal}"));
+    }
     if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
         return Some(format!("http_{status}"));
     }
@@ -399,6 +407,8 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         ("no transport provider handles", "no_provider"),
         ("ssh connection group is closed", "ssh_group_closed"),
         ("could not start ssh", "ssh_spawn"),
+        ("closed the link before its welcome", "no_welcome"),
+        ("closed the link before link-ready", "no_link_ready"),
         ("link closed during handshake", "handshake_closed"),
         ("link is closed", "link_closed"),
         ("did not finish within", "open_timeout"),
