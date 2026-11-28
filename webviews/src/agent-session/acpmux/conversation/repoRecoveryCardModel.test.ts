@@ -116,6 +116,11 @@ describe("repository recovery: phase to next step", () => {
   });
 
   test("no access keeps install and request access; ambiguous offers each repository", () => {
+    // One line naming whose grant leaves the organization out (gap 1), the install button for it.
+    expect(
+      repoRecoveryView({ code: "repo.no_access", org: "acme", installUrl: needsGithub.installUrl }, { kind: "idle" })
+        ?.message,
+    ).toEqual({ key: "cloudRepository.grantNotCovered", values: { org: "acme" } });
     expect(
       ids(
         repoRecoveryView({ code: "repo.no_access", org: "acme", installUrl: needsGithub.installUrl }, { kind: "idle" }),
