@@ -132,7 +132,7 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     archived|deleted] | detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
                      moves on|off";
 
@@ -156,6 +156,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some("detach") => super::project_back::detach_command(args.get(1..).unwrap_or_default()),
         Some(cmd @ ("pin" | "unpin" | "pins")) => {
             super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
         }
@@ -292,6 +293,8 @@ pub(crate) fn start(
     // The server's files go by its mount point (`stop --at`), the projection by its chat.
     let server = name_of(remote);
     let name = chat_name(chat);
+    // Publish the PID and served record together with respect to a concurrent stop.
+    let _registration = registration_lock(&log, &server)?;
     let stderr = std::fs::File::create(log.join(format!("{server}.log")))?;
     let mut command = cmux_process::Command::new(exe);
     // The store this Mac signs in to goes to the server on its stdin (never its arguments), so
@@ -374,11 +377,52 @@ fn servers_dir() -> anyhow::Result<PathBuf> {
         .context("this Mac has no state folder")
 }
 
+fn registration_lock(dir: &Path, server: &str) -> anyhow::Result<std::fs::File> {
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(format!("{server}.registration")))?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+/// Only stop the server registered for this projection on this machine. A path can be reused
+/// while the removal RPC is in flight, including by another machine or a different chat.
+pub(super) fn stop_recorded_server(
+    socket: &Path,
+    record: &super::project_back::Recorded,
+) -> anyhow::Result<bool> {
+    let dir = servers_dir()?;
+    let server = name_of(&record.remote);
+    let Some(on) = projected_at(&record.remote) else { return Ok(false) };
+    if chat_name(&on.chat) != record.name
+        || std::fs::canonicalize(&on.local).ok().as_ref() != Some(&record.local)
+        || on.machine.is_empty()
+        || machine_id(socket).as_deref() != Some(on.machine.as_str())
+    {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    if projected_at(&record.remote).as_ref() != Some(&on) {
+        return Ok(false);
+    }
+    stop_registered(&dir, &server, &record.remote)
+}
+
 /// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
 /// served. Whether there was one to end.
 pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
     let dir = servers_dir()?;
     let server = name_of(remote);
+    if !dir.exists() {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    stop_registered(&dir, &server, remote)
+}
+
+fn stop_registered(dir: &Path, server: &str, remote: &str) -> anyhow::Result<bool> {
     let pid_file = dir.join(format!("{server}.pid"));
     let _ = std::fs::remove_file(dir.join(format!("{server}.served")));
     let Ok(pid) = std::fs::read_to_string(&pid_file) else {
@@ -589,7 +633,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
         let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
-        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
+        (dial(&socket, &name, &at, &encoded, None, false), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -876,12 +920,12 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket) {
-        if let Ok(stream) = UnixStream::connect(&quiet) {
-            return (ask(stream, name, at, encoded, revision), true);
-        }
+    if let Some(quiet) = quiet_socket(socket)
+        && let Ok(stream) = UnixStream::connect(&quiet)
+    {
+        return (ask(stream, name, at, encoded, revision, true), true);
     }
-    (dial(socket, name, at, encoded, revision), false)
+    (dial(socket, name, at, encoded, revision, true), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -892,10 +936,11 @@ fn dial(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    ask(stream, name, at, encoded, revision)
+    ask(stream, name, at, encoded, revision, redial)
 }
 
 /// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
@@ -921,6 +966,7 @@ fn ask(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let mut line = json!({
         "id": 1,
@@ -928,7 +974,8 @@ fn ask(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
-        // The carrier only preserves complete lines; frame all bytes after the dial line too.
+        "redial": redial,
+        // The carrier only preserves complete lines; frame every byte after the dial line too.
         "lines": true,
         // This Mac reads binary lines and packed answers; it writes them once the answer says
         // the machine does too (an older machine ignores this and keeps base64 lines).
