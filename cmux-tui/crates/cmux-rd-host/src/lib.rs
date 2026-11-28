@@ -118,6 +118,8 @@ mod serve_wish;
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod stream;
+#[cfg(target_os = "macos")]
+mod surface_source;
 #[cfg(feature = "bench")]
 mod synthetic;
 #[cfg(target_os = "linux")]
@@ -224,7 +226,7 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     allow(dead_code)
 )]
 const BENCH_USAGE: &str = "usage: cmux-rd bench --addr HOST:4103 (default 127.0.0.1:4103) --token-fd N [--link 1 (the secure link instead of a socket; link builds)] [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--deadline-ms 200 (reassembly deadline)] [--max-datagram BYTES] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--type TEXT (send TEXT as one text event)] [--upstream mic|camera|screen] [--upstream-frames 100] [--at X,Y] [--marker-origin X,Y] [--marker-scale N/D (the picture is N/D of the marker's screen: a --max-width share)] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--vt-prewarm 0|1] [--eval-local 1] [--eval-netem-relay 1 (loopback evals)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]";
-const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
+const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install|surface-source [--key value ...]";
 
 /// Commands the usage line names that a build may leave out (by feature or platform).
 const KNOWN_COMMANDS: &[&str] = &[
@@ -243,6 +245,7 @@ const KNOWN_COMMANDS: &[&str] = &[
     "windows-selftest",
     "encode-selftest",
     "openh264-install",
+    "surface-source",
 ];
 
 /// A command this build has no handler for: say whether it is a real command left out
@@ -381,6 +384,8 @@ pub fn run_cli(args: &[String]) -> i32 {
         "permissions" => permissions::run(),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
+        #[cfg(target_os = "macos")]
+        "surface-source" => surface_source::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),
         other => Err(unknown_command(other).into()),

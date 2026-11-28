@@ -292,6 +292,13 @@ export function noteReplyUnpainted(why: string, h: number): void {
   log?.record("reply-unpainted", { why, h });
 }
 
+/// The transcript took out fold copies that no playing fold owned (conversation/turnFold.ts
+/// `sweepFoldCopies`): `n` copies, and `fold`, the turn-end fold's state then (`running`, `settled` or
+/// `none`). Each one is a copy a fold left behind, drawn over the rows (CMUX-896).
+export function noteFoldCopyOrphan(n: number, fold: string): void {
+  log?.record("fold-copy-orphan", { n, fold });
+}
+
 /// Ids of drawn things (`row:<id>`, `tool:<call id>`) unmounted in the commit now running: one that
 /// mounts again in the same commit was remounted in place (its key, its type or a parent's changed),
 /// which draws it again from nothing and replays its entrance: the flicker Leo sees on a settled tool
