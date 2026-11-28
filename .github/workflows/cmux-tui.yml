@@ -222,9 +222,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.commit }}
-          # Full commit history without blobs, for the merge base below.
-          fetch-depth: 0
-          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
@@ -241,6 +238,11 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
+          # The merge base needs this commit's and the default branch's history: fetch just
+          # those two, without blobs or tags. fetch-depth: 0 fetched every branch and tag
+          # (44,922 refs), 210 s of a 4-minute job (job 141028508422).
+          git -c protocol.version=2 fetch --quiet --no-tags --no-recurse-submodules --filter=blob:none --unshallow \
+            origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "$(git rev-parse HEAD)"
           base="$(git merge-base HEAD "origin/$DEFAULT_BRANCH")"
           changed="$(git diff --name-only "$base" HEAD -- \
             cmux-tui/bindings/go-pane \

@@ -55,13 +55,16 @@ fallback_cache="$(mktemp -d)"
 # Both looks share one CMUX_TUI_TREE_PROBE_CACHE (pin-cmux-tui.sh), so the second keeps the first's
 # tree keys and "not published" verdicts for its first 50 commits instead of computing and probing
 # them again. Run 45941175424 (2026-11-27) spent 217 s here, ahead of the signer.
+# The second look ends with the feat-cmux-next channel's tree (CMUX_TUI_TREE_CHANNEL_LOOK, pin-cmux-tui.sh):
+# run 46157002388 (2026-11-28) found none in 300 commits while c6cd14b5's tree, 384 commits back, was
+# published and under 24 h old.
 fallback_search() {
   CMUX_TUI_TREE_PROBE_CACHE="$fallback_cache" CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
     CMUX_TUI_TREE_SEARCH_COMMITS="$1" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null
 }
 set -m
 { fallback_search "${CMUX_TUI_TREE_SEARCH_COMMITS:-50}" \
-    || fallback_search "${CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS:-300}"; } >"$fallback_out" 2>"$fallback_err" &
+    || CMUX_TUI_TREE_CHANNEL_LOOK=1 fallback_search "${CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS:-300}"; } >"$fallback_out" 2>"$fallback_err" &
 fallback_pid=$!
 set +m
 fallback_began=$SECONDS

@@ -940,13 +940,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      - name: Validate the UI preview shooter settles animations before it shoots
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/ui-preview-settle.test.ts
+
       # The Auto journey's S4 phone sends, and the deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: |
           python3 tests/test_auto_journal_nightly_artifact.py
-          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/autocloud-sync-probe.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/autocloud-sync-probe.test.ts scripts/cmux-next/autocloud-readiness.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).

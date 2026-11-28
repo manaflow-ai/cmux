@@ -197,7 +197,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 27145580e2fed09bbc845923638bb778cf7422d8fbd70ece5a9a1aad7f6f54ca
+// app-ffi-pin-checksum: ae36652223da5797f74c53884d53e824992bf25a30a31f0b164a408b71bd6a9c
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1416,10 +1416,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
         // iPhones through devicectl, recordings and feedback clips. No daemon,
-        // no UI framework beyond AppKit; the App supplies the page and the sink.
+        // no UI framework beyond AppKit; the App supplies the page and the sink. The rules
+        // (tool output parsing, key usages, touches, adb calls) are cmux-phone-core's, over CCmuxAppFFI.
         .target(
             name: "CmuxNextPhone",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -1641,6 +1643,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPhoneAccess",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
