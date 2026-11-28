@@ -258,6 +258,9 @@ public final class AgentPaneDroppedPaths {
         external = ((external?.urls ?? []) + urls, claimed ?? external?.claimed)
     }
 
+    /// Whether files ``hold(external:claimed:)`` held are still untaken.
+    var holdsExternal: Bool { external != nil }
+
     /// The files ``hold(external:claimed:)`` holds, once.
     func takeExternal() -> (urls: [URL], claimed: String?)? {
         defer { external = nil }

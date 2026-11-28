@@ -66,6 +66,7 @@ import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { useChatCloudEnvironment } from "./chatCloudEnvironment";
+import { cloudStartEnvironment } from "./cloudEnvironmentChoice";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
@@ -81,6 +82,7 @@ import {
   injectedNewTabContext,
   useEarlyNewTabContext,
   useLostSharedPart,
+  NEW_TAB_ADOPT_EVENT,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -90,6 +92,7 @@ import {
   type SessionAdoption,
 } from "./newtab/adoption";
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { storedProjectList, storeProjectList } from "./newtab/projectListStore";
 import {
   heldPick,
   shownCloudStartPick,
@@ -98,7 +101,13 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
+import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import {
+  askAppCloudPick,
+  cloudPickChoices,
+  rememberStartedProject,
+  startedProjectChoices,
+} from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
@@ -125,6 +134,7 @@ import {
   startedByPerson,
   folderFields,
   isAgentHome,
+  isTemporaryFolder,
   placeFields,
   projectLabel,
   SessionsBy,
@@ -153,7 +163,7 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { workedProfiles } from "./modelCatalogData";
 import { isDefaultChoice } from "./defaultChoice";
-import { applySwitch, browserSwitchClock, HarnessSwitch } from "./harnessSwitch";
+import { applySwitch, browserSwitchClock, defaultModel, HarnessSwitch } from "./harnessSwitch";
 import { liveAsk } from "./liveAsk";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
@@ -523,11 +533,12 @@ import {
   placeOfRunMode,
   rememberNewChatPlace,
 } from "./lastNewChatPlace";
-import { cloudStartStalled, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
+import { cloudStartStalled, heldCloudSetup, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
-import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
-import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
+import { connectHeldCloudSend, retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { ClaudeConnectContext, openClaudeCloudSettings, setupConnect } from "./claudeConnect";
+import { cloudPickerMachineForDraft, useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
 import {
   useAutoCloudKey,
@@ -1003,6 +1014,19 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
+/// The folders of a `project.list` answer (or the kept one), each with its repository
+/// (projectRepos.ts): the pickers fold worktrees under it and name it by the repository.
+function listedProjects(answer: { projects?: unknown; repos?: unknown } | undefined): Project[] {
+  const repos = parseProjectRepos(answer?.repos);
+  const paths = Array.isArray(answer?.projects) ? answer.projects : [];
+  return paths
+    .filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
+    .map((cwd): Project => {
+      const repo = repos[cwd];
+      return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
+    });
+}
+
 /// A chat view parked under a New Tab page (AcpmuxPane `parked`): laid out and drawn in place but unseen,
 /// over the page's area and taking no pointer.
 const PARKED_STYLE = {
@@ -1199,6 +1223,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // explicit picker choice; never guess a machine from the account inventory. Null records a
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
   const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
+  const cloudDraftPeer = useRef<string | null | undefined>(undefined);
+  const [cloudDraftHasPeer, setCloudDraftHasPeer] = useState(false);
   // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
@@ -2780,6 +2806,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
+  const leftChatTurns = useRef(
+    new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
+  );
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -2796,6 +2825,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         doneLines,
         workflowLabsEnabled,
         lastTurns,
+        pastTurns: leftChatTurns,
         shownSessionId,
         heldCalls,
         callRelease,
@@ -3875,6 +3905,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const cloudSignIn = cloudAgentLogin(login);
     const owner = snapshot.sessionId;
     return {
+      ...(connected &&
+        cloudMachineID &&
+        !cloudTeamMachine && {
+          openClaudeCloudSettings: openClaudeCloudSettings(callNative, cloudMachineID),
+        }),
       cloudSignIn:
         cloudSignIn && owner
           ? {
@@ -3928,6 +3963,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheckHealth,
     connected,
     cloudMachineID,
+    cloudTeamMachine,
     chatElsewhere,
     loginSupported,
     snapshot.sessionId,
@@ -4591,6 +4627,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
     // picker target must not survive that choice and wake the old machine on the next edit.
     cloudDraftMachineID.current = null;
+    cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     runModePicked.current = true;
     sandbox.setMode(mode);
@@ -4996,8 +5034,81 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setUpCloudNow.current = setUpCloud;
     cancelCloudSignInNow.current = cancelCloudSignIn;
   });
-  const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+  const cloudSetupNeed = heldCloudSetup(cloudStart);
   const cloudSetupWaiting = cloudStart?.signingIn === true;
+  const cloudPickerMachine = useCallback(
+    () =>
+      cloudPickerMachineForDraft(
+        cloudDraftMachineID.current,
+        cloudDraftPeer.current,
+        snapshotRef.current?.peerCloudRegistries,
+      ),
+    [],
+  );
+  // A linked machine is a Persistent destination with its own Cloud model readiness.
+  const cloudPickerActive =
+    cloudPicked || (cloudDraftHasPeer && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat));
+  const accountMachines = useCloudMachines();
+  const pickerEnvironment = cloudPicked ? cloudStartEnvironment(undefined, cloudEnvironment.pick.current) : undefined;
+  const cloudServed = useCloudServed(callNative, cloudPickerActive, {
+    readMachine: cloudPickerMachine,
+    environment: pickerEnvironment,
+  });
+  const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
+  useEffect(() => {
+    if (cloudDraftHasPeer) refreshCloudPicker();
+  }, [accountMachines, cloudDraftHasPeer, refreshCloudPicker, snapshot.peerCloudRegistries]);
+  const openCloudPickerSettings = useCallback(
+    (family: string) => {
+      if (connectHeldCloudSend(family, cloudSetupNeed, cloudSetupWaiting, setUpCloudNow.current)) return;
+      const readPick = () => {
+        if (cloudStartShown || !cloudComposeEligible.current || sessionIdRef.current) return undefined;
+        const client = directClient.current;
+        const { intent, model } = harnessSwitch.view();
+        const summary = snapshotRef.current?.summary;
+        const cloudPick = cloudAgentPick();
+        return {
+          harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
+          revision: [
+            cloudPick,
+            client,
+            client?.selectionToken,
+            composerHandle.current,
+            sessionIdRef.current,
+            lastCloudAttempt.current,
+            cloudPickerMachine(),
+            pickerEnvironment,
+            summary?.configOptions?.map((option) => option.currentValue).join("\u0000"),
+            JSON.stringify(intent?.config.options ?? {}),
+            intent?.id,
+            intent?.config.model ?? model?.model ?? summary?.model,
+          ],
+        };
+      };
+      const select = selectFamilyOnReturn(family, readPick, () => {
+        const model = defaultModel(family, catalogRef.current, undefined, snapshotRef.current?.summary?.cwd);
+        holdCloudAgentPick({ harness: family, ...(model ? { model } : {}) });
+      });
+      connectCloudPicker(family, select);
+    },
+    [
+      cloudPickerMachine,
+      connectCloudPicker,
+      cloudSetupNeed,
+      cloudSetupWaiting,
+      cloudStartShown,
+      harnessSwitch,
+      pickerEnvironment,
+    ],
+  );
+  const cloudPickerSetup = useMemo(() => {
+    const { served, ...actions } = cloudServed;
+    return {
+      ...actions,
+      ...(served ? (cloudDraftHasPeer ? { linkedClaude: served } : { served }) : {}),
+      openSettings: openCloudPickerSettings,
+    };
+  }, [cloudDraftHasPeer, cloudServed, openCloudPickerSettings]);
   const modelConnect = useMemo(
     () =>
       setupConnect(
@@ -5108,6 +5219,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPlanHeldTurn,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,
@@ -5179,6 +5291,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudStartQueued.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
+    cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
@@ -8451,7 +8565,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
   // account's list is read when such a chat shows (and after each pick), never on a timer.
-  const accountMachines = useCloudMachines();
   const chatMachine = chatCloudMachine(summary, accountMachines);
   // Leo, 2026-11-04: "as the user's selected cloud/is typing in it… that's when we can do an
   // optimistic resume". A keystroke in a Cloud chat whose machine reads paused wakes it with that
@@ -9298,6 +9411,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    // A newer folder pick made while this chat starts stays the next New Tab's default.
+    const sentAt = Date.now();
     // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
     // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
     // folder grant or anything else spends the send's gesture, and the page keeps its text.
@@ -9345,7 +9460,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
             isCurrent,
           ).then((session) => {
-            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
+            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative, sentAt);
             return session;
           });
           // A refusal before any chat opened fails the switch: the page comes back with the reason
@@ -9396,7 +9511,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return;
         }
         if (!isCurrent()) return;
-        if (started && remembers) rememberStartedProject(folder, callNative);
+        if (started && remembers) rememberStartedProject(folder, callNative, sentAt);
         if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
@@ -9408,15 +9523,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
-        // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
-        const repos = parseProjectRepos(result?.repos);
-        const projects = (result?.projects ?? []).map((cwd): Project => {
-          const repo = repos[cwd];
-          return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
-        });
-        // `machine`: the host listed the chat's other machine's folders, not this Mac's.
-        return { projects, machine: result?.machine === true };
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then(async (result) => {
+        const projects = listedProjects(result);
+        const machine = result?.machine === true;
+        // The host lists only its newest folders (AgentPaneOmnibar.maximumEntries), and the page drops a
+        // default folder the list does not name (a removed worktree, cmux#51272). A page of this Mac with no
+        // folder of its own asks for its default by path when the list leaves it out: only a folder the host
+        // no longer lists gives way. The first default the list or the ask names ends it (the page takes the
+        // first one known, newtab/startedProject.ts).
+        const page = newTabNow.current;
+        // A temporary folder (the tab beside a scratch chat in /tmp) gives way to the default, as the page does.
+        const ownFolder =
+          page?.cwd !== undefined && page.cwd !== page.home && !isAgentHome(page.cwd) && !isTemporaryFolder(page.cwd);
+        if (!machine && page?.home !== undefined && !page.startsRemote && !ownFolder) {
+          const listed = new Set(projects.map((project) => project.cwd));
+          for (const folder of startedProjectChoices(page.startedProject)) {
+            if (listed.has(folder)) break;
+            const found = await callNative<{ projects?: string[]; repos?: unknown }>("project.list", {
+              query: folder,
+            }).catch(() => undefined);
+            // The ask matches a path's subfolders too: only the folder itself counts.
+            const own = listedProjects(found).find((project) => project.cwd === folder);
+            if (own) {
+              projects.push(own);
+              break;
+            }
+          }
+        }
+        return { projects, machine, answer: result };
       }),
     [],
   );
@@ -9429,7 +9563,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
-  const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
+  // A New Tab page of this Mac draws the list the last one kept (newtab/projectListStore.ts) until its
+  // own answer arrives: its folder menu names repositories, and lists every folder, from its first
+  // frame. Another machine's page (no home of this Mac's, or one that starts there) never reads it.
+  const sharesProjectList =
+    newTab?.home !== undefined && !newTab.startsRemote && sharesChatList(newTab, composerSnapshot);
+  const sharesProjectListNow = useRef(sharesProjectList);
+  sharesProjectListNow.current = sharesProjectList;
+  const keptProjects = useMemo(
+    () => {
+      const kept = sharesProjectList ? storedProjectList() : undefined;
+      // Names and checkouts only: a kept GitHub origin may be out of date, and a Cloud pick reads it to choose
+      // the repository a chat starts in. The page's own answer brings the origin.
+      return kept
+        ? listedProjects(kept).map(({ repo, ...project }): Project =>
+            repo ? { ...project, repo: (({ github: _github, ...rest }) => rest)(repo) } : project,
+          )
+        : undefined;
+    },
+    // Read again for each page the view becomes (a spare adopted for another screen).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sharesProjectList, newTabGeneration],
+  );
+  const directProjects = projectsAnswered ? loadedProjects.projects! : (keptProjects ?? NO_PROJECTS);
   // A chat on another machine: the folders its host listed for that machine (its folder menu).
   const machineFolders = projectsAnswered && loadedProjects.machine ? directProjects : undefined;
   const onNewTab = Boolean(newTab);
@@ -9438,15 +9594,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // daemon's project list, where the user's renames and removals win (cx-m0p7).
     if (!freshChat && !onNewTab) return;
     let active = true;
-    void loadNewTabProjects()
-      .then(({ projects, machine }) => {
-        if (active) setDirectProjects({ page: newTabGeneration, projects, machine });
-      })
-      .catch(() => undefined);
+    let asked = 0;
+    const ask = () => {
+      const request = ++asked;
+      void loadNewTabProjects()
+        .then(({ projects, machine, answer }) => {
+          if (!active || request !== asked) return;
+          setDirectProjects({ page: newTabGeneration, projects, machine });
+          if (!machine && sharesProjectListNow.current) storeProjectList(answer);
+        })
+        .catch(() => undefined);
+    };
+    ask();
+    // A prewarmed spare page asks before Cmd-T wires its model, and the host refuses it then. An
+    // adopt whose screen is the one the spare shows does not remount (no new `newTabGeneration`),
+    // so the page asks again here, for the tab that took it.
+    window.addEventListener(NEW_TAB_ADOPT_EVENT, ask);
     return () => {
       active = false;
+      window.removeEventListener(NEW_TAB_ADOPT_EVENT, ask);
     };
-    // A prewarmed spare page asks again when Cmd-T adopts it: before that its model is not wired.
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
@@ -9545,12 +9712,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const cloudHintUsed = cloudHint.used;
   const onCloudMachinePicked = useCallback(
-    (machine: CloudMachine | undefined) => {
+    (machine: CloudMachine | undefined, peer?: string | null) => {
       cloudDraftMachineID.current = machine?.id ?? null;
+      cloudDraftPeer.current = peer;
+      setCloudDraftHasPeer(Boolean(peer));
+      refreshCloudPicker();
       // A Cloud machine picked is a pick of Cloud: the hint is done.
       if (machine) cloudHintUsed();
     },
-    [cloudHintUsed],
+    [cloudHintUsed, refreshCloudPicker],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -9571,11 +9741,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // answering with no project (every one removed or missing) is `null`: no chat or started folder
   // counts (Codex review of #24274). Another machine's empty answer may be no answer at all
   // (AgentPaneModel `onListRemoteProjects`), so there it stays "not loaded".
+  // Only this page's own answer, never the list the last page kept (newtab/projectListStore.ts): a
+  // folder the kept list still names must not decide where the page's chat starts.
+  const answeredProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const newTabKnownProjects = useMemo((): readonly string[] | null => {
-    if (directProjects.length > 0) return directProjects.map((project) => project.cwd);
+    if (answeredProjects.length > 0) return answeredProjects.map((project) => project.cwd);
     const own = newTab?.projects ?? [];
     return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
-  }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
+  }, [answeredProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   // The folder lists read only where each chat works and when it was active (sessionList.ts
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
   // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its
@@ -11532,7 +11705,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
                   <TranscriptRowsContext.Provider value={rowsRef}>
-                    <NoticeSlot>{pane}</NoticeSlot>
+                    <CloudServedContext.Provider value={cloudPickerActive ? cloudPickerSetup : undefined}>
+                      <NoticeSlot>{pane}</NoticeSlot>
+                    </CloudServedContext.Provider>
                   </TranscriptRowsContext.Provider>
                 </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>
