@@ -27984,7 +27984,7 @@ public func paneFilterDecode(saved: String) -> PaneFilter  {
 }
 /**
  * The overview's filter until the person picks another: agent sessions and
- * terminals, browsers behind their toggle.
+ * terminals with browsers shown.
  */
 public func paneFilterDefault() -> PaneFilter  {
     return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
