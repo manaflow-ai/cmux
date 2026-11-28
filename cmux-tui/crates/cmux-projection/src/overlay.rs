@@ -13,9 +13,13 @@
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
 //! - `whiteouts`: lower paths the agent deleted or renamed away, each ended by a NUL (a name may
-//!   hold a newline; an older file of newline-ended lines still reads). A new one is appended; the
-//!   file is rewritten only when one goes away, so deleting a big lower tree is linear in its
-//!   size, not quadratic, and a path without its end (a crash inside an append) is no whiteout;
+//!   hold a newline; an older file of newline-ended lines still reads). The file is a log read in
+//!   order: a path is whited out, and a path after a `/` (no relative path starts with one) is a
+//!   tombstone, the whiteout gone again. Every change is one append, a new whiteout or a
+//!   tombstone (with the names a remade folder keeps hidden before it), so deleting a big lower
+//!   tree and making it again is linear in its size, not quadratic; the file is compacted to its
+//!   live paths only once its entries pass [`WHITEOUTS_COMPACT_FACTOR`] times them plus
+//!   [`WHITEOUTS_COMPACT_SLACK`]. A path without its end (a crash inside an append) is no entry;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache). The cache holds only clean copies of the Mac's
@@ -36,7 +40,7 @@ use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -539,6 +543,8 @@ pub struct Overlay {
     /// The whiteouts file may end in a torn entry (an append and both its repairs failed): the
     /// next change writes the whole file, not one more entry.
     whiteouts_stale: AtomicBool,
+    /// Whole entries in the whiteouts log (whiteouts and tombstones), against its compaction.
+    whiteouts_logged: AtomicUsize,
     inner: Mutex<Inner>,
     handles: Mutex<HashMap<u64, Handle>>,
     next_handle: AtomicU64,
@@ -685,25 +691,49 @@ fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// The whole whiteouts of `bytes` (each ended by a NUL, or by a newline in an older file); a last
-/// one without its end is a torn append, cut off as bytes (a crash can tear a name inside a
-/// multi-byte character). Each entry is decoded alone: one that is not UTF-8 is skipped, never
-/// the file with it. Says too whether the file must be written again (a torn tail to cut, an
-/// entry skipped, or the older format, so the next append starts an entry of its own).
-fn parse_whiteouts(bytes: &[u8]) -> (BTreeSet<String>, bool) {
+/// The whiteouts log is compacted (written again as its live paths) once it holds more than this
+/// many times its live paths ...
+pub(crate) const WHITEOUTS_COMPACT_FACTOR: usize = 2;
+/// ... plus this many entries, so a log stays linear in the changes made, and a small one is never
+/// rewritten.
+pub(crate) const WHITEOUTS_COMPACT_SLACK: usize = 1024;
+
+/// The whiteouts `bytes` leave, replayed in order (each entry ended by a NUL, or by a newline in an
+/// older file; a path whites out, `/` and a path is its tombstone); a last entry without its end is
+/// a torn append, cut off as bytes (a crash can tear a name inside a multi-byte character). Each
+/// entry is decoded alone: one that is not UTF-8 is skipped, never the file with it. Says too how
+/// many whole entries the log holds, and whether the file must be written again (a torn tail to
+/// cut, an entry skipped, or the older format, so the next append starts an entry of its own).
+pub(crate) fn parse_whiteouts(bytes: &[u8]) -> (BTreeSet<String>, usize, bool) {
     let ends = if bytes.contains(&0) { 0 } else { b'\n' };
     let mut skipped = false;
-    let whole = bytes
+    let mut logged = 0;
+    let mut live = BTreeSet::new();
+    for entry in bytes
         .split_inclusive(|byte| *byte == ends)
         .filter_map(|path| path.strip_suffix(&[ends]))
         .filter(|path| !path.is_empty())
-        .filter_map(|path| {
-            let path = String::from_utf8(path.to_vec()).ok();
-            skipped |= path.is_none();
-            path
-        })
-        .collect();
-    (whole, !bytes.is_empty() && (ends != 0 || bytes.last() != Some(&0) || skipped))
+    {
+        let Ok(entry) = std::str::from_utf8(entry) else {
+            skipped = true;
+            continue;
+        };
+        logged += 1;
+        match entry.strip_prefix('/') {
+            Some(gone) => {
+                live.remove(gone);
+            }
+            None => {
+                live.insert(entry.to_owned());
+            }
+        }
+    }
+    (live, logged, !bytes.is_empty() && (ends != 0 || bytes.last() != Some(&0) || skipped))
+}
+
+/// Whether a whiteouts log of `logged` entries leaving `live` paths is due to be compacted.
+pub(crate) fn whiteouts_due(logged: usize, live: usize) -> bool {
+    logged > live.saturating_mul(WHITEOUTS_COMPACT_FACTOR).saturating_add(WHITEOUTS_COMPACT_SLACK)
 }
 
 /// Appends `bytes` to `file` through `write`; when that fails part way (a full disk), cuts the
@@ -840,7 +870,8 @@ impl Overlay {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             read => read.with_context(|| format!("reading {}", whiteouts_file.display()))?,
         };
-        let (whiteouts, rewrite) = parse_whiteouts(&bytes);
+        let (whiteouts, logged, rewrite) = parse_whiteouts(&bytes);
+        let rewrite = rewrite || whiteouts_due(logged, whiteouts.len());
         let next = manifest.len() as u64 + 2;
         let cache_index = Mutex::new(cache_on_disk(&cache));
         let content =
@@ -860,6 +891,7 @@ impl Overlay {
             scratch,
             whiteouts_file,
             whiteouts_stale: AtomicBool::new(false),
+            whiteouts_logged: AtomicUsize::new(logged),
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
             handles: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
@@ -903,7 +935,7 @@ impl Overlay {
         overlay.restore_pins(pins);
         if rewrite {
             // Cut a torn tail off now (or end an older file's entries with NULs), or the next
-            // append would glue a path onto it.
+            // append would glue a path onto it; a log grown past its live paths is compacted.
             let inner = overlay.lock();
             overlay.write_whiteouts(&inner).map_err(std::io::Error::from_raw_os_error)?;
         }
@@ -1266,7 +1298,33 @@ impl Overlay {
             let _ = fs::remove_file(&temp);
         }
         self.whiteouts_stale.store(written.is_err(), Ordering::Relaxed);
+        if written.is_ok() {
+            self.whiteouts_logged.store(inner.whiteouts.len(), Ordering::Relaxed);
+        }
         written.map_err(|error| io_errno(&error))
+    }
+
+    /// Appends `entries` (`count` whole NUL-ended entries) to the whiteouts log in one write, then
+    /// compacts the log when it has grown past its live paths. False when the append did not land
+    /// (the caller writes the whole set instead); the log was never torn by it.
+    fn append_whiteouts(&self, inner: &Inner, entries: &[u8], count: usize) -> bool {
+        if self.whiteouts_stale.load(Ordering::Relaxed) {
+            return false;
+        }
+        let appended = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&self.whiteouts_file)
+            .and_then(|mut file| append_entry(&mut file, entries, |file, bytes| file.write_all(bytes)));
+        if appended.is_err() {
+            return false;
+        }
+        let logged = self.whiteouts_logged.fetch_add(count, Ordering::Relaxed) + count;
+        if whiteouts_due(logged, inner.whiteouts.len()) {
+            // The log already says it all; a compaction that fails leaves it as it was.
+            let _ = self.write_whiteouts(inner);
+        }
+        true
     }
 
     fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
@@ -1276,20 +1334,11 @@ impl Overlay {
         if !changed {
             return Ok(());
         }
-        if on && !self.whiteouts_stale.load(Ordering::Relaxed) {
-            // A new whiteout is one appended entry (one write: a crash leaves it whole or not
-            // there), not a rewrite of every whiteout so far.
-            let entry = format!("{path}\0");
-            let appended = fs::OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(&self.whiteouts_file)
-                .and_then(|mut file| {
-                    append_entry(&mut file, entry.as_bytes(), |file, bytes| file.write_all(bytes))
-                });
-            if appended.is_ok() {
-                return Ok(());
-            }
+        // A new whiteout, or its tombstone, is one appended entry (one write: a crash leaves it
+        // whole or not there), not a rewrite of every whiteout so far.
+        let entry = if on { format!("{path}\0") } else { format!("/{path}\0") };
+        if self.append_whiteouts(&inner, entry.as_bytes(), 1) {
+            return Ok(());
         }
         let saved = self.write_whiteouts(&inner);
         if saved.is_err() {
@@ -1312,17 +1361,34 @@ impl Overlay {
         if !inner.whiteouts.contains(path) {
             return Ok(());
         }
-        let before = inner.whiteouts.clone();
-        inner.whiteouts.remove(path);
+        // One append: the names kept hidden first, the tombstone last, so a crash inside it
+        // leaves the path still deleted, never a remade folder showing its old names.
+        let mut entries = Vec::new();
+        let mut added = Vec::new();
         if let Some(index) = self.manifest.resolve(path) {
             for (_, entry) in self.manifest.children(index) {
-                inner.whiteouts.insert(join(path, &entry.name));
+                let child = join(path, &entry.name);
+                if inner.whiteouts.insert(child.clone()) {
+                    entries.extend_from_slice(child.as_bytes());
+                    entries.push(0);
+                    added.push(child);
+                }
             }
+        }
+        inner.whiteouts.remove(path);
+        entries.push(b'/');
+        entries.extend_from_slice(path.as_bytes());
+        entries.push(0);
+        if self.append_whiteouts(&inner, &entries, added.len() + 1) {
+            return Ok(());
         }
         let written = self.write_whiteouts(&inner);
         if written.is_err() {
             // What the file on disk still says: the path stays deleted.
-            inner.whiteouts = before;
+            for child in &added {
+                inner.whiteouts.remove(child);
+            }
+            inner.whiteouts.insert(path.to_owned());
         }
         written
     }
