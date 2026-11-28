@@ -397,6 +397,21 @@ async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: str
  */
 export const DAEMON_TERMINAL_TRIES = 2;
 
+/**
+ * What a clone's machine was doing while its daemon left the workspace ask unanswered, read without the daemon's
+ * socket (which is what is stuck). Rolls 46100096471 and 46107492079: `daemon status` said only "running but busy"
+ * for 67 s on the candidate while the live image answered in under 2 s, so neither run said whether the daemon was
+ * on CPU, waiting on disk (a clone pages its snapshot in), short of memory, or blocked; this says which.
+ */
+export function stallEvidenceCommand(): string {
+  return [
+    `echo "uptime: $(cut -d' ' -f1 /proc/uptime)s load: $(cut -d' ' -f1-3 /proc/loadavg)"`,
+    `for r in cpu io memory; do echo "psi-$r: $(head -1 /proc/pressure/$r 2>/dev/null || echo none)"; done`,
+    `echo "top:"; ps -eo pid,pcpu,rss,stat,etimes,comm --sort=-pcpu | head -6`,
+    `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1); if [ -n "$pid" ]; then echo "daemon $pid threads: $(ps -L -o stat= -o wchan:20= -p "$pid" | sort | uniq -c | sort -rn | head -5 | tr -s ' ' | tr '\\n' ';')"; else echo "daemon: no cmux-tui server process"; fi`,
+  ].join("; ");
+}
+
 /** The probe workspace, shown if it exists, else created: safe to run again. */
 export function workspaceEnsureCommand(cli: string): string {
   return `${cli} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${cli} workspace create --name ${WORKSPACE} >/dev/null && echo ok`;
@@ -437,7 +452,8 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
   // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
   const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
-  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
+  const evidence = ws.code === 0 ? "" : (await run(vm, stallEvidenceCommand(), 30_000).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"}; machine: ${evidence.slice(-900) || "none"})`}`);
   return ws.code === 0;
 }
 

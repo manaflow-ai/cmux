@@ -12,4 +12,15 @@ public nonisolated enum ScreenshotSourceOrigin: Sendable, Hashable {
     case toolHistory(ScreenshotTool)
     /// A folder the person added in Settings (`screenshots.folders`).
     case custom
+
+    /// The case's name as it crosses the FFI (cmux-screenshots `detect::Origin`).
+    var name: String {
+        switch self {
+        case .system: "system"
+        case .systemPreview: "systemPreview"
+        case .tool: "tool"
+        case .toolHistory: "toolHistory"
+        case .custom: "custom"
+        }
+    }
 }
