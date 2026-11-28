@@ -700,19 +700,21 @@ async fn the_backend_refuses_relay_frames_and_keeps_the_socket() {
 /// The input lane (PROTOCOL.md "Lanes"): with a Mac that supports it, an
 /// input channel rides its own stream; with an older Mac (no `lanes` in its
 /// answer) it rides the main stream and still works.
-async fn input_lane(kind: TransportKind, mac_supports_lane: bool) {
+async fn input_lane(kind: TransportKind, phone_supports_lane: bool, mac_supports_lane: bool) {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let phone_id = uuid::Uuid::new_v4().to_string();
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     let _mac_task = spawn_echo_mac_with(mac, DialOptions { input_lane: mac_supports_lane, ..options() });
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { input_lane: phone_supports_lane, ..options() };
     let connected =
-        dial::connect(&phone, &mac_id, kind, &options(), LinkConfig::default()).await.expect("dial");
+        dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
     let mut input = connected.link.open_on("echo", serde_json::json!({}), Lane::Input).await.unwrap();
     assert_eq!(input.lane(), Lane::Input);
-    assert_eq!(input.sender.on_input_stream(), mac_supports_lane, "{kind:?}");
-    let expected = if mac_supports_lane { LaneState::Ready } else { LaneState::Unavailable };
+    let agreed = phone_supports_lane && mac_supports_lane;
+    assert_eq!(input.sender.on_input_stream(), agreed, "{kind:?}");
+    let expected = if agreed { LaneState::Ready } else { LaneState::Unavailable };
     assert_eq!(connected.link.input_lane(), expected);
     // Bulk and input channels side by side.
     let mut bulk = connected.link.open("echo", serde_json::json!({})).await.unwrap();
@@ -734,22 +736,32 @@ async fn input_lane(kind: TransportKind, mac_supports_lane: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn webrtc_input_lane_has_its_own_data_channel() {
-    input_lane(TransportKind::WebRtc, true).await;
+    input_lane(TransportKind::WebRtc, true, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_input_lane_has_its_own_tcp_stream() {
-    input_lane(TransportKind::WireGuard, true).await;
+    input_lane(TransportKind::WireGuard, true, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn webrtc_input_lane_falls_back_with_an_older_mac() {
-    input_lane(TransportKind::WebRtc, false).await;
+    input_lane(TransportKind::WebRtc, true, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_input_lane_falls_back_with_an_older_mac() {
-    input_lane(TransportKind::WireGuard, false).await;
+    input_lane(TransportKind::WireGuard, true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_input_lane_falls_back_with_an_older_phone() {
+    input_lane(TransportKind::WebRtc, false, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_input_lane_falls_back_with_an_older_phone() {
+    input_lane(TransportKind::WireGuard, false, true).await;
 }
 
 /// Throughput probe (run with --ignored --nocapture).
