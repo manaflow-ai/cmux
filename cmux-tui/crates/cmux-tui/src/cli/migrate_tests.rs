@@ -28,10 +28,16 @@ fn parses_each_verb() {
             from: "plan.json".into(),
             only: vec!["a".into(), "b".into()],
             dry_run: false,
-            headless: Some("dev".into())
+            headless: Some("dev".into()),
+            first_chat: false,
         }
     );
     assert!(parse(&words("apply x --backend dev")).is_err());
+    assert!(parse(&words("apply x --first-chat --headless")).is_err());
+    assert_eq!(
+        parse(&words("report a.json b.json")).unwrap(),
+        Command::Report { files: vec!["a.json".into(), "b.json".into()] }
+    );
     assert!(parse(&words("undo laptop:mac")).unwrap_err().contains("--yes"));
     assert_eq!(
         parse(&words("undo laptop:mac --yes")).unwrap(),
@@ -103,6 +109,7 @@ fn the_app_route_runs_the_cloud_verbs() {
                 json!({"missing": ["B"]}),
             ],
         },
+        first_chat: false,
     };
     let made =
         cloud.create_machine("app", Some("https://github.com/acme/app"), "version = 1\n").unwrap();
@@ -134,4 +141,27 @@ fn the_headless_journey_keeps_only_when_asked() {
     assert_eq!(person.iter().filter(|w| *w == "--keep").count(), 1, "{person:?}");
     assert!(person.windows(2).any(|w| w[0] == "--model-stub" && w[1] == "s"));
     assert!(person.windows(2).any(|w| w[0] == "--machine-config" && w[1] == "/tmp/o/machine.toml"));
+}
+
+#[test]
+fn the_app_route_opens_the_first_chat_only_when_asked() {
+    let fake = || Fake { calls: vec![], answers: vec![json!({"session_id": "s1"})] };
+    let mut quiet = AppCloud { runner: fake(), first_chat: false };
+    assert!(quiet.open_first_chat("m9", "/home/cmux/work/app").is_none());
+    assert!(quiet.runner.calls.is_empty());
+    let mut timed = AppCloud { runner: fake(), first_chat: true };
+    assert_eq!(timed.open_first_chat("m9", "/home/cmux/work/app"), Some(Ok(())));
+    assert_eq!(
+        timed.runner.calls[0],
+        [
+            "cloud",
+            "start-chat",
+            "--target",
+            "machine:m9",
+            "--no-focus",
+            "--cwd",
+            "/home/cmux/work/app",
+            "--json"
+        ]
+    );
 }

@@ -13,6 +13,8 @@ struct FakeCloud {
     /// An exec whose command contains this fails.
     fail_exec: Option<String>,
     headless: bool,
+    /// What `open_first_chat` answers; when set, the create times no reply of its own.
+    first_chat: Option<Result<(), String>>,
 }
 
 impl Cloud for FakeCloud {
@@ -30,7 +32,7 @@ impl Cloud for FakeCloud {
         Ok(Created {
             machine_id: format!("m{}", self.made),
             checkout: None,
-            first_chat_ms: Some(42_000),
+            first_chat_ms: self.first_chat.is_none().then_some(42_000),
         })
     }
     fn deliver_secrets(&mut self, machine: &str, names: &[String]) -> Result<Vec<String>, String> {
@@ -56,11 +58,19 @@ impl Cloud for FakeCloud {
         self.calls.push(format!("delete {machine}"));
         Ok(())
     }
+    fn open_first_chat(&mut self, machine: &str, checkout: &str) -> Option<Result<(), String>> {
+        let answer = self.first_chat.clone()?;
+        self.calls.push(format!("first-chat {machine} {checkout}"));
+        Some(answer)
+    }
 }
 
 struct FakeLocal {
     files: BTreeMap<String, String>,
     patch: LocalWork,
+    /// Each `now_ms` is this much later than the one before (0: the clock stands still).
+    tick_ms: i64,
+    reads: std::cell::Cell<i64>,
 }
 
 impl Local for FakeLocal {
@@ -78,7 +88,9 @@ impl Local for FakeLocal {
         Ok(self.patch.clone())
     }
     fn now_ms(&self) -> i64 {
-        1_000
+        let reads = self.reads.get();
+        self.reads.set(reads + 1);
+        1_000 + reads * self.tick_ms
     }
 }
 
@@ -138,6 +150,8 @@ fn local() -> FakeLocal {
             files: 2,
             ..LocalWork::default()
         },
+        tick_ms: 0,
+        reads: std::cell::Cell::new(0),
     }
 }
 
@@ -435,4 +449,48 @@ fn the_ledger_is_handed_out_after_every_step_with_the_machine_id_first() {
     assert_eq!(first.machine_id.as_deref(), Some("m1"));
     assert_eq!(first.done, ["create-machine"]);
     assert_eq!(seen.last(), Some(&ledger));
+}
+
+#[test]
+fn the_first_chat_is_timed_from_the_move_start_once_every_step_is_done() {
+    let mut cloud = FakeCloud { first_chat: Some(Ok(())), ..FakeCloud::default() };
+    let local = FakeLocal { tick_ms: 64_000, ..local() };
+    let mut ledger = Ledger::new();
+    let mut events = Vec::new();
+    let out = apply(&plan(), &[], &mut ledger, &mut cloud, &local, &mut |e| events.push(e.clone()));
+    assert_eq!(out.failed, 0, "{events:?}");
+    // After every step, the machine-wide carry too, and in the project's checkout.
+    assert_eq!(cloud.calls.last().unwrap(), "first-chat m1 /home/cmux/work/app");
+    let entry = ledger.entry("laptop:mac", "~/code/app").unwrap();
+    assert_eq!((entry.started_ms, entry.first_chat_ms), (Some(1_000), Some(65_000)));
+    assert_eq!(ledger.stats().median_first_chat_ms, Some(64_000));
+    assert!(events.iter().any(|e| matches!(e,
+        Event::Done { step, detail, .. } if step == "first-chat" && detail == "ready 64.0 s after the move started")));
+    // Timed once: a rerun opens no second chat.
+    let mut again = FakeCloud { first_chat: Some(Ok(())), ..FakeCloud::default() };
+    apply(&plan(), &[], &mut ledger, &mut again, &local, &mut |_| {});
+    assert!(again.calls.is_empty(), "{:?}", again.calls);
+}
+
+#[test]
+fn a_chat_that_does_not_open_is_said_and_left_unmeasured() {
+    let mut cloud =
+        FakeCloud { first_chat: Some(Err("the app is signed out".into())), ..FakeCloud::default() };
+    let mut ledger = Ledger::new();
+    let out = apply(&plan(), &[], &mut ledger, &mut cloud, &local(), &mut |_| {});
+    assert_eq!(out.failed, 1);
+    let entry = ledger.entry("laptop:mac", "~/code/app").unwrap();
+    assert_eq!((entry.stage, entry.first_chat_ms), (Stage::Done, None));
+    // The move itself stands: the next run only opens the chat.
+    let mut again = FakeCloud { first_chat: Some(Ok(())), ..FakeCloud::default() };
+    apply(&plan(), &[], &mut ledger, &mut again, &local(), &mut |_| {});
+    assert_eq!(again.calls, ["first-chat m1 /home/cmux/work/app"]);
+}
+
+#[test]
+fn a_failed_project_opens_no_chat() {
+    let mut cloud =
+        FakeCloud { first_chat: Some(Ok(())), fail_create: true, ..FakeCloud::default() };
+    apply(&plan(), &[], &mut Ledger::new(), &mut cloud, &local(), &mut |_| {});
+    assert!(!cloud.calls.iter().any(|c| c.starts_with("first-chat")), "{:?}", cloud.calls);
 }
