@@ -4,6 +4,19 @@ const A: &str = "0123456789abcdef0123456789abcdef01234567";
 const B: &str = "89abcdef0123456789abcdef0123456789abcdef";
 
 #[test]
+fn truncated_pkt_lines_are_rejected() {
+    let packet = encode("want 0123456789abcdef0123456789abcdef01234567\n");
+    for end in 1..packet.len() {
+        assert!(parse(packet.as_bytes().get(..end).unwrap()).is_none(), "cut at {end}");
+    }
+    assert!(parse(packet.as_bytes()).is_some());
+    for invalid in [b"0003".as_slice(), b"ffffx", b"xxxx"] {
+        assert!(parse(invalid).is_none());
+    }
+    assert_eq!(parse(b"000000010002"), Some(vec![Pkt::Flush, Pkt::Delim, Pkt::End]));
+}
+
+#[test]
 fn v2_fetch_wants() {
     let body = format!(
         "{}{}0001{}{}{}0000",
@@ -67,8 +80,9 @@ fn sideband_pack_only_when_a_multiplexed_pack_follows() {
     let v2_negotiating =
         format!("{}0001{}0000", encode("command=fetch\n"), encode(&format!("want {A}\n")));
     assert!(!sideband_pack(v2_negotiating.as_bytes(), true));
-    let v0 =
-        |caps: &str| format!("{}0000{}", encode(&format!("want {A} {caps}\n")), encode("done\n"));
+    let v0 = |caps: &str| {
+        format!("{}0000{}", encode(&format!("want {A} {caps}\n")), encode("done\n"))
+    };
     assert!(sideband_pack(v0("multi_ack side-band-64k ofs-delta").as_bytes(), false));
     assert!(sideband_pack(v0("side-band").as_bytes(), false));
     assert!(!sideband_pack(v0("multi_ack ofs-delta").as_bytes(), false));

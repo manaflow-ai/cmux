@@ -24,7 +24,7 @@ pub fn parse(mut buf: &[u8]) -> Option<Vec<Pkt<'_>>> {
             3 => return None,
             n => out.push(Pkt::Data(buf.get(4..n)?)),
         }
-        buf = &buf[len.max(4)..];
+        buf = buf.get(len.max(4)..)?;
     }
     Some(out)
 }
@@ -44,7 +44,7 @@ fn line(data: &[u8]) -> &[u8] {
 
 fn oid(rest: &[u8]) -> Option<String> {
     let end = rest.iter().position(|b| *b == b' ' || *b == 0).unwrap_or(rest.len());
-    let id = &rest[..end];
+    let id = rest.get(..end)?;
     ((id.len() == 40 || id.len() == 64) && id.iter().all(u8::is_ascii_hexdigit))
         .then(|| String::from_utf8_lossy(id).to_ascii_lowercase())
 }
