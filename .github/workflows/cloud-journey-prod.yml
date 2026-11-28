@@ -75,6 +75,10 @@ on:
         description: "A commit already on feat-cmux-next to run instead of its head (time both sides of a change)"
         type: string
         default: ""
+      exec_conformance:
+        description: "Run acpmux exec-router conformance on the journey's machine, every routed side on a run VM (dispatch only: it forks one run VM per case)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -275,6 +279,10 @@ jobs:
           # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
           # GitHub cells and, with the real model, the agent's. Unset (the repository variable is not set): skipped.
           CMUX_JOURNEY_GITHUB_REPO: ${{ vars.CMUX_JOURNEY_GITHUB_REPO }}
+          # Leo, 2026-11-26: "100% identical on prod". The exec router's conformance suite on this run's machine with its
+          # sign-in and AutoCloud on (cloud-journey-exec-conformance.ts). Dispatch only: each case forks a run VM, and the
+          # test team's create limit is 20 an hour.
+          CMUX_JOURNEY_EXEC_CONFORMANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.exec_conformance && '1' || '' }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
