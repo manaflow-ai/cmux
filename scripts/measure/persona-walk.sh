@@ -14,10 +14,16 @@
 # mode=p0-hardcore  p0-casual, then a million lines of output, 20 tabs, and quit and reopen (tabs come back).
 # mode=p1           P1 (2024: one chat, chats by hand): p0's install and first window, then a chat beside the terminal,
 #                   an error pasted into it, a second chat started by hand, the first found again (Search Agent Chats),
-#                   and a file attached. Signed out, as a person bringing nothing yet: the walk records what they see.
+#                   and a file attached. Signed out by default (signin=route signs the chats).
 # mode=p1-casual    p1, then p0-casual's terminal tasks (the 2024 person still lives in the terminal).
 # mode=p2           p0, then P2 (2025): claude in two worktree tabs, a background tab's ask, the needs-you mark and its
 #                   click (scripts/measure/persona-walk-p2.sh).
+# signin=none       (default) every step signed out, as a person bringing nothing.
+# signin=route      the chat steps reach a signed agent: p0's first message still goes out signed out (that finding
+#                   stays), then the app quits and relaunches with ANTHROPIC_BASE_URL at the signing route and the
+#                   placeholder key (the route signs; no credential reaches the host), as chief-latency.sh does.
+#                   base_url=URL picks the route (default the SR2 router).
+# The gallery is artifacts/persona-walk/report.tgz: pass --artifact artifacts/persona-walk/report.tgz or it is lost.
 # New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
 # Each task is judged by its effect, not by the keys sent: the command typed writes a marker file, and a task whose
 # marker never appears is a STUCK line (a person would have been stuck there too).
@@ -26,13 +32,22 @@ cd "$(git rev-parse --show-toplevel)"
 
 mode=probe
 appcast=https://files-next.cmux.com/nightly-next/appcast-arm64.xml
+signin=none
+base_url=http://100.120.48.119:4016
 for a in "$@"; do
   case "$a" in
     mode=*) mode=${a#mode=} ;;
     appcast=*) appcast=${a#appcast=} ;;
+    signin=*) signin=${a#signin=} ;;
+    base_url=*) base_url=${a#base_url=} ;;
     *) echo "unknown arg: $a" >&2; exit 2 ;;
   esac
 done
+
+case "$signin" in none|route) ;; *) echo "signin= is none or route, not $signin" >&2; exit 2 ;; esac
+[[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "base_url must be http(s)://host[:port]" >&2; exit 2; }
+# The env a launch adds: empty until the walk switches to the signed route (route_on).
+route_env=()
 
 out=artifacts/persona-walk
 mkdir -p "$out/shots"
@@ -54,6 +69,8 @@ inventory() { # inventory LABEL: every cmux process on the host (path, RSS), and
   { echo "--- inventory $1"; ps -axo pid=,rss=,comm= | grep -i "cmux" | grep -v "scripts/measure/persona-walk"
     memory_pressure 2>/dev/null | tail -1; } >>"$log" 2>&1; }
 inventory start; reap
+# A step run without --artifact keeps no gallery: say so first, where the step's output starts.
+note "artifact: $out/report.tgz (cmux-ci run ... --artifact $out/report.tgz keeps it); signin=$signin"
 
 probe() {
   note "mode=probe host=$(hostname -s) user=$(id -un) uid=$(id -u)"
@@ -142,7 +159,7 @@ launch() { # launch: open the scratch copy as a brand-new person (own HOME and T
   local t; t=$(now_ms)
   # A fresh person has no cmux state: own HOME and TMPDIR (the daemon socket is under TMPDIR, keyed by uid, so a
   # NIGHTLY already running as this user would otherwise serve this copy its sessions).
-  open -n --env HOME="$work/home" --env TMPDIR="$work/tmp/" --env CFFIXED_USER_HOME="$work/home" -a "$APP" 2>>"$log"
+  open -n --env HOME="$work/home" --env TMPDIR="$work/tmp/" --env CFFIXED_USER_HOME="$work/home" ${route_env[@]+"${route_env[@]}"} -a "$APP" 2>>"$log"
   pid=""; local win=""
   for _ in $(seq 1 240); do
     [ -n "$pid" ] || pid=$(pgrep -nf "$APP/Contents/MacOS/" || true)
@@ -181,6 +198,21 @@ p0() {
   done
   [ -n "$failed" ] && note "STUCK first message: $failed"
   return 0  # a stuck point is a finding, not an end: the casual and hardcore tasks still run
+}
+
+route_on() { # signin=route: quit the signed-out app, stop its daemon, relaunch with the signing route in its env
+  [ "$signin" = route ] || return 0
+  curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" 2>>"$log" && note "route ready: $base_url" ||
+    note "route NOT ready: $base_url/_subrouter/ready (chat steps below may still fail signed out)"
+  keys cmd q; sleep_s 1.5; keys cmd q; sleep_s 1
+  for _ in $(seq 1 60); do ps -p "$pid" >/dev/null 2>&1 || break; sleep_s 0.5; done
+  # The daemon outlives the app and keeps the env it started with: stop this run's processes (all under $work).
+  local pids; pids=$(pgrep -f "$work/" || true); [ -n "$pids" ] && { note "route: stop $(echo $pids)"; kill $pids 2>/dev/null; sleep_s 2; }
+  route_env=(--env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs"
+    --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1")
+  launch signed_window
+  sleep_s 3; main_window signed; shot 03b-signed-relaunch
+  return 0
 }
 
 p0_casual() { # P0 tasks 1-2 (and 4's paste and Find), mouse-free but default settings
@@ -238,7 +270,7 @@ seen() { # seen NAME SECONDS START_MS TEXT: done when TEXT is on screen (cua's d
   done
   note "STUCK $name: \"$text\" not on screen in ${secs} s"; return 1; }
 
-p1() { # P1 tasks 1-4: chats by hand, beside the terminal, no sign-in
+p1() { # P1 tasks 1-4: chats by hand, beside the terminal (signed out unless signin=route)
   local t err="bash: persona-p1-tool: command not found"
   # Task 1: a chat beside the terminal. Cmd-T opens the New page on Agent chat; the person types into it.
   main_window chat; t=$(now_ms); keys cmd t; sleep_s 1; main_window chat
@@ -280,9 +312,9 @@ case "$mode" in
   p0) p0 && finish ;;
   p0-casual) p0 && p0_casual; finish ;;
   p0-hardcore) p0 && p0_casual && p0_hardcore; finish ;;
-  p1) p0 && p1; finish ;;
-  p1-casual) p0 && p1 && p0_casual; finish ;;
-  p2) . scripts/measure/persona-walk-p2.sh; p0 && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
+  p1) p0 && route_on && p1; finish ;;
+  p1-casual) p0 && route_on && p1 && p0_casual; finish ;;
+  p2) . scripts/measure/persona-walk-p2.sh; p0 && route_on && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 [ "$blind" = 1 ] && { note "done BLIND: this host's cua-driver lacks its grants; no timing here is valid"; exit 3; }
