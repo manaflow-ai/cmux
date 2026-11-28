@@ -119,14 +119,19 @@ impl MacDesktop {
         )))
     }
 
-    /// The route for pointer events into a window.
+    /// The route for pointer events into a window. Never the HID tap: a
+    /// pointer event posted there moves the person's real pointer (Leo:
+    /// "the computer use cursor is hijacking the user's actual cursor").
+    /// Foreground raises the window and brings its app front, then posts to
+    /// that app's process, so the press is addressed to the front window
+    /// (`super::aimed`) and the person's pointer stays where it is.
     fn pointer_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         match delivery {
             Delivery::Foreground => {
                 super::refuse_if_locked("foreground input")?;
                 self.raise(t)?;
-                Ok(Route::Hid)
+                Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
             }
             Delivery::Background if t.window.on_screen => {
                 Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
@@ -3179,7 +3184,8 @@ pub(super) fn move_pointer(
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
     // Background: the window must be on screen (pointer_route refuses
-    // otherwise); foreground raises it and posts at the HID tap.
+    // otherwise); foreground raises it first. Either way the move goes to
+    // the app's process: the person's pointer never moves.
     let route = d.pointer_route(&t, delivery)?;
     unprimed(route, |p| input::move_to(p, at))?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
