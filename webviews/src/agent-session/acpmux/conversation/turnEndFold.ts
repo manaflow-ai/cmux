@@ -1635,6 +1635,10 @@ export function playTurnEnd(
       ms = timing!.ms;
       if (fold.timer !== undefined) arm();
     }
+    const startsInView = (node: HTMLElement, from: number, height: number) => {
+      const drawn = drawnTop.get(node);
+      return (drawn === undefined || bandSeen(drawn, height)) && startSeen(from, height);
+    };
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
@@ -1673,9 +1677,7 @@ export function playTurnEnd(
       /// `drawnTop` is where the row is drawn in this pass, read with the other places so the pass
       /// still lays the page out once (never a rect per row between `animate()` writes:
       /// chat-render-pipeline R2).
-      const drawn = drawnTop.get(node);
-      if (drawn !== undefined && !bandSeen(drawn, band.height)) return;
-      if (!startSeen(band.from, band.height)) return;
+      if (!startsInView(node, band.from, band.height)) return;
       const last = store.get(node);
       if (
         !grew &&
@@ -1840,7 +1842,11 @@ export function playTurnEnd(
       // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
       if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
         clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
-      if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
+      // An offscreen start skips the move below and draws this row at rest. Its ghost cover must
+      // use that actual place too: the captured path may be wholly above the view while the row
+      // now covers a visible copy (CMUX-896, reply-settle-frames F5). Keep an existing move's path.
+      if (path && (moving.has(node) || startsInView(node, from, height)))
+        Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
