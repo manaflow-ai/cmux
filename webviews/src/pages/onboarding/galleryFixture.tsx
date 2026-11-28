@@ -31,6 +31,8 @@ export type OnboardingGalleryProps = {
   look?: AgentsLook;
   makeItYours?: MakeItYoursFixture;
   makeLook?: MakeItYoursLook;
+  /** [taste] How a segment or chip names itself when it does not fit (gallery-only, off: cut with an ellipsis). */
+  makeLabels?: "wrap" | "tight" | "fit";
   /** An intro-walk arm (walkArms.tsx): a gallery-only screen in the same window, over the Make cmux
    * Yours fixture. Absent: the shipped page. */
   walk?: WalkArm;
@@ -54,6 +56,7 @@ export function OnboardingGallery({
   look,
   makeItYours,
   makeLook,
+  makeLabels,
   walk,
   introWalk,
   makeScreen,
@@ -100,7 +103,7 @@ export function OnboardingGallery({
       </OnboardingContext.Provider>
     );
   return (
-    <div ref={root} style={{ display: "contents" }}>
+    <div ref={root} style={{ display: "contents" }} data-onb-labels={makeLabels}>
       <OnboardingPage
         store={store}
         strings={strings}
