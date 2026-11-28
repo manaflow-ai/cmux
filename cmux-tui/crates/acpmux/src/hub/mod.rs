@@ -28,6 +28,9 @@ mod agent_pairs;
 pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod app_exit;
+pub(crate) mod approval_review;
+#[cfg(test)]
+mod approval_review_tests;
 pub mod approvers;
 mod aside;
 pub(crate) mod ask_choices;
@@ -173,6 +176,8 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+pub(super) mod residency;
+pub use residency::IdlePolicyKind;
 mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
@@ -313,6 +318,7 @@ mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
 mod move_interrupts;
+pub(crate) mod plan_first;
 pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
@@ -1445,6 +1451,8 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// Which policy picks each chat's idle period (`residency.rs`, `ACPMUX_IDLE_POLICY`).
+    pub(super) idle_policy: std::sync::atomic::AtomicU8,
     /// How long a start that waits on its harness lets it do no work (`start_watch.rs`
     /// `START_HUNG`; tests shorten it).
     pub(super) start_hung: StdMutex<std::time::Duration>,
@@ -1826,6 +1834,7 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let usage_stats = usage_view::UsageCache::saved_in(store.usage_tracker_dir());
         let page_rule_sessions =
             StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1881,7 +1890,7 @@ impl Hub {
             op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
-            usage_stats: Default::default(),
+            usage_stats,
             usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1984,6 +1993,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_policy: std::sync::atomic::AtomicU8::new(IdlePolicyKind::Static as u8),
             start_hung: StdMutex::new(start_watch::START_HUNG),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
@@ -2749,6 +2759,7 @@ impl Hub {
             evict_tried_at: AtomicU64::new(0),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
+            idle_rhythm: StdMutex::new(Default::default()),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
             launch_backoff: Default::default(),
