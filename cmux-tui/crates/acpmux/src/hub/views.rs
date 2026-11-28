@@ -179,10 +179,8 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let answered = last == Some("completed");
     // A clean turn after it (a background or trigger turn, `background_turn.rs`) shows the chat
     // works again: its failure no longer reads `failed` or `lost`.
-    let recovered = summary
-        .get("lastTurn")
-        .and_then(|last| last.get("recoveredAt"))
-        .is_some_and(Value::is_u64);
+    let recovered =
+        summary.get("lastTurn").and_then(|last| last.get("recoveredAt")).is_some_and(Value::is_u64);
     let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
         "closed" => None,
