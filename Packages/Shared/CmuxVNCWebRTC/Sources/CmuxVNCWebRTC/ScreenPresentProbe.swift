@@ -458,8 +458,8 @@ private final class PresentHook: NSObject {
         ]
         // The renderer `RTCMTLVideoView` makes per buffer kind; nil means it could not set one up.
         for name in ["rendererI420", "rendererNV12", "rendererRGB"] {
-            // crash-allow: value(forKey:) is read only after responds(to:) says the getter exists.
-            guard let video, video.responds(to: NSSelectorFromString(name)) else { detail[name] = "absent"; continue }
+            guard let video, video.responds(to: NSSelectorFromString(name)) else { detail[name] = "absent"; continue }  // crash-allow: responds(to:) never raises
+            // crash-allow: read only after responds(to:) says the getter exists.
             detail[name] = video.value(forKey: name) == nil ? "nil" : "set"
         }
         return .newNotDrawn(detail)
