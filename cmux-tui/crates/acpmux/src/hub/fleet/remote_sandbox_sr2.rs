@@ -54,7 +54,7 @@ pub(super) fn sr2_plan(
     claude: Option<String>,
     route: Option<String>,
 ) -> Result<(String, Vec<String>, HarnessProfile), String> {
-    let launcher_words = &profile.argv[1.min(profile.argv.len())..];
+    let launcher_words = profile.argv.get(1..).unwrap_or_default();
     let shape = match launcher_words {
         [] => true,
         [agent] => claude_word(agent),
