@@ -510,6 +510,30 @@ async fn cmux(words: &[String], limit: Duration) -> Result<Value, String> {
     )
 }
 
+/// Why a wake's move (`wake_move.rs`, RFD 0181 B6) moved the chat, on its move line.
+pub(super) const WAKE_WHY: &str = "its host was past its lane cap or held when it woke";
+
+/// A wake's move (`wake_move.rs`): the move line, then `acpmux session move`, bounded by
+/// `limit` (its own bound, not `MOVE_LIMIT`'s). A move that fails or runs past it writes its
+/// failed line, as a pick's does.
+pub(super) async fn move_for_wake(
+    hub: &Arc<Hub>,
+    session: &Arc<crate::hub::Session>,
+    to: &str,
+    limit: Duration,
+) -> Result<(), String> {
+    let id = session.id.clone();
+    move_line(hub, session, to, None, WAKE_WHY);
+    let outcome = match tokio::time::timeout(limit, session_move(&id, to, None)).await {
+        Ok(outcome) => outcome,
+        Err(_) => Err(format!("the move ran past {}s", limit.as_secs())),
+    };
+    if let Err(reason) = &outcome {
+        fail_line(hub, &id, to, reason);
+    }
+    outcome
+}
+
 /// `acpmux session move` of the chat to `to`.
 async fn session_move(id: &str, to: &str, cwd: Option<String>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
