@@ -1,0 +1,34 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/lamina-slate-look",
+  "name": "Lamina Slate",
+  "tagline": "Lamina, flat and dense, with no glass.",
+  "description": "Lamina without the glass: solid, flatter layers and the most compact rows. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": ["screenshots/lamina-slate-dark.png", "screenshots/lamina-slate-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Lamina Slate (dark) is the default; lamina-slate-light is the light twin.
+    "appearance.themeFile": "lamina-slate",
+
+    // Panes: borders, 2 point padding, the dark layer's one-point line as their stroke.
+    "layout.paneSeparation": "borders",
+    "layout.panePadding": 2,
+    "layout.paneBorderColor": "#34363b",
+
+    // The sidebar: threads grouped by folder, each with its age; no tip cards.
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.cards.tips": false,
+
+    // The chat: an 860 px column, no minimap, the changed files folded under each turn.
+    "agentPane.display.width": 860,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+
+    // The toast: flat, an opaque surface with a thin edge and no shadow, not a glass pill.
+    "notifications.toast.style": "flat"
+  }
+}

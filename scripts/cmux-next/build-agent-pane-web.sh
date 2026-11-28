@@ -14,6 +14,8 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# Joins an inherited BUN_OPTIONS preload and gives bun a writable temp dir (EACCES on Hetzner slots, run 46063462029).
+. "$ROOT/scripts/lib/bun-options.sh"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
@@ -54,13 +56,13 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's pane.css is written from (checked below).
-# --preload-list names the chunks pane.js imports statically: the page preloads them with it.
+# --preload-list is empty with --classic: the static chunks are inside pane.js.
 # --frame-sites writes chunks/frame-sites.js, the source file behind each stretch of pane.js and its
 # chunks (agent-pane/frameSites.mjs): `cmux app chat perf` names a frame owner's file with it.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
 else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
 fi
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
@@ -120,6 +122,9 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # FOCUS-RING: every `:focus-visible` asks whether the keyboard earned the ring, as in the Vite build
 # (postcss.config.mjs, which this joined sheet never reads).
 bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
+# The sources' comments stay out of the page's sheet (a third of its bytes, tokenized by every renderer
+# before the first style pass); rules and their order are untouched (agent-pane/paneCssComments.mjs).
+bun scripts/agent-pane/paneCssComments.mjs "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams), same-origin and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
@@ -144,12 +149,11 @@ COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
   printf '<title>cmux Agent</title>\n'
-  # Fetch and parse the entry while the locale scripts and inline styles load. modulepreload
-  # never evaluates it: the module below still runs after the selected language is installed.
-  printf '<link rel="modulepreload" href="pane.js" />\n'
-  # The chunks pane.js imports statically too: without these the page learns of them only once
-  # pane.js has loaded and parsed, and fetches and parses them after it, one round behind.
-  while IFS= read -r chunk; do printf '<link rel="modulepreload" href="%s" />\n' "$chunk"; done < "$WORK/preload-chunks"
+  # pane.js is one classic script (bundle.mjs --classic): V8 serves a classic script from its code cache on a
+  # warm load and never an ES module (docs: scripts/measure/pane-compile-ab.mjs). Fetch it while the locale
+  # scripts and inline styles load; the script below still runs after the selected language is installed.
+  # Nothing else is preloaded: the chunks it loads on use are ES modules `import()` fetches then.
+  printf '<link rel="preload" as="script" href="pane.js" />\n'
   printf '%s\n' "$LOADER"
   # The styles are a file, not a <style>: every chat page of the renderer shares one parsed sheet
   # (Blink keeps a linked sheet's parsed rules in its memory cache), where each page parsed its own
@@ -159,7 +163,7 @@ COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
   # After the root, before the module: the host's snapshot of this page's chat (a dynamic path the
   # page host answers per page, AgentPageResources.swift; async, as a busy main thread answers it
   # late and the page must not wait), then the script that draws it.
-  printf '</head>\n<body>\n<main id="root"></main>\n<script async src="__snapshot/chat.js"></script>\n<script src="chat-snapshot.js"></script>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
+  printf '</head>\n<body>\n<main id="root"></main>\n<script async src="__snapshot/chat.js"></script>\n<script src="chat-snapshot.js"></script>\n<script src="pane.js"></script>\n</body>\n</html>\n'
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
 
 # KaTeX's rules and fonts load with KaTeX, only when a reply draws math (conversation/Math.tsx,

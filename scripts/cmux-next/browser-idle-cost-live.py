@@ -19,16 +19,21 @@ calls to the server, so "0 lines" cannot mean "never logged". CPU limits are rep
 where the budget file names them.
 
 With --budget, a breach of any limit in the file (see browser-idle-cost-budget.json) is a FAIL.
+With --workspace-cycle --phases static,loading, each phase measures the source workspace shown,
+parked behind a static control workspace, and restored. Existing diagnostics verify mounted controller
+retention, page lifecycle, focus and the loading image's pending response at both measurement boundaries.
 `sample` output of the GPU process and the app for 3 s per phase goes to the artifacts.
 Quits the app through the socket, then ends the tag's daemons (TagTeardown).
 """
-import argparse, glob, http.server, importlib.util, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import argparse, select, glob, http.server, importlib.util, json, os, plistlib, subprocess, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from windowserver_metrics import parse_process_time
+from windowserver_gpu import GPUSampler  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -42,12 +47,18 @@ parser.add_argument("--idle-s", type=float, default=60)
 parser.add_argument("--phases", default="static,loading,chatty")
 parser.add_argument("--budget", help="JSON limits; a breach is a FAIL")
 parser.add_argument("--no-sample", action="store_true")
+parser.add_argument("--workspace-cycle", action="store_true",
+                    help="opt in to shown/parked/restored static and loading workspace measurements")
+parser.add_argument("--config", default="{}", help="cmux.json for the app, e.g. '{\"appearance\":{\"statusIndicator\":{\"showPageLoading\":false}}}'"
+                    " (the tab-strip spinner off while a page loads)")
 parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for the app, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=process-per-site")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-idle-cost-"))
 opts = parser.parse_args()
 PHASES = opts.phases.split(",")
 if not set(PHASES) <= {"static", "loading", "chatty"}:
     parser.error(f"unknown phase in {opts.phases}")
+if opts.workspace_cycle and PHASES != ["static", "loading"]:
+    parser.error("--workspace-cycle requires --phases static,loading")
 if any("=" not in item for item in opts.env):
     parser.error("--env takes KEY=VALUE")
 os.makedirs(opts.out, exist_ok=True)
@@ -71,6 +82,8 @@ MARKER = f"cmux-idle-cost-{RUN}"
 failures = []
 stop_serving = threading.Event()
 loaded = set()
+never_connections = set()
+never_lock = threading.Lock()
 ticks = [0]  # the chatty page's console.log calls, in fours
 visibility = {}  # static page -> its latest document.visibilityState  # the chatty page's console.log calls, in fours
 
@@ -88,7 +101,13 @@ PAGES = {
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path == "/never":
-            stop_serving.wait(3600)  # keeps the page loading; ends with the run
+            with never_lock:
+                never_connections.add(self.connection)
+            try:
+                stop_serving.wait(3600)  # keeps the page loading; ends with the run
+            finally:
+                with never_lock:
+                    never_connections.discard(self.connection)
             return
         kind, _, n = self.path.strip("/").partition("-")
         if kind not in PAGES:
@@ -179,6 +198,21 @@ def processes(app_pid):
     return rows
 
 
+def window_server_cpu_s():
+    """WindowServer's CPU seconds so far (ps reads another user's process time; rusage needs root), or None.
+    The tab-strip spinner is a Core Animation loop: the render server draws it, not the app, so its cost
+    shows here and not in the app's wakeups."""
+    out = subprocess.run(["ps", "-axo", "time=,comm="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1].endswith("/WindowServer"):
+            try:
+                return parse_process_time(parts[0])
+            except ValueError:
+                continue
+    return None
+
+
 def snapshot(pids):
     snap = {}
     for pid in pids:
@@ -198,9 +232,13 @@ def log_size():
 
 def measure(app_pid, phase):
     rows = processes(app_pid)
-    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
-    time.sleep(opts.idle_s)  # the measured idle window itself
-    after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
+    ws_before = window_server_cpu_s()
+    with GPUSampler() as gpu_sampler:
+        before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
+        time.sleep(opts.idle_s)  # sleep-ok: the measured idle window itself
+        after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
+        ws_after = window_server_cpu_s()
+    gpu = gpu_sampler.result
     classes = {}
     for pid, kind in rows.items():
         if pid not in before or pid not in after:
@@ -225,7 +263,10 @@ def measure(app_pid, phase):
               "console_calls": ticks[0] - ticks_before,
               "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
-              "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
+              "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3),
+              "gpu": gpu,
+              "window_server_cpu_percent": None if ws_before is None or ws_after is None
+              else round(100 * (ws_after - ws_before) / seconds, 3)}
     for name in ("debug.cef", "debug.wakeups"):
         result[name] = rpc(name)
     if not opts.no_sample:
@@ -235,7 +276,7 @@ def measure(app_pid, phase):
                                capture_output=True, timeout=60)
     summary = ", ".join(f"{k} x{c['count']}: {c['cpu_percent']}% cpu, {c['wakeups_per_s']} wk/s, "
                         f"{c['footprint_total'] // 1048576} MB" for k, c in sorted(classes.items()))
-    print(f"phase {phase} ({opts.tabs} tabs): {summary}; cef.log {result['cef_log_bytes_per_min']} B/min; "
+    print(f"phase {phase} ({opts.tabs} tabs): {summary}; WindowServer {result['window_server_cpu_percent']}% cpu; cef.log {result['cef_log_bytes_per_min']} B/min; "
           f"static pages that report visible: {result['pages_visible']}", flush=True)
     return result
 
@@ -253,12 +294,94 @@ def show(url):
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
 
 
-write(CONFIG, "{}\n")
+def focused_workspace():
+    return (rpc("snapshot.get").get("topology", {}).get("focus") or {}).get("workspace")
+
+
+def switch_workspace(workspace):
+    reply = rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": workspace},
+                "origin": "script", "focus": True, "wait": True, "idempotency_key": os.urandom(8).hex()})
+    if reply.get("error") or not wait_for(lambda: focused_workspace() == workspace, "workspace focus " + workspace):
+        raise RuntimeError("workspace switch unsupported or failed: " + json.dumps(reply))
+
+
+def tab_id(url):
+    tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
+    found = next((t.get("id") for t in tabs if t.get("url") == url), None)
+    if not found:
+        raise RuntimeError("browser tab identity unavailable: " + url)
+    return found
+
+
+def cycle_evidence(workspace, source, other, front_tab, front_visible, loading_tab=None):
+    """Read-only diagnostics, outside the measured window; never eval/wake a hidden page."""
+    status = rpc("debug.surfaces")
+    h = status.get("hibernation") or {}
+    phases = h.get("page_phases") or {}
+    expected = "mountedVisible" if front_visible else "mountedHidden"
+    if focused_workspace() != workspace or phases.get(front_tab) != expected:
+        raise RuntimeError("workspace focus/front-page visibility did not match the requested state")
+    windows = rpc("debug.themes").get("windows") or []
+    matches = [window for window in windows if source in
+               {item.get("workspace") for item in window.get("workspaces", [])}]
+    if len(matches) != 1:
+        raise RuntimeError("source workspace mounted controller is not retained")
+    window = matches[0]
+    mounted = {item.get("workspace"): item.get("shown") for item in window.get("workspaces", [])}
+    if mounted.get(source) is not front_visible or mounted.get(other) is not (not front_visible):
+        raise RuntimeError("mounted workspace visibility did not match the requested state")
+    for key in ("parked_workspaces", "hibernated_workspaces", "workspaces_hibernated_total"):
+        if not isinstance(status.get(key), int):
+            raise RuntimeError("unsupported retention diagnostic: " + key)
+    if status["hibernated_workspaces"] or status["workspaces_hibernated_total"] or h.get("hibernated"):
+        raise RuntimeError("workspace/page hibernation invalidated the spinner comparison")
+    if h.get("pressure") != "normal" or status["parked_workspaces"] < 1:
+        raise RuntimeError("workspace retention unproven or memory pressure present")
+    if loading_tab and phases.get(loading_tab) != "mountedHidden":
+        raise RuntimeError("loading page was evicted, hibernated, visible or not retained")
+    with never_lock:
+        # No bytes are sent on /never. EOF/readability means the browser disconnected;
+        # an unreadable live socket proves its image response is still outstanding.
+        pending = sum(not select.select([connection], [], [], 0)[0] for connection in never_connections)
+    if pending != (1 if loading_tab else 0):
+        raise RuntimeError("outstanding loading image requests do not match the requested phase")
+    return {"focused_workspace": workspace, "window_number": window.get("window_number"),
+            "mounted_workspaces": mounted, "front_tab": front_tab, "front_phase": phases[front_tab],
+            "loading_tab": loading_tab, "loading_phase": phases.get(loading_tab), "pending_image_requests": pending,
+            "parked_workspaces": status["parked_workspaces"], "hibernated_workspaces": status["hibernated_workspaces"],
+            "workspaces_hibernated_total": status["workspaces_hibernated_total"], "pressure": h["pressure"],
+            "retention_scope": "mounted workspace controller IDs and page lifecycle; native strip animation is not exposed"}
+
+
+def measure_workspace_cycle(pid, phase, source, other, front_tab, loading_tab=None):
+    measured = []
+    window_number = None
+    for state, selected in (("shown", source), ("parked", other), ("restored", source)):
+        switch_workspace(selected)
+        time.sleep(opts.settle_s)
+        before = cycle_evidence(selected, source, other, front_tab, state != "parked", loading_tab)
+        if before["window_number"] is None or (window_number is not None and before["window_number"] != window_number):
+            raise RuntimeError("workspace cycle changed its native window")
+        window_number = before["window_number"]
+        row = measure(pid, phase)
+        after = cycle_evidence(selected, source, other, front_tab, state != "parked", loading_tab)
+        if before != after:
+            raise RuntimeError("workspace/loading state changed during measured window")
+        row.update(workspace_state=state, evidence={"before": before, "after": after})
+        measured.append(row)
+    return measured
+
+
+config = json.loads(opts.config)
+if opts.workspace_cycle:
+    config.setdefault("workspaces", {}).setdefault("hibernation", {}).update(enabled=True, idleMinutes=10080)
+    config.setdefault("sidebar", {})["sideBySide"] = False
+write(CONFIG, json.dumps(config) + "\n")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
 teardown.install()
 app = None
-results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "phases": []}
+results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "config": config, "phases": []}
 try:
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -274,14 +397,35 @@ try:
         open_tab(f"{ORIGIN}/static-{n}", str(n))
     front = f"{ORIGIN}/static-front"
     open_tab(front, "front")
+    if opts.workspace_cycle:
+        rpc("debug.tunables", {"action": "activate"})
+        for key in ("sidebar.multiView", "window.dockedWorkspaces"):
+            answer = rpc("debug.tunables", {"action": "set", "key": key, "value": False})
+            if answer.get("value") is not False:
+                raise RuntimeError("cannot disable companion workspaces: " + key)
+        source_workspace = focused_workspace()
+        front_tab = tab_id(front)
+        created = rpc("action.run", {"action": "workspace.newAtBottom", "origin": "script", "focus": True,
+                      "wait": True, "idempotency_key": os.urandom(8).hex()})
+        other_workspace = next((item for item in created.get("created", []) if str(item).startswith("ws_")), None)
+        if not source_workspace or not other_workspace:
+            raise RuntimeError("workspace creation/identity unsupported")
+        switch_workspace(other_workspace)
+        open_tab(f"{ORIGIN}/static-control", "control")
+        switch_workspace(source_workspace)
     for phase in PHASES:
         if phase in ("loading", "chatty"):
             open_tab(f"{ORIGIN}/{phase}-x", phase)
             # The chatty page stays shown, as an extension's background page never freezes;
             # the loading page is hidden behind the front tab.
             show(f"{ORIGIN}/chatty-x" if phase == "chatty" else front)
-        time.sleep(opts.settle_s)  # past the hidden-tab freeze, so the window is steady idle
-        results["phases"].append(measure(app.pid, phase))
+        if opts.workspace_cycle:
+            loading_tab = tab_id(f"{ORIGIN}/loading-x") if phase == "loading" else None
+            results["phases"].extend(measure_workspace_cycle(
+                app.pid, phase, source_workspace, other_workspace, front_tab, loading_tab))
+        else:
+            time.sleep(opts.settle_s)  # past the hidden-tab freeze, so the window is steady idle
+            results["phases"].append(measure(app.pid, phase))
     lines = 0
     check(os.path.exists(CEF_LOG), f"cef.log exists at {CEF_LOG}")
     for path in (CEF_LOG, CEF_LOG.replace("cef.log", "cef.previous.log")):

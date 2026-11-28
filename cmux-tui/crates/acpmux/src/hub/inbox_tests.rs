@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[test]
+fn fyi_flush_is_a_fifteen_minute_austerity_window() {
+    // FYIs are intentionally coalesced to at most four notice turns per hour;
+    // blockers and questions still bypass this timer in `wakes_as`.
+    assert_eq!(FLUSH_MS, 15 * 60 * 1000);
+}
+
+#[test]
+fn an_unclassified_notice_defaults_to_fyi_without_changing_explicit_classes() {
+    assert_eq!(default_notice_class(None), PromptClass::Fyi);
+    for class in PromptClass::ALL {
+        assert_eq!(default_notice_class(Some(class)), class);
+    }
+}
+
 fn item(
     prompt_id: &str,
     thread: &str,
@@ -11,6 +26,8 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
+        verdict: None,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -21,10 +38,13 @@ fn item(
         sender: Value::Null,
         class,
         report: false,
+        waited: false,
         at,
+        within: None,
         text: text.to_owned(),
         details: None,
         tool_notice: None,
+        fire: false,
         noticed: false,
         read: false,
         answer: None,
@@ -71,6 +91,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
                 session_id: Some("dot".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         ),
         Some("other"),
@@ -94,6 +115,7 @@ fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
             session_id: Some("dot-session".into()),
             harness: Some("codex".into()),
             relay: None,
+            display_name: None,
         }),
     );
     let sender = thread_sender(Some(&authenticated), "dot");
@@ -148,13 +170,12 @@ fn the_inbox_takes_another_agents_text_only() {
 }
 
 #[test]
-fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false, false));
-    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
-    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
+fn only_a_plain_send_goes_to_the_inbox() {
+    assert!(plain_send(false, false, false, false), "from this host or a peer's forward");
+    assert!(!plain_send(true, false, false, false), "a team message");
+    assert!(!plain_send(false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
     assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
@@ -418,6 +439,7 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-wait").unwrap();
     let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -450,6 +472,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             "createdAt": 1, "updatedAt": 2});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-ended").unwrap();
         let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -490,9 +513,238 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+/// The sender gets its acceptance while a configuration writer is still active.
+#[tokio::test]
+async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
+    let (hub, session) = hub_with_chat("inbox-writer");
+    let _writer = hub.config.write().await;
+    let blocks = [json!({"type": "text", "text": "command finished"})];
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut accept = |notice| tx.send(notice).unwrap();
+    let prompt = hub.inbox_accept(
+        &session,
+        &blocks,
+        "test",
+        "after-restore",
+        "acpmux",
+        PromptClass::Result,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &mut accept,
+    );
+    tokio::pin!(prompt);
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
+    assert_eq!(answer["promptId"], "after-restore");
+    assert_eq!(answer["inbox"], true);
+    assert_eq!(answer["queued"], true);
+    assert!(session.inbox().items.iter().any(|item| item.prompt_id == "after-restore"));
+}
+
+/// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
+/// takes the path it took before the surge inbox, with nothing held or counted.
+#[tokio::test]
+async fn with_the_surge_preview_off_a_burst_is_not_held() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "preview-on" } else { "preview-off" });
+        hub.set_surge_inbox(Some(on));
+        // A finished turn, so a burst after it is one the surge holder would take.
+        for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+            let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+            session.time_breakdown.lock().unwrap().record(&EventRecord {
+                seq,
+                at,
+                kind: kind.into(),
+                dir: "mux".into(),
+                msg,
+                host_seq: None,
+            });
+        }
+        let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+        let opts = PromptOptions {
+            agent: Some("runner".into()),
+            class: Some(PromptClass::Fyi),
+            ..Default::default()
+        };
+        let held = ["first", "second", "third", "fourth"]
+            .iter()
+            .filter(|id| {
+                hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap().is_some()
+            })
+            .count();
+        if on {
+            assert!(held > 0, "preview on: a burst is held");
+        } else {
+            assert_eq!(held, 0, "preview off: nothing is held");
+            assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 0);
+        }
+    }
+}
+
+/// A fire notice wakes and skips the FYI wait only with the surge preview on: off, it is its class
+/// alone, as before the surge inbox (router review of #48220 at 2d7dfc02, F1).
+#[tokio::test]
+async fn a_fire_notice_wakes_only_with_the_surge_preview_on() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "fire-on" } else { "fire-off" });
+        hub.set_surge_inbox(Some(on));
+        let provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+            "chat",
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox",
+            json!({
+                "promptId":"fire", "threadId":"watcher", "from":"watcher", "class":"fyi",
+                "text":"Runner failure", "_meta": {"provenance": provenance}
+            }),
+        );
+        *session.inbox() = Default::default();
+        hub.restore_inbox(&session);
+        let inbox = session.inbox();
+        let item = inbox.items.iter().find(|i| i.prompt_id == "fire").expect("restored");
+        assert!(item.tool_notice.is_some(), "the notice is kept either way");
+        assert_eq!(wakes(&session.meta(), item), on, "preview {on}");
+        assert_eq!(ordinary_fyi(item), !on, "preview {on}");
+    }
+}
+
+#[tokio::test]
+async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
+    let (hub, session) = hub_with_chat("busy-chat");
+    // The receiving chat took 30 seconds to reply before the burst.
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let mut opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-chat",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
+    let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    let thread = hub.inbox_thread(&session, thread, false);
+    assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(thread["messages"][0]["surgeHeld"], true);
+    assert!(session.inbox().items.iter().all(|item| item.noticed));
+    let duplicate = hub.logged_inbox_answer(&session, "second").unwrap().unwrap();
+    assert_eq!(duplicate.pointer("/_meta/acpmux/surgeHeld").unwrap(), true);
+    let needle = crate::chats::search::Needle::parse("runner watcher 418").unwrap();
+    let search = hub.search_held_inbox(&session, &needle, None).unwrap();
+    assert_eq!(search["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(search["hits"][0]["promptId"], "second");
+    opts.provenance = Some(crate::prompt_provenance::notice(
+        &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+        "busy-chat",
+    ));
+    assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
+    let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
+    urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    urgent.fire = fire_notice(urgent.tool_notice.as_ref());
+    assert!(wakes(&session.meta(), &urgent));
+    assert!(!ordinary_fyi(&urgent));
+}
+
+#[tokio::test]
+async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
+    // The surge notice's link, `acpmux session inbox ID --thread T`, answered "no messages" for
+    // a busy chat's held thread while `--search` found them (2026-11-23).
+    let (hub, session) = hub_with_chat("busy-thread");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-thread",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
+    let thread = receipt["threadId"].as_str().unwrap().to_owned();
+    // A burst of other unread messages: `trim` lets the held one go first.
+    {
+        let mut inbox = session.inbox();
+        for n in 0..KEEP {
+            let other = item(&format!("o{n}"), "other", "lane", PromptClass::Fyi, n as u64, "x");
+            inbox.items.push(other);
+        }
+        trim(&mut inbox);
+        assert!(inbox.items.iter().all(|i| i.prompt_id != "held"), "evicted");
+    }
+    assert_eq!(hub.inbox_thread(&session, &thread, false)["messages"], json!([]));
+    let whole = hub.inbox_thread_whole(&session, &thread, false).unwrap();
+    let messages = whole["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{whole}");
+    assert_eq!(messages[0]["promptId"], "held");
+    assert_eq!(messages[0]["text"], body[0]["text"]);
+    assert_eq!(messages[0]["surgeHeld"], true);
+    // A thread with nothing evicted reads memory alone.
+    let other = hub.inbox_thread_whole(&session, "other", false).unwrap();
+    assert_eq!(other["messages"].as_array().unwrap().len(), KEEP);
+}
+
+#[test]
+fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
+    let mut inbox = Inbox::default();
+    inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));
+    for seq in 0..(KEEP + 20) {
+        let mut held =
+            item(&seq.to_string(), "runner", "watcher", PromptClass::Fyi, seq as u64, "held");
+        held.surge_held = true;
+        held.noticed = true;
+        inbox.items.push(held);
+        trim(&mut inbox);
+    }
+    assert_eq!(inbox.items.len(), KEEP);
+    assert_eq!(inbox.items[0].prompt_id, "question");
+    assert_eq!(inbox.items.last().unwrap().prompt_id, (KEEP + 19).to_string());
+    assert!(inbox.trimmed.is_empty());
 }
 
 /// The chat runs another agent's turn (not the person's) that takes steers.
@@ -537,8 +789,8 @@ async fn fyis_alone_steer_into_a_running_turn_only_at_their_flush() {
     assert!(session.inbox().timer.is_none(), "the delivery ends the timer");
 }
 
-/// A message that is no FYI steers into the running turn at once, and carries the FYIs that
-/// waited for it in the same notice.
+/// A blocker steers into the running turn at once, and carries the FYIs that waited for it in
+/// the same notice. A result does too once its coalescing window passed.
 #[tokio::test]
 async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
     for class in [PromptClass::Result, PromptClass::Question, PromptClass::Block] {
@@ -548,7 +800,11 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
         session.inbox().items.push(fyi);
         hub.inbox_review(&session);
         assert_eq!(carried(&session), None, "the FYI waits ({class:?})");
-        let other = item("r1", "t2", "lane-b", class, now_ms(), "done with #9");
+        let at = match class {
+            PromptClass::Result => now_ms().saturating_sub(STEER_COALESCE_MS + 1),
+            _ => now_ms(),
+        };
+        let other = item("r1", "t2", "lane-b", class, at, "done with #9");
         session.inbox().items.push(other);
         hub.inbox_review(&session);
         let both = Some(vec!["f1".to_owned(), "r1".to_owned()]);
@@ -556,11 +812,102 @@ async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
     }
 }
 
-/// FYIs alone that the person's own turn held back start no turn of their own when it ends:
-/// they wait for the flush, as they would have in any turn. Anything else it held back is due at
-/// once, as before.
+/// Results to a running turn coalesce: none steers in before [`STEER_COALESCE_MS`] after the
+/// oldest, so a burst goes in as ONE steer (one prompt-hook run, not one each). A blocker that
+/// comes meanwhile brings the whole batch at once.
 #[tokio::test]
-async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
+async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_them() {
+    let (hub, session) = hub_with_chat("coalesce");
+    running(&session);
+    for id in ["r1", "r2", "r3"] {
+        let result = item(id, id, "lane-b", PromptClass::Result, now_ms(), "done");
+        session.inbox().items.push(result);
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "{id} waits for the window");
+        assert!(session.inbox().timer.is_some(), "the window is timed");
+    }
+    // The window's deadline: the timer's review steers all three in as one notice.
+    session.inbox().items[0].at = now_ms().saturating_sub(STEER_COALESCE_MS + 1);
+    hub.inbox_review(&session);
+    let all = Some(vec!["r1".to_owned(), "r2".to_owned(), "r3".to_owned()]);
+    assert_eq!(carried(&session), all, "one steer carries the burst");
+
+    for class in [PromptClass::Block, PromptClass::Question] {
+        let (hub, session) = hub_with_chat("coalesce-blocker");
+        running(&session);
+        session.inbox().items.push(item(
+            "r1",
+            "t",
+            "lane-b",
+            PromptClass::Result,
+            now_ms(),
+            "done",
+        ));
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "the result waits ({class:?})");
+        session.inbox().items.push(item("b1", "t2", "lane-c", class, now_ms(), "stuck"));
+        hub.inbox_review(&session);
+        let both = Some(vec!["b1".to_owned(), "r1".to_owned()]);
+        assert_eq!(carried(&session), both, "the blocker brings it at once ({class:?})");
+    }
+}
+
+/// No notice steers into a Codex turn whose model has not answered its prompt yet: codex-acp
+/// takes that steer as a new prompt and cancels the running one, so the chat's task was lost
+/// to an "expired undelivered" FYI three times in one chat (acp-chief-issues 2026-11-27). No
+/// timer polls it: the model's first sign looks again (`model_answered`), and the notice steers
+/// in as before. A Claude chat's turn takes it at once.
+#[tokio::test]
+async fn no_notice_steers_into_a_codex_turn_before_its_model_answers() {
+    let (hub, session) = hub_with_chat("codex-steer");
+    session.meta.lock().unwrap().family = Some("codex".to_owned());
+    running(&session);
+    session.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "held while the model has not answered");
+    assert!(session.inbox().timer.is_none(), "no timer: the model's first sign looks again");
+
+    session.heard.fetch_add(1, Ordering::SeqCst);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["b1".to_owned()]), "steered in once it answered");
+
+    let (hub, claude) = hub_with_chat("claude-steer");
+    running(&claude);
+    claude.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&claude);
+    assert_eq!(carried(&claude), Some(vec!["b1".to_owned()]), "a Claude turn takes it at once");
+}
+
+/// What steers into a running turn at once: blockers, and a result from the chat's parent or
+/// delegator. Other results (reports included) and FYIs wait.
+#[test]
+fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1, "turnCount": 3,
+    }))
+    .unwrap();
+    let from = |class, session: Option<&str>| {
+        let mut i = item("p", "t", "x", class, 0, "");
+        i.from_session = session.map(str::to_owned);
+        i
+    };
+    assert!(steers_at_once(&meta, &from(PromptClass::Block, None)));
+    assert!(steers_at_once(&meta, &from(PromptClass::Question, None)));
+    assert!(!steers_at_once(&meta, &from(PromptClass::Fyi, Some("coord"))));
+    let mut report = from(PromptClass::Result, Some("child"));
+    report.report = true;
+    assert!(!steers_at_once(&meta, &report), "a report waits for the window");
+    assert!(!steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))));
+    meta.delegator = Some("coord".into());
+    assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
+}
+
+/// FYIs alone that the person's own turn held back start no turn of their own when it ends, not
+/// even past the 15-minute flush: in an idle chat they wait for its next real turn or their
+/// 60-minute deadline. Anything else it held back is due at once, as before.
+#[tokio::test]
+async fn fyis_alone_the_persons_turn_held_back_wait_for_the_next_turn() {
     let (hub, session) = hub_with_chat("fyi-held");
     {
         let mut inbox = session.inbox();
@@ -571,13 +918,13 @@ async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
     assert_eq!(carried(&session), None, "no turn of its own before the flush");
     {
         let inbox = session.inbox();
-        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(inbox.timer.is_some(), "only its 60-minute deadline is timed");
         assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
     }
     assert!(!turn_coming(&session), "no turn comes for FYIs alone");
     session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
-    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
+    assert_eq!(carried(&session), None, "no cold turn past the flush either");
 
     // A result the person's turn held back (it wakes no one here) is due at once, as before.
     let (hub, session) = hub_with_chat("result-held");
@@ -666,6 +1013,7 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
             "modelRequest": "0"});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
@@ -681,7 +1029,8 @@ fn only_the_persons_own_prompt_makes_a_turn_theirs() {
     assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
     assert!(!persons_prompt(Some("lane-a"), None));
     let retry = super::super::subagent_retry::PROVENANCE_KIND;
-    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+    let resume = super::super::subagent_resume::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry, resume] {
         assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
     }
     let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
@@ -734,6 +1083,7 @@ fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
                 machine: "gcp-agent-lane-2".into(),
                 session: Some("lock-proof-routes".into()),
             }),
+            display_name: None,
         }),
     );
     let verified = crate::prompt_provenance::sender_record(Some(&relayed), None, None);
@@ -806,12 +1156,22 @@ mod agent_messaging {
         assert!(controls(&meta, Some("s-coord")));
         assert!(!controls(&meta, Some("s-other")));
         assert!(!controls(&meta, None), "a sender with no session controls nothing");
-        assert!(wakes_as(&meta, PromptClass::Result, false, Some("s-coord")));
-        assert!(!wakes_as(&meta, PromptClass::Result, false, Some("s-other")));
-        assert!(wakes_as(&meta, PromptClass::Question, false, Some("s-other")), "a question wakes");
-        assert!(!wakes_as(&meta, PromptClass::Fyi, false, Some("s-coord")), "an fyi never does");
+        assert!(wakes_as(&meta, PromptClass::Result, false, false, Some("s-coord")));
+        assert!(!wakes_as(&meta, PromptClass::Result, false, false, Some("s-other")));
         assert!(
-            wakes_as(&meta, PromptClass::Result, true, Some("s-other")),
+            wakes_as(&meta, PromptClass::Question, false, false, Some("s-other")),
+            "a question wakes"
+        );
+        assert!(
+            !wakes_as(&meta, PromptClass::Fyi, false, false, Some("s-coord")),
+            "an fyi does not"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Fyi, false, true, Some("s-other")),
+            "an fyi that waited for this machine does"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Result, true, false, Some("s-other")),
             "a report of its work"
         );
     }
@@ -902,6 +1262,7 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-open").unwrap();
     let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
@@ -916,4 +1277,811 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         (&m["sender"]["verification"], &m["sender"]["label"]),
         (&json!("declared"), &json!("dot"))
     );
+}
+
+/// The lane-gh broker's relay of a lane VM's message, as a chat on another machine logged it
+/// (2026-11-21): a peer daemon's forward of an agent's message with no class. It woke the idle chat
+/// as a turn of its own, which ended with no tool call (cmuxterm-hq#15820); about 84 of 482
+/// no-op wake turns in 48 h were such forwards. Now the inbox takes it and, unclassified, it is
+/// an FYI: it waits for the next notice and wakes no one.
+#[test]
+fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_no_one() {
+    let provenance = json!({
+        "kind": "agent_message", "from": "fromAgent",
+        "fromName": "gcp-agent-lane-9/civ2-bench-labels", "fromHarness": "claude",
+        "fromRelay": {"by": "lane-gh", "machine": "gcp-agent-lane-9", "session": "civ2-bench-labels"},
+        "forwardedBy": {"actor": "peer"}, "transport": "peer", "verified": false,
+    });
+    let text = [
+        json!({"type": "text", "text": "[message 29188b72f511 from gcp-agent-lane-9/civ2-bench-labels (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 29188b72f511]\"]\n\nno merge SHA yet\n\n[end of message 29188b72f511]"}),
+    ];
+    // `server/requests.rs` gives a peer's forward the inbox as it gives a local send.
+    assert!(plain_send(false, false, false, false));
+    assert!(plain_kind(Some(&provenance)));
+    assert_eq!(
+        super::super::digest::agent_sender(Some(&provenance), None).as_deref(),
+        Some("gcp-agent-lane-9/civ2-bench-labels")
+    );
+    assert!(takes(true, false, Control::Peer, &text, Some(&provenance)));
+    // A relay names no session of this daemon's: it is no chat's parent or delegator.
+    assert_eq!(sender_session(Some(&provenance)), None);
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "coord", "name": "coord", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    meta.turn_count = 40;
+    meta.delegator = Some("s-leo".into());
+    let class = default_notice_class(None);
+    assert_eq!(class, PromptClass::Fyi);
+    assert!(
+        !wakes_as(&meta, class, is_report(Some(&provenance)), false, None),
+        "an idle chat sleeps on"
+    );
+    // A block or a question from the same relay still wakes it at once.
+    for urgent in [PromptClass::Block, PromptClass::Question] {
+        assert!(wakes_as(&meta, urgent, false, false, None), "{urgent:?}");
+    }
+}
+
+/// The `[inbox]` notice the agent reads names a sender with a given name by it first, with the
+/// HOST/NAME it was known by; one with none reads as before (Leo, 2026-11-23: "the send/recieve
+/// messages are still only the older names").
+#[test]
+fn an_inbox_line_names_a_sender_by_its_given_name() {
+    let stamped = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::session_message(
+            "coord-old-id",
+            "studio-mac/claude-sr2-coord-old",
+            "target",
+        ),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: Some("coord-old-id".into()),
+            harness: Some("claude".into()),
+            relay: None,
+            display_name: Some("Mango".into()),
+        }),
+    );
+    let sender = crate::prompt_provenance::sender_record(Some(&stamped), None, None);
+    let from = "studio-mac/claude-sr2-coord-old";
+    assert_eq!(display_sender(&sender, from), "Mango · studio-mac/claude-sr2-coord-old");
+    let mut mango = item("p1", "from:coord-old-id", from, PromptClass::Fyi, 1, "PR is green");
+    mango.sender = sender;
+    let (text, _) = render(&[&mango]);
+    assert!(text.contains("from Mango · studio-mac/claude-sr2-coord-old"), "{text}");
+    // No given name: the old line.
+    let plain = item("p2", "from:lane-a", "lane-a", PromptClass::Fyi, 2, "PR is green");
+    let (text, _) = render(&[&plain]);
+    assert!(text.contains("from lane-a") && !text.contains(" · "), "{text}");
+}
+
+/// The row's held count is the messages still held: a triage record that decides one (digested,
+/// owner-bound or dropped) lowers it by that many, and a restart reads the lower count back.
+#[tokio::test]
+async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
+    let (hub, session) = hub_with_chat("held-count");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+    let record = json!({"batchId":"b1","items":[{"promptId":"m1"},{"promptId":"m2"}]});
+    hub.persist_surge_triage(&session, record, 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    // A delivery marker decides nothing.
+    hub.persist_surge_triage(&session, json!({"digestDelivered":"d","items":[]}), 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    hub.persist_surge_triage(&session, json!({"batchId":"b2","items":[{"promptId":"m3"}]}), 0)
+        .unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
+}
+
+/// The listing's held count is the journal's undecided messages, not the running counter: a
+/// record the counter missed still lowers it, and the bar's snapshot follows (Leo, 2026-11-22:
+/// "not only do you allegedly have 100 held messages").
+#[tokio::test]
+async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter() {
+    let (hub, session) = hub_with_chat("held-drift");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
+    }
+    // A record written past the counter (as an older daemon, or a fork's copy, leaves it).
+    hub.append(
+        &session,
+        "mux",
+        "inbox_triaged",
+        json!({"items":[{"promptId":"m1"},{"promptId":"m2"}]}),
+    );
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    // The settled count is the one the next snapshot builds on.
+    assert!(hub.hold_surge_message(&session, "m4", "cli", &body, &opts).unwrap().is_some());
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 2);
+}
+
+/// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
+/// debounce has passed, while an ordinary FYI of the same age waits for the chat's next turn.
+#[tokio::test]
+async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
+    for (severity, wakes_now) in [("fire", true), ("warn", false)] {
+        let (hub, session) = hub_with_chat(&format!("fire-{severity}"));
+        hub.set_surge_inbox(Some(true));
+        // Past the wake debounce, well inside the flush.
+        let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+        let mut fyi = item("n1", "t", "watcher", PromptClass::Fyi, at, "runner down");
+        fyi.tool_notice = tool_notice_of(Some(&crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":severity,"title":"Runner"}),
+            &session.id,
+        )));
+        fyi.fire = fire_notice(fyi.tool_notice.as_ref());
+        assert!(!fyi.surge_held);
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        let inbox = session.inbox();
+        // A notice went in, or was tried: a hub with no agent refuses it at once, so `in_flight`
+        // alone may come and go (`notice_done`).
+        let tried = inbox.in_flight.is_some()
+            || inbox.refused_at != 0
+            || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
+        assert_eq!(tried, wakes_now, "{severity}");
+        if !wakes_now {
+            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its 60-minute deadline");
+        }
+    }
+}
+
+/// The one-pass [`trim`] lets go of what the loop of `position` and `Vec::remove` it replaced
+/// let go of, in the same order, over inboxes of every mix of kept and trimmable messages.
+#[test]
+fn the_one_pass_trim_lets_go_of_what_the_removing_loop_did() {
+    fn reference(inbox: &mut Inbox) {
+        let carried: std::collections::HashSet<String> = inbox
+            .in_flight
+            .iter()
+            .map(|(_, ids)| ids)
+            .chain(inbox.carrying.iter().map(|c| &c.ids))
+            .flat_map(|ids| ids.iter().cloned())
+            .collect();
+        while inbox.items.len() > KEEP {
+            let gone = |i: &Item| {
+                i.surge_held
+                    || (i.read
+                        && i.noticed
+                        && i.answered.is_some()
+                        && !carried.contains(&i.prompt_id))
+            };
+            match inbox.items.iter().position(gone) {
+                Some(i) => {
+                    let item = inbox.items.remove(i);
+                    if item.surge_held {
+                        inbox.held_evicted.insert(item.thread);
+                    } else {
+                        inbox.trimmed.insert(item.prompt_id);
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+    for (len, stride) in [(KEEP, 1), (KEEP + 1, 1), (KEEP + 40, 3), (3 * KEEP, 2), (3 * KEEP, 7)] {
+        let make = || {
+            let mut inbox = Inbox {
+                in_flight: Some(("notice".into(), vec!["m-5".into(), "m-6".into()])),
+                ..Inbox::default()
+            };
+            for n in 0..len {
+                let thread = format!("t-{}", n % 5);
+                let mut i = item(&format!("m-{n}"), &thread, "a", PromptClass::Fyi, n as u64, "x");
+                match n % stride {
+                    0 => {
+                        (i.noticed, i.read) = (true, true);
+                        i.answered = Some(Ok(Value::Null));
+                    }
+                    1 => i.surge_held = n % 2 == 0,
+                    _ => i.read = true,
+                }
+                inbox.items.push(i);
+            }
+            inbox
+        };
+        let (mut want, mut got) = (make(), make());
+        reference(&mut want);
+        trim(&mut got);
+        let ids =
+            |inbox: &Inbox| inbox.items.iter().map(|i| i.prompt_id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&got), ids(&want), "{len} messages, stride {stride}");
+        assert_eq!(got.trimmed, want.trimmed, "{len} messages, stride {stride}");
+        assert_eq!(got.held_evicted, want.held_evicted, "{len} messages, stride {stride}");
+    }
+}
+
+/// A restore that drops each withdrawn message as it reads the withdrawal restores what one
+/// that held every message to the end did: the messages never withdrawn, in log order, and
+/// every withdrawn id marked removed (one sent again after its withdrawal too).
+#[tokio::test]
+async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in_order() {
+    let (hub, session) = hub_with_chat("long-inbox");
+    let message = |n: usize| {
+        json!({"promptId": format!("m-{n}"), "threadId": format!("th-{}", n % 3),
+               "from": "other agent", "text": format!("message {n}")})
+    };
+    let mut want = Vec::new();
+    for n in 0..2 * KEEP {
+        hub.append(&session, "mux", "inbox", message(n));
+        // Most are withdrawn soon after they come; every seventh stays.
+        if n % 7 != 0 {
+            hub.append(&session, "mux", "inbox_removed", json!({"promptId": format!("m-{n}")}));
+        } else {
+            want.push(format!("m-{n}"));
+        }
+    }
+    // One withdrawn and sent again stays out.
+    hub.append(&session, "mux", "inbox", message(1));
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    let inbox = session.inbox();
+    let got: Vec<String> = inbox.items.iter().map(|i| i.prompt_id.clone()).collect();
+    assert_eq!(got, want);
+    for n in (0..2 * KEEP).filter(|n| n % 7 != 0) {
+        assert!(inbox.removed.contains(&format!("m-{n}")), "m-{n} is marked removed");
+    }
+    assert!(!inbox.removed.contains("m-0"));
+}
+
+/// Leo, 2026-11-24: "not just batching, but intervals to assist in batching". 50 messages to an
+/// idle chat at 200K of context whose prompt cache lapsed 40 minutes ago start no turn inside its
+/// cold batch (`cold_wake.rs`), and go in as one notice at the batch's deadline; a warm chat and
+/// a question still wake after the burst window.
+#[tokio::test]
+async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
+    // Batching is off by default; this chat's person turned it on (compacting first stays off).
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
+    let now = now_ms();
+    let cold = |session: &Session, expires: u64| {
+        let mut m = session.meta.lock().unwrap();
+        m.usage = Some(json!({"sessionUpdate": "usage_update", "used": 200_000, "size": 1_000_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
+        m.last_turn = Some(json!({"turnId": "t0", "endedAt": expires.saturating_sub(300_000)}));
+    };
+    // Past the burst window: today each review would wake the chat.
+    let at = now.saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let (hub, session) = hub_with_chat("cold-50");
+    cold(&session, now - 40 * 60_000);
+    for n in 0..50 {
+        let mut it =
+            item(&format!("m{n}"), &format!("t{n}"), "lane", PromptClass::Result, at, "done");
+        it.report = true;
+        session.inbox().items.push(it);
+        hub.inbox_review(&session);
+        assert!(!tried(&session), "message {n} started a turn inside the cold batch");
+    }
+    let due = session.cold_batch.lock().unwrap().expect("a cold batch is open").due;
+    assert!(
+        due >= now + super::cold_wake::MAX_WINDOW_MS,
+        "200K and 40 min cold: the longest window"
+    );
+    assert!(session.inbox().timer.is_some(), "it looks again at the deadline");
+    // The deadline passes (event-ordered: the batch's own deadline moves, no sleep).
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session).map(|ids| ids.len()), Some(50), "one notice carries all 50");
+
+    // Warm: no cold batch; a report waits its warm hold (`WARM_HOLD_MS`), then wakes the chat.
+    let (hub, session) = hub_with_chat("warm-1");
+    cold(&session, now + 60 * 60_000);
+    let mut it = item("w1", "t", "lane", PromptClass::Result, at, "done");
+    it.report = true;
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "a warm chat holds a report for company");
+    session.inbox().items[0].at = now_ms().saturating_sub(WARM_HOLD_MS + 1);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a warm chat wakes once the hold is over");
+    assert!(session.cold_batch.lock().unwrap().is_none());
+
+    // A question to a cold chat: at once.
+    let (hub, session) = hub_with_chat("cold-q");
+    cold(&session, now - 40 * 60_000);
+    session.inbox().items.push(item("q1", "t", "lane", PromptClass::Question, at, "which?"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a question wakes a cold chat at once");
+}
+
+// The page rule (`inbox_page_rule.rs`, RFD 0041 slice 1): in a chat on the coordinator list only
+// a page starts a turn.
+
+fn page_msg<'a>(
+    class: PromptClass,
+    from: &'a str,
+    session: bool,
+    text: &'a str,
+) -> page_rule::Message<'a> {
+    page_rule::Message {
+        class,
+        from,
+        has_session: session,
+        human: false,
+        fire: false,
+        title: None,
+        text,
+    }
+}
+
+/// A notice went in, or was tried: a hub with no agent refuses it at once (`notice_done`).
+fn tried(session: &Session) -> bool {
+    let inbox = session.inbox();
+    inbox.in_flight.is_some()
+        || inbox.refused_at != 0
+        || inbox.items.iter().any(|i| i.noticed || i.answered.is_some())
+}
+
+fn judged(mut item: Item, folds: &page_rule::Folds, session: bool) -> Item {
+    let m = page_msg(item.class, &item.from, session, &item.text);
+    item.verdict = page_rule::judge(folds, &m, item.at);
+    item
+}
+
+#[test]
+fn the_coordinator_list_is_the_page_rule_config_by_name_or_host_slash_name() {
+    assert!(page_rule::session_names(None).is_empty());
+    let rule = crate::config::PageRuleConfig {
+        sessions: vec![
+            " cosmic-gray/claude-sr2-coord ".into(),
+            "interim-coord-2".into(),
+            " ".into(),
+        ],
+    };
+    let names = page_rule::session_names(Some(&rule));
+    assert!(names.contains("cosmic-gray/claude-sr2-coord"));
+    assert!(names.contains("claude-sr2-coord"));
+    assert!(names.contains("interim-coord-2"));
+    assert!(!names.contains("claude-sr2-coord-old"));
+    assert!(!names.contains(""));
+}
+
+#[test]
+fn a_page_is_a_sessions_block_or_question_or_the_persons_message_and_the_rest_is_held() {
+    use page_rule::Verdict::*;
+    let folds = page_rule::Folds::default();
+    let at = 1_000;
+    for class in [PromptClass::Block, PromptClass::Question] {
+        let m = page_msg(class, "lane-a", true, "blocked on review of #12");
+        assert_eq!(page_rule::judge(&folds, &m, at), Some(Page), "{class:?}");
+    }
+    for class in [PromptClass::Result, PromptClass::Fyi] {
+        let m = page_msg(class, "lane-a", true, "merged #12");
+        assert_eq!(page_rule::judge(&folds, &m, at), Some(Hold), "{class:?}");
+        let tagged = page_msg(class, "lane-a", true, "[taste] which icon?");
+        assert_eq!(page_rule::judge(&folds, &tagged, at), Some(Page), "tagged for Leo");
+        let mut human = page_msg(class, "leo", false, "status?");
+        human.human = true;
+        assert_eq!(page_rule::judge(&folds, &human, at), Some(Page), "from Leo");
+    }
+    let mut fire = page_msg(PromptClass::Fyi, "now", false, "runner label stalled");
+    fire.fire = true;
+    assert_eq!(page_rule::judge(&folds, &fire, at), Some(Page), "a first-seen FIRE");
+    assert!(page_rule::fire_text("FIRE: base red"));
+    assert!(page_rule::fire_text("[FIRE] base red"));
+    assert!(!page_rule::fire_text("no fire here"));
+}
+
+/// A lane's block wakes the idle coordinator after the debounce.
+#[tokio::test]
+async fn a_lanes_block_wakes_a_coordinator() {
+    let (hub, session) = hub_with_chat("coord-block");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let block = item("b1", "t", "lane-a", PromptClass::Block, at, "blocked on #12");
+    let block = judged(block, &folds, true);
+    assert_eq!(block.verdict, Some(page_rule::Verdict::Page));
+    session.inbox().items.push(block);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the block woke it");
+}
+
+/// A status is held: no turn, only the flush timer. It goes in with the next notice (a page's),
+/// one line with its thread id.
+#[tokio::test]
+async fn a_status_is_held_and_then_delivered_on_the_next_turn() {
+    let (hub, session) = hub_with_chat("coord-status");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    // A report from a lane, which wakes a chat without the rule.
+    let mut status =
+        item("s1", "from:lane-a/pr:9", "lane-a", PromptClass::Result, at, "PR #9 is green");
+    status.report = true;
+    assert!(wakes(&session.meta(), &status), "it wakes without the rule");
+    let status = judged(status, &folds, true);
+    assert_eq!(status.verdict, Some(page_rule::Verdict::Hold));
+    session.inbox().items.push(status);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "held: no turn");
+    assert!(session.inbox().timer.is_some(), "the flush is timed");
+
+    let block =
+        judged(item("b1", "t2", "lane-b", PromptClass::Block, at, "need a merge"), &folds, true);
+    session.inbox().items.push(block);
+    {
+        let inbox = session.inbox();
+        let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+        let (text, _) = render(&new);
+        assert!(
+            text.contains("PR #9 is green (thread from:lane-a/pr:9)"),
+            "the held status leads the next notice as one line with its thread id: {text}"
+        );
+    }
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the page brings the next turn");
+}
+
+/// A held status wakes the chat by itself at the flush, under the 20-minute ceiling.
+#[tokio::test]
+async fn a_held_status_wakes_the_chat_by_itself_within_twenty_minutes() {
+    const { assert!(FLUSH_MS <= 20 * 60 * 1000) };
+    let (hub, session) = hub_with_chat("coord-ceiling");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(FLUSH_MS + 1);
+    let status =
+        judged(item("s1", "t", "lane-a", PromptClass::Fyi, at, "still building"), &folds, true);
+    assert_eq!(status.verdict, Some(page_rule::Verdict::Hold));
+    session.inbox().items.push(status);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the ceiling woke it");
+}
+
+/// A program's identical FIRE folds: the first pages, repeats fold and count (and start no
+/// flush of their own), an hour after the last page it pages again, and changed text is a new
+/// page. Six hours unseen, it is forgotten.
+#[tokio::test]
+async fn an_identical_program_fire_folds_and_repages_after_an_hour() {
+    use page_rule::{REPAGE_MS, Verdict::*};
+    let mut folds = page_rule::Folds::default();
+    let mut fire = page_msg(PromptClass::Block, "lane-cap-watch", false, "FIRE: lane cap reached");
+    fire.fire = true;
+    let t0 = 10_000_000;
+    let at = |t: u64, folds: &mut page_rule::Folds, m: &page_rule::Message<'_>| {
+        let v = page_rule::judge(folds, m, t).unwrap();
+        page_rule::record(folds, m, v, t);
+        v
+    };
+    assert_eq!(at(t0, &mut folds, &fire), Page, "first seen");
+    assert_eq!(at(t0 + 5 * 60_000, &mut folds, &fire), Fold);
+    assert_eq!(at(t0 + 30 * 60_000, &mut folds, &fire), Fold);
+    assert_eq!(folds.folded(&fire), 2, "repeats count");
+    let mut changed =
+        page_msg(PromptClass::Block, "lane-cap-watch", false, "FIRE: lane cap reached (12/12)");
+    changed.fire = true;
+    assert_eq!(at(t0 + 31 * 60_000, &mut folds, &changed), Page, "changed text is a new page");
+    assert_eq!(at(t0 + REPAGE_MS, &mut folds, &fire), Page, "hourly repage while it stands");
+    assert_eq!(at(t0 + REPAGE_MS + 60_000, &mut folds, &fire), Fold);
+    let later = t0 + REPAGE_MS + 60_000 + page_rule::FOLD_MS;
+    assert_eq!(at(later, &mut folds, &fire), Page, "six hours unseen: forgotten");
+    // A lane's identical block never folds.
+    let lane = page_msg(PromptClass::Block, "lane-a", true, "blocked");
+    assert_eq!(at(t0, &mut folds, &lane), Page);
+    assert_eq!(at(t0 + 1, &mut folds, &lane), Page);
+
+    // In an idle chat, folded repeats alone start no turn and no flush: they go with the next
+    // notice.
+    let (hub, session) = hub_with_chat("coord-fold");
+    let old = now_ms().saturating_sub(FLUSH_MS + 1);
+    let mut repeat = item("f2", "now", "now", PromptClass::Block, old, "FIRE: lane cap reached");
+    repeat.verdict = Some(Fold);
+    session.inbox().items.push(repeat);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "a folded repeat wakes no one");
+    assert!(session.inbox().timer.is_none(), "nor starts a flush");
+    let inbox = session.inbox();
+    let new: Vec<&Item> = inbox.items.iter().collect();
+    assert!(!render(&new).0.contains("[blocker]"), "a fold is no blocker again");
+}
+
+/// Fail open: what the rule cannot read has no verdict, and wakes as before the rule.
+#[tokio::test]
+async fn an_unreadable_message_fails_open() {
+    let folds = page_rule::Folds::default();
+    for (from, text) in [("", "blocked"), ("lane-a", "   ")] {
+        let m = page_msg(PromptClass::Block, from, true, text);
+        assert_eq!(page_rule::judge(&folds, &m, 1), None, "{from:?} {text:?}");
+    }
+    let (hub, session) = hub_with_chat("coord-unreadable");
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let block = judged(item("b1", "t", "", PromptClass::Block, at, "blocked"), &folds, true);
+    assert_eq!(block.verdict, None);
+    session.inbox().items.push(block);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "delivered as today");
+}
+
+/// Deadlines (`hub/inbox.rs` module docs): an idle chat is not woken before a held message's
+/// deadline, only by it. A result from a session that neither started it nor gave it work, and
+/// an FYI, both 10 minutes old, wait (a timer armed, no turn); once the result is 15 minutes old
+/// one notice brings both. Leo, 2026-11-25: "is there a timeout where it can always check again
+/// at some point".
+#[tokio::test]
+async fn an_idle_chat_is_woken_by_a_held_messages_deadline_and_not_before() {
+    use crate::prompt_class::{FYI_DEADLINE_MS, RESULT_DEADLINE_MS};
+    let (hub, session) = hub_with_chat("lane-deadline");
+    let ten = now_ms().saturating_sub(10 * 60 * 1000);
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, ten, "fyi"));
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, ten, "done"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "before the deadline: no turn");
+    assert!(session.inbox().timer.is_some(), "the deadline is timed");
+    session.inbox().items[1].at = now_ms().saturating_sub(RESULT_DEADLINE_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["f1".to_owned(), "r1".to_owned()]),
+        "the result's deadline wakes it, and one notice brings both"
+    );
+
+    // An FYI alone waits its 60 minutes, and `--within` tightens that.
+    let (hub, session) = hub_with_chat("lane-deadline-fyi");
+    let mut fyi =
+        item("f2", "t", "tool", PromptClass::Fyi, now_ms().saturating_sub(FLUSH_MS + 1), "fyi");
+    session.inbox().items.push(item(
+        "f3",
+        "t",
+        "tool",
+        PromptClass::Fyi,
+        now_ms().saturating_sub(FYI_DEADLINE_MS - 60_000),
+        "fyi",
+    ));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "59 minutes is inside an FYI's deadline");
+    fyi.within = Some(5 * 60 * 1000);
+    session.inbox().items.push(fyi);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a --within 5m FYI 15 minutes old is past its deadline");
+}
+
+/// The receiver sits idle on a background wait that never ends (a hung CI wait, nothing to end
+/// its turn or start one): the held result is still delivered by the timer the inbox armed for
+/// its deadline, with no review, send or turn to prompt it.
+#[tokio::test]
+async fn a_held_result_is_delivered_at_its_deadline_while_the_receivers_wait_hangs() {
+    use crate::prompt_class::RESULT_DEADLINE_MS;
+    let (hub, session) = hub_with_chat("lane-hung-wait");
+    // Due 300 ms from now.
+    let at = now_ms().saturating_sub(RESULT_DEADLINE_MS - 300);
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, at, "PR #1 green"));
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, now_ms(), "fyi"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "not yet due");
+    let hung_wait = std::future::pending::<()>();
+    let delivered = async {
+        loop {
+            if let Some(ids) = carried(&session) {
+                assert_eq!(ids, ["f1", "r1"], "one notice carries both");
+                break;
+            }
+            if tried(&session) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::select! {
+        () = hung_wait => unreachable!(),
+        () = delivered => {}
+        () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+            panic!("the deadline timer never delivered the held result")
+        }
+    }
+}
+
+/// A notice relayed as text (the lane-gh broker, no notice provenance) is read in Rust
+/// (`notice_read.rs`): its thread part names the detector, its severity and its title, and
+/// counts the repeats of its condition, "×2, last …" (Leo, 2026-11-25: "how can we improve this?").
+#[test]
+fn a_relayed_notice_reads_as_its_detector_and_counts_its_condition() {
+    let relayed = |n: &str, queued: u32| {
+        format!(
+            "[message {n}x from cmux-cp-1/now (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message {n}x]\"]\n\
+             [notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, {queued} queued\n\
+             [end of message {n}x]"
+        )
+    };
+    let notice = |id: &str, at: u64, text: &str| {
+        let mut i = item(id, "topic:host/cmux-cp-1", "cmux-cp-1", PromptClass::Result, at, text);
+        i.tool_notice = notice_of(None, text);
+        i
+    };
+    let other = "[notice from now on cmux-cp-1 · WARN] Disk 91% on vm-3";
+    let items = [
+        notice("a", 1_000, &relayed("aaaa", 9)),
+        notice("b", 2_000, other),
+        notice("c", 3_000, &relayed("cccc", 12)),
+    ];
+    assert_eq!(items[0].tool_notice.as_ref().unwrap()["severity"], "fire");
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let part = &parts[0];
+    assert_eq!(part["notice"]["sender"], "now", "{part}");
+    assert_eq!(part["notice"]["severity"], "fire");
+    assert_eq!(part["notice"]["title"], "Runner label stalled: trusted xcode-26.6, 12 queued");
+    assert_eq!(part["notice"]["host"], "cmux-cp-1");
+    assert_eq!(part["notice"]["repeats"], 2, "the disk notice is another condition");
+    assert_eq!(part["notice"]["lastAt"], 3_000);
+    // A plain message reads no notice.
+    assert_eq!(notice_of(None, "merged #12"), None);
+    let plain = item("m", "from:lane-a", "lane-a", PromptClass::Result, 1, "merged");
+    let (_, parts) = render(&[&plain]);
+    assert!(parts[0].get("notice").is_none());
+}
+
+/// A repeat of one condition folds whatever its counts say now; another condition pages.
+#[test]
+fn a_notice_repeat_folds_by_its_condition() {
+    use page_rule::Verdict::*;
+    let mut folds = page_rule::Folds::default();
+    let msg = |title: &'static str| {
+        let mut m = page_msg(PromptClass::Result, "cmux-cp-1", false, title);
+        m.fire = true;
+        m.title = Some(title);
+        m
+    };
+    let t0 = 10_000_000;
+    let mut at = |t: u64, m: &page_rule::Message<'_>| {
+        let v = page_rule::judge(&folds, m, t).unwrap();
+        page_rule::record(&mut folds, m, v, t);
+        v
+    };
+    assert_eq!(at(t0, &msg("Runner label stalled: trusted xcode-26.6, 9 queued")), Page);
+    assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-26.6, 12 queued")), Fold);
+    assert_eq!(at(t0 + 120_000, &msg("Runner label stalled: trusted linux-x64, 3 queued")), Page);
+}
+
+#[test]
+fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
+    let min = 60 * 1000;
+    let fyi = item("p1", "t", "a", PromptClass::Fyi, 0, "x");
+    let mut seen = item("p2", "t", "a", PromptClass::Result, 0, "x");
+    seen.noticed = true;
+    let result = item("p3", "t", "a", PromptClass::Result, 50 * min, "x");
+    let soonest = fyi.due().min(result.due());
+    let items = vec![fyi, seen, result];
+    // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
+    // the noticed one counts for neither.
+    let (overdue, due_at) = deadline_counts(&items, 61 * min, |_| false);
+    assert_eq!(overdue, 1);
+    assert_eq!(due_at, Some(soonest));
+    assert_eq!(deadline_counts(&[], 61 * min, |_| false), (0, None));
+}
+
+/// A warm idle chat holds a report for [`WARM_HOLD_MS`] so what else comes goes in with it as one
+/// turn; a blocker, a fire notice and a message from its delegator still wake after the 2 s
+/// burst window, and a held report wakes the chat once it is [`WARM_HOLD_MS`] old. Leo,
+/// 2026-11-26: "us not getting fucking swamped by our own fucking wake-ups, our own tool calls".
+#[tokio::test]
+async fn a_warm_idle_chat_holds_a_report_for_company_and_blockers_still_wake() {
+    let burst = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let (hub, session) = hub_with_chat("lane-warm-hold");
+    let mut report = item("r1", "pr:9", "lane-a", PromptClass::Result, burst, "PR #9 merged");
+    report.report = true;
+    report.from_session = Some("lane-a".into());
+    assert!(wakes(&session.meta(), &report) && holds_wake(&session.meta(), &report));
+    session.inbox().items.push(report);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "a report past the burst window waits for company");
+    assert!(session.inbox().timer.is_some(), "its hold is timed");
+    // A second report meanwhile joins it; once the oldest is WARM_HOLD_MS old one notice brings both.
+    let mut second = item("r2", "pr:10", "lane-b", PromptClass::Result, now_ms(), "PR #10 merged");
+    second.report = true;
+    session.inbox().items.push(second);
+    session.inbox().items[0].at = now_ms().saturating_sub(WARM_HOLD_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["r1".to_owned(), "r2".to_owned()]),
+        "one turn for both"
+    );
+
+    // A blocker beside a held report brings it after the burst window.
+    let (hub, session) = hub_with_chat("lane-warm-hold-blocker");
+    let mut report = item("r3", "pr:11", "lane-a", PromptClass::Result, burst, "PR #11 merged");
+    report.report = true;
+    session.inbox().items.push(report);
+    session.inbox().items.push(item("b1", "t", "lane-c", PromptClass::Block, burst, "blocked"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a blocker wakes at once, the report with it");
+
+    // The hold ends by the prompt cache's expiry: a small chat whose cache already lapsed (no
+    // cold batch under `MIN_BATCH_TOKENS`) wakes after the burst window, as before.
+    let (hub, session) = hub_with_chat("lane-warm-hold-expired");
+    session.meta.lock().unwrap().usage = Some(
+        json!({"sessionUpdate": "usage_update", "used": 1_000,
+        "size": 1_000_000, "_meta": {"acpmux": {"cacheExpiresAt": now_ms().saturating_sub(1_000)}}}),
+    );
+    let mut report = item("r4", "pr:12", "lane-a", PromptClass::Result, burst, "PR #12 merged");
+    report.report = true;
+    session.inbox().items.push(report);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "no hold past the cache's expiry");
+
+    // The delegator's message is the chat's next step: no hold.
+    let (hub, session) = hub_with_chat("lane-warm-hold-delegator");
+    session.meta.lock().unwrap().delegator = Some("coord".into());
+    let mut next = item("d1", "t", "coord", PromptClass::Result, burst, "do this next");
+    next.from_session = Some("coord".into());
+    assert!(!holds_wake(&session.meta(), &next));
+    session.inbox().items.push(next);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the delegator's message wakes after the burst window");
+}
+
+#[test]
+fn only_a_result_that_is_no_next_step_holds() {
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    meta.turn_count = 3;
+    let report_item = || {
+        let mut r = item("p", "t", "x", PromptClass::Result, 0, "");
+        r.report = true;
+        r
+    };
+    let report = report_item();
+    assert!(holds_wake(&meta, &report), "a report");
+    let mut fire = report_item();
+    fire.fire = true;
+    assert!(!holds_wake(&meta, &fire), "a fire notice");
+    let mut waited = report_item();
+    waited.waited = true;
+    assert!(!holds_wake(&meta, &waited), "a message that waited for this machine");
+    let mut paged = report_item();
+    paged.verdict = Some(page_rule::Verdict::Page);
+    assert!(!holds_wake(&meta, &paged), "a coordinator's page");
+    for class in [PromptClass::Block, PromptClass::Question, PromptClass::Fyi] {
+        let mut other = report_item();
+        other.class = class;
+        assert!(!holds_wake(&meta, &other), "{class:?}");
+    }
+    meta.turn_count = 0;
+    assert!(!holds_wake(&meta, &report), "a chat's first work");
 }

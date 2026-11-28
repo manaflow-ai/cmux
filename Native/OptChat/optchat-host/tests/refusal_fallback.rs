@@ -73,3 +73,20 @@ fn a_real_line_never_calls_the_fallback() {
     assert_eq!(built.text, LINE);
     assert_eq!(fallback.calls.load(Ordering::SeqCst), 0);
 }
+
+struct Refuses;
+
+impl CompactModel for Refuses {
+    fn call(&self, _: &CompactRequest, _: &[Followup]) -> Result<Reply, ModelError> {
+        Err(ModelError::refusal("stop_reason: refusal"))
+    }
+}
+
+#[test]
+fn a_refusal_with_no_fallback_model_keeps_the_input_and_switches_no_model() {
+    assert_eq!(optchat_host::Config::default().fallback_model, None);
+    let built = build_node(&Refuses, None, &request()).unwrap();
+    assert!(built.stand_in, "{built:?}");
+    assert!(!built.by_fallback);
+    assert!(built.text.contains("a111"), "{built:?}");
+}

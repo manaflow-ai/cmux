@@ -30,6 +30,16 @@ impl Needle {
                 words.push(word);
             }
         }
+        Self::of_words(words)
+    }
+
+    /// The plain words of a query with operators (`terms.rs`, a quoted phrase one word, already
+    /// lowercased); an error for none or for more than [`MAX_QUERY`] characters in all.
+    pub fn of_words(words: Vec<String>) -> Result<Self, String> {
+        let words: Vec<String> = words.iter().map(|word| fold(word)).collect();
+        if words.iter().map(|word| word.chars().count()).sum::<usize>() > MAX_QUERY {
+            return Err(format!("query is longer than {MAX_QUERY} characters"));
+        }
         if words.is_empty() {
             return Err("query has no words; list chats with _acpmux/chats".to_owned());
         }
@@ -39,6 +49,10 @@ impl Needle {
     /// The character index in `text` where the first of the words starts, when `text` holds
     /// them all; None otherwise.
     pub(crate) fn find(&self, text: &str) -> Option<usize> {
+        // The character map is built only for a text that holds every word.
+        if !self.holds_all(text, false) {
+            return None;
+        }
         let folded = Folded::new(text);
         let mut first: Option<usize> = None;
         for word in &self.words {
@@ -46,6 +60,37 @@ impl Needle {
             first = Some(first.map_or(at, |f| f.min(at)));
         }
         first
+    }
+
+    /// False when `flatten(text)` cannot hold every word, read without the copies [`Needle::find`]
+    /// makes (the flattened text, its folding and a character index per byte, about 10 bytes
+    /// written per byte read). A search over many messages calls it first and pays for those
+    /// copies only on a message that may match. A host-wide search of 114 chats here (2026-11-27)
+    /// spent its 1.5 s building them for messages that matched nothing.
+    ///
+    /// Exact for a word with no whitespace, which is every word [`Needle::parse`] makes: folding
+    /// is per character and never turns whitespace into a non-space or back, and `flatten` only
+    /// joins whitespace runs, so such a word is in the folded flattened text iff it is in the
+    /// folded text. A word holding whitespace (a quoted phrase, `terms.rs`) is left to `find`.
+    pub(crate) fn may_match(&self, text: &str) -> bool {
+        self.holds_all(text, true)
+    }
+
+    /// Whether the folded `text` holds every word; a word holding whitespace passes when
+    /// `spaced_pass`.
+    fn holds_all(&self, text: &str, spaced_pass: bool) -> bool {
+        let folded: std::borrow::Cow<'_, str> = if text.is_ascii() {
+            if text.bytes().any(|b| b.is_ascii_uppercase()) {
+                text.to_ascii_lowercase().into()
+            } else {
+                text.into()
+            }
+        } else {
+            text.chars().flat_map(fold_char).collect::<String>().into()
+        };
+        self.words.iter().all(|word| {
+            (spaced_pass && word.contains(char::is_whitespace)) || folded.contains(word.as_str())
+        })
     }
 
     /// The query's words, lowercased.
@@ -136,6 +181,9 @@ pub fn find(needle: &Needle, turns: &[Turn]) -> Option<Hit> {
     let mut matches = 0_usize;
     for (turn, t) in turns.iter().enumerate() {
         for (role, text) in [("prompt", &t.prompt), ("answer", &t.answer)] {
+            if !needle.may_match(text) {
+                continue;
+            }
             let flat = flatten(text);
             let Some(at) = needle.find(&flat) else { continue };
             matches = matches.saturating_add(1);
@@ -178,83 +226,5 @@ pub(crate) fn snippet_around(text: &str, at: usize, before: usize, size: usize) 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn turn(prompt: &str, answer: &str) -> Turn {
-        Turn { prompt: prompt.into(), answer: answer.into(), prompt_at: None, answer_at: None }
-    }
-
-    #[test]
-    fn every_word_in_one_message_in_any_case_and_order() {
-        let turns = [turn("Fix the Sidebar", "The row is NaN."), turn("thanks", "ok")];
-        let needle = Needle::parse("nan ROW").expect("words");
-        let hit = find(&needle, &turns).expect("hit");
-        assert_eq!((hit.turn, hit.role, hit.matches), (0, "answer", 1));
-        assert_eq!(hit.snippet, "The row is NaN.");
-        // Words split between a prompt and its answer are no match.
-        assert_eq!(find(&Needle::parse("sidebar nan").expect("words"), &turns), None);
-    }
-
-    #[test]
-    fn the_newest_message_is_the_hit_and_every_one_counts() {
-        let turns = [turn("deploy it", "deployed"), turn("deploy again", "no")];
-        let hit = find(&Needle::parse("deploy").expect("words"), &turns).expect("hit");
-        assert_eq!((hit.turn, hit.role, hit.matches), (1, "prompt", 3));
-    }
-
-    #[test]
-    fn a_word_is_lowered_as_the_text_is() {
-        // A final capital sigma: `str::to_lowercase` gives `ς` in a word's last place, `σ` alone.
-        for (query, text) in [("ΟΣ", "ΟΣ"), ("ΟΣ", "ος"), ("ος", "ΟΣ"), ("οσ", "ος")]
-        {
-            let hit = find(&Needle::parse(query).expect("words"), &[turn(text, "")]);
-            assert_eq!(hit.map(|hit| hit.snippet), Some(text.to_owned()), "{query} in {text}");
-        }
-    }
-
-    #[test]
-    fn a_query_with_no_words_or_too_long_is_refused() {
-        assert!(Needle::parse(" \n\t").is_err());
-        assert!(Needle::parse(&"x".repeat(MAX_QUERY + 1)).is_err());
-        assert_eq!(Needle::parse("a A a").expect("words").words, ["a"]);
-    }
-
-    #[test]
-    fn a_long_message_gives_the_text_around_the_word() {
-        let text = format!("{} needle {}", "a ".repeat(100), "b ".repeat(100));
-        let hit = find(&Needle::parse("needle").expect("words"), &[turn(&text, "")]).expect("hit");
-        assert!(hit.snippet.starts_with('…') && hit.snippet.ends_with('…'), "{}", hit.snippet);
-        assert_eq!(hit.snippet.chars().count(), SNIPPET + 2);
-        let at = hit.snippet.find("needle").expect("word in snippet");
-        assert_eq!(hit.snippet[..at].chars().count(), BEFORE + 1);
-        // Near the end, the snippet holds what comes before instead.
-        let text = format!("{} needle", "a ".repeat(200));
-        let hit = find(&Needle::parse("needle").expect("words"), &[turn(&text, "")]).expect("hit");
-        assert!(hit.snippet.starts_with('…') && hit.snippet.ends_with("needle"), "{}", hit.snippet);
-        assert_eq!(hit.snippet.chars().count(), SNIPPET + 1);
-    }
-
-    #[test]
-    fn highlights_are_the_characters_of_every_word_in_any_case() {
-        let needle = Needle::parse("row nan").expect("words");
-        assert_eq!(
-            needle.highlights("The Row is NaN, row."),
-            vec![4, 5, 6, 11, 12, 13, 16, 17, 18]
-        );
-        // 'İ' lowercases to two characters: the positions still count the text's characters.
-        assert_eq!(Needle::parse("x").expect("words").highlights("İx"), vec![1]);
-        assert!(needle.highlights("nothing here").is_empty());
-    }
-
-    #[test]
-    fn whitespace_runs_are_one_space_and_a_case_change_that_grows_text_keeps_its_place() {
-        let hit = find(&Needle::parse("b").expect("words"), &[turn("a\n\n  b", "")]).expect("hit");
-        assert_eq!(hit.snippet, "a b");
-        // 'İ' lowercases to two characters: the word after it is still found where it is.
-        let text = format!("{}İ needle {}", "İ".repeat(60), "b ".repeat(100));
-        let hit = find(&Needle::parse("needle").expect("words"), &[turn(&text, "")]).expect("hit");
-        let at = hit.snippet.find("needle").expect("word in snippet");
-        assert_eq!(hit.snippet[..at].chars().count(), BEFORE + 1, "{}", hit.snippet);
-    }
-}
+#[path = "search_tests.rs"]
+mod tests;

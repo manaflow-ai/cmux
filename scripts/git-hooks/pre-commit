@@ -56,7 +56,11 @@ fi
 # that is neither a shell builtin nor a resolved tool.
 # Python free of single quotes: it is a single-quoted bash string.
 TOOL_RESOLVER='
+import hashlib
+import json
 import os
+import shutil
+import stat
 import sys
 import tempfile
 import unicodedata
@@ -188,6 +192,7 @@ def check(candidate, root, mode, dirs):
     if not (os.path.isfile(resolved) and os.access(resolved, os.X_OK)):
         say(f"{candidate} is not an executable file; not running it.")
         return False
+    root_real = ""
     if root or mode:
         root_real = real(root) if root else ""
         if not root_real or not within(resolved, root_real):
@@ -195,8 +200,15 @@ def check(candidate, root, mode, dirs):
             return False
     # A package install inside the checkout (its node_modules) is the one place
     # a tool may live inside it; the hook checks that git tracks nothing there.
+    # wt checkouts project node_modules as a link to a shared install outside the
+    # checkout: the link itself (exactly the install root) may sit in the
+    # checkout when what it points at does not.
+    root_link = os.path.normpath(root) if root else ""
+    root_outside = bool(root_real) and not any(within(root_real, directory) for directory in dirs)
     for place in places:
         if mode == "checkout-install" and within(place, root_real):
+            continue
+        if mode == "checkout-install" and root_outside and place == root_link:
             continue
         for directory in dirs:
             if within(place, directory):
@@ -218,46 +230,31 @@ def find(name, search_path, dirs):
     return ""
 
 
-def child_path(search_path, dirs, found):
-    """A new private directory (mode 0700, outside the checkout) of links to the checked
-    CHILD_TOOLS: the only PATH children of the hook get."""
-    for base in (tempfile.gettempdir(), "/tmp"):
-        if base.startswith("/") and os.path.isdir(base) \
-                and not any(within(real(base), directory) for directory in dirs):
-            break
-    else:
-        say("no temporary directory outside this checkout for the PATH of its children; not committing.")
-        sys.exit(1)
-    plain(real(base))  # the directory name must reach bash whole, or nothing is made
-    shims = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
-    linked = set()
+# Two stubs: one for a name CHILD_TOOLS does not list, one for a listed name
+# with no copy the resolver accepts (none on PATH, or each one inside this
+# checkout). Each runs nothing from PATH: /bin/sh, its own name, a message, 127.
+# It covers a child running the name by name, by exec and by a #!/usr/bin/env
+# shebang alike.
+STUBS = (
+    ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
+                   " ran it by name. Add it there, with the reason."),
+    ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                   " outside this checkout; a child of the hook ran it by name."),
+)
+
+
+def stub_text(message):
+    return "#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n"
+
+
+def child_plan(search_path, dirs, found):
+    """(links, stubbed): the checked CHILD_TOOLS by name to their tool, and every other
+    name the children may look up by name to its stub kind."""
+    links = {}
     for name in CHILD_TOOLS:
         tool = found[name] if name in found else find(name, search_path, dirs)
         if tool:
-            link(tool, shims, name)
-            linked.add(name)
-    # Two stubs, after the links: one for a name CHILD_TOOLS does not list, one
-    # for a listed name with no copy the resolver accepts (none on PATH, or each
-    # one inside this checkout). Each runs nothing from PATH: /bin/sh, its own
-    # name, a message, 127. It covers a child running the name by name, by exec
-    # and by a #!/usr/bin/env shebang alike.
-    stubs = {}
-    try:
-        os.mkdir(os.path.join(shims, ".stub"))
-        for kind, message in (
-            ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
-                           " ran it by name. Add it there, with the reason."),
-            ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
-                           " outside this checkout; a child of the hook ran it by name."),
-        ):
-            stubs[kind] = os.path.join(shims, ".stub", kind)
-            with open(stubs[kind], "w") as handle:
-                handle.write("#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n")
-            os.chmod(stubs[kind], 0o755)
-        os.mkdir(os.path.join(shims, NOT_LISTED))
-    except OSError as error:
-        say(f"could not make the stubs in {shims}: {error}; not committing.")
-        sys.exit(1)
+            links[name] = tool
     # Every executable file on PATH, whatever its name (.hidden-tool too):
     # whether a name runs is up to the file, so that alone decides.
     names = set()
@@ -276,12 +273,113 @@ def child_path(search_path, dirs, found):
     # the same name in two PATH directories, are one file there. A listed name
     # comes first, so NODE on PATH never takes the stub of a listed node.
     taken = set()
-    for name in sorted(set(CHILD_TOOLS).difference(linked)) + sorted(names.difference(CHILD_TOOLS)):
+    stubbed = {}
+    for name in sorted(set(CHILD_TOOLS).difference(links)) + sorted(names.difference(CHILD_TOOLS)):
         if "/" in name or folded(name) in taken:
             continue
         taken.add(folded(name))
-        link(stubs["unresolved" if name in CHILD_TOOLS else "not-listed"], shims, os.path.join(NOT_LISTED, name))
+        stubbed[name] = "unresolved" if name in CHILD_TOOLS else "not-listed"
+    return links, stubbed
+
+
+def child_path(search_path, dirs, found):
+    """A private directory (mode 0700, outside the checkout) of links to the checked
+    CHILD_TOOLS: the only PATH children of the hook get. It is named by what it holds
+    and kept: the next commit with the same tools reuses it once every entry reads back
+    as planned, so a commit makes no new paths. macOS fseventsd keeps a record of every
+    path it has seen until reboot, and a new directory of a link per PATH name each
+    commit (about a thousand) was one of the busiest makers of new paths on a busy Mac."""
+    for base in (tempfile.gettempdir(), "/tmp"):
+        if base.startswith("/") and os.path.isdir(base) \
+                and not any(within(real(base), directory) for directory in dirs):
+            break
+    else:
+        say("no temporary directory outside this checkout for the PATH of its children; not committing.")
+        sys.exit(1)
+    plain(real(base))  # the directory name must reach bash whole, or nothing is made
+    links, stubbed = child_plan(search_path, dirs, found)
+    plan = json.dumps([links, stubbed, STUBS, NOT_LISTED], sort_keys=True).encode()
+    shims = os.path.join(real(base), "cmux-pre-commit-path.%d.%s" % (os.geteuid(), hashlib.sha256(plan).hexdigest()[:20]))
+    if as_planned(shims, links, stubbed):
+        return shims
+    staging = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
+    fill(staging, shims, links, stubbed)
+    try:
+        os.rename(staging, shims)
+        return shims
+    except OSError:
+        pass
+    # Another commit made it first, or a stale one is in the way.
+    if as_planned(shims, links, stubbed):
+        shutil.rmtree(staging, ignore_errors=True)
+        return shims
+    if owned_dir(shims):
+        shutil.rmtree(shims, ignore_errors=True)
+    try:
+        os.rename(staging, shims)
+    except OSError as error:
+        shutil.rmtree(staging, ignore_errors=True)
+        say(f"could not make the PATH of the hook\x27s children ({shims}): {error.strerror or error}; not committing.")
+        sys.exit(1)
     return shims
+
+
+def fill(staging, shims, links, stubbed):
+    """The planned links and stubs in STAGING, whose stub links point where it is renamed to (SHIMS)."""
+    for name, tool in links.items():
+        link(tool, staging, name)
+    try:
+        os.mkdir(os.path.join(staging, ".stub"), 0o700)
+        for kind, message in STUBS:
+            stub = os.path.join(staging, ".stub", kind)
+            with open(stub, "w") as handle:
+                handle.write(stub_text(message))
+            os.chmod(stub, 0o755)
+        os.mkdir(os.path.join(staging, NOT_LISTED), 0o700)
+    except OSError as error:
+        say(f"could not make the stubs in {staging}: {error}; not committing.")
+        sys.exit(1)
+    for name, kind in stubbed.items():
+        link(os.path.join(shims, ".stub", kind), staging, os.path.join(NOT_LISTED, name))
+
+
+def owned_dir(path):
+    """PATH is a directory (not a link) of this user that no one else may enter."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid() and not st.st_mode & 0o077
+
+
+def as_planned(shims, links, stubbed):
+    """SHIMS holds exactly the planned entries: nothing more, every link to its target and
+    each stub the hook\x27s own text. Anything else (a planted file, a changed link) and it
+    is made again."""
+    if not owned_dir(shims):
+        return False
+    try:
+        if set(os.listdir(shims)) != set(links) | {".stub", NOT_LISTED}:
+            return False
+        if any(os.readlink(os.path.join(shims, name)) != tool for name, tool in links.items()):
+            return False
+        stubs = os.path.join(shims, ".stub")
+        if not owned_dir(stubs) or set(os.listdir(stubs)) != {kind for kind, _ in STUBS}:
+            return False
+        for kind, message in STUBS:
+            st = os.lstat(os.path.join(stubs, kind))
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022 or st.st_nlink != 1:
+                return False
+            with open(os.path.join(stubs, kind)) as handle:
+                if handle.read() != stub_text(message):
+                    return False
+        listed = os.path.join(shims, NOT_LISTED)
+        if not owned_dir(listed) or set(os.listdir(listed)) != set(stubbed):
+            return False
+        return all(os.readlink(os.path.join(listed, name)) == os.path.join(shims, ".stub", kind)
+                   for name, kind in stubbed.items())
+    except OSError:
+        return False
 
 
 def folded(name):
@@ -385,8 +483,8 @@ fi
 # links come the stubs for every other name on PATH, which say the name is
 # not in CHILD_TOOLS instead of a bare "not found".
 export PATH="$CHILD_PATH_DIR:$CHILD_PATH_DIR/.not-listed"
-# Removed however the hook ends (cleanup, below, takes this trap over).
-trap '"$TOOL_RM" -rf "$CHILD_PATH_DIR"' EXIT
+# The directory is kept for the next commit (child_path names it by what it holds and
+# checks every entry before reusing it), so no new paths are made per commit.
 # The one checked resolver: a name (looked up on the caller's PATH) or an
 # absolute path, optionally within an install root. Prints the path or fails.
 resolve_tool() { # name-or-path [install-root] [checkout-install]
@@ -445,6 +543,19 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     fi
 fi
 
+# A staged string catalog only adds, removes or edits entries: no moved keys, no entry rewritten without a value
+# change (cmux#55547: #51769's merges rewrote 281k lines of one to add 3 keys). A conflicted merge finished with
+# `git commit` is judged against MERGE_HEAD's copy; a clean merge runs no pre-commit, and the pre-push gate judges it.
+# The checker is the installed checks copy's (it refreshes from feat-cmux-next); an install without it skips this.
+XCSTRINGS_CHECK="$HOOK_DIR/cmux-next-checks/check-xcstrings-diff.py"
+if "$TOOL_GIT" diff --cached --name-only --diff-filter=M -- '*.xcstrings' | "$TOOL_GREP" -q .; then
+    if [[ -f "$XCSTRINGS_CHECK" ]]; then
+        "$PYTHON3_BIN" -I "$XCSTRINGS_CHECK" staged || exit 1
+    else
+        echo "pre-commit: the checks copy has no check-xcstrings-diff.py yet; CI checks the string catalogs" >&2
+    fi
+fi
+
 # A merge commit combines base-owned files with the staged result. Do not
 # reformat that result while Git is resolving the merge; formatters run on the
 # authored files in the follow-up commit instead.
@@ -481,23 +592,15 @@ if "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT | "$TOOL_GREP" -Fxq
     fi
 fi
 
-# A missing formatter is a hard failure for agents and CI, never a silent skip
-# (lanes committed unformatted Rust and web code for days because rustfmt and
-# vp were missing on the agent host). People get a warning instead. Codex
-# shells set CODEX_CI and CODEX_THREAD_ID; Claude Code shells set CLAUDECODE.
-REQUIRE_FORMATTERS=0
-for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_CI CODEX_THREAD_ID CODEX_SANDBOX; do
-    if [[ -n "${!var:-}" && "${!var}" != 0 ]]; then
-        REQUIRE_FORMATTERS=1
-    fi
-done
+# A formatter that cannot run on this machine (none installed, no packages,
+# an install that failed or is held by another hook, a crash) says why in one
+# line and lets the commit through: CI checks formatting, and a missing tool
+# says nothing about the commit. It used to refuse every agent commit
+# (CMUX_AGENT, CLAUDECODE, CODEX_*, CI), which stopped commits for the machine's
+# state, not the change. A formatter that runs still rewrites and restages the
+# commit's own files.
 formatter_missing() { # message
-    if (( REQUIRE_FORMATTERS )); then
-        echo "pre-commit: $1" >&2
-        echo "pre-commit: refusing to commit unformatted files (an agent or CI environment requires formatters; do not pass --no-verify)." >&2
-        exit 1
-    fi
-    echo "pre-commit: $1; skipping (CI will check it)." >&2
+    echo "pre-commit: $1; committing without formatting (CI checks formatting)." >&2
 }
 
 # Keep the formatters on the fast path: only invoke them for files that are in
@@ -548,12 +651,12 @@ locked_version() { # package-dir name
 }
 # Temporary files and a held install lock go away however the hook ends.
 RUSTFMT_DEFAULTS=""
+RUSTFMT_OUT=""
 BOOTSTRAP_LOG=""
 BUN_PIN=""
 HELD_LOCK=""
 cleanup() {
-    "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${BOOTSTRAP_LOG:-}"
-    "$TOOL_RM" -rf "$CHILD_PATH_DIR"
+    "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${RUSTFMT_OUT:-}" "${BOOTSTRAP_LOG:-}"
     release_install_lock
 }
 # Removes the lock only while it is still ours: a hook that ran past the
@@ -675,12 +778,10 @@ resolve_bun() { # pin (validated)
     echo "pre-commit: no bun ${want:-(no pin)} in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
     return 1
 }
-# Stops the commit when the hook would have to install packages with a bun it
-# cannot vouch for; the lines before say why and what fixes it.
-refuse_bun_install() { # package
-    echo "pre-commit: refusing to install $1 packages with a bun this hook cannot vouch for (see above)." >&2
-    release_install_lock
-    exit 1
+# Never installs packages with a bun it cannot vouch for; the lines before say
+# why and what fixes it. The commit goes on without that package's vp.
+skip_bun_install() { # package
+    echo "pre-commit: not installing $1 packages with a bun this hook cannot vouch for (see above)." >&2
 }
 # Runs an install step in a package directory with its output kept. When it
 # fails, prints what ran and with which tool, so a broken bootstrap is never
@@ -738,14 +839,16 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                     "$TOOL_SLEEP" 1
                 done
             elif [[ -f "$PACKAGE_DIR/bun.lock" ]]; then
-                BUN_PIN="$(pinned_bun_version)" || refuse_bun_install "$package"
-                BUN_BIN="$(resolve_bun "$BUN_PIN")" || refuse_bun_install "$package"
-                echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
-                bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
-                if [[ "$package" == webviews ]]; then
-                    # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
-                    # output since #21946); write them so a later typecheck in this checkout finds them.
-                    (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                if BUN_PIN="$(pinned_bun_version)" && BUN_BIN="$(resolve_bun "$BUN_PIN")"; then
+                    echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
+                    bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
+                    if [[ "$package" == webviews ]]; then
+                        # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
+                        # output since #21946); write them so a later typecheck in this checkout finds them.
+                        (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                    fi
+                else
+                    skip_bun_install "$package"
                 fi
             elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && NPM_BIN="$(resolve_tool npm)"; then
                 BUN_PIN=""
@@ -767,11 +870,17 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             formatter_missing "vp is unavailable for $package (install its packages)"
             continue
         fi
+        vp_status=0
         (
             cd "$PACKAGE_DIR"
             # A commit of only fmt-ignored files (webviews CSS) matches nothing.
             "$VP_BIN" fmt --no-error-on-unmatched-pattern "${PACKAGE_PATHS[@]}"
-        )
+        ) || vp_status=$?
+        if (( vp_status != 0 )); then
+            # Its files stay as staged; anything it did rewrite is left unstaged.
+            formatter_missing "vp fmt exited $vp_status in $package"
+            continue
+        fi
         "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]/#/$package/}"
     done
 fi
@@ -851,25 +960,16 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
         fi
     done
     RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | "$TOOL_CUT" -f1 | "$TOOL_SORT" -u)"
-    # rustfmt can follow `mod` declarations from a staged module and rewrite
-    # its children. Refuse that case within the affected Cargo package rather
-    # than touching an unstaged Rust file in the worktree.
-    while IFS= read -r package_root; do
-        [[ -n "$RUST_ENTRIES" ]] || break
-        if {
-            "$TOOL_GIT" diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
-            "$TOOL_GIT" ls-files --others --exclude-standard -- "${package_root:-.}"
-        } | "$TOOL_GREP" -Eq '\.rs$'; then
-            echo "pre-commit: ${package_root:-.} has unstaged Rust edits; stage or stash them before formatting." >&2
-            exit 1
-        fi
-    done <<<"$RUST_ROOTS"
+    # Each staged file is formatted through stdin, so rustfmt never follows its
+    # `mod` declarations into files this commit did not stage (it used to, so
+    # any unstaged or untracked .rs file in the package refused the commit).
     if [[ -n "$RUST_ENTRIES" ]]; then
         RUSTFMT_BIN="$(resolve_tool rustfmt || true)"
         if [[ -z "$RUSTFMT_BIN" ]]; then
             formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
         else
             RUSTFMT_DEFAULTS="$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+            RUSTFMT_OUT="$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-rustfmt-out.XXXXXX")"
             while IFS= read -r package_root; do
                 config="$(rust_config "$package_root")"
                 RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")
@@ -898,8 +998,31 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 # From /, so a rustup proxy picks no toolchain (or toolchain
                 # path) from a rust-toolchain file in the checkout: every
                 # argument is absolute.
-                (cd / && "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}")
-                "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]}"
+                for path in "${PACKAGE_PATHS[@]}"; do
+                    rel="${path#"$REPO_ROOT"/}"
+                    # A staged symlink is committed as the link: never write through it.
+                    [[ -L "$path" ]] && continue
+                    # Format the staged blob, not the worktree file, and write back
+                    # only when the file still holds exactly that blob: an edit saved
+                    # while rustfmt runs is kept, never overwritten.
+                    staged_blob="$("$TOOL_GIT" rev-parse --verify --quiet ":$rel" || true)"
+                    [[ -n "$staged_blob" ]] || continue
+                    rustfmt_status=0
+                    (cd / && "$TOOL_GIT" -C "$REPO_ROOT" cat-file blob "$staged_blob" \
+                        | "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" >"$RUSTFMT_OUT") || rustfmt_status=$?
+                    if (( rustfmt_status != 0 )); then
+                        formatter_missing "$PACKAGE_RUSTFMT exited $rustfmt_status on $rel"
+                        continue
+                    fi
+                    formatted_blob="$("$TOOL_GIT" hash-object --path="$rel" -- "$RUSTFMT_OUT")"
+                    [[ "$formatted_blob" == "$staged_blob" ]] && continue
+                    if [[ "$("$TOOL_GIT" hash-object -- "$path")" != "$staged_blob" ]]; then
+                        echo "pre-commit: $rel changed while rustfmt ran; left as is (committing it unformatted; CI checks formatting)." >&2
+                        continue
+                    fi
+                    "$TOOL_CAT" "$RUSTFMT_OUT" >"$path"
+                    "$TOOL_GIT" add -- "$path"
+                done
             done <<<"$RUST_ROOTS"
         fi
     fi

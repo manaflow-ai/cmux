@@ -41,6 +41,13 @@ use crate::tools::ControlCall;
 /// A running subagent whose session did not change for this long has its
 /// events read (`sub_tick`).
 pub(super) const QUIET_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// How often the tick reads a subagent that waits on its own background work.
+pub(super) const WAIT_CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+
+/// A subagent still waiting on its own background work this long reaches the
+/// Chief once (a fleet step and its queue rarely take longer).
+pub(super) const WAIT_SURFACE_AFTER: Duration = Duration::from_secs(3 * 60 * 60);
 /// Automatic continues of one silent run before the Chief hears of it.
 pub(super) const AUTO_CONTINUES: u32 = 2;
 /// A session idle this long after its run began, with no turn end since its
@@ -82,6 +89,7 @@ pub(super) fn state_name(sub: &SubRecord, now: u64) -> &'static str {
         SubStatus::Running if sub.permission.is_some() => "waiting-on-permission",
         SubStatus::Running if quiet(sub, now) => "quiet",
         SubStatus::Running => "running",
+        SubStatus::Done | SubStatus::Reported if sub.waiting() => "waiting",
         SubStatus::Done | SubStatus::Reported => {
             let report = sub.report.as_deref().unwrap_or("");
             if report.starts_with("(failed") || report.starts_with("(did not start") {
@@ -102,7 +110,7 @@ fn quiet(sub: &SubRecord, now: u64) -> bool {
     since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
-fn minutes(ms: u64) -> String {
+pub(super) fn minutes(ms: u64) -> String {
     crate::sub_watch::minutes(ms)
 }
 
@@ -112,7 +120,7 @@ fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
 }
 
 /// `text` on one line, at most `n` characters.
-fn one_line(text: &str, n: usize) -> String {
+pub(super) fn one_line(text: &str, n: usize) -> String {
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= n {
         line
@@ -399,8 +407,26 @@ impl Brain {
         });
     }
 
-    fn status_all(&self) -> String {
+    fn status_all(&mut self) -> String {
+        // The same heartbeats as a per-id status: each running subagent's
+        // events since its last read are folded in first. Without this the
+        // summary read every watch as the last per-id read or tick left it,
+        // and called all 10 live subagents [stalled] while each per-id status
+        // said running-tool, a heartbeat under 30 s ago (2026-11-27).
+        // Only those state_of reads a watch for (running or quiet): a cancelled,
+        // paused or permission-waiting one costs no events read.
         let now = self.now();
+        let running: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.session_id.is_some() && matches!(state_name(s, now), "running" | "quiet"))
+            .map(|s| s.id.clone())
+            .collect();
+        for id in &running {
+            self.refresh_watch(id);
+        }
         let mut subs: Vec<&SubRecord> = self
             .state
             .spawns
@@ -901,6 +927,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.told_ms = now_ms();
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1161,12 +1188,98 @@ impl Brain {
         for (id, session) in held {
             self.finish_sub(&id, &session);
         }
+        // Held while it waits on its own background work (tests/subagent_waiting.rs):
+        // read again every WAIT_CHECK_EVERY.
+        let waiting: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| {
+                s.waiting()
+                    && s.stopped
+                    && !s.paused
+                    && now.saturating_sub(s.waiting_checked_ms)
+                        >= WAIT_CHECK_EVERY.as_millis() as u64
+            })
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in waiting {
+            self.check_waiting(&id, &session, now);
+        }
         let state = &self.state;
         self.watches.retain(|id, _| {
             state
                 .sub(id)
                 .is_some_and(|(_, s)| s.status == SubStatus::Running)
         });
+    }
+
+    /// Subagent `id` reported that it waits on its own background work, and
+    /// its report went in quietly. When that work ended and no notice woke it
+    /// (its harness went away with it), or it still waits after
+    /// [`WAIT_SURFACE_AFTER`], its report reaches the Chief now, once.
+    fn check_waiting(&mut self, id: &str, session: &str, now: u64) {
+        let Some((floor, before, since)) = self
+            .state
+            .sub(id)
+            .map(|(_, s)| (s.floor, s.background.clone(), s.waiting_ms))
+        else {
+            return;
+        };
+        // Running again: that run's end reports.
+        if let Ok(Some(summary)) = self.agents.session(session)
+            && busy(summary.status)
+        {
+            return;
+        }
+        let events = match self.agents.events(session, floor) {
+            Ok(events) => events,
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its background work could not be read: {e}"
+                ));
+                return;
+            }
+        };
+        let background = super::children::background_after(&before, &events);
+        let ended = background.is_empty();
+        let long = now.saturating_sub(since) >= WAIT_SURFACE_AFTER.as_millis() as u64;
+        let Some(spawn) = self.state.sub(id).map(|(s, _)| s.clone()) else {
+            return;
+        };
+        let Some(sub) = self.state.sub_mut(id) else {
+            return;
+        };
+        sub.background = background;
+        sub.waiting_checked_ms = now;
+        if !(ended || long) {
+            self.save();
+            return;
+        }
+        let note = if ended {
+            "(its background work ended, and nothing woke it to go on)".to_owned()
+        } else {
+            format!(
+                "(still waiting after {} on its own background work)",
+                minutes(now.saturating_sub(since))
+            )
+        };
+        let words = sub.report.clone().unwrap_or_default();
+        sub.report = Some(format!("{note} {words}"));
+        sub.stopped = false;
+        sub.status = SubStatus::Done;
+        if ended {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {note}"));
+        self.trace.emit(
+            "subagent.waiting_surfaced",
+            json!({"id": id, "ended": ended, "waited_ms": now.saturating_sub(since)}),
+        );
+        self.deliver(&spawn);
     }
 
     fn watch_sub(&mut self, id: &str, now: u64) {
@@ -1332,24 +1445,44 @@ impl Brain {
     }
 }
 
-/// How often the host checks its cloud VMs for idle ones: a VM pauses at
-/// most this long after `cloud.autoPauseIdleSeconds`.
+/// The least time between two runs of the cloud checks: a VM pauses at most
+/// this long after `cloud.autoPauseIdleSeconds`.
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
-/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
-pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("cloud-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (idle VM check), not a poll for
-                // a result.
-                std::thread::sleep(CLOUD_TICK);
-                if tx.send(super::Input::CloudTick).is_err() {
-                    return;
-                }
-            }
-        });
+impl super::Brain {
+    /// When the brain next runs its cloud checks (VM pause, VM delete, key
+    /// revoke, fleet polls): the earliest deadline one of them waits for, at
+    /// least [`CLOUD_TICK`] after the last run, so a check that finds nothing
+    /// to do cannot spin. `None` while none of them waits for anything: an
+    /// idle host gets no cloud wakeup (perf-lead.md row 9; a ticker thread
+    /// used to wake it every 5 s while cloud VMs or keys were set up).
+    pub fn next_cloud_tick(&self) -> Option<std::time::Instant> {
+        let due_ms = self.cloud_due_ms()?;
+        let at = std::time::Instant::now() + Duration::from_millis(due_ms.saturating_sub(now_ms()));
+        Some(match self.cloud_ticked_at {
+            Some(last) => at.max(last + CLOUD_TICK),
+            None => at,
+        })
+    }
+
+    /// Runs the cloud checks now.
+    pub(super) fn run_cloud_checks(&mut self) {
+        self.cloud_ticked_at = Some(std::time::Instant::now());
+        self.cloud_tick();
+        self.agent_key_tick();
+        self.cloud_reap_tick();
+        self.fleet_tick();
+    }
+
+    /// Runs the cloud checks when their deadline came.
+    pub(super) fn fire_cloud_checks_if_due(&mut self) {
+        if self
+            .next_cloud_tick()
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.run_cloud_checks();
+        }
+    }
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.

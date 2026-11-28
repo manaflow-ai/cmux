@@ -5,7 +5,7 @@
 //! The bundle carries `refs/cmux-seed/head` (HEAD), `refs/cmux-seed/index`
 //! (a commit of the staged tree, parent HEAD), `refs/cmux-seed/work` (a
 //! commit of the working tree with untracked files that are not ignored,
-//! less the secrets [`secrets`] names, heavy folders and big files (each
+//! less the secrets [`secrets`] names, heavy folders and big files past a cap (each
 //! named in `skipped`), parent the index commit) and
 //! `refs/cmux-seed/stash` when there is a stash, with `^BASE` as its one
 //! prerequisite. Git leaves out of the bundle any seed ref whose commit
@@ -101,6 +101,10 @@ pub struct Planned {
     /// (`seed_cli::asks_head_first`).
     #[serde(skip)]
     pub lfs_attributes: Vec<String>,
+    /// The LFS pointers in the work commit and whether this Mac holds their content; empty
+    /// unless `CMUX_SEED_LFS=1` ([`super::lfs::enabled`]).
+    #[serde(skip)]
+    pub lfs_files: Vec<super::lfs::LfsFile>,
 }
 
 /// The commits an earlier seed of this folder sent ([`plan_since`]).
@@ -322,7 +326,7 @@ pub fn plan_recorded(
             url: repo.github.url(),
             repo: repo.github.slug(),
             base,
-            head_ref: repo.head_ref,
+            head_ref: repo.head_ref.clone(),
             head: recorded.head.clone(),
             index: recorded.index.clone(),
             work: recorded.work.clone(),
@@ -337,6 +341,7 @@ pub fn plan_recorded(
         bundle_bytes,
         unchanged: false,
         lfs_attributes,
+        lfs_files: Vec::new(),
     })
 }
 
@@ -346,18 +351,38 @@ enum Since<'a> {
     Previous(&'a PreviousSeed),
 }
 
-/// The working copy as the plan sees it.
+/// The working copy as the plan sees it: [`Here`] and the GitHub remote a seed goes to.
 struct Repo {
-    top: PathBuf,
-    head: String,
-    head_ref: Option<String>,
+    here: Here,
     remote: String,
     /// HEAD's upstream (`refs/remotes/...`) when it is on [`Self::remote`].
     upstream: Option<String>,
     github: github::GithubRepo,
 }
 
-impl Repo {
+/// The working copy without its remote: what [`current`] reads. A pull
+/// compares commits, so it skips the four git runs that find the GitHub
+/// remote (`remote`, `for-each-ref`, `config`, `remote get-url`).
+struct Here {
+    top: PathBuf,
+    head: String,
+    head_ref: Option<String>,
+}
+
+impl std::ops::Deref for Repo {
+    type Target = Here;
+    fn deref(&self) -> &Here {
+        &self.here
+    }
+}
+
+impl std::ops::DerefMut for Repo {
+    fn deref_mut(&mut self) -> &mut Here {
+        &mut self.here
+    }
+}
+
+impl Here {
     fn open(folder: &Path) -> Result<Self, Fallback> {
         let shown = folder.display();
         let top =
@@ -381,7 +406,15 @@ impl Repo {
             return Err(Fallback::new(FallbackCode::NoCommit, "the repository has no commit yet"));
         };
         let head_ref = git::optional(git::at(&top).args(["symbolic-ref", "-q", "HEAD"]));
-        let remotes: Vec<String> = git::text(git::at(&top).arg("remote"))
+        Ok(Self { top, head, head_ref })
+    }
+}
+
+impl Repo {
+    fn open(folder: &Path) -> Result<Self, Fallback> {
+        let here = Here::open(folder)?;
+        let (top, head_ref) = (&here.top, &here.head_ref);
+        let remotes: Vec<String> = git::text(git::at(top).arg("remote"))
             .map_err(|error| failed("listing remotes", error))?
             .lines()
             .map(str::to_string)
@@ -389,7 +422,7 @@ impl Repo {
         if remotes.is_empty() {
             return Err(Fallback::new(FallbackCode::NoRemote, "the repository has no remote"));
         }
-        let tracked = head_ref.as_deref().and_then(|head_ref| upstream_of(&top, head_ref));
+        let tracked = head_ref.as_deref().and_then(|head_ref| upstream_of(top, head_ref));
         let tracked = tracked.filter(|(remote, _)| remotes.contains(remote));
         let remote = if let Some((remote, _)) = &tracked {
             remote.clone()
@@ -406,15 +439,8 @@ impl Repo {
                 ),
             ));
         };
-        let github = remote_repo(&top, &remote)?;
-        Ok(Self {
-            top,
-            head,
-            head_ref,
-            remote,
-            upstream: tracked.map(|(_, upstream)| upstream),
-            github,
-        })
+        let github = remote_repo(top, &remote)?;
+        Ok(Self { here, remote, upstream: tracked.map(|(_, upstream)| upstream), github })
     }
 
     /// [`Planned::bases`], with duplicates left out.
@@ -482,7 +508,9 @@ impl Repo {
     fn merge_base(&self, other: &str) -> Option<String> {
         git::optional(git::at(&self.top).args(["merge-base", self.head.as_str(), other]))
     }
+}
 
+impl Here {
     /// An absolute path inside the repository's git dir (`--git-path`).
     fn git_path(&self, name: &str) -> Result<PathBuf, Fallback> {
         git::text(git::at(&self.top).args([
@@ -579,7 +607,7 @@ pub(crate) struct Current {
 }
 
 pub(crate) fn current(folder: &Path) -> Result<Current, Fallback> {
-    let repo = Repo::open(folder)?;
+    let repo = Here::open(folder)?;
     let scratch = Scratch::new()?;
     let made = commits(&repo, &scratch)?;
     Ok(Current { head_ref: repo.head_ref, head: repo.head, index: made.index, work: made.work })
@@ -619,6 +647,13 @@ fn build(
     let stash = repo.commit("refs/stash");
     let lfs_attributes = lfs_attributes(repo, &skipped);
     skipped.extend(submodule_work);
+    let lfs_files = if super::lfs::enabled() {
+        let dir = repo.git_path("lfs")?;
+        super::lfs::scan(&repo.top, &dir, &work_commit)
+    } else {
+        Vec::new()
+    };
+    skipped.extend(super::lfs::skipped(&lfs_files));
 
     let mut refs = vec![
         ("refs/cmux-seed/head", repo.head.as_str()),
@@ -706,6 +741,7 @@ fn build(
         bundle_bytes,
         unchanged,
         lfs_attributes,
+        lfs_files,
     })
 }
 
@@ -713,7 +749,7 @@ fn build(
 /// working tree with untracked files that are not ignored, less
 /// [`untracked_left_out`], on INDEX), built through a copy of the index in
 /// `scratch`.
-fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
+fn commits(repo: &Here, scratch: &Scratch) -> Result<Commits, Fallback> {
     let index = scratch.0.join("index");
     let real_index = repo.git_path("index")?;
     if real_index.is_file() {
@@ -792,7 +828,7 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     Ok(Commits { index: index_commit, work, skipped, sparse })
 }
 
-impl Repo {
+impl Here {
     /// git in the working copy with the scratch index.
     fn scratch_git(&self, index: &Path) -> Command {
         let mut command = git::at(&self.top);
@@ -814,7 +850,7 @@ impl Repo {
     }
 }
 
-fn commit(repo: &Repo, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
+fn commit(repo: &Here, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
     git::text(
         git::at(&repo.top)
             .env("GIT_AUTHOR_NAME", SEED_NAME)
@@ -837,21 +873,32 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Fallback> {
         .map_err(|error| failed(&format!("writing {}", path.display()), error.to_string()))
 }
 
+/// An untracked file bigger than this is a big one: it goes in the work
+/// commit while it fits [`BIG_UNTRACKED_FILE_CAP`] and what is left of
+/// [`BIG_UNTRACKED_TOTAL_CAP`] (RFD 0066 piece 4; it used to stay here).
+const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+
 /// An untracked file bigger than this stays on this Mac, named with its
 /// size: one checkpoint or dataset would outweigh the rest of the seed.
-const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+pub(crate) const BIG_UNTRACKED_FILE_CAP: u64 = 100_000_000;
+
+/// The most bytes the big untracked files (over [`BIG_UNTRACKED`]) add to a
+/// seed together; one that would pass it stays on this Mac, named.
+pub(crate) const BIG_UNTRACKED_TOTAL_CAP: u64 = 1_000_000_000;
 
 /// Untracked files that are not ignored but stay on this Mac: likely
 /// secrets, git repositories nested in the folder (not submodules), heavy
 /// folders the project rebuilds on the machine (one entry each, as a copy
-/// names them) and files over [`BIG_UNTRACKED`].
-fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
+/// names them) and big files past [`BIG_UNTRACKED_FILE_CAP`] or, in path
+/// order, past what is left of [`BIG_UNTRACKED_TOTAL_CAP`].
+fn untracked_left_out(repo: &Here) -> Result<Vec<Skipped>, Fallback> {
     use std::os::unix::ffi::OsStrExt as _;
     let listed =
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
             .map_err(|error| failed("listing untracked files", error))?;
     let mut skipped = Vec::new();
     let mut heavy_named = std::collections::BTreeSet::new();
+    let mut big_sent = 0_u64;
     for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
         let path = String::from_utf8_lossy(raw).into_owned();
         if let Some((folder, why)) =
@@ -877,18 +924,34 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
             std::fs::symlink_metadata(repo.top.join(std::ffi::OsStr::from_bytes(raw)))
                 .ok()
                 .filter(|meta| meta.is_file() && meta.len() > BIG_UNTRACKED)
-                .map(|meta| {
-                    format!(
-                        "a big file ({}) that stays on this Mac",
-                        sync_cli::bytes_text(meta.len())
-                    )
-                })
+                .and_then(|meta| big_left_here(meta.len(), &mut big_sent))
         };
         if let Some(why) = why {
             skipped.push(Skipped { path, why, raw: raw.to_vec() });
         }
     }
     Ok(skipped)
+}
+
+/// Why a big untracked file of `len` bytes stays on this Mac, or None when
+/// it goes (counted into `sent`, the big files' bytes so far).
+pub(super) fn big_left_here(len: u64, sent: &mut u64) -> Option<String> {
+    let size = sync_cli::bytes_text(len);
+    if len > BIG_UNTRACKED_FILE_CAP {
+        return Some(format!(
+            "a big file ({size}) that stays on this Mac: over the seed's {} limit for one untracked file",
+            sync_cli::bytes_text(BIG_UNTRACKED_FILE_CAP)
+        ));
+    }
+    if sent.saturating_add(len) > BIG_UNTRACKED_TOTAL_CAP {
+        return Some(format!(
+            "a big file ({size}) that stays on this Mac: the seed already carries {} of big untracked files, its limit is {}",
+            sync_cli::bytes_text(*sent),
+            sync_cli::bytes_text(BIG_UNTRACKED_TOTAL_CAP)
+        ));
+    }
+    *sent = sent.saturating_add(len);
+    None
 }
 
 /// Each submodule with the commit checked out in it, and the submodules
@@ -950,7 +1013,7 @@ fn submodules(repo: &Repo) -> Result<(Vec<Submodule>, Vec<Skipped>), Fallback> {
 }
 
 /// The sparse-checkout patterns when sparse checkout is on.
-fn sparse_patterns(repo: &Repo) -> Result<Option<String>, Fallback> {
+fn sparse_patterns(repo: &Here) -> Result<Option<String>, Fallback> {
     let on = git::optional(git::at(&repo.top).args(["config", "--bool", "core.sparseCheckout"]));
     if on.as_deref() != Some("true") {
         return Ok(None);

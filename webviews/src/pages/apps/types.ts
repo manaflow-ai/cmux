@@ -7,6 +7,12 @@ export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppSource = "default" | "user" | "bundled" | "local";
 
+/**
+ * Where a listing belongs (the owner's `Shelf`, cmux-tui-core apps/store.rs): `store` is Discover,
+ * `example` the SDK examples (developers only), `local` a `cmux ext dev` app (Installed only).
+ */
+export type AppShelf = "store" | "example" | "local";
+
 /** The risk class of a scope (cmux-app-host schema/v2/scope-classes.json). */
 export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
@@ -19,11 +25,28 @@ export interface AppIconRef {
   symbol?: string;
 }
 
+/**
+ * Where an app installed from a git repo came from (the daemon's git source on catalog and
+ * installed rows). All absent for an app that did not come from git.
+ */
+export interface AppGitSource {
+  /** The repo's https URL, e.g. `https://github.com/OWNER/REPO`. */
+  repository?: string;
+  /** The app's subdirectory in the repo; absent at the root. */
+  path?: string;
+  /** The pinned commit (40 hex). */
+  commit?: string;
+  /** The tag the commit was resolved from, when there is one. */
+  tag?: string;
+}
+
 /** One row of `cmux.apps.catalog.list`. */
-export interface CatalogApp {
+export interface CatalogApp extends AppGitSource {
   id: string;
   name: string;
   description: string;
+  /** One line on what the person gets (the manifest's `tagline`); absent from an older owner. */
+  tagline?: string;
   publisher: string;
   publisher_verified: boolean;
   tier: AppTier;
@@ -37,12 +60,20 @@ export interface CatalogApp {
   hidden?: boolean;
   /** The owner's word: hidable, never removable (first-party apps; FIRST-PARTY-APPS). */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`), so it can be the New Tab app. */
+  new_tab?: boolean;
+  /** Absent from an owner older than shelves: the page treats it as `store`. */
+  shelf?: AppShelf;
+  /** The host failed to load the app (the listing's install `failure`); Discover leaves it out. */
+  failed?: boolean;
 }
 
 export interface CatalogListResult {
   apps: CatalogApp[];
   revision: number;
   next_cursor?: string;
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examples?: boolean;
 }
 
 export interface ScopeRequest {
@@ -59,9 +90,12 @@ export interface AppVersion {
   yanked?: boolean;
 }
 
-/** One thing an app puts in cmux (the manifest's `contributes`): its kind and its title. */
+/** One place an app shows up in cmux (the owner's `contributes`): its kind and its title. */
 export interface AppContribution {
-  /** `section`, `command`, `statusItem`; another kind shows as its name. */
+  /**
+   * `section`, `sidebarWidget`, `statusItem`, `pane`, `newTab`, `sessionInfo` or `command`; the
+   * page names the place, and a kind it does not know shows only its title.
+   */
   kind: string;
   title: string;
 }
@@ -90,16 +124,19 @@ export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
   versions: AppVersion[];
   repository?: string;
+  /** Package paths (the manifest's `screenshots`); the store loads each through `asset.get`. */
   screenshots: string[];
+  /** The screenshots the store loaded, as data URLs in the owner's order; a failed one is left out. */
+  screenshotImages?: string[];
   notices?: string[];
-  /** "What it adds" on the app's page; absent until the owner sends it. */
+  /** "Shows up in" on the app's page; absent until the owner sends it. */
   contributes?: AppContribution[];
   /** Where the app's server runs; absent for an app with no `deploy` block. */
   deploy?: AppDeploy;
 }
 
 /** One row of `cmux.apps.installed.list`. */
-export interface InstalledApp {
+export interface InstalledApp extends AppGitSource {
   id: string;
   name: string;
   version: string;
@@ -111,6 +148,8 @@ export interface InstalledApp {
   tier?: AppTier;
   /** The owner's word on Hide versus Remove; wins over `tier`. */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`). */
+  new_tab?: boolean;
   icon?: AppIconRef;
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
@@ -200,9 +239,44 @@ export const AppsOps = {
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
+  /** Built-in features as switches (cmux-tui server/app_features.rs): each is an existing setting. */
+  featuresList: "cmux.apps.features.list",
+  featuresSet: "cmux.apps.features.set",
   /** The daemon's `apps-changed` on the page relay (page-router.json `events`; DaemonPageRelay). */
   watch: "cmux.apps.changed",
 } as const;
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
 export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;
+/** Settings > Customize (the Customize cmux… card): `openSettings` on its checklist card, a
+ * page-only category the host routes by card (WindowHandlers, `SettingsPageLayout.cardRoute`). */
+export const CUSTOMIZE_ACTION = {
+  op: "cmux.app.action.run",
+  action: "openSettings",
+  args: { setting: "card.customizeChecklist" },
+} as const;
+
+/** One built-in feature on the Features tab (`cmux.apps.features.list`): an existing settings key
+ * the switch reads and writes, never a key of its own. */
+export interface FeatureRow {
+  id: string;
+  /** The heading it is listed under (Backgrounds, Chief, Music, ..., Labs, Experiments). */
+  group: string;
+  /** The settings key it writes (Settings shows the same row). */
+  key: string;
+  kind: "toggle" | "choice";
+  on: boolean;
+  default_on: boolean;
+  /** An organization manages the key: the switch shows its value and cannot change it. */
+  managed: boolean;
+  title: { key?: string | null; text: string };
+  summary?: { key?: string | null; text: string } | null;
+}
+
+export interface FeaturesList {
+  revision: number;
+  /** Whether `experiments.appStoreFeatures` is on (off by default): off lists no features and the
+   * page draws no Features tab. */
+  enabled?: boolean;
+  features: FeatureRow[];
+}

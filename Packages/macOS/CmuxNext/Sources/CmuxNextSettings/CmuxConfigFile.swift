@@ -2,7 +2,7 @@ import CmuxNextCompat
 public import Foundation
 import os
 
-/// Reads `~/.config/cmux/cmux-next.json` and sends its writes to the file's one writer, the
+/// Reads `~/.config/cmux-next/cmux-next.json` and sends its writes to the file's one writer, the
 /// daemon's settings owner (``SettingsFileWriter``, cmux-tui `cmux-config` `settings.edit`;
 /// plans/cmux-next/settings-react.md section 1). An actor so file IO and parsing stay off the main
 /// actor and writes go out in call order. The owner edits the JSONC source in place (comments and
@@ -26,7 +26,8 @@ public actor CmuxConfigFile {
         self.writer = writer
     }
 
-    /// The conventional location, `<home>/.config/cmux/cmux-next.json`, unless
+    /// The conventional location, `<home>/.config/cmux-next/cmux-next.json` (NEXT's own folder, never
+    /// classic cmux's `~/.config/cmux`; ``BuildStatePaths/settingsFile``), unless
     /// `CMUX_NEXT_CONFIG_FILE` names another file. The override keeps test
     /// launches of tagged builds from reading or writing the user's file
     /// (`home` is the account's home, which ignores `$HOME`).
@@ -37,15 +38,17 @@ public actor CmuxConfigFile {
         if let path = environment[overrideKey], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return home.appending(path: ".config/cmux/cmux-next.json")
+        return home.appending(path: ".config/\(BuildStatePaths.nextFolder)/cmux-next.json")
     }
 
-    /// Returns the next config URL and seeds it once from classic cmux's
-    /// `cmux.json` when the next file does not exist. An explicit override is
-    /// returned unchanged and is never seeded from the user's files.
-    ///
-    /// The caller supplies the home and file manager so first-launch behavior
-    /// is deterministic in tests and never depends on `$HOME`.
+    /// `<root>/.config/cmux/<name>`: Classic's folder, the import source.
+    private static func file(_ name: String, under root: URL) -> URL {
+        root.appending(path: ".config/cmux").appending(path: name)
+    }
+
+    /// Returns NEXT's settings URL, creating an empty settings file when it does not exist.
+    /// Classic settings are never read during launch. They are imported only by
+    /// ``SettingsController.importClassicConfig(marker:classicURL:environment:)`` after the person confirms.
     public static func prepareDefaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -54,46 +57,42 @@ public actor CmuxConfigFile {
         try prepareLaunchFile(home: home, environment: environment, fileManager: fileManager).url
     }
 
-    /// The settings file at launch and whether this launch made it from nothing: no cmux-next.json and
-    /// no classic cmux.json, on this Mac account. Every channel shares the file, so that is the one
-    /// install-wide sign of a fresh install (a new channel on an existing install finds the file).
+    /// The settings file at launch and whether this launch created an empty NEXT file.
     public nonisolated struct LaunchFile: Sendable {
         public let url: URL
         public let createdEmpty: Bool
     }
 
-    /// ``prepareDefaultURL(home:environment:fileManager:)``, saying whether it wrote a new empty file.
+    /// Creates NEXT's own empty settings file when needed. This method deliberately does not
+    /// inspect Classic's settings file, so a normal NIGHTLY launch has no Classic content read.
     public static func prepareLaunchFile(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) throws -> LaunchFile {
-        if let override = environment[overrideKey], !override.isEmpty {
-            return LaunchFile(url: defaultURL(home: home, environment: environment), createdEmpty: false)
-        }
-
         let next = defaultURL(home: home, environment: environment)
+        if environment[overrideKey]?.isEmpty == false {
+            return LaunchFile(url: next, createdEmpty: false)
+        }
         guard !fileManager.fileExists(atPath: next.path) else { return LaunchFile(url: next, createdEmpty: false) }
-        var createdEmpty = false
-
-        let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
         try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
-            if fileManager.fileExists(atPath: classic.path) {
-                // Its text, never the file: a classic cmux.json symlinked into a
-                // dotfiles repo would otherwise become next's file too, and next's
-                // settings migration would rewrite classic's settings through it.
-                // concurrency-allow: first-launch seeding, as the copy it replaces; the file is small.
-                let text = try Data(contentsOf: classic.resolvingSymlinksInPath())
-                try text.write(to: next, options: .withoutOverwriting)
-            } else {
-                try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
-                createdEmpty = true
-            }
+            try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
+            return LaunchFile(url: next, createdEmpty: true)
         } catch CocoaError.fileWriteFileExists {
-            // Another cmux-next launch won the first-launch race. Keep its file.
+            return LaunchFile(url: next, createdEmpty: false)
         }
-        return LaunchFile(url: next, createdEmpty: createdEmpty)
+    }
+
+    /// The stable source path for an explicit Classic settings import.
+    public static func classicURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        let override = environment[BuildStatePaths.classicImportDirectoryKey].flatMap { root in
+            root.isEmpty ? nil : URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
+        }
+        return file("cmux.json", under: override ?? BuildStatePaths.current.classicImportDirectory ?? home)
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
@@ -141,6 +140,44 @@ public actor CmuxConfigFile {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return ""
         }
+    }
+
+    /// Reads and compares both documents on the file actor during a confirmed import.
+    func missingClassicSettings(from classic: URL) throws -> [(path: [String], value: JSONValue)] {
+        // The Classic settings file lives under ~/.config even when acpmux's inline
+        // harness profiles came from XDG_CONFIG_HOME. The daemon snapshots those
+        // profiles (including their icons) before calling this consented merge.
+        let classicText = try CmuxConfigFile.source(at: classic)
+        var classicRoot: JSONValue = classicText.isEmpty ? .object([:]) : try JSONC.parse(classicText)
+        let snapshot = url.deletingLastPathComponent().appending(path: "classic-harnesses/profiles.json")
+        let profilesText = try CmuxConfigFile.source(at: snapshot)
+        if !profilesText.isEmpty {
+            let path = ["agents", "harnesses"]
+            let profiles = try JSONDecoder().decode([String: JSONValue].self, from: Data(profilesText.utf8))
+            let existing = classicRoot.value(at: path)?.objectValue ?? [:]
+            classicRoot = classicRoot.setting(.object(existing.merging(profiles) { _, copied in copied }), at: path)
+        }
+        let nextRoot = try document()
+        var edits: [(path: [String], value: JSONValue)] = []
+        func missing(_ classic: JSONValue, _ next: JSONValue, at path: [String]) {
+            guard case .object(let classicObject) = classic else { return }
+            guard case .object(let nextObject) = next else {
+                if !path.isEmpty { edits.append((path, classic)) }
+                return
+            }
+            for (key, value) in classicObject {
+                let childPath = path + [key]
+                guard let existing = nextObject[key] else {
+                    edits.append((childPath, value))
+                    continue
+                }
+                if case .object = value, case .object = existing {
+                    missing(value, existing, at: childPath)
+                }
+            }
+        }
+        missing(classicRoot, nextRoot, at: [])
+        return edits
     }
 
     /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
@@ -256,12 +293,20 @@ public actor CmuxConfigFile {
         return (applied.map { matching[$0].path }, current)
     }
 
+    /// The last text `validated` parsed and its document: one write reads the file in the controller's plan and again
+    /// in `set`/`edit`'s check, the same text, so the second costs a compare, not a parse (`ConfigFileParseCacheTests`).
+    /// Keyed by the whole text, so any edit (ours, the daemon's, the user's) parses again; a failed parse is never kept.
+    private var lastParsed: (text: String, root: JSONValue)?
+
     private func validated(_ text: String) throws -> JSONValue {
+        if let lastParsed, lastParsed.text == text { return lastParsed.root }
         do {
-            return try JSONC.parse(text)
+            let root = try JSONC.parse(text)
+            lastParsed = (text, root)
+            return root
         } catch {
             // Never rewrite a file the user left broken: they would lose it.
-            throw Failure.unreadable(String(describing: error))
+            throw Failure.unreadable(JSONC.problem(error, in: text))
         }
     }
 

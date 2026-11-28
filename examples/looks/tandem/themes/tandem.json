@@ -1,0 +1,164 @@
+// Tandem: an agent-workspace look, Light. You and your agents work side by side in one window: a
+// soft gray workspace in a rounded card beside a frosted sidebar that lists every chat and tab as
+// one line with its age, white sheets for Settings, pages and files, warm near-black ink, and one
+// signal color, an orange, for what the agent may do on its own: the approval policy, Send, the
+// focused tab. Colors are sampled from the references' pixels (README, References): the workspace
+// #F4F4F4, the sidebar's gray over the desktop, white rows and menus, the policy orange #FF6900
+// (darkened here to read at 3:1 as a control), the near-black #171717 of the composer's buttons.
+{
+  "name": "Tandem",
+  "description": "Light: a gray card, a frosted sidebar, an orange accent.",
+
+  // The terminal follows the workspace; the window, sidebar and pages take this theme.
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // background: the workspace gray (#F4F4F4 sampled). foreground: the ink, a step off black.
+  // selection: the orange at about 25% over the workspace. accent: the policy orange, darkened.
+  "colors": { "background": "#f4f4f4", "foreground": "#1c1c1c", "selection": "#fbd5bd", "accent": "#e8590c" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a warm chroma, each solved in OKLCH over the page (5.2:1, the bright ones 4.7:1,
+  // 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #f4f4f4",
+    "foreground = #1c1c1c",
+    "cursor-color = #e8590c",
+    "cursor-text = #f4f4f4",
+    "selection-background = #fbd5bd",
+    "selection-foreground = #1c1c1c",
+    "palette = 0=#1c1c1c",
+    "palette = 1=#a8483c",
+    "palette = 2=#02763b",
+    "palette = 3=#7c6301",
+    "palette = 4=#3c64b1",
+    "palette = 5=#954b8c",
+    "palette = 6=#08717a",
+    "palette = 7=#686b73",
+    "palette = 8=#80848c",
+    "palette = 9=#b84a2f",
+    "palette = 10=#017d4d",
+    "palette = 11=#846a00",
+    "palette = 12=#4a67c5",
+    "palette = 13=#a84a91",
+    "palette = 14=#087887",
+    "palette = 15=#8b8d91"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face beside Inter.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // Material: the desktop shows faintly through the sidebar, frosted; the workspace is opaque.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.backgroundOpacity": 0.7,
+  "appearance.wallpaperTint": false,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: the workspace sits in one rounded card beside the sidebar with a thin gutter (6 pt at
+  // the right and bottom, sampled), no line where the sidebar meets it; the toolbar in the
+  // workspace's own tone; the focused pane marked on its tab, as an underlined tab.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "cozy",
+  // Pending cmux#46780: chat tabs are rounded capsules on the strip (the closest of block, rounded,
+  // gooey; the underlined text tab itself has no shape yet).
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected chat or tab is a white raised row with a hairline, not an
+  // accent capsule.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the references at their capture scale (1 pt per pixel in the 1440 pt
+  // live window; half the pixels in the 2x workspace captures): a 42 pt toolbar, a 40 pt tab strip
+  // with 13 pt titles in tabs about 160 pt wide, a 272 pt sidebar (280 and 254 in the two
+  // references) with 32 pt rows, 13 pt chrome text, a 6 pt gutter around the card and a 1 pt divider.
+  "appearance.metrics.titlebarHeight": 42,
+  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 180,
+  "appearance.metrics.tabMinActiveWidth": 140,
+  "appearance.metrics.tabMinInactiveWidth": 100,
+  "appearance.metrics.sidebarWidth": 272,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.columnGap": 6,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: a light gray, mostly opaque, frosted over the desktop, no edge line; quiet gray
+  // section headings ("Pinned", "Chats", "Tabs") over hairline breaks.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f3f3f3",
+  "appearance.surfaces.sidebar.opacity": 0.9,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "lines",
+
+  // The workspace: the chat, tab strip, toolbar and terminal on the gray; files, diffs and
+  // Markdown on white sheets, as the memory and history pages draw them; docks a shade under.
+  "appearance.surfaces.agentPane.color": "#f4f4f4",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f4f4f4",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f4f4f4",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.terminal.color": "#f4f4f4",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.docks.color": "#ececec",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#ffffff",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#ffffff",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#ffffff",
+  "appearance.surfaces.markdown.opacity": 1,
+  // The divider: the menus' and cards' hairline gray (#DEDEDE sampled).
+  "appearance.surfaces.splitDivider.color": "#dedede",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: white sheets of grouped, bordered rows; New Tab and Home on the workspace
+  // gray, with the composer as a white capsule at the center.
+  "appearance.surfaces.settings.color": "#ffffff",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#ffffff",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#f4f4f4",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#f4f4f4",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: the dotted loader beside a working tab and in its row, on tabs too.
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+  "appearance.statusIndicator.showPageLoading": true,
+
+  // The address field: plain in the toolbar; it opens into an elevated suggestion sheet.
+  "browser.omnibar.glass": "off",
+
+  // Motion: modest. Controls arrive and the page reflows at the standard speed; colors blend over
+  // a short ease-in-out.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.duration": 200,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): an agent workspace: rows inset 8 pt with 8 pt
+  // padding and a 4 pt gap (a 32 pt row on a 36 pt pitch), a 50 pt row with a subtitle line, 28 pt
+  // toolbar buttons with an 8 pt corner, a hairline under the toolbar, and the composer as a 44 pt
+  // capsule. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 50,
+  // "appearance.metrics.sidebarRowInset": 8,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 4,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 8,
+  // "appearance.metrics.toolbarButtonCornerRadius": 8,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 44,
+  // "appearance.metrics.spacingScale": 1,
+}

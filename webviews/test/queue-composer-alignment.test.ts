@@ -38,7 +38,6 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
         test(look + ", " + width + "px, " + scheme + ": queue and fold share the box edges", async () => {
           const page = await browser.newPage({ viewport: { width, height: 600 } });
           try {
-            await page.addInitScript((value) => localStorage.setItem("cmux.composer.look", value), look);
             const port = (vite.httpServer!.address() as { port: number }).port;
             await page.goto(
               "http://127.0.0.1:" +
@@ -53,6 +52,11 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
             );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
             await page.waitForSelector(".acpmux-composer-queue[data-unfolded]");
+            await page.evaluate(async (look) => {
+              const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
+              const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+              setPreviewComposerLook(look);
+            }, look);
             await page.waitForFunction(
               (value) =>
                 (document.querySelector(".acpmux-composer")?.getAttribute("data-composer-look") ?? "claude") === value,

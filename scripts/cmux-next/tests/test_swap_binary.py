@@ -14,6 +14,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import importlib.util as _git_fixture_importlib
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parents[3] / "tests" / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "scripts/cmux-next/swap-binary.sh"
 SIDE = ROOT / "scripts/cmux-next/side-instance.sh"
@@ -112,16 +120,43 @@ class SwapBinaryTests(unittest.TestCase):
             self.skipTest("a sparse checkout without the project")
         r = self.run_tool("wrapper", ROOT, self.tmp / "wrapper")
         manifest = (self.tmp / "wrapper/Package.swift").read_text()
-        # -no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's.
-        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"-no_exported_symbols"', '"Carbon"'):
+        # Not "-no_exported_symbols": since #44204 the app's code is in CmuxNextApp.framework behind a stub, and the
+        # Release configuration no longer sets LD_EXPORT_SYMBOLS = NO (Packages/macOS/CmuxNext/Package.swift,
+        # appFrameworkLinkerSettings, says why). The row below covers that setting.
+        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"Carbon"'):
             self.assertIn(flag, manifest)
         self.assertIn('.macOS("14.0")', manifest)
         self.assertIn("link flags", r.stderr)
 
+    def test_wrapper_exports_no_symbols_only_when_the_release_configuration_says_so(self):
+        """-no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's."""
+        def project(debug: str, release: str) -> str:
+            block = ("\t\t{id} /* {name} */ = {{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {{\n{more}"
+                     "\t\t\t\tOTHER_LDFLAGS = (\n\t\t\t\t\t\"-lc++\",\n\t\t\t\t);\n\t\t\t\tPRODUCT_NAME = cmux;\n"
+                     "\t\t\t}};\n\t\t\tname = {name};\n\t\t}};\n")
+            return block.format(id="A1", name="Debug", more=debug) + block.format(id="A2", name="Release", more=release)
+
+        off = "\t\t\t\tLD_EXPORT_SYMBOLS = NO;\n"
+        for name, debug, release, wanted in (("release", "", off, True), ("neither", "", "", False),
+                                             ("debug-only", off, "", False)):
+            with self.subTest(name):
+                src = self.tmp / f"src-{name}"
+                (src / "App").mkdir(parents=True)
+                (src / "App/main.swift").write_text("// stub\n")
+                (src / "cmux.xcodeproj").mkdir()
+                (src / "cmux.xcodeproj/project.pbxproj").write_text(project(debug, release))
+                (src / "Packages/macOS/CmuxNext").mkdir(parents=True)
+                (src / "Packages/macOS/CmuxNext/Package.resolved").write_text('{"pins": [], "version": 3}\n')
+                self.run_tool("wrapper", src, self.tmp / f"wrapper-{name}")
+                manifest = (self.tmp / f"wrapper-{name}/Package.swift").read_text()
+                self.assertIn('"-lc++"', manifest)
+                self.assertEqual('"-no_exported_symbols"' in manifest, wanted, manifest)
+
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
         repo.mkdir()
-        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True,
+                                        env=git_fixture_env.fixture_env()).stdout.strip()
         git("init", "-q")
         git("config", "user.email", "t@example.com"); git("config", "user.name", "t")
         (repo / "App").mkdir(); (repo / "App/main.swift").write_text("1")
@@ -170,6 +205,41 @@ class SwapBinaryTests(unittest.TestCase):
         self.assertNotIn("removed Contents/Resources/CmuxNext_CmuxNextApp.bundle/agent-pane/index.html", diff)
         self.assertFalse(any("web/" in line or "Info.plist" in line for line in diff))
 
+    def folding_locale(self):
+        """A UTF-8 locale whose bash globs fold case (cmux-symbols.bin before CmuxNext_*), or None."""
+        probe = self.tmp / "collate-probe"
+        probe.mkdir(exist_ok=True)
+        for name in ("CmuxNext_A.bundle", "cmux-symbols.bin"):
+            (probe / name).touch()
+        for loc in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8"):
+            env = {k: v for k, v in os.environ.items() if not k.startswith("LC_")}
+            env.update(LANG=loc, LC_COLLATE=loc)
+            out = subprocess.run(["bash", "-c", 'cd "$1" && echo *', "-", str(probe)], env=env,
+                                 text=True, capture_output=True).stdout.split()
+            if out == ["cmux-symbols.bin", "CmuxNext_A.bundle"]:
+                return loc
+        return None
+
+    # SB-PLACE: in a UTF-8 locale bash's globs fold case, so place met cmux-symbols.bin before
+    # CmuxNext_CmuxNextApp.bundle and listed them out of order. The other place test runs in the runner's
+    # locale (C on CI), where the order holds without the fix, so it passed with the fix removed (run
+    # 44827601922, 2026-11-21). This one forces a folding locale, also through LC_ALL, which overrides a
+    # function's LC_COLLATE: `local LC_COLLATE=C` alone still listed them out of order there.
+    def test_place_lists_in_byte_order_in_a_case_folding_locale(self):
+        loc = self.folding_locale()
+        if loc is None:
+            self.skipTest("no locale on this host folds case in bash globs")
+        base = {k: v for k, v in self.env.items() if not k.startswith("LC_")}
+        app, overlay = self.nightly(), self.overlay()
+        for label, extra in (("LANG/LC_COLLATE", {"LANG": loc, "LC_COLLATE": loc}), ("LC_ALL", {"LC_ALL": loc})):
+            with self.subTest(locale=label):
+                copy = self.tmp / f"copy-{label.replace('/', '-')}/cmux NIGHTLY.app"
+                shutil.copytree(app, copy)
+                self.env = {**base, **extra}
+                r = self.run_tool("place", copy, overlay)
+                self.assertIn("replaced=MacOS/cmux,Resources/CmuxNext_CmuxNextApp.bundle,Resources/cmux-symbols.bin",
+                              r.stdout, f"{label}={loc}")
+
     def test_place_refuses_an_installed_app_and_a_missing_overlay(self):
         r = self.run_tool("place", self.nightly(), self.tmp / "nothing", check=False)
         self.assertNotEqual(r.returncode, 0)
@@ -188,6 +258,15 @@ class SwapBinaryTests(unittest.TestCase):
         signs = self.codesign_log.read_text().splitlines()
         self.assertTrue(any(line.startswith("--force --sign -") and line.endswith(str(copy)) for line in signs), signs)
         self.assertTrue(any(line.startswith("--verify --strict") for line in signs), signs)
+
+    def test_fetches_never_recurse_into_submodules(self):
+        # A fetch of one commit still fetches, per submodule, every pin in the history it brings in; one gone
+        # ghostty pin (51cad05, "not our ref") failed cmux#60058's launch-ready measurement after 17 h queued.
+        import re
+        fetches = [line for line in TOOL.read_text().splitlines() if re.search(r"git (-C \S+ )?fetch ", line)]
+        self.assertTrue(fetches)
+        for line in fetches:
+            self.assertIn("--no-recurse-submodules", line)
 
 
 if __name__ == "__main__":

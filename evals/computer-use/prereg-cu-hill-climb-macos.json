@@ -1,0 +1,37 @@
+{
+  "tasks": "cc3b6b6e38cf56442ebec8441599c40e4b7b1a56b2da16cfb86ed546dada0da0",
+  "arms": "a687c8ac5a0d6af25268da0a538e44ee00b1ff0fe3374ca5a32d992082d39279",
+  "prompt": "eb726a95e7f8147f3685277e7e7d998ce553d6f7a5b4f90cbf3f4886c1dedf45",
+  "agent": "claude",
+  "model": "opus",
+  "trials": 3,
+  "max_turns_cap": null,
+  "digest": "581797a37e95a699a88b664ba924708235839e0cbb2a0aa9696744e4d45f01df",
+  "primary_metric": "per-task success x/3, p50 wall s, p50 tool calls, p50 tokens (cmux-cu, macOS)",
+  "hypothesis": "baseline for the CU hill climb (speed and success rate, then tokens); after numbers reuse this exact suite",
+  "task_ids": [
+    "background-person-typing",
+    "calculator-product",
+    "calculator-random-product",
+    "copy-textedit-to-form",
+    "covered-window",
+    "denied-os-appearance",
+    "finder-new-folder",
+    "finder-rename-file",
+    "form-checkbox",
+    "form-counter-exact",
+    "form-name-save",
+    "form-read-code",
+    "form-scroll-select",
+    "form-slider",
+    "text-editor-append",
+    "textedit-plain-text",
+    "textedit-two-docs",
+    "web-order-form",
+    "web-scroll-find",
+    "web-settings-tab"
+  ],
+  "arms_list": [
+    "cmux-cu"
+  ]
+}

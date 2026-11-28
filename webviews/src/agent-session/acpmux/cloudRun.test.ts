@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
 import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
+import { cloudSendAgent } from "./cloudModePick";
 import {
   cloudFolderGrants,
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   cloudSendAfterCheck,
   heldPromptShown,
@@ -35,6 +37,18 @@ test("sign-in recovery can be reused after its card resets", async () => {
   retry.reset();
   await expect(retry()).resolves.toBe(true);
   expect(starts).toBe(2);
+});
+
+test("an explicit Cloud Gemini pick stays on Cloud even when a local first turn is possible", async () => {
+  const cloudStart = { task: "fix it", cwd: "/Users/me/paint" };
+  const cloudPick = cloudSendAgent("gemini", "gemini", "gemini-3.1-pro-preview", true);
+  const localPick = cloudSendAgent("claude", "claude", "sonnet");
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    if (params.cloudOnly !== true) throw { code: "run_on_this_mac" };
+    expect(params).toMatchObject({ harness: "gemini", model: "gemini-3.1-pro-preview", cloudOnly: true });
+  };
+  expect(cloudRunsHere(await startCloudChat(call, { ...cloudStart, ...localPick }))).toBe(true);
+  expect(await startCloudChat(call, { ...cloudStart, ...cloudPick })).toEqual({ ok: true });
 });
 
 test("a reset while a sign-in is out leaves the next card its own retry", async () => {
@@ -557,15 +571,17 @@ test("a Cloud start waits only for the grant of the folder it sends", async () =
   expect(host.calls.at(-1)).toBe("cloud.startChat");
 });
 
-test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
+test("the pane builds its Cloud start from grantedCloudStart and uses the existing New Tab folder grants", () => {
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
     /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
-  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
-  expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
+  // The New Tab page's pick is drawn in the pane body (pane/PaneBody.tsx).
+  const body = readFileSync(join(import.meta.dir, "pane", "PaneBody.tsx"), "utf8");
+  expect(body).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+  expect(body).not.toMatch(/oneCloudStart\(/);
 });
 
 test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every other local chat does", () => {
@@ -645,4 +661,29 @@ test("a Cloud start from a page with no pick goes as it is", async () => {
   );
   await call("cloud.startChat", { key: "k", task: "1+1", home: true });
   expect(calls).toEqual([{ key: "k", task: "1+1", home: true }]);
+});
+
+// cmux#47679: a second Cloud chat in a Cloud chat's workspace (a new tab or split there opens on the Cloud
+// machine) offered Cloud, and Enter sent `cloud.startChat`, which the host refuses from a page on another
+// machine: "Cloud isn't available for this chat", stalled at Clone repository. The new chat runs on that
+// machine already, so Enter starts it in this pane and Cloud is never offered or picked there.
+test("a page whose chat runs on another machine never offers or picks Cloud", () => {
+  expect(pageOnOtherMachine({ cloudMachineID: "m-1" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "remote" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "peer" })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { peer: "devbox" } })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { hostKind: "cloud" } })).toBe(true);
+  // This Mac's page: a new chat there may start on Cloud.
+  expect(pageOnOtherMachine({})).toBe(false);
+  expect(pageOnOtherMachine({ origin: "local", summary: { hostKind: "local" } })).toBe(false);
+  expect(pageOnOtherMachine({ origin: "unknown", summary: { peer: "" } })).toBe(false);
+
+  const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+  expect(source).toMatch(
+    /const onOtherMachinePage = pageOnOtherMachine\(\{ cloudMachineID, origin: snapshot\.origin, summary: snapshot\.summary \}\);/,
+  );
+  expect(source).toMatch(
+    /const cloudOfferable = !onOtherMachinePage && \(sandboxOfferable \|\| emptyLocalChat \|\| pickOnlyChat\);/,
+  );
+  expect(source).toMatch(/const cloudPicked = sandbox\.mode === "cloud" && !onOtherMachinePage && /);
 });

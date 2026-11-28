@@ -14,10 +14,32 @@ mod deadline;
 pub use deadline::RequestDeadline;
 #[path = "cloud_http_transport.rs"]
 mod transport;
-use transport::Transport;
+use transport::{Shape, Transport};
+
+/// A request body: JSON, or bytes sent as `application/octet-stream`.
+#[derive(Clone, Copy, Debug)]
+pub enum Payload<'a> {
+    Json(&'a Value),
+    Bytes(&'a [u8]),
+}
+
+/// One authenticated request whose answer is read as bytes, with its own time and size bounds
+/// ([`JsonPoster::request_raw`]): a route that holds its answer back, or one that carries bytes.
+#[derive(Clone, Copy, Debug)]
+pub struct RawRequest<'a> {
+    pub method: &'a str,
+    pub url: &'a str,
+    pub payload: Option<Payload<'a>>,
+    pub bearer: Option<&'a str>,
+    pub headers: &'a [(&'a str, &'a str)],
+    /// The whole request, its answer's body included, takes at most this long.
+    pub within: Duration,
+    /// The most bytes its answer's body may have.
+    pub limit: usize,
+}
 
 /// A bounded Cloud response: its status, its `Retry-After` (at most 64
-/// bytes, as sent) and its body (at most 1 MiB).
+/// bytes, as sent) and its body (at most 1 MiB, or a raw request's own limit).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
@@ -106,16 +128,44 @@ impl JsonPoster {
         body: Option<&Value>,
         bearer: Option<&str>,
     ) -> Result<(u16, Value), String> {
+        self.send_with_headers(method, url, body, bearer, &[])
+    }
+
+    /// [`JsonPoster::send`] with extra request headers (an `Idempotency-Key`).
+    pub fn send_with_headers(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
         check_url(url, self.allow_http).map_err(|e| e.to_string())?;
         let verb = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| format!("bad method {method}"))?;
         let deadline = RequestDeadline::from_active(Instant::now() + Duration::from_secs(20))
             .ok_or("Cloud request unavailable")?;
         let Response { status, bytes, .. } =
-            self.transport_request(verb, url, body, bearer, &deadline)?;
+            self.transport_request(verb, url, Shape::json(body), bearer, headers, &deadline)?;
         let parsed =
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
         Ok((status, parsed))
+    }
+
+    /// One authenticated platform API request whose answer comes back as it was sent: the
+    /// status and the body's bytes, at most `request.limit` of them, within `request.within`.
+    /// HTTPS only and no redirects, as every request here. Errors name neither the URL nor a
+    /// body.
+    pub fn request_raw(&self, request: &RawRequest<'_>) -> Result<Response, String> {
+        check_url(request.url, self.allow_http).map_err(|_| "Cloud request unavailable")?;
+        let verb = reqwest::Method::from_bytes(request.method.as_bytes())
+            .map_err(|_| "Cloud request unavailable")?;
+        let deadline = Instant::now()
+            .checked_add(request.within)
+            .and_then(RequestDeadline::from_active)
+            .ok_or("Cloud request unavailable")?;
+        let shape = Shape { payload: request.payload, limit: request.limit };
+        self.transport_request(verb, request.url, shape, request.bearer, request.headers, &deadline)
     }
 
     /// `(status, body)`; a body that is not JSON reads as `{}`.
@@ -165,15 +215,16 @@ impl JsonPoster {
             return Err("Cloud request unavailable".into());
         }
         let method = if body.is_some() { reqwest::Method::POST } else { reqwest::Method::GET };
-        self.transport_request(method, url, body, bearer, deadline)
+        self.transport_request(method, url, Shape::json(body), bearer, &[], deadline)
     }
 
     fn transport_request(
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         deadline: &RequestDeadline,
     ) -> Result<Response, String> {
         // This synchronous owner is serial. Contention cannot queue a request
@@ -194,7 +245,7 @@ impl JsonPoster {
             method,
             url,
             body,
-            bearer,
+            transport::Sign { bearer, headers },
             deadline,
             &mut network,
         );

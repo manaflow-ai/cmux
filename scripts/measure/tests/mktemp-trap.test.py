@@ -11,7 +11,10 @@ forget it):
 
 Each registration block that also traps TERM and INT (its `mktemp -d` line down to its trap lines) is also run in bash
 with an injected failure (a failing command under set -e, exit 3, TERM, INT): the folder must be gone and
-the exit code kept (the failure's, 143, 130).
+the exit code kept (the failure's, 143, 130). A block whose trap calls a helper from a library the script sources
+before its `mktemp -d` (measure_remove_scratch in app-at-commit.sh) runs with that library sourced first, as the
+script does; a library is sourced this way only when it holds nothing but functions, assignments and bare fd
+duplications (`exec 9>&1`).
 
 The checker is also run on fixtures that break each rule, and on one that follows them, so a
 checker that stops seeing a violation fails here too.
@@ -78,9 +81,34 @@ def registration_blocks(text):
             yield index + 1, "\n".join(lines[index:last + 1])
 
 
-def run_block(snippet, ending):
+SOURCE_LINE = re.compile(r'^(?:\.|source)\s+"?(?:\$root/|\$\{root\}/)?(scripts/[A-Za-z0-9_./-]+\.sh)"?\s*$')
+# `exec 9>&1` (a bare fd duplication, no command) only opens a descriptor: app-at-commit.sh keeps its caller's stdout so.
+LIBRARY_TOP = re.compile(r"^(#|$|\}|[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{|[A-Za-z_][A-Za-z0-9_]*=|exec(\s+[0-9]+[<>]&?[0-9-]+)+\s*$)")
+
+
+def function_library(path):
+    """True when PATH defines only functions and variables at its top level, so sourcing it runs nothing."""
+    if not path.is_file():
+        return False
+    lines = path.read_text(errors="replace").splitlines()
+    return all(LIBRARY_TOP.match(line) for line in lines if not line[:1].isspace())
+
+
+def sourced_libraries(text, before_line):
+    """The repository libraries TEXT sources at its top level before line BEFORE_LINE, as `. PATH` lines."""
+    found = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if number >= before_line:
+            break
+        match = SOURCE_LINE.match(line)
+        if match and function_library(ROOT / match.group(1)):
+            found.append(f'. "{ROOT / match.group(1)}"')
+    return "\n".join(found)
+
+
+def run_block(snippet, ending, prelude=""):
     with tempfile.TemporaryDirectory() as sandbox:
-        script = f'set -euo pipefail\nroot="$PWD"\n{snippet}\n{ending}\n'
+        script = f'set -euo pipefail\nroot="$PWD"\n{prelude}\n{snippet}\n{ending}\n'
         # This sandbox folder is the only TMPDIR the snippet sees, so what is left in it is what leaked.
         env = dict(os.environ, TMPDIR=sandbox)
         done = subprocess.run(["bash", "-c", script], env=env, cwd=sandbox, capture_output=True, text=True, timeout=60)
@@ -90,8 +118,9 @@ def run_block(snippet, ending):
 def runtime_failures(name, text):
     found = []
     for line, snippet in registration_blocks(text):
+        prelude = sourced_libraries(text, line)
         for ending, want in INJECTED:
-            code, left = run_block(snippet, ending)
+            code, left = run_block(snippet, ending, prelude)
             if left or code != want:
                 found.append(f"{name}:{line}: after `{ending}` rc={code} (wanted {want}), left behind {left}")
     return found
@@ -99,6 +128,11 @@ def runtime_failures(name, text):
 
 RUNTIME_FIXTURE_BAD = 'out="$(mktemp -d)"\ntrap true EXIT\ntrap \'exit 130\' INT\ntrap \'exit 143\' TERM\n'
 RUNTIME_FIXTURE_OK = 'out="$(mktemp -d)"\ntrap \'rm -rf -- "$out"\' EXIT\ntrap \'exit 130\' INT\ntrap \'exit 143\' TERM\n'
+# A trap that calls a sourced library's helper: it cleans up with the library sourced, and fails when the
+# script never sources it (the helper is not found, exit 127, and the folder stays).
+HELPER_BLOCK = 'out="$(mktemp -d)"\ntrap \'measure_remove_scratch "$out"\' EXIT\ntrap \'exit 130\' INT\ntrap \'exit 143\' TERM\n'
+RUNTIME_FIXTURE_HELPER_OK = ". scripts/measure/app-at-commit.sh\n" + HELPER_BLOCK
+RUNTIME_FIXTURE_HELPER_UNSOURCED = HELPER_BLOCK
 
 
 def main():
@@ -111,6 +145,10 @@ def main():
         failed.append("runtime fixture without a cleanup trap did not fail")
     for problem in runtime_failures("fixture-ok", RUNTIME_FIXTURE_OK):
         failed.append("runtime fixture that cleans up failed: " + problem)
+    for problem in runtime_failures("fixture-helper-ok", RUNTIME_FIXTURE_HELPER_OK):
+        failed.append("runtime fixture that cleans up through a sourced helper failed: " + problem)
+    if not runtime_failures("fixture-helper-unsourced", RUNTIME_FIXTURE_HELPER_UNSOURCED):
+        failed.append("runtime fixture whose trap calls a helper it never sources did not fail")
     scripts = sorted(p for p in MEASURE.rglob("*.sh") if "/tests/" not in p.as_posix())
     scripts += sorted(p for p in MEASURE.rglob("*.py") if "/tests/" not in p.as_posix())
     checked = 0

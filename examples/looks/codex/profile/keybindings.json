@@ -1,0 +1,23 @@
+// The reference app's keys (its shipped keyboard shortcut table, desktop build 26.1120.50957), each on the
+// cmux command that does the same. Shift-Command-O was Restore Previous App Launch; it stays in the
+// Command Palette. Keys the reference app shares with cmux's defaults are not repeated here: Command-B
+// (sidebar), Command-K (search chats), Command-F (find), Command-, (Settings), Command-1 to 9 (a chat by
+// its place), Command-T (new tab), Command-W (close) and Shift-Command-[ and ] (previous and next tab).
+[
+  { "key": "cmd+n", "command": "palette.newAgentChat", "args": { "harness": "codex" } },
+  { "key": "cmd+shift+o", "command": "palette.newAgentChat", "args": { "harness": "codex" } },
+  { "key": "cmd+shift+e", "command": "agentPane.toggleFiles" },
+  { "key": "ctrl+shift+g", "command": "openDiffViewer" },
+  { "key": "ctrl+shift+m", "command": "agentPane.switchModel" },
+  { "key": "cmd+alt+leftbracket", "command": "prevSidebarTab" },
+  { "key": "cmd+alt+rightbracket", "command": "nextSidebarTab" },
+  { "key": "cmd+alt+r", "command": "renameWorkspace" },
+  { "key": "cmd+shift+a", "command": "workspace.toggleArchive" },
+  { "key": "cmd+alt+p", "command": "palette.toggleWorkspacePin" },
+  { "key": "cmd+shift+u", "command": "palette.markWorkspaceUnread" },
+  { "key": "cmd+alt+a", "command": "jumpToUnread" },
+  { "key": "cmd+alt+l", "command": "palette.copyWorkspaceLink" },
+  { "key": "cmd+shift+c", "command": "workspace.copyPath" },
+  { "key": "cmd+shift+t", "command": "reopenClosedWorkspace" },
+  { "key": "cmd+slash", "command": "palette.searchShortcuts" }
+]

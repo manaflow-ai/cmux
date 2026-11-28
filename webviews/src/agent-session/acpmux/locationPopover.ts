@@ -1,18 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import type { UiPopupFlip, UiPopupSide } from "../../ui/openSide";
 import { resolveUiSide } from "../../ui/anchor";
 import { interfaceScale, viewOf } from "../../ui/interfaceScale";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 
 /// The composer a location control heads: the chat pane's form, or the New Tab page's composer.
 const COMPOSER = "form.acpmux-composer, .nt-composer";
 
+/// The composer's text field: the chat pane's prompt (ProseMirror or its textarea) or New Tab's field.
+const COMPOSER_FIELD = ".acpmux-composer-box .ProseMirror, .acpmux-composer-box textarea, .nt-field";
+
+/// The side away from the composer's text field (Leo 2026-11-22: "the things should usually if
+/// possible open away from the text input"). A control over the field (the folder, computer and
+/// branch strip) opens up; one under it (the foot chips) opens down, so a menu never draws over the
+/// prompt and the chips beside it when the other side has room. Lucas saw the folder menu open down
+/// over the field and the "Bypass permissions" chip on a New Tab composer just under the window's
+/// middle (the 2026-10-29 rule below sent it down). Read from where the control and the field sit
+/// when the menu opens. No composer, or a composer whose field is not drawn: undefined.
+export function sideAwayFromInput(control: Element | null): UiPopupSide | undefined {
+  const field = control?.closest(COMPOSER)?.querySelector(COMPOSER_FIELD);
+  const box = field?.getBoundingClientRect();
+  if (!control || !box || box.height <= 0) return undefined;
+  const own = control.getBoundingClientRect();
+  return (own.top + own.bottom) / 2 <= (box.top + box.bottom) / 2 ? "top" : "bottom";
+}
+
 /// The side away from the conversation (Leo 2026-10-29: "make them open away from teh chat, which
-/// is obviously up if it's up, down if it's down"). It is read from where the composer sits in the
+/// is obviously up if it's up, down if it's down"), now only the fallback when no text field is
+/// drawn (`sideAwayFromInput` comes first). It is read from where the composer sits in the
 /// window when the menu opens, never from which page it is: a composer in the lower half has the
-/// chat above it, so its menus open down over the composer; one in the upper half (New Tab, with
-/// the chats under it) opens them up. Outside a composer there is no chat to keep clear: undefined.
+/// chat above it, so its menus open down; one in the upper half (New Tab, with the chats under it)
+/// opens them up. Outside a composer there is no chat to keep clear: undefined.
 export function sideAwayFromChat(
   control: Element | null,
   viewportHeight = window.innerHeight,
@@ -24,8 +43,9 @@ export function sideAwayFromChat(
 }
 
 /// The location menus (project, machine, branch). In a composer they open on the side away from the
-/// chat (`sideAwayFromChat`) when their shortest useful form fits there, and the list shrinks to the
-/// room it got (`--available-height`). When it does not fit, they open on the other side. A menu
+/// text field (`sideAwayFromInput`; `sideAwayFromChat` when no field is drawn) when their shortest
+/// useful form fits there, and the list shrinks to the room it got (`--available-height`). When it
+/// does not fit, they open on the other side. A menu
 /// never covers its own control, so a second press on the control still closes it (Lucas
 /// 2026-11-07). Anywhere else they open below whenever the full menu fits there, and the shared rule
 /// (`resolveUiSide`) flips above only when that side fits or has more room. Either way the side is
@@ -60,9 +80,11 @@ export function useLocationPopover({
   return { control, anchor, open: state.open, setOpen, side: state.side, flip };
 }
 
-/// The side a location menu opens on, read once when it opens. In a composer: away from the chat when
-/// the menu's shortest form fits there or that side has the more room, else the other side. Outside
-/// a composer: below when the full menu fits or below has the more room, else above.
+/// The side a location menu opens on, read once when it opens. In a composer: away from its text
+/// field when the menu's shortest form, or at least `AWAY_FROM_INPUT_FLOOR`, fits there or that side
+/// has the more room, else the other side; with no field drawn, away from the chat by the same
+/// measure without the floor. Outside a composer: below when the full menu fits or below has the
+/// more room, else above.
 export function locationMenuSide(
   control: Element | null,
   viewportHeight = window.innerHeight,
@@ -71,13 +93,22 @@ export function locationMenuSide(
 ): UiPopupSide | undefined {
   const rect = control?.getBoundingClientRect();
   if (!rect) return undefined;
-  const away = sideAwayFromChat(control, viewportHeight);
-  const { tallest, shortest } = locationMenuHeights(interfaceScale(viewOf(control)), listCap, shortestAtDefault);
+  const scale = interfaceScale(viewOf(control));
+  const { tallest, shortest } = locationMenuHeights(scale, listCap, shortestAtDefault);
+  // Away from the text field the menu stays while the search field and a few rows fit, its list
+  // scrolling in the room it got: the other side covers the prompt and the chips beside it.
+  const clearOfInput = sideAwayFromInput(control);
+  const away = clearOfInput ?? sideAwayFromChat(control, viewportHeight);
+  const needs = clearOfInput ? Math.min(shortest, AWAY_FROM_INPUT_FLOOR * scale) : shortest;
   const resolved = away
-    ? resolveUiSide(rect, shortest, viewportHeight, { side: away === "top" ? "above" : "below" })
+    ? resolveUiSide(rect, needs, viewportHeight, { side: away === "top" ? "above" : "below" })
     : resolveUiSide(rect, tallest, viewportHeight, { side: "below" });
   return resolved === "above" ? "top" : "bottom";
 }
+
+/// The least room a menu keeps on the side away from the text field, at the default Text Size: its
+/// search field, three rows and padding. Short of it the menu takes the other side.
+export const AWAY_FROM_INPUT_FLOOR = 150;
 
 /// The folder list's cap (`.acpmux-location-folders`, composerLocation.css): a fixed height its rows
 /// scroll in, at any Text Size.
@@ -138,11 +169,12 @@ export function locationMenuHeights(
 export function useLocationOpener(name: string | undefined, open: () => void) {
   const latest = useRef(open);
   latest.current = open;
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
-    if (!name) return;
+    if (!name || parked) return;
     return registerPicker(name, () => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       latest.current();
     });
-  }, [name]);
+  }, [name, parked]);
 }

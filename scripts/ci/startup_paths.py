@@ -51,7 +51,12 @@ GATE_LOG = ('process == "syspolicyd" OR process BEGINSWITH[c] "xprotect" OR proc
 GATE_WORDS = ("assess", "xprotect", "scan", "ticket", "notar", "prompt", "quarantine", "translocat", "gatekeeper",
               "malware", "yara", "evaluat")
 SETTLE_MARKS = ("first_window_frame_committed", "reveal.sidebar", "reveal.tabs")
-CUA = Path("~/.local/bin/cua-driver").expanduser()
+# The console's CuaDriver, which holds the Accessibility grant a measure step lacks. A fleet step's HOME is the step's
+# own, so `~/.local/bin/cua-driver` is not there and the driver's daemon socket is under another home: the lookup
+# found no driver, fell back to System Events (no Automation grant: each look hung 20 s) and no fresh-install round
+# ever pressed Open (startup-matrix gamut, 2026-11-28). launch-fresh-install.sh's cua_pick does the same.
+CUA_PATHS = (Path("/Applications/CuaDriver.app/Contents/MacOS/cua-driver"), Path("~/.local/bin/cua-driver").expanduser())
+SYSTEM_EVENTS_S = 20
 STARTUP_S = 150.0
 SETTLE_GRACE_S = 10.0
 
@@ -106,8 +111,52 @@ def app_pid(executable: str, known: set[int]) -> tuple[int, str] | None:
     return max(fresh) if fresh else None
 
 
+_CUA: list | None = None
+_SYSTEM_EVENTS_DEAD: str | None = None
+
+
+def cua_argv() -> list[str]:
+    """The argv that runs CuaDriver with the HOME whose daemon socket exists (this HOME, this user's home, the console
+    user's), or [] when no driver is installed. Looked up once per run."""
+    global _CUA
+    if _CUA is None:
+        real = next((p for p in CUA_PATHS if os.access(p, os.X_OK)), None)
+        _CUA = []
+        if real is not None:
+            import pwd
+            homes = [os.environ.get("HOME", "")]
+            for uid in (os.getuid(), _console_uid()):
+                try:
+                    if uid is not None:
+                        homes.append(pwd.getpwuid(uid).pw_dir)
+                except KeyError:
+                    pass
+            home = next((h for h in homes if h and (Path(h) / "Library/Caches/cua-driver/cua-driver.sock").is_socket()),
+                        None)
+            _CUA = ["/usr/bin/env", f"HOME={home}", str(real)] if home else [str(real)]
+    return _CUA
+
+
+def _console_uid() -> int | None:
+    try:
+        return os.stat("/dev/console").st_uid
+    except OSError:
+        return None
+
+
+def prompt_driver_failure(prompt: dict) -> str | None:
+    """The row's cause when the first-launch prompt could not be pressed at all: no CuaDriver and System Events
+    refused or hung (the step's process lacks the Automation or Accessibility grant)."""
+    error = prompt.get("look_error")
+    if error is None or prompt.get("clicked_ms"):
+        return None
+    return (f"first-launch prompt never pressed: no CuaDriver at {', '.join(str(p) for p in CUA_PATHS)} and System "
+            f"Events failed ({str(error)[-120:]}); grant this host's step Automation (System Events) and "
+            f"Accessibility, or install CuaDriver")
+
+
 def cua(tool: str, args: dict) -> dict:
-    code, out = run_text([str(CUA), "call", tool, json.dumps(args)], timeout=60)
+    code, out = run_text(cua_argv() + ["call", tool, json.dumps(args)], timeout=60)
     try:
         return json.loads(out) if code == 0 else {"error": out[-300:]}
     except ValueError:
@@ -131,7 +180,8 @@ def answer_prompt() -> dict | None:
     agents = [int(p) for p in out.split() if p.isdigit()] if code == 0 else []
     if not agents:
         return None
-    if CUA.exists():
+    global _SYSTEM_EVENTS_DEAD
+    if cua_argv():
         wins = [w for w in walk(cua("list_windows", {"pid": agents[0]}), lambda o: isinstance(o, dict) and "window_id" in o)
                 if w.get("is_on_screen")]
         for win in wins:
@@ -148,10 +198,13 @@ def answer_prompt() -> dict | None:
     script = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
               'if (count of windows) is 0 then return "none"\n'
               'click button "Open" of window 1\nreturn "clicked"\nend tell')
-    code, out = run_text(["osascript", "-e", script], timeout=20)
+    if _SYSTEM_EVENTS_DEAD is not None:  # it hung or refused once: every later look would block the round 20 s
+        return {"by": "system-events", "shown": False, "error": _SYSTEM_EVENTS_DEAD}
+    code, out = run_text(["osascript", "-e", script], timeout=SYSTEM_EVENTS_S)
     if code == 0 and out == "none":
         return None
     if code != 0:  # no grant: it cannot see a prompt, so none is counted
+        _SYSTEM_EVENTS_DEAD = out[-200:]
         return {"by": "system-events", "shown": False, "error": out[-200:]}
     return {"by": "system-events", "click": out}
 
@@ -211,7 +264,7 @@ def install(smoke, dmg: Path, root: Path) -> tuple[Path, dict]:
     mount.mkdir()
     try:
         started = time.monotonic()
-        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
+        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-noautofsck", "-mountpoint", str(mount)],
                        check=True, stdout=subprocess.DEVNULL, timeout=600)
         info["mount_ms"] = round((time.monotonic() - started) * 1000)
         apps = sorted(mount.glob("*.app"))
@@ -256,6 +309,9 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
         shutil.rmtree(root, ignore_errors=True)
     if not row["failures"]:
         row["failures"] += defaults_leak_failures(row)
+        cause = prompt_driver_failure(row.get("prompt") or {})
+        if cause and row.get("first_window_ms") is None:
+            row["failures"].append(cause)
         if row.get("first_window_ms") is None:
             row["failures"].append("no first window frame")
         if row.get("home_ms") is None:
@@ -423,7 +479,12 @@ class SyntheticLoad:
             ["/bin/sh", "-c", 'while :; do dd if=/dev/zero of="$1" bs=1048576 count=256 2>/dev/null; sync; rm -f "$1"; done',
              "load", str(target)], stdout=subprocess.DEVNULL, start_new_session=True))
         SyntheticLoad.running.append(self)
-        time.sleep(1.0)  # the load is on before the reopen
+        # The load is on before the reopen: the writer has its first file open and every worker is still running.
+        on_by = time.monotonic() + 10
+        while not (target.exists() and all(p.poll() is None for p in self.procs)):
+            if time.monotonic() > on_by:
+                raise RuntimeError(f"the synthetic load never started ({target} not written in 10 s, or a worker exited)")
+            time.sleep(0.05)
         return {"cpu_workers": workers, "cpus": cpus, "io": "256 MiB dd writes and a sync, in a loop",
                 "load1_at_reopen": round(os.getloadavg()[0], 2)}
 
@@ -473,6 +534,10 @@ def self_test() -> int:
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3}) is None
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3, "reveal.pane": 9}) == 9
     assert timings({}, {}, None, {})["first_window_ms"] is None
+    assert prompt_driver_failure({}) is None
+    assert prompt_driver_failure({"look_error": "timed out", "clicked_ms": 900}) is None
+    assert "Automation" in prompt_driver_failure({"look_error": "osascript timed out after 20 seconds"})
+    assert isinstance(cua_argv(), list)
     print("startup_paths self-test: ok")
     return 0
 

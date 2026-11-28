@@ -122,7 +122,7 @@ fn normalize_qualified_target(
 
 fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     if args.is_empty() || asks_help(args) {
-        println!("{HELP}");
+        println!("{}", verb_help(args).unwrap_or_else(|| HELP.to_owned()));
         return 0;
     }
     // The CLI waits longer than an MCP tool call may (wait.rs `MAX_CLI_TIMEOUT_SECONDS`).
@@ -191,6 +191,38 @@ fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+/// `cmux agents chat new --help`: the lines of [`HELP`] for the verb asked about (the longest
+/// run of its words that has any), `None` for the whole help. Before, every verb printed it all
+/// (the Cloud and remote command matrix).
+fn verb_help(args: &[String]) -> Option<String> {
+    let words = args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .filter(|arg| !arg.starts_with('-'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (verb, lines) = (1..=words.len()).rev().find_map(|count| {
+        let verb = words.get(..count)?.join(" ");
+        let prefix = format!("  cmux agents {verb}");
+        let lines = HELP
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(&prefix)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .collect::<Vec<_>>();
+        (!lines.is_empty()).then_some((verb, lines))
+    })?;
+    let mut text = format!("Usage: cmux agents {verb}\n\n{}", lines.join("\n"));
+    if verb == "chat new" || verb == "chat" {
+        text.push_str(
+            "\n\n`cmux agents chat new --on vm:ID|NAME|new` starts the chat on a Cloud machine, as \
+             `cmux chat --on` does (`cmux chat --help`).",
+        );
+    }
+    Some(text)
+}
+
 fn asks_help(args: &[String]) -> bool {
     args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
@@ -435,10 +467,28 @@ fn follow_app_focus<B: Backend>(
     let Some(id) = app_focus::reply_id(&result) else { return Ok(result) };
     let params = app_focus::focus_params(&focus, &id);
     match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None, true) {
-        Ok(_) => Ok(result),
-        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => Ok(result),
+        Ok(_) => Ok(app_shown(result, None)),
+        // The daemon moved its focus; no window shows it, which is not a failure (a headless
+        // session, an app on another session). Say so in the result, so a caller that needs a
+        // window (a probe watching the app) can tell instead of reading exit 0 as shown.
+        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => {
+            Ok(app_shown(result, Some(&failure.error)))
+        }
         Err(failure) => Err(AgentFailure::Owner(failure)),
     }
+}
+
+/// `result` with `app_shown`: whether a cmux window now shows the selected object, and when not,
+/// `app_not_shown`, the app's error code (`not_found`: the app has no such object; `app.not_found`
+/// or `app.unreachable`: no app answered).
+fn app_shown(mut result: Value, error: Option<&Value>) -> Value {
+    if let Some(object) = result.as_object_mut() {
+        object.insert("app_shown".into(), Value::Bool(error.is_none()));
+        if let Some(code) = error.and_then(|e| e.get("code")).cloned() {
+            object.insert("app_not_shown".into(), code);
+        }
+    }
+    result
 }
 
 /// No app answers on its control socket, so no window follows.

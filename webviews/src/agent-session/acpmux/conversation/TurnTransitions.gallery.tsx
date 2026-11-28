@@ -12,6 +12,9 @@
 // a tool call, a call joining a group, a subagent; Leo, 2026-11-09: "thinking, tool calls, etc...
 // cannot lag nor can they take long") compare `arrive` with the earlier looks;
 // test/row-arrival-settle.test.ts measures each one's event to rest (CMUX_ROW_ARRIVAL_LOOKS).
+// The `arrive-tool-swap-*` plays compare how the live line hands its words to the call whose row
+// arrives (Leo, 2026-11-21: "the animation for the Thinking swapping to tool calls also probably needs
+// to be smoothed out"; conversation.css `data-live-swap`, test/thinking-tool-swap-frames.test.ts).
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -27,6 +30,7 @@ import {
 } from "./scriptedTurn";
 import type { TailGlideLook } from "./tailGlide";
 import { turnView } from "./turns";
+import { useStreamAppendDeclaration } from "../devMotionAudit";
 import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const expanded = new Set<string>();
@@ -45,7 +49,10 @@ const LABEL: Record<GalleryTurn, string> = {
   "thought-text": "Thinking, then text",
 };
 
-function TurnTransitionsGallery({ turn, look }: { turn: GalleryTurn; look: TailGlideLook }) {
+/// How the live line hands its words to an arriving call (conversation.css `data-live-swap`).
+type LiveSwapLook = "shipped" | "before" | "wait" | "exit" | "quick" | "cross" | "slide";
+
+function TurnTransitionsGallery({ turn, look, swap }: { turn: GalleryTurn; look: TailGlideLook; swap?: LiveSwapLook }) {
   const [view, setView] = useState<Required<ScriptedView>>(() => ({
     rows: scriptedHistory() as AcpmuxRow[],
     working: false,
@@ -54,6 +61,10 @@ function TurnTransitionsGallery({ turn, look }: { turn: GalleryTurn; look: TailG
   }));
   const [dock, setDock] = useState<HTMLElement | null>(null);
   const [state, setState] = useState<"ready" | "playing" | "settled">("ready");
+  // The pane declares its transcript's growth while a turn works (App.tsx `useStreamAppendDeclaration`,
+  // contract `stream-append`); this stage plays the same VirtualTranscript, so it declares the same flag.
+  // Without it each row the live turn pushed down read as an undeclared move (TurnEndFold.gallery.tsx, #57247).
+  useStreamAppendDeclaration(view.working);
   const play = () => {
     if (state === "playing") return;
     setState("playing");
@@ -63,7 +74,12 @@ function TurnTransitionsGallery({ turn, look }: { turn: GalleryTurn; look: TailG
     }).then(() => setState("settled"));
   };
   return (
-    <div className="acpmux-shell" data-tail-glide={look} style={{ height: "100%" }}>
+    <div
+      className="acpmux-shell"
+      data-tail-glide={look}
+      data-live-swap={swap === "shipped" ? undefined : swap}
+      style={{ height: "100%" }}
+    >
       <div className="acpmux-main" data-dock="float">
         <div className="acpmux-stage">
           <header className="acpmux-header">
@@ -109,6 +125,20 @@ const TURNS: TransitionTurn[] = ["text-tool", "burst-thought", "tool-group", "st
 const ARRIVALS: ArrivalTurn[] = ["arrive-thinking", "arrive-tool", "arrive-group", "arrive-subagent"];
 const LOOKS: TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 const ARRIVAL_LOOKS: TailGlideLook[] = ["arrive", "quick", "glide"];
+const SWAP_LOOKS: LiveSwapLook[] = ["shipped", "before", "wait", "exit", "quick", "cross", "slide"];
+const SWAP_NOTE: Record<LiveSwapLook, string> = {
+  shipped:
+    "Shipped: the live line rolls its words (the call) out and the next in, never a blank line; the call's row fades in on the exit lead once the roll is over, so its name is drawn once.",
+  wait: "The roll, then the call's row fading in on the full arrival step: drawn once, but at rest 50 ms later.",
+  before:
+    "Before: the call's row fades in a line over the roll while the call's name rolls out at full ink, drawn twice for 8 frames.",
+  exit: "The old words fade in place over the exit lead, then the new and the row fade in: a near-blank line mid-change.",
+  quick: "Exit with the new words and the row fading over the lead too: one quick step, a near-blank line mid-change.",
+  cross:
+    "Both words cross-fade in the one cell, the row with them: two faint texts over each other, the name drawn twice.",
+  slide:
+    "The old words lift half a line as they fade, the new rise half a line after the lead: a near-blank line mid-change.",
+};
 const NOTE: Record<TailGlideLook, string> = {
   arrive: `Shipped: everything that moves (the rows above, the rows under, the new row's fade) runs on one ${MOTION_MS.quick} ms step and rests together.`,
   quick: `Before: the rows under the change glide on the entry step (${MOTION_MS.micro} ms); the rows above come home on the spring.`,
@@ -116,7 +146,7 @@ const NOTE: Record<TailGlideLook, string> = {
   jump: "The rows under the change move at once.",
 };
 
-export default componentEntry<{ turn: GalleryTurn; look: TailGlideLook }>({
+export default componentEntry<{ turn: GalleryTurn; look: TailGlideLook; swap?: LiveSwapLook }>({
   id: "agent-pane.turn-transitions",
   title: "Turn transitions",
   area: "Agent pane",
@@ -144,9 +174,20 @@ export default componentEntry<{ turn: GalleryTurn; look: TailGlideLook }>({
     [
       ...TURNS.flatMap((turn) => LOOKS.map((look) => [turn, look] as const)),
       ...ARRIVALS.flatMap((turn) => ARRIVAL_LOOKS.map((look) => [turn, look] as const)),
-    ].map(([turn, look]) => [
-      `${turn}-${look}`,
-      { props: { turn, look }, play: playTurn, note: `${LABEL[turn]}. ${NOTE[look]}` },
-    ]),
+    ]
+      .map(([turn, look]) => [
+        `${turn}-${look}`,
+        { props: { turn, look }, play: playTurn, note: `${LABEL[turn]}. ${NOTE[look]}` },
+      ])
+      .concat(
+        SWAP_LOOKS.map((swap) => [
+          `arrive-tool-swap-${swap}`,
+          {
+            props: { turn: "arrive-tool", look: "arrive", swap },
+            play: playTurn,
+            note: `${LABEL["arrive-tool"]}. ${SWAP_NOTE[swap]}`,
+          },
+        ]),
+      ),
   ),
 });

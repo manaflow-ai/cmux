@@ -1,5 +1,6 @@
 import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
+import type { CloudStartPick } from "./newtab/draftFolder";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   cloudPlansNamed,
@@ -34,7 +35,13 @@ export type CloudStartProgress = {
   key: string;
   /// The person's message.
   task: string;
+  /// Messages sent with Return while the start ran ("just go", cloudStartJustGo): they show under the
+  /// message and go with the started chat's first prompt (the host joins them, `chat.cloudStartQueue`).
+  queued?: string[];
   state: "starting" | "failed";
+  /// The agent and model the start runs (`harness` id, `model` id): the composer's model chip names them while the
+  /// start shows, so it never reads the picker's default (Opus) for a start that went as GPT-6.1 Sol (cmux#45774).
+  pick?: CloudStartPick;
   /// The folder's name (its last path part).
   folder?: string;
   /// The folder the start copies, whole (trailing slashes dropped): the composer's folder chip names it while the
@@ -72,9 +79,15 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
+  /// The environment selected for this start. Kept separately from `environmentId` because a failed
+  /// plan may not have returned the resolved id yet; Retry must still name the same target.
+  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
+  /// The machine step waits out a pause or a resume in flight (the host's `waking`, decided by Rust's
+  /// `cloud_move_settle`, ask-259986a6c4): the card says "Waking machine".
+  waking?: boolean;
   harnessStartedAt?: number;
   harnessFinishedAt?: number;
   /// The git-seed status, forwarded from `git.seed.status`.
@@ -256,6 +269,8 @@ export function cloudStartBegun(
   home?: boolean,
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
+  pick?: CloudStartPick,
+  environment?: string,
 ): CloudStartProgress {
   const whole = cwd?.replace(/\/+$/, "");
   const folder = whole?.split("/").pop();
@@ -268,6 +283,8 @@ export function cloudStartBegun(
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(environment ? { environment } : {}),
+    ...(pick ? { pick } : {}),
   };
 }
 
@@ -276,6 +293,11 @@ export function cloudStartBegun(
 /// platform's own `cloud_plan_required`.
 export function cloudStartPlanHeld(key: string, task: string, cwd: string | undefined): CloudStartProgress {
   return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
+}
+
+/// A setup remains the held send's while the panel is waiting on Settings.
+export function heldCloudSetup(start: CloudStartProgress | undefined): CloudSetupNeed | undefined {
+  return start?.state === "failed" || start?.signingIn ? start.cloudSetup : undefined;
 }
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
@@ -309,11 +331,29 @@ export function cloudStartPushed(
   push: unknown,
   now: number = Date.now(),
 ): CloudStartProgress | undefined {
-  const next = pushedFields(current, push);
-  if (!current || !next || next === current) return next;
+  const pushed = pushedFields(current, push);
+  if (!current || !pushed || pushed === current) return pushed;
+  const next = stepTimes(current, pushed, now);
   // Only a push that moved the start counts as word from the host (watchCloudStartStall).
   const moved = current.advancedAt === undefined || cloudStartMark(next) !== cloudStartMark(current);
   return { ...next, advancedAt: moved ? now : current.advancedAt };
+}
+
+/// The client-side times of `next`'s steps, from when this page saw each begin, where the host sent none:
+/// the machine from its `machine` step, its end (and so the copy's start) at the next step, the agent's
+/// start at `opening`. The host's own times win. A running copy's later lines keep its start time, so its
+/// step line's clock never resets to zero mid-copy (Austin, 2026-11-24: "show the seconds").
+function stepTimes(current: CloudStartProgress, next: CloudStartProgress, now: number): CloudStartProgress {
+  const stamped = { ...next };
+  if (next.step !== current.step) {
+    if (next.step === "machine") stamped.machineStartedAt ??= now;
+    if (next.step === "folder" || next.step === "opening") stamped.machineFinishedAt ??= now;
+    if (next.step === "opening") stamped.harnessStartedAt ??= now;
+  }
+  const kept = current.clone?.startedAt;
+  if (stamped.clone && stamped.clone.startedAt === undefined && kept !== undefined)
+    stamped.clone = { ...stamped.clone, startedAt: kept };
+  return stamped;
 }
 
 /// What of a start shows that it moves: its step, each step's state and phase, and the clone's counts.
@@ -365,6 +405,8 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
   const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
   const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
   const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (fields.waking === true) next.waking = true;
+  if (fields.waking === false) delete next.waking;
   if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
   if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
   if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;

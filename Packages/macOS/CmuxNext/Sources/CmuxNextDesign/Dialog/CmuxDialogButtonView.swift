@@ -17,7 +17,12 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// Whether the title shows the key hint at all (a keyed button whose style shows no key for its role does not).
     private let drawsHint: Bool
     private var tracking: NSTrackingArea?
-    private var hasFocus = false { didSet { refresh() } }
+    /// Whether the focus ring shows: this button has keyboard focus, or the SwiftUI button it draws for has
+    /// (``isFace``).
+    var hasFocus = false { didSet { if hasFocus != oldValue { refresh() } } }
+    /// Draws a SwiftUI `Button` (``CmuxDialogButtonStyle``): SwiftUI takes the clicks, the keys and the focus, so
+    /// this view never does.
+    var isFace = false
     /// The keyboard focus ring, just outside the button.
     private let focusRing = CALayer()
     /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
@@ -99,7 +104,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override class var cellClass: AnyClass? {
-        get { TitleCell.self }
+        get { OwnInkButtonCell.self }
         set {}
     }
 
@@ -113,8 +118,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         refresh()
     }
 
-    public override var acceptsFirstResponder: Bool { true }
-    public override var canBecomeKeyView: Bool { true }
+    public override var acceptsFirstResponder: Bool { !isFace }
+    public override var canBecomeKeyView: Bool { !isFace }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? { isFace ? nil : super.hitTest(point) }
     public override var isHighlighted: Bool { didSet { refresh() } }
 
     public override func becomeFirstResponder() -> Bool {
@@ -183,16 +190,6 @@ public final class CmuxDialogButtonView: ClickableButton {
         }
     }
 
-    /// The overlay surface (the dialog's card) this button draws on, if any.
-    private var enclosingSurface: OverlaySurfaceView? {
-        var view = superview
-        while let current = view {
-            if let surface = current as? OverlaySurfaceView { return surface }
-            view = current.superview
-        }
-        return nil
-    }
-
     /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
     /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
     /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
@@ -217,8 +214,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
+            // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
+            // Outside any card the button sits on the window, see-through or not.
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
+                                        isEnabled: isEnabled, card: buttonGround(tokens))
         }
     }
 
@@ -234,11 +233,10 @@ public final class CmuxDialogButtonView: ClickableButton {
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
             // The card's own color: the opaque surface under Reduce Transparency, else the glass.
-            let onOpaqueCard = enclosingSurface?.material == .opaque
+            let onOpaqueCard = enclosingOverlaySurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
-            let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            let font = button.role == .default ? Typography.cardTitle : Typography.cardMessage
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
                 let title = NSMutableAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
@@ -258,20 +256,6 @@ public final class CmuxDialogButtonView: ClickableButton {
 }
 
 extension CmuxDialogButtonView {
-    /// Draws a disabled button's title in its own ink: AppKit repaints it in the system's disabled ink, which on the
-    /// button's fill read as no title at all. The button dims as a whole instead (its `alphaValue`).
-    final class TitleCell: NSButtonCell {
-        override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
-            guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
-            // The title as AppKit laid it out (centered), in the button's own inks.
-            let own = NSMutableAttributedString(attributedString: title)
-            attributedTitle.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: own.length)) { ink, range, _ in
-                if let ink { own.addAttribute(.foregroundColor, value: ink, range: range) }
-            }
-            return super.drawTitle(own, withFrame: frame, in: controlView)
-        }
-    }
-
     /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
     /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
     fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {
@@ -291,17 +275,21 @@ enum CmuxDialogMetrics {
     /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
-    static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's padding: the density's dialog padding (``Metrics/dialogPadding``, 16 pt at Default; #49579).
+    static var cardPadding: CGFloat { Metrics.dialogPadding }
     /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
     /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
     /// rounds by the button corner plus that padding.
     static var card: ConcentricContainer { Metrics.buttonContainer(padding: cardPadding) }
-    static var spacing: CGFloat { 8 * Typography.userScale }
-    static var subtitleGap: CGFloat { 4 * Typography.userScale }
+    static var spacing: CGFloat { Metrics.space4 }
+    static var subtitleGap: CGFloat { Metrics.space2 }
     static var buttonsGap: CGFloat { 12 * Typography.userScale }
     static var fieldHeight: CGFloat { 24 * Typography.userScale }
     static var iconSize: CGFloat { 40 * Typography.userScale }
     static var iconGap: CGFloat { 12 * Typography.userScale }
+    /// A floating prompt's header icon, beside its title.
+    static var headerIconSize: CGFloat { 20 * Typography.userScale }
+    static var headerIconGap: CGFloat { 8 * Typography.userScale }
     /// A message past these many lines or characters scrolls in a box this tall, so the buttons stay on screen.
     static var linesMaxHeight: CGFloat { 240 * Typography.userScale }
     static let scrollingLineCount = 8

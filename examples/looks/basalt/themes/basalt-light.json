@@ -1,0 +1,137 @@
+// Basalt Light: the same agent editor in its light theme. A barely warm #f9f7f8 page, a #f7f7f7
+// sidebar behind a 1 pt line, #141414 text with gray steps under it, a deeper steel blue (#3d6db3)
+// for Send and focus with white on it, slate-blue links, the bordered prompt box and the same
+// pills, proportions and motion as the dark theme.
+{
+  "name": "Basalt Light",
+  "description": "Light: soft off-white, a framed prompt, a steel-blue accent.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // background: the page. foreground: the reply text. selection: a pale steel blue. accent: the
+  // dark theme's Run blue taken down until white reads on it.
+  "colors": {
+    "background": "#f9f7f8",
+    "foreground": "#141414",
+    "selection": "#cddcf0",
+    "accent": "#3d6db3",
+    "1": "#c4364c",
+    "2": "#2f7a45",
+    "3": "#8c600e",
+    "4": "#3d6db3",
+    "9": "#c4364c",
+    "10": "#2f7a45",
+    "11": "#8c600e",
+    "12": "#4b6983",
+    // The terminal palette, whole: the slots above as sampled, the rest at a quiet chroma, each
+    // solved in OKLCH over the page (5.2:1, the bright ones 4.7:1, 7 4.8:1, 8 the dim gray 3.4:1),
+    // and the cursor in the accent.
+    "0": "#141414",
+    "5": "#8e538c",
+    "6": "#037479",
+    "7": "#6a6e75",
+    "8": "#82868e",
+    "13": "#9f5592",
+    "14": "#047b87",
+    "15": "#8e9093",
+    "cursor": "#3d6db3"
+  },
+  "appearance.accent": "theme",
+  // The terminal face: Menlo at 12 pt, the face and size an editor's terminal opens in on a Mac.
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 12,
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "browser.omnibar.glass": "off",
+  "appearance.fontSmoothing": "antialiased",
+
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+  // Pending cmux#46780: a chat's tab is a small rounded pill in the title bar.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected sidebar row is a gray fill (#e1e1e1), not the accent.
+  // "appearance.selection": "neutral",
+
+  // Proportions: the same as the dark theme (40 pt title bar, 260 pt sidebar, 30 pt rows, 13 pt).
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 30,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 240,
+  "appearance.metrics.tabMinActiveWidth": 120,
+  "appearance.metrics.tabMinInactiveWidth": 96,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: a neutral #f7f7f7, a step under the page, behind a 1 pt line.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f7f7f7",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "quiet",
+
+  // The content: the page, with code, diffs and the terminal on the near-white the light editor
+  // draws them on.
+  "appearance.surfaces.agentPane.color": "#f9f7f8",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f9f7f8",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.terminal.color": "#fcfcfc",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#fcfcfc",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#fcfcfc",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#f9f7f8",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f9f7f8",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#f9f7f8",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#e1e1e1",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: the page, with its grouped cards (#f0eeef) on it.
+  "appearance.surfaces.settings.color": "#f9f7f8",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#f9f7f8",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#f9f7f8",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#f9f7f8",
+  "appearance.surfaces.home.opacity": 1,
+
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.size": 0.8,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.duration": 150,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+
+  // Pending cmux#46861 (layout and proportions): as in the dark theme.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 8,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 1,
+  // "appearance.metrics.toolbarButtonSize": 26,
+  // "appearance.metrics.toolbarButtonGap": 6,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 8,
+  // "appearance.metrics.composerMinHeight": 42,
+  // "appearance.metrics.spacingScale": 1,
+}
