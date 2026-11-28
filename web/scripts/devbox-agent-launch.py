@@ -29,6 +29,11 @@ def verify_launch(command, ready, forbidden, timeout):
     deadline = time.monotonic() + timeout
     output = b""
     ansi = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
+    # A TUI may place words with cursor moves instead of spaces (Claude Code
+    # 2.1.299 draws "bypass\x1b[13Gpermissions\x1b[25Gon"), so a cursor move
+    # reads as a gap, and markers and gates match on collapsed whitespace.
+    cursor_move = re.compile(r"\x1b\[[0-9;]*[ABCDEFGHf]")
+    ready = " ".join(ready.split())
 
     def cancelled(signum, _frame):
         raise LaunchCancelled("agent launch cancelled by signal %s" % signum)
@@ -52,7 +57,8 @@ def verify_launch(command, ready, forbidden, timeout):
                 sys.stdout.buffer.write(chunk)
                 sys.stdout.buffer.flush()
                 output = (output + chunk)[-262144:]
-                text = ansi.sub("", output.decode("utf-8", errors="replace"))
+                text = output.decode("utf-8", errors="replace")
+                text = " ".join(ansi.sub("", cursor_move.sub(" ", text)).split())
                 if forbidden and re.search(forbidden, text, re.IGNORECASE):
                     raise RuntimeError("first-run gate still up")
                 if ready in text:
