@@ -140,9 +140,9 @@ const BUDGET = {
 const webviews = path.resolve(import.meta.dir, "..");
 
 // ---------- the stand-in acpmux ----------
-type Play = { log: ReplayLog; served: number; status: string; socket?: { send(data: string): void } };
+export type Play = { log: ReplayLog; served: number; status: string; socket?: { send(data: string): void } };
 /// A stand-in acpmux and the log it serves (`play`, which `openPage` sets): one per page that plays at once.
-type Daemon = { port: number; play?: Play };
+export type Daemon = { port: number; play?: Play };
 const summary = (p: Play) => ({
   ...p.log.summary,
   status: p.status,
@@ -153,7 +153,7 @@ const summary = (p: Play) => ({
   turnCount: p.log.events.filter((event) => event.kind === "user_message").length,
   updatedAt: p.log.events.at(-1)?.at ?? Date.now(),
 });
-function answer(p: Play, method: string): unknown {
+export function answer(p: Play, method: string): unknown {
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -168,7 +168,8 @@ function answer(p: Play, method: string): unknown {
   }
 }
 const send = (p: Play, message: unknown) => p.socket?.send(JSON.stringify(message));
-const emit = (p: Play, event: EventRecord) => send(p, { jsonrpc: "2.0", method: "_acpmux/event", params: event });
+export const emit = (p: Play, event: EventRecord) =>
+  send(p, { jsonrpc: "2.0", method: "_acpmux/event", params: event });
 const changed = (p: Play) =>
   send(p, {
     jsonrpc: "2.0",
