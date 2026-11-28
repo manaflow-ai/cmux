@@ -161,7 +161,7 @@ async fn a_fired_time_watch_waits_for_no_cold_batch() {
     use crate::hub::cold_wake::{MIN_WINDOW_MS, stamp_due};
     use crate::prompt_provenance::session_message;
     let config = serde_json::from_value(json!({})).unwrap();
-    let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+    let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
     let now = crate::store::now_ms();
     let cold_since = now - 16_000_000;
     let meta = serde_json::from_value(json!({
@@ -174,12 +174,17 @@ async fn a_fired_time_watch_waits_for_no_cold_batch() {
     meta.last_turn = Some(json!({"turnId": "t0", "endedAt": cold_since - 3_600_000}));
     let session = hub.insert_test_session(meta);
 
-    let watch = Watch { caller: Some("owner".into()), ..timer("alarm", now - 15_000_000, None, None) };
+    let watch =
+        Watch { caller: Some("owner".into()), ..timer("alarm", now - 15_000_000, None, None) };
     hub.watches.add(watch).unwrap();
     let (fired, _) = hub.watches.fire_timers(now).unwrap();
     let wake = hub.watches.inner.lock().unwrap().saved.pending[&fired[0]].request.clone();
     let alarm = stamp_due(Some(session_message("owner", "owner", "sink")), &wake);
-    assert_eq!(hub.cold_batch_wait(&session, alarm.as_ref(), now), 0, "the alarm waited: {alarm:?}");
+    assert_eq!(
+        hub.cold_batch_wait(&session, alarm.as_ref(), now),
+        0,
+        "the alarm waited: {alarm:?}"
+    );
 
     let plain = session_message("lane", "lane", "sink");
     let waits = hub.cold_batch_wait(&session, Some(&plain), now);

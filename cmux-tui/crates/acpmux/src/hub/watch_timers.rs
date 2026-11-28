@@ -115,8 +115,8 @@ impl Watches {
                     );
                     let mut d = delivery(w, pid.clone(), text, next.is_none());
                     // The time it was due: its wake keeps no cold batch (`cold_wake.rs`).
-                    d.request["_meta"]["acpmux"]
-                        [crate::hub::cold_wake::WATCH_DUE_AT_META] = json!(*at);
+                    d.request["_meta"]["acpmux"][crate::hub::cold_wake::WATCH_DUE_AT_META] =
+                        json!(*at);
                     s.pending.entry(pid.clone()).or_insert(d);
                     fired.push(pid);
                 }
