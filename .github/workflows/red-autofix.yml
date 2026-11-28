@@ -193,6 +193,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 25
     permissions:
+      id-token: write # tag:ci tailnet join for the Claude login pool
       contents: read
       actions: read
     outputs:
@@ -235,6 +236,33 @@ jobs:
           git -C target fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" "${{ needs.triage.outputs.red }}" || true
           python3 -I trusted/scripts/ci/red_autofix.py regen --report "$RUNNER_TEMP/red/report.json" --repo-dir target --files "$RUNNER_TEMP/regen" \
             --patch-out "$RUNNER_TEMP/fix.patch"
+      # Claude login pool (Leo, ask-0b43e3f44e: "let CI reach the Claude login pool"): a tag:ci node reaches the sr2
+      # gateway's account pool on :4016, which spreads load across logins; CLAUDE_CODE_OAUTH_TOKEN stays the fallback.
+      # ANTHROPIC_AUTH_TOKEN outranks CLAUDE_CODE_OAUTH_TOKEN in Claude Code, so steps below need no other change.
+      - name: Join tailnet (Claude login pool)
+        id: claude-pool-join
+        if: github.repository_owner == 'manaflow-ai' && vars.TS_CI_CLAUDE_OIDC_CLIENT_ID != ''
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.TS_CI_CLAUDE_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_CI_CLAUDE_OIDC_AUDIENCE }}
+          tags: tag:ci
+          use-cache: "true"
+      - name: Use the Claude login pool
+        if: steps.claude-pool-join.outcome == 'success'
+        env:
+          CLAUDE_POOL_URL: ${{ vars.CLAUDE_POOL_URL || 'http://100.120.48.119:4016' }}
+        run: |
+          if curl -fsS -m 10 -o /dev/null "$CLAUDE_POOL_URL/_subrouter/health"; then
+            # The gateway takes a fixed placeholder token from a tailnet peer (hq tools/cloud-subagents/vm/boot.sh).
+            echo "ANTHROPIC_BASE_URL=$CLAUDE_POOL_URL" >> "$GITHUB_ENV"
+            echo "ANTHROPIC_AUTH_TOKEN=subrouter2" >> "$GITHUB_ENV"
+            echo "Claude: login pool $CLAUDE_POOL_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Claude login pool $CLAUDE_POOL_URL unreachable; using CLAUDE_CODE_OAUTH_TOKEN"
+          fi
       # Read and Edit only, in a plain copy of the tracked files with no .git (ci-compile-attribution.yml says why).
       # One credential running out never stalls a red for days: the Claude subscription first, then the Anthropic API
       # key, then Codex (its sandbox: workspace writes only, no network). Each attempt's outcome is read by
