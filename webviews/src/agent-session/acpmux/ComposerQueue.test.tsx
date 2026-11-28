@@ -1150,6 +1150,50 @@ test("an edit pulled back while its images load, from a row that turned out a te
   expect(touched).toEqual([]);
 });
 
+test("messages held by the account's rate limit say when they go in, in the person's own clock", async () => {
+  // Leo, 2026-11-27: "oh it prob steered bc error? idk if we should do that tho": what was sent while
+  // the chat was held says exactly that, never "Steering".
+  const seen: [string, unknown][] = [];
+  const say = ((key: string, values?: unknown) => (seen.push([key, values]), key)) as typeof t;
+  const until = Date.now() + 29 * 60_000;
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={say}
+        heldUntil={until}
+        onChange={async () => true}
+        onRemove={async () => true}
+      />,
+    );
+  });
+  const note = container.querySelector('[data-held-for="rate-limit"]');
+  expect(note?.textContent).toBe("composer.queueHeldUntil");
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(until));
+  expect(
+    seen.some(([key, values]) => key === "composer.queueHeldUntil" && (values as { time: string }).time.length > 0),
+  ).toBe(true);
+  expect(seen.find(([key]) => key === "composer.queueHeldUntil")![1]).toEqual({ time });
+  expect(container.textContent).not.toContain("composer.steering");
+  // A reset already past says nothing.
+  await act(async () => {
+    root!.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={say}
+        heldUntil={Date.now() - 1000}
+        onChange={async () => true}
+        onRemove={async () => true}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-held-for="rate-limit"]')).toBeNull();
+});
+
 test("acpmux's ask to resume a subagent never draws in the composer's queue", async () => {
   // Leo, 2026-11-24: "why would a user steer or whatever on these? they should be separated out from
   // the user visible steer ui area." It lists in Session Info's Background tasks (agentSide.ts).
