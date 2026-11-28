@@ -558,6 +558,8 @@ def main():
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     reconnect_ok = not drops
+    # The commit's Pair-E2E-Screens: 1 trailer turns the leg on too (the controller's word allowlist is hq's).
+    a.screens = a.screens or commit_trailer("Pair-E2E-Screens") == "1"
     screens_ok = not a.screens
     keychain = RigKeychain(a.mac_app)
     try:
