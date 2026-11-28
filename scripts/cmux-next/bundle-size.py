@@ -561,6 +561,31 @@ def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict
     return out
 
 
+def print_table(headers: tuple[str, ...], rows: list[tuple[str, ...]], right: set[int]) -> None:
+    """One Markdown table. Pad the columns when stdout is a terminal."""
+    n = len(headers)
+    if not sys.stdout.isatty():
+        print("\n| " + " | ".join(headers) + " |")
+        print("|" + "|".join("---:" if i in right else "---" for i in range(n)) + "|")
+        for row in rows:
+            print("| " + " | ".join(row) + " |")
+        return
+    widths = [max([len(headers[i]), 3, *(len(row[i]) for row in rows)]) for i in range(n)]
+
+    def line(values: tuple[str, ...]) -> str:
+        shown = []
+        for i in range(n):
+            text = values[i]
+            shown.append(text.rjust(widths[i]) if i in right else text.ljust(widths[i]))
+        return "| " + " | ".join(shown) + " |"
+
+    print("\n" + line(headers))
+    print("| " + " | ".join(("-" * (widths[i] - 1) + ":") if i in right else "-" * widths[i]
+                            for i in range(n)) + " |")
+    for row in rows:
+        print(line(row))
+
+
 def print_tree(t: dict, top: int) -> None:
     """The attribution as Markdown tables (MB = 10^6 bytes, as the doc uses)."""
     def mb(n: int) -> str:
@@ -569,24 +594,36 @@ def print_tree(t: dict, top: int) -> None:
     print(f"**{t['app']}**: {mb(t['app_bytes'])} MB on disk in {t['files']} files; "
           f"DMG estimate {mb(t['dmg_estimate_bytes'])} MB"
           + (f" (actual {t['dmg']}: {mb(t['dmg_bytes'])} MB)" if "dmg_bytes" in t else "") + ".")
-    print("\n| Component | On disk (MB) | In DMG (MB) | Files |\n|---|---:|---:|---:|")
-    for r in t["components"][:top]:
-        print(f"| `{r['component']}` | {mb(r['bytes'])} | {mb(r['dmg_bytes'])} | {r['files']} |")
-    print("\n| Kind | On disk (MB) | In DMG (MB) |\n|---|---:|---:|")
-    for r in t["kinds"]:
-        print(f"| {r['kind']} | {mb(r['bytes'])} | {mb(r['dmg_bytes'])} |")
-    print("\n| Binary | On disk (MB) | In DMG (MB) | Code+data | Unwind | Symbols | Signature |\n|---|---:|---:|---:|---:|---:|---:|")
+    print_table(
+        ("Component", "On disk (MB)", "In DMG (MB)", "Files"),
+        [(f"`{r['component']}`", mb(r["bytes"]), mb(r["dmg_bytes"]), str(r["files"]))
+         for r in t["components"][:top]],
+        {1, 2, 3})
+    print_table(
+        ("Kind", "On disk (MB)", "In DMG (MB)"),
+        [(r["kind"], mb(r["bytes"]), mb(r["dmg_bytes"])) for r in t["kinds"]],
+        {1, 2})
+    binary_rows = []
     for b in t["binaries"][:top]:
         p = b["parts"]
-        print(f"| `{b['path']}` | {mb(b['bytes'])} | {mb(b['dmg_bytes'])} | {mb(p.get('code and data', 0))} | "
-              f"{mb(p.get('unwind tables', 0))} | {mb(p.get('symbols', 0))} | {mb(p.get('code signature', 0))} |")
+        binary_rows.append((f"`{b['path']}`", mb(b["bytes"]), mb(b["dmg_bytes"]),
+                            mb(p.get("code and data", 0)), mb(p.get("unwind tables", 0)),
+                            mb(p.get("symbols", 0)), mb(p.get("code signature", 0))))
+    print_table(
+        ("Binary", "On disk (MB)", "In DMG (MB)", "Code+data", "Unwind", "Symbols", "Signature"),
+        binary_rows, {1, 2, 3, 4, 5, 6})
+    print_table(
+        ("Largest file", "On disk (MB)", "In DMG (MB)"),
+        [(f"`{f['path']}`", mb(f["bytes"]), mb(f["dmg_bytes"])) for f in t["largest_files"]],
+        {1, 2})
     lang = t.get("code_by_language")
     if lang:
         total = sum(lang["bytes"].values()) or 1
         print(f"\n`{lang['binary']}` code (`__text`) by language, from `{lang['source']}`:")
-        print("\n| Language | MB | Share |\n|---|---:|---:|")
-        for name, n in lang["bytes"].items():
-            print(f"| {name} | {mb(n)} | {100 * n / total:.1f}% |")
+        print_table(
+            ("Language", "MB", "Share"),
+            [(name, mb(n), f"{100 * n / total:.1f}%") for name, n in lang["bytes"].items()],
+            {1, 2})
     d = t["duplicates"]
     print(f"\nIdentical files shipped more than once: {mb(d['extra_bytes'])} MB extra on disk, "
           f"{mb(d['extra_dmg_bytes'])} MB in the DMG.")
