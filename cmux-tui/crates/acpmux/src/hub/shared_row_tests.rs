@@ -57,12 +57,12 @@ fn the_ring_keeps_no_line_or_params_after_a_connection_sent_them() {
     let shared = event.update_line.get_or_build(|| Some(String::new())).unwrap();
     assert!(Arc::ptr_eq(&line, &shared));
     assert!(event.event_params.held());
-    let (line, params) = (Arc::downgrade(&line), Arc::downgrade(&params));
-    drop(shared);
+    let (sent_line, sent_params) = (Arc::downgrade(&line), Arc::downgrade(&params));
+    drop((line, params, shared));
     drop(queued);
     // Sent: the ring's copy of the event still lives, the line and params it was sent with do not.
-    assert!(line.upgrade().is_none());
-    assert!(params.upgrade().is_none());
+    assert!(sent_line.upgrade().is_none());
+    assert!(sent_params.upgrade().is_none());
     assert!(!event.update_line.held());
     assert!(!event.event_params.held());
 }
