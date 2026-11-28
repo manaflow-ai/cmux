@@ -1555,11 +1555,14 @@ impl ContextOverrides {
 #[serde(default)]
 pub struct CapacityConfig {
     pub release_per_min: std::num::NonZeroU16,
+    /// `capacity.gate`: off by default (`hub/capacity.rs` `Route::of`).
+    pub gate: bool,
 }
 
 impl Default for CapacityConfig {
     fn default() -> Self {
-        Self { release_per_min: std::num::NonZeroU16::new(5).unwrap_or(std::num::NonZeroU16::MIN) }
+        let release_per_min = std::num::NonZeroU16::new(5).unwrap_or(std::num::NonZeroU16::MIN);
+        Self { release_per_min, gate: false }
     }
 }
 

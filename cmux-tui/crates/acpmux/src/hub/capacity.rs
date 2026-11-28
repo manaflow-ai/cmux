@@ -25,7 +25,15 @@ pub(super) struct Route {
 }
 
 impl Route {
+    /// The gateway this chat's turns go through, when the capacity gate is on. `capacity.gate`
+    /// (config, off by default) holds a gateway's turns while it answers 503 "no non-exhausted
+    /// claude accounts" (a pooled-account gateway such as subrouter), probes it, and releases
+    /// them paced when it reopens. Off: no route, no gate; those errors take the ordinary retry
+    /// path, as before. The fleet turns it on in its own config.
     pub(super) fn of(config: &Config, meta: &SessionMeta) -> Option<Self> {
+        if !config.capacity.gate {
+            return None;
+        }
         let profile = config.profile(&meta.harness)?;
         if profile.kind != HarnessKind::ClaudeStdio {
             return None;
@@ -770,6 +778,31 @@ mod capacity_gate_tests {
         assert_eq!(wrapped.url, direct.url);
         assert_eq!(wrapped.url.as_str(), "https://gateway.test/v1/messages");
         assert_eq!(wrapped.bearer.as_deref(), Some("proxy-token"));
+    }
+
+    #[test]
+    fn capacity_gate_is_off_unless_the_config_turns_it_on() {
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "chat", "name": "chat", "harness": "claude", "cwd": "/tmp",
+            "status": "idle", "createdAt": 1, "updatedAt": 2
+        }))
+        .unwrap();
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"claude": {
+                "kind": "claude-stdio",
+                "argv": ["claude"],
+                "env": {"ANTHROPIC_BASE_URL": "https://gateway.test"}
+            }}
+        }))
+        .unwrap();
+        assert!(!config.capacity.gate);
+        assert!(Route::of(&config, &meta).is_none(), "off by default: no route, no gate");
+        config.set("capacity.gate", "true").unwrap();
+        let route = Route::of(&config, &meta).expect("on: the profile's gateway");
+        assert_eq!(route.url.as_str(), "https://gateway.test/v1/messages");
+        let parsed: Config = serde_json::from_value(json!({"capacity": {"gate": true}})).unwrap();
+        assert!(parsed.capacity.gate);
     }
 
     #[test]
