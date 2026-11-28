@@ -5172,6 +5172,7 @@ class StalePartFirstTests(unittest.TestCase):
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
                               "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
+                              "infinite_tabs.mac.memory_vs_empty@h": dict(state["part_stored"]["infinite-tabs"]),
                               "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
         return state, now
 
