@@ -2062,13 +2062,38 @@ fn timed_rounds(
     prepared: &[(u64, u64)],
     params: impl Fn(u64) -> Value,
 ) -> (Value, Value, Value) {
-    let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
-    let mut returned_records = vec![];
-    let mut original_records = vec![];
-    let mut page_bytes = vec![];
+    let mut sized = Rounds::default();
     for round in 0..rounds {
+        if !sized.take(rpc, method, round, prepared, params(round)) {
+            break;
+        }
+    }
+    sized.result()
+}
+
+/// The samples of one chat's repeated read: times, records and the first error.
+#[derive(Default)]
+struct Rounds {
+    times: Vec<u64>,
+    records: Value,
+    error: Value,
+    returned_records: Vec<usize>,
+    original_records: Vec<usize>,
+    page_bytes: Vec<usize>,
+}
+
+impl Rounds {
+    /// One timed call; false (and the error kept) when it failed or its page is not history.
+    fn take(
+        &mut self,
+        rpc: &mut Rpc,
+        method: &str,
+        round: u64,
+        prepared: &[(u64, u64)],
+        params: Value,
+    ) -> bool {
         let asked = Instant::now();
-        let reply = rpc.call_until(method, params(round), Some(asked + STEP));
+        let reply = rpc.call_until(method, params, Some(asked + STEP));
         let us = micros(asked);
         rpc.notes.clear();
         match reply {
@@ -2076,28 +2101,123 @@ fn timed_rounds(
                 let count = reply["events"].as_array().map_or(0, Vec::len);
                 let original = original_page_records(&reply, prepared);
                 if count == 0 || original * 2 < count {
-                    error = json!({"method": method, "round": round,
+                    self.error = json!({"method": method, "round": round,
                         "reason": "page is empty or dominated by fixture completions",
                         "records": count, "originalRecords": original});
-                    break;
+                    return false;
                 }
-                times.push(us);
-                records = json!(count);
-                returned_records.push(count);
-                original_records.push(original);
-                page_bytes.push(reply.to_string().len());
+                self.times.push(us);
+                self.records = json!(count);
+                self.returned_records.push(count);
+                self.original_records.push(original);
+                self.page_bytes.push(reply.to_string().len());
+                true
             }
             Err(e) => {
-                error = e;
-                break;
+                self.error = e;
+                false
             }
         }
     }
-    let mut timing = spread(&times);
+
+    fn result(self) -> (Value, Value, Value) {
+        let mut timing = spread(&self.times);
+        if let Some(timing) = timing.as_object_mut() {
+            timing.insert("returnedRecords".into(), json!(self.returned_records));
+            timing.insert("originalRecords".into(), json!(self.original_records));
+            timing.insert("pageBytes".into(), json!(self.page_bytes));
+        }
+        (timing, self.records, self.error)
+    }
+}
+
+/// The floor chat a size's warm reads are paired with: a `COLD_FLOOR_BYTES` chat on a daemon of
+/// its own, running beside the size's, with the cursors its reads use.
+struct WarmFloor {
+    rpc: Rpc,
+    id: String,
+    last: u64,
+    full_from: u64,
+    prepared: Vec<(u64, u64)>,
+}
+
+/// The floor chat's daemon started on `home` with its log read and its cursors found; an error
+/// in place of a floor leaves the warm reads unpaired.
+fn start_warm_floor(
+    scratch: &Path,
+    home: &Path,
+    id: &str,
+    preparation: &Value,
+) -> (Option<Daemon>, Option<WarmFloor>, Value) {
+    let daemon = Daemon::start(scratch, home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    let floor = (|| {
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "size-floor"}}),
+        )?;
+        rpc.notes.clear();
+        wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS)?;
+        let reply = rpc.call("_acpmux/attach", app_attach(id))?;
+        rpc.notes.clear();
+        let last = reply["lastSeq"].as_u64().ok_or_else(|| json!("floor attach: no lastSeq"))?;
+        Ok::<_, Value>(last)
+    })();
+    match floor {
+        Ok(last) => {
+            let full_from = full_page_before(&mut rpc, id, last);
+            let prepared = preparation_seqs(preparation);
+            let floor = WarmFloor { rpc, id: id.to_owned(), last, full_from, prepared };
+            (Some(daemon), Some(floor), Value::Null)
+        }
+        Err(e) => (Some(daemon), None, json!({"floor": e})),
+    }
+}
+
+/// [`timed_rounds`] with each call paired with the same read of the floor chat, alternating which
+/// goes first, on the same host a few microseconds apart. Sizes run minutes apart on daemons of
+/// their own, so a runner's load moves a 100 us read between sizes by more than the size does: the
+/// 5-row prompt page (the same 2.2 KB at every size) read 1.16x to 2.37x 1G/1M on one host in six
+/// runs. `p50` holds the floor's fastest read plus the median of the pairs' differences
+/// ([`paired_floor`], as the cold opens); `rawP50` the size's own median; `floorUs` the floor's
+/// samples. With no floor, or a floor read that failed, `p50` stays the raw median.
+fn paired_rounds(
+    rpc: &mut Rpc,
+    floor: Option<&mut WarmFloor>,
+    method: &str,
+    rounds: u64,
+    prepared: &[(u64, u64)],
+    params: impl Fn(u64) -> Value,
+    floor_params: impl Fn(&WarmFloor, u64) -> Value,
+) -> (Value, Value, Value) {
+    let Some(floor) = floor else { return timed_rounds(rpc, method, rounds, prepared, params) };
+    let (mut sized, mut low) = (Rounds::default(), Rounds::default());
+    for round in 0..rounds {
+        let floor_asks = floor_params(floor, round);
+        let ok = if round % 2 == 0 {
+            low.take(&mut floor.rpc, method, round, &floor.prepared, floor_asks)
+                && sized.take(rpc, method, round, prepared, params(round))
+        } else {
+            sized.take(rpc, method, round, prepared, params(round))
+                && low.take(&mut floor.rpc, method, round, &floor.prepared, floor_asks)
+        };
+        if !ok {
+            break;
+        }
+    }
+    let pairs = sized.times.len().min(low.times.len());
+    let as_pairs = |t: &[u64]| t[..pairs].iter().map(|&us| (us, 0)).collect::<Vec<_>>();
+    let paired = paired_floor(&as_pairs(&sized.times), &as_pairs(&low.times), |s| s.0);
+    let (floor_us, floor_error) = (low.times.clone(), low.error.clone());
+    let (mut timing, records, error) = sized.result();
     if let Some(timing) = timing.as_object_mut() {
-        timing.insert("returnedRecords".into(), json!(returned_records));
-        timing.insert("originalRecords".into(), json!(original_records));
-        timing.insert("pageBytes".into(), json!(page_bytes));
+        let raw = timing.get("p50").cloned().unwrap_or(Value::Null);
+        timing.insert("rawP50".into(), raw);
+        if floor_error.is_null() && !paired.is_null() {
+            timing.insert("p50".into(), paired);
+        }
+        timing.insert("floorUs".into(), json!(floor_us));
+        timing.insert("floorError".into(), floor_error);
     }
     (timing, records, error)
 }
@@ -2293,7 +2413,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .then(|| scratch.join("dhat-heap.json"));
     let floor_scratch = scratch.join("floor");
     std::fs::create_dir_all(&floor_scratch).unwrap();
-    let (floor_home, floor_chat, _, _) = write_size_chat(&floor_scratch, COLD_FLOOR_BYTES);
+    let (floor_home, floor_chat, _, floor_preparation) =
+        write_size_chat(&floor_scratch, COLD_FLOOR_BYTES);
     write_config(&floor_home, json!({}));
     let floor_cold = cold_home::HomeSnapshot::take(&floor_home);
     let before_cold = cold_home::HomeSnapshot::take(&home);
@@ -2358,17 +2479,35 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last = initial.as_ref().ok().and_then(|r| r["lastSeq"].as_u64()).unwrap_or(w.last_seq);
     rpc.notes.clear();
 
+    // The floor chat's own daemon, its log read, beside this one for the warm reads' pairs
+    // ([`paired_rounds`]); its home is not this size's, so no other field counts it.
+    let (mut floor_daemon, mut warm_floor, floor_start_error) =
+        start_warm_floor(&floor_scratch, &floor_home, &floor_chat.id, &floor_preparation);
+    let mut floor = warm_floor.as_mut();
+
     // Settled: the log is read; what a long chat costs on its own.
     let rounds = ROUNDS as u64;
-    let (attach_us, attach_records, attach_error) =
-        timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
+    let (attach_us, attach_records, attach_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/attach",
+        rounds,
+        &prepared,
+        |_| app_attach(&id),
+        |f, _| app_attach(&f.id),
+    );
     let (rss_idle, _) = daemon.rss();
     let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
     let rss_idle_maps = daemon.rss_maps();
-    let (newest_us, newest_records, newest_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, last + 1)
-        });
+    let (newest_us, newest_records, newest_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| older_params(&id, last + 1),
+        |f, _| older_params(&f.id, f.last + 1),
+    );
     // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
     // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
     // future forward cursors) while large chats still returned content. Keep each workload
@@ -2381,18 +2520,36 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let depth = |seq: u64| seq.max(full_from).min(last + 1);
     let (recent_before, mid_before, deep_before) =
         (depth(last * 9 / 10), depth(last / 2), depth(last / 20));
-    let (recent_us, _, recent_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, recent_before)
-        });
-    let (mid_us, _, mid_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, mid_before)
-        });
-    let (deep_us, _, deep_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, deep_before)
-        });
+    // The floor's page at the same proportional depth of its own history.
+    let floor_depth =
+        |f: &WarmFloor, part: fn(u64) -> u64| part(f.last).max(f.full_from).min(f.last + 1);
+    let (recent_us, _, recent_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| older_params(&id, recent_before),
+        |f, _| older_params(&f.id, floor_depth(f, |l| l * 9 / 10)),
+    );
+    let (mid_us, _, mid_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| older_params(&id, mid_before),
+        |f, _| older_params(&f.id, floor_depth(f, |l| l / 2)),
+    );
+    let (deep_us, _, deep_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| older_params(&id, deep_before),
+        |f, _| older_params(&f.id, floor_depth(f, |l| l / 20)),
+    );
     // The rail's prompt index (direct.ts `readPromptIndex`): its first bounded page, reported.
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
@@ -2403,17 +2560,37 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // above holds every prompt up to 256 KB: 5 rows in the 1 MB chat (220 us) against 492 in
     // 100 MB and 538 in 1 GB (2.0 to 2.2 ms, about 4 us a row at every size), a 10x that was the
     // reply's row count, not the chat's size (the scroll depths' full page, `full_page_before`).
-    let (prompt_page_us, prompt_page_rows, prompt_page_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
-                   "kinds": ["user_message"], "limit": PROMPT_PAGE_ROWS, "maxBytes": 256 << 10})
-        });
+    let prompt_page = |id: &str, last: u64| {
+        json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+               "kinds": ["user_message"], "limit": PROMPT_PAGE_ROWS, "maxBytes": 256 << 10})
+    };
+    let (prompt_page_us, prompt_page_rows, prompt_page_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| prompt_page(&id, last),
+        |f, _| prompt_page(&f.id, f.last),
+    );
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
-    let (forward_us, _, forward_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": SWEEP_PAGE_ROWS, "maxBytes": SWEEP_PAGE_BYTES})
-        });
+    let forward = |id: &str, last: u64| {
+        json!({"sessionId": id, "afterSeq": last / 2,
+           "limit": SWEEP_PAGE_ROWS, "maxBytes": SWEEP_PAGE_BYTES})
+    };
+    let (forward_us, _, forward_error) = paired_rounds(
+        &mut rpc,
+        floor.as_deref_mut(),
+        "_acpmux/events",
+        rounds,
+        &prepared,
+        |_| forward(&id, last),
+        |f, _| forward(&f.id, f.last),
+    );
+    drop(warm_floor);
+    if let Some(mut floor_daemon) = floor_daemon.take() {
+        floor_daemon.stop();
+    }
     let (rss_after_reads, _) = daemon.rss();
 
     // Typing: a prompt to its first token; the first starts the agent host.
@@ -2553,6 +2730,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "promptIndexError": prompt_index_error,
         "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
         "promptPageError": prompt_page_error,
+        "warmFloorError": floor_start_error,
         "forwardPageUs": forward_us, "forwardPageError": short_rows(&forward_us, forward_error),
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
         "rssIdleMaps": rss_idle_maps,
