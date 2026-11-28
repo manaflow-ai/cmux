@@ -35,4 +35,14 @@ public nonisolated struct SettingsRust {
     public static func answer(_ op: String, _ request: JSONValue) -> JSONValue {
         (try? call(op, request)) ?? .object([:])
     }
+
+    /// `value` as an op's request member: a Codable model goes to Rust in its serde shape.
+    public static func json(_ value: some Encodable) -> JSONValue {
+        (try? JSONValue.parse(JSONEncoder().encode(value))) ?? .null
+    }
+
+    /// A reply member as `T`; nil when it is missing or of another shape.
+    public static func decode<T: Decodable>(_ value: JSONValue?, as _: T.Type = T.self) -> T? {
+        value.flatMap { try? JSONDecoder().decode(T.self, from: Data($0.compactText.utf8)) }
+    }
 }
