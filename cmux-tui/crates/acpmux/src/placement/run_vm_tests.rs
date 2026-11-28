@@ -354,7 +354,7 @@ fn a_known_heavy_project_sizes_the_run_vm_to_its_published_memory_without_asking
     assert_eq!((s.size, s.floor), ("lg", Some("Chromium")));
     assert_eq!(
         sizing_notice("a Chromium build", &s),
-        "[run-vm] a Chromium build: running on a 8 vCPU, 16 GiB run VM, sized from Chromium's published memory minimum"
+        "[run-vm] a Chromium build: asking for a 8 vCPU, 16 GiB run VM, sized from Chromium's published memory minimum"
     );
     // A small history is raised to the floor: rustc's 8 GB is `md`.
     let s = sizing_floored(&predicted(3, 1.0, 2.0), Some((Project::Rustc, 8 * GB))).unwrap();
@@ -372,7 +372,7 @@ fn the_notice_row_says_what_it_runs_on_and_why() {
     let s = sizing(&predicted(4, 12.0, 10.0)).unwrap();
     assert_eq!(
         sizing_notice("a Rust test run", &s),
-        "[run-vm] a Rust test run: running on a 16 vCPU, 32 GiB run VM, sized from its last 4 runs here"
+        "[run-vm] a Rust test run: asking for a 16 vCPU, 32 GiB run VM, sized from its last 4 runs here"
     );
     let s = sizing(&predicted(0, 6.0, 4.0)).unwrap();
     assert!(sizing_notice("a Rust build", &s).ends_with("sized from the usual need of the class"));

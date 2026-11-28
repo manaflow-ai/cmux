@@ -226,7 +226,34 @@ pub fn sizing_floored(
     })
 }
 
-/// The notice row for a sized run VM: what it starts at and why, in place of an ask.
+/// The router's verdict note when the command ran on a run VM (`fork_or_here`, on stderr).
+pub const NOTE_RAN_THERE: &str = "[run-vm] ran on a run VM";
+/// The router's verdict note when the command ran here, then the cause.
+pub const NOTE_RAN_HERE: &str = "[run-vm] ran here: ";
+/// What the start note says between the class and the target: it asks, the verdict says where.
+const NOTE_ASKING: &str = ": asking for a ";
+
+/// Whether `line` is one of the router's own notes on stderr (the start note and the verdict):
+/// not the command's output. The conformance suite drops exactly these (`exec_conformance.rs`),
+/// so the notes and the filter are written from the same constants and cannot drift. Lines the
+/// router writes into the output itself (a run VM failing mid-command, a patch that did not
+/// apply) are not notes.
+pub fn is_note(line: &str) -> bool {
+    line.starts_with(NOTE_RAN_THERE)
+        || line.starts_with(NOTE_RAN_HERE)
+        || (line.starts_with("[run-vm] ") && line.contains(NOTE_ASKING))
+}
+
+/// The start note: what the router asks for, before it knows. It never says the command runs
+/// on a run VM: the fork can still fail (a 404, no room), and then [`NOTE_RAN_HERE`] follows.
+pub fn start_notice(class: &str, sizing: Option<&Sizing>) -> String {
+    match sizing {
+        Some(s) => sizing_notice(class, s),
+        None => format!("[run-vm] {class}{NOTE_ASKING}fork of this machine"),
+    }
+}
+
+/// The notice row for a sized run VM: what it asks for and why, in place of an ask.
 pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
     let from = match (sizing.floor, sizing.runs) {
         (Some(project), _) => format!("{project}'s published memory minimum"),
@@ -235,7 +262,7 @@ pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
         (None, n) => format!("its last {n} runs here"),
     };
     format!(
-        "[run-vm] {class}: running on a {} vCPU, {} GiB run VM, sized from {from}",
+        "[run-vm] {class}{NOTE_ASKING}{} vCPU, {} GiB run VM, sized from {from}",
         sizing.vcpu, sizing.mem_gib
     )
 }
@@ -477,7 +504,7 @@ pub async fn fork_or_here(
     via: &'static str,
 ) -> anyhow::Result<Option<i32>> {
     let _ = (machine, class, command, via);
-    eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+    eprintln!("{NOTE_RAN_HERE}Cloud forks need a unix build of acpmux");
     Ok(None)
 }
 
@@ -493,7 +520,7 @@ pub async fn fork_or_here(
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
-            eprintln!("[run-vm] ran here: {e}");
+            eprintln!("{NOTE_RAN_HERE}{e}");
             return Ok(None);
         }
     };
@@ -513,10 +540,7 @@ pub async fn fork_or_here(
             )
         })
         .flatten();
-    match &sized {
-        Some(s) => eprintln!("{}", sizing_notice(class, s)),
-        None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
-    }
+    eprintln!("{}", start_notice(class, sized.as_ref()));
     let (mut stdout, mut stderr) = (tokio::io::stdout(), tokio::io::stderr());
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(u8, Vec<u8>)>();
     let mut push = move |fd: u8, data: &[u8]| {
@@ -548,7 +572,7 @@ pub async fn fork_or_here(
             row.via = Some(via);
             write_row(&row);
             eprintln!(
-                "[run-vm] ran on a run VM: exit {exit}, {} file(s) back, {} s",
+                "{NOTE_RAN_THERE}: exit {exit}, {} file(s) back, {} s",
                 row.files.unwrap_or(0),
                 row.wall_ms.unwrap_or(0) / 1000
             );
@@ -556,7 +580,7 @@ pub async fn fork_or_here(
         }
         Ran::Here { mut row } => {
             row.via = Some(via);
-            eprintln!("[run-vm] ran here: {}", row.cause.as_deref().unwrap_or("no run VM"));
+            eprintln!("{NOTE_RAN_HERE}{}", row.cause.as_deref().unwrap_or("no run VM"));
             write_row(&row);
             Ok(None)
         }

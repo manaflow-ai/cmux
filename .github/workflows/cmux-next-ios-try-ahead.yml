@@ -48,7 +48,7 @@ jobs:
     name: cmux Dev try build (fleet)
     # The fleet takes same-repository pull requests only; with the gateway unset nothing runs.
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     # The step's run is about 3.3 min (cached FFI) or 6.7 min (cold); its wait at the lowest class can pass this bound
     # (2026-11-23: over 5 h behind 116 simulator jobs). A job that times out leaves the step queued under its key, so
     # it still builds, and a later try.sh attaches to it.
