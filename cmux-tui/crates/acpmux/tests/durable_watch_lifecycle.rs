@@ -179,7 +179,9 @@ async fn failed_wake_stays_listed_and_retries_after_recipient_is_repaired() {
 
 #[tokio::test]
 async fn remote_replay_checkpoints_pages_even_when_total_exceeds_request_deadline() {
-    for (summary, timeout) in [(601, false), (0, false), (601, true)] {
+    // The watched turn ends after the watch is armed (its turn_result is seq 601): a match watch
+    // armed on a turn that had already ended is no news and stays quiet (#60876).
+    for (summary, timeout) in [(600, false), (0, false), (600, true)] {
         let mut a = Daemon::new().await;
         let peer = Peer::scripted(Duration::from_millis(100), 1, summary, timeout).await;
         peer.connect(&a).await;
@@ -219,7 +221,8 @@ async fn stalled_remote_reads_do_not_delay_local_wakes() {
 #[tokio::test]
 async fn remote_replay_resumes_from_saved_page_after_daemon_restart() {
     let mut a = Daemon::new().await;
-    let peer = Peer::new(Duration::from_millis(100), 1).await;
+    // The turn is still running when the watch is armed, so its end (seq 601) is news (#60876).
+    let peer = Peer::scripted(Duration::from_millis(100), 1, 600, false).await;
     peer.connect(&a).await;
     let sink = a.chat("coordinator").await;
     a.watch(&sink, vec!["scripted/job-0".into()], "ready", true, Some("complete")).await;
