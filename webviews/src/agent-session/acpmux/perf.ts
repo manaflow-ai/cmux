@@ -163,6 +163,10 @@ export type TypingSample = {
   frame: number;
   paint: number;
   listener?: number;
+  /** The key's `beforeinput` reached the window (capture): its keydown and keypress handlers are done. */
+  before_input?: number;
+  /** Its `input` reached the window (capture): the engine's own edit of the DOM is done, the editor's flush not yet. */
+  edited?: number;
   work?: number;
   key?: string;
   /** Same-host epoch clock, for joining the native bench's dispatch to this after-frame callback. */
@@ -285,6 +289,10 @@ export function typingSummary(samples: TypingSample[]) {
     submitted_keys: samples.filter((sample) => sample.submitted !== undefined).length,
     to_listener: stages(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
     to_work: stages(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
+    to_before_input: stages(
+      samples.flatMap((sample) => (sample.before_input === undefined ? [] : [sample.before_input])),
+    ),
+    to_edited: stages(samples.flatMap((sample) => (sample.edited === undefined ? [] : [sample.edited]))),
     frame_interval_ms: round2(nominal),
     dropped_frames: dropped.reduce((total, frames) => total + frames, 0),
     keys_with_drops: dropped.filter((frames) => frames > 0).length,
@@ -392,12 +400,22 @@ export class AcpmuxPerf {
       // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
       const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
       page.addEventListener("input", input, { once: true });
+      // Where `to_work` goes (goal typing-latency): the window's capture listeners run before every other one, so
+      // `before_input` ends the key's keydown and keypress handlers and `edited` the engine's edit (WebKit's insert,
+      // its style and layout), before the editor's flush, which runs after the first `input` handler.
+      const view = (page as Partial<Document>).defaultView;
+      const beforeInput = () => (sample.before_input ??= performance.now() - start);
+      const edited = () => (sample.edited ??= performance.now() - start);
+      view?.addEventListener("beforeinput", beforeInput, { once: true, capture: true });
+      view?.addEventListener("input", edited, { once: true, capture: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
         // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
         performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input);
+        view?.removeEventListener("beforeinput", beforeInput, true);
+        view?.removeEventListener("input", edited, true);
         afterFrame(() => {
           performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;

@@ -113,3 +113,26 @@ test("with a prioritized task API the paint mark is a user-blocking task, not a 
   expect(perf.typing[0]!.frame).toBe(10);
   expect(perf.typing[0]!.paint).toBe(14);
 });
+
+test("a key's work splits at the window's beforeinput and input, ahead of the editor's flush", () => {
+  install();
+  const target = page();
+  const view = page();
+  const perf = new AcpmuxPerf();
+  perf.enable(Object.assign(target, { defaultView: view }) as unknown as Document);
+  now = 1;
+  target.fire("keydown", composerKey(0));
+  now = 2; // the keydown and keypress handlers ran
+  view.fire("beforeinput");
+  now = 3; // the engine edited the DOM
+  view.fire("input");
+  target.fire("input");
+  now = 5; // the editor's flush
+  run(microtasks);
+  run(frames);
+  run(messages);
+  expect(perf.typing[0]).toMatchObject({ listener: 1, before_input: 2, edited: 3, work: 5 });
+  const summary = typingSummary(perf.typing);
+  expect(summary.to_before_input.p95_ms).toBe(2);
+  expect(summary.to_edited.p95_ms).toBe(3);
+});
