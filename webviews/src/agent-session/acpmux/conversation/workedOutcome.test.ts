@@ -98,14 +98,15 @@ test("tool-row-words: plain verbs by default, Claude Code's words on its now arm
   const bare = mcp("mcp__linear__linear", {});
   const send = mcp("mcp__slack__send_message", { to: "Leo" });
   globalThis.cmuxExperiments = { "tool-row-words": "now" };
-  expect(mcpLabel(t, [grep], new Map())).toBe("Used repo: repo grep");
+  // The now arm names what the call acts on since #56205 (human descriptions on tool rows).
+  expect(mcpLabel(t, [grep], new Map())).toBe("Used repo: repo grep retry");
   globalThis.cmuxExperiments = {};
   expect(mcpLabel(t, [grep], new Map())).toBe("Searched repo for “retry”");
   expect(mcpLabel(t, [grep, grep], new Map())).toBe("Searched repo for “retry” ×2");
   expect(mcpLabel(t, [blame], new Map())).toBe("Used repo: blame src/App.tsx");
   expect(mcpLabel(t, [bare], new Map())).toBe("Used linear");
   // A call in flight keeps its words; a tool that starts with a verb keeps today's line.
-  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep");
+  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep retry");
   expect(mcpLabel(t, [send], new Map())).toBe(mcpLabelOff(send));
 });
 

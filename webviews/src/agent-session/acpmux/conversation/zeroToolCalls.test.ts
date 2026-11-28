@@ -49,13 +49,31 @@ const subagentOnlyTurn = (quiet: boolean): AcpmuxRow[] => [
 
 for (const quiet of [true, false])
   test(`a ${quiet ? "quiet" : "loud"} turn of a subagent's end alone draws no "0 tool calls" fold`, () => {
-    for (const agentFamily of ["claude", "codex"]) {
-      const view = turnView([...withSubagentLines(subagentOnlyTurn(quiet))], new Set(), { agentFamily });
-      const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
-      expect(labels.filter((label) => /\b0 tool calls\b/.test(label) || label === "")).toEqual([]);
-      // The subagent's end stays in sight, in its place, not folded away under an empty line.
-      expect(view.filter((entry) => entry.kind === SUBAGENT_DONE).map((entry) => entry.id)).toHaveLength(1);
-      expect(view.at(-1)?.kind).toBe("turnSummary");
+    const saved = (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+    try {
+      // The default hat (`line`) says a background subagent's end, so the transcript draws none
+      // (#56287, Leo 2026-11-25: "what if we simply put it into the composer hat and iddnt put it
+      // into the transcript?"); the earlier `groups` header keeps it in the transcript.
+      for (const [arm, ends] of [
+        [undefined, 0],
+        ["groups", 1],
+      ] as const) {
+        (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = arm
+          ? { "subagent-tray-fold-head": arm }
+          : {};
+        for (const agentFamily of ["claude", "codex"]) {
+          const view = turnView([...withSubagentLines(subagentOnlyTurn(quiet))], new Set(), { agentFamily });
+          const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
+          expect(labels.filter((label) => /\b0 tool calls\b/.test(label) || label === "")).toEqual([]);
+          // Where the transcript keeps the subagent's end, it stays in sight, in its place, not
+          // folded away under an empty line.
+          expect(view.filter((entry) => entry.kind === SUBAGENT_DONE).map((entry) => entry.id)).toHaveLength(ends);
+          expect(view.at(-1)?.kind).toBe("turnSummary");
+        }
+      }
+    } finally {
+      if (saved === undefined) delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+      else (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = saved;
     }
   });
 

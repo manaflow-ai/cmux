@@ -6,11 +6,11 @@ import { organizationRows } from "./organizationFixture";
 // its own flat row, so it splits the run's commands into two groups.
 test("the organization fixture's run leads with its thought, and its one-file read splits its commands", () => {
   const rows = organizationRows(0);
+  // No plan row since #55935 removed the agent to-do list ("let's remove tasks completely").
   expect(rows.map((row) => row.kind)).toEqual([
     "user",
     "assistant",
     "questionRecord",
-    "plan",
     "activity",
     "assistant",
     "turnSummary",

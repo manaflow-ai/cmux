@@ -172,8 +172,9 @@ describe("toast avoidance", () => {
 
   test("the page's handshake resends the toast box once the host answers", () => {
     const app = readFileSync(join(import.meta.dir, "pane/paneSnapshot.ts"), "utf8");
+    // #60478 names the flag `asksReconnect` and sends `{ reconnect: true }`; the wiring is the same.
     expect(app).toMatch(
-      />\("ready", reconnect \? \{ reconnect \} : \{\}\)\s*(\/\/[^\n]*\s*)?\.finally\(resendToastAvoidance\)/,
+      />\("ready", \w+ \? \{ reconnect(: true)? \} : \{\}\)\s*(\/\/[^\n]*\s*)?\.finally\(resendToastAvoidance\)/,
     );
   });
 

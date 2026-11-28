@@ -10,6 +10,8 @@ import { experimentArm } from "../../../experiments/experiment";
 import { jumpPairLook } from "../jumpPair.experiment";
 import { JumpDots } from "../conversation/JumpDots";
 import { useThinkingLook } from "../conversation/thinkingLook";
+import { ThinkingGlyph } from "../conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "../conversation/thinkingGlyphModel";
 
 /// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
 /// drawn for it (ui/glass/Fisheye.tsx).
@@ -41,9 +43,13 @@ export function JumpToLatest({
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(jumpPairLook));
-  // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default): drawn over the arrow's
-  // cell while the agent works; the arrow comes back on hover and focus (JumpDots.css).
-  const dots = useThinkingLook().jumpButton === "dots" && working;
+  // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default), or its thinking glyph
+  // (`jumpButton: "glyph"`, at `glyphSize` points a dot; #47525): drawn over the arrow's cell while the
+  // agent works; the arrow comes back on hover and focus (JumpDots.css, ThinkingGlyph.css).
+  const thinking = useThinkingLook();
+  const glyphTrigger = useLiveGlyphTrigger();
+  const glyph = working && thinking.jumpButton === "glyph" ? thinking.glyph : null;
+  const dots = working && (thinking.jumpButton === "dots" || glyph !== null);
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
@@ -72,7 +78,16 @@ export function JumpToLatest({
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
-        {dots && <JumpDots />}
+        {glyph ? (
+          <ThinkingGlyph
+            className="cv-jump-glyph"
+            doc={glyph}
+            trigger={glyphTrigger}
+            size={thinking.glyphSize > 0 ? thinking.glyphSize : undefined}
+          />
+        ) : (
+          dots && <JumpDots />
+        )}
         {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>

@@ -1,5 +1,5 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore, useRowState } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { CLOUD_MODELS_FOCUS, parseLocation, sectionHref } from "../router";
@@ -19,13 +19,19 @@ import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
-import { DoctorNoticeSlot } from "./CustomizeDoctorCard";
+import { doctorTreatment } from "../customizeDoctor";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
 import { glassControlsOn } from "../glassControls";
 import { configureKeyStyle, KEY_STYLE_KEY, SHORTCUT_LAYOUT_KEY } from "../../../ui/keyStyle";
+
+/// The doctor's banner lives in its card's module, a chunk read with its section (cardModules.tsx),
+/// so the page's startup script carries no card (lazyCards.test.ts): the banner reads it when drawn.
+const DoctorNoticeSlot = lazy(() =>
+  import("./CustomizeDoctorCard").then(({ DoctorNoticeSlot }) => ({ default: DoctorNoticeSlot })),
+);
 
 /**
  * The page (P1): the search field and the categories in the sidebar at the window's left, the
@@ -200,7 +206,11 @@ export function SettingsApp() {
         <div className="column">
           <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
           <TryOnSlot />
-          <DoctorNoticeSlot place="banner" />
+          {doctorTreatment() === "banner" && (
+            <Suspense fallback={null}>
+              <DoctorNoticeSlot place="banner" />
+            </Suspense>
+          )}
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

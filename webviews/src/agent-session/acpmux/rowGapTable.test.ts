@@ -72,12 +72,12 @@ const draw = (table: GapTable): string => {
 
 const SHIPPED = `
 from \\ to   prompt   reply  footer  worked     run    peer  bgTask   group   bgRun bgReply  bgLine
-prompt          32      32      32      32      32      32      32      32      32      32      32
+prompt           8      32      32      32      32      32      32      32      32      32      32
 reply           32      24       8      24      16      24      16      16      32      32      16
-footer          32      24      24      16      16      16       8      16      16      32       8
+footer          32      24      24      16      16      16       0      16      16      32       0
 worked          32       0       0       0       0      16       0       0       0       0       0
 run             32      16       8      16       0       0       0       0       0      32       0
-peer            32      16       8      16       0       0       0       0       0      32       0
+peer            32      16       8      16       0       0       0       0       0      16       0
 bgTask          32      16       8      16       0       0       0       0       0      32       0
 group           32      16       8      16       0       0       0       0       0      32       0
 bgRun           32      16       8      16       0       0       0       0       0      16       0
@@ -91,6 +91,11 @@ bgLine          32      16       8      16       0       0       0       0      
 // A reply over "Worked for" or another agent's line (not a steer) is the turn before's last reply over the turn that
 // line opened: the block gap, as under a footer (transcriptGrid.ts MARK_TOPS_TURN; Leo, 2026-11-21: "it is noticeably
 // bad when you start a new working for whatever and there is no space before").
+// Two of the person's own messages stick together, the footer gap apart (#61546, ownMessagesJoin; Leo, 2026-11-27:
+// "potentially we can just stick the steered together"). A background task's end and a background turn's line sit
+// flush under the footer (#61248; Lucas, 2026-11-27: "less top padding and make it closer to the actions"). Another
+// agent's line opens nothing for the row under it (#44818, model.ts opensBackgroundTurn): a background reply under it
+// stands the run gap, as under any line, and a background run sits flush.
 test("the shipped gap table: every adjacent kind pair", () => {
   expect(draw(under("shipped", gapTable))).toBe(SHIPPED);
 });
@@ -99,7 +104,8 @@ test("the replaced look had a flush header and a blank band under every line", (
   const before = under("before", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine"]) {
     expect(before[line]!.worked).toBe(0);
-    expect(before[line]!.bgRun).toBe(32);
+    // A received line opens no turn for the row under it (#44818), in any look.
+    expect(before[line]!.bgRun).toBe(line === "peer" ? 0 : 32);
   }
   const shipped = under("shipped", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine", "bgRun"]) {

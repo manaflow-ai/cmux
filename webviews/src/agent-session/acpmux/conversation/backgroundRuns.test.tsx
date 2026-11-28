@@ -90,13 +90,27 @@ test("four quiet background task lines with lone replies fold into one closed li
   ]);
 });
 
+// Under the composer hat's one-line header (the default since #56287; Leo, 2026-11-25: "what if we simply
+// put it into the composer hat and iddnt put it into the transcript?") the hat says a shell's end and the
+// transcript draws no row for it; with an earlier header the end folds with the lines as before.
 test("a finished and a stopped shell fold with the lines, as background updates", () => {
   const rows = [...prompt(), line("a"), note("stop", "stopped"), line("b")];
-  const view = asView(rows, new Set());
-  const run = view.at(-1)!;
-  expect(run.backgroundRun).toMatchObject({ finished: 2, stopped: 1 });
-  const html = renderToStaticMarkup(<BackgroundTurnLine row={run} expanded={false} onToggle={() => {}} />);
-  expect(html).toContain("3 background updates");
+  const hatLine = asView(rows, new Set());
+  expect(hatLine.at(-1)!.backgroundRun).toMatchObject({ finished: 2, stopped: 0 });
+  expect(ids(hatLine)).not.toContain("stop");
+  const saved = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...saved, "subagent-tray-fold-head": "groups" };
+  try {
+    // Fresh rows: turnView keeps its last view for the same rows, and the arm is read only when it shapes.
+    const view = asView([...prompt(), line("a"), note("stop", "stopped"), line("b")], new Set());
+    const run = view.at(-1)!;
+    expect(run.backgroundRun).toMatchObject({ finished: 2, stopped: 1 });
+    const html = renderToStaticMarkup(<BackgroundTurnLine row={run} expanded={false} onToggle={() => {}} />);
+    expect(html).toContain("3 background updates");
+  } finally {
+    if (saved === undefined) delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+    else globalThis.cmuxExperiments = saved;
+  }
 });
 
 test("a notification followed by a real reply keeps that reply in sight", () => {

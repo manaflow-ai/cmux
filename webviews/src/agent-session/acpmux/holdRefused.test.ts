@@ -112,8 +112,12 @@ test.each(refusals)(
     );
     try {
       const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
-      await settle(() => attaches().length >= 2 && rows > 0);
-      const [hold, plain] = attaches();
+      // A fresh page sends its first attach with initialize, before the handshake says whether the
+      // daemon holds (#55175, the 0-RTT open): that one is plain. The hold is the first that asks it.
+      const holdAt = () => attaches().findIndex((ask) => ask.params.hold === true);
+      await settle(() => holdAt() >= 0 && attaches().length > holdAt() + 1 && rows > 0);
+      const hold = attaches()[holdAt()];
+      const plain = attaches()[holdAt() + 1];
       expect(hold!.params.hold).toBe(true);
       // The plain attach follows at once: a page, not the hold.
       expect("hold" in plain!.params).toBe(false);

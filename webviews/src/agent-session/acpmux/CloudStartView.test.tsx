@@ -685,7 +685,7 @@ test("Retry shows only on a failure another try can help", async () => {
   expect(retried).toBe(1);
 });
 
-test("a start connecting GitHub would fix offers Connect GitHub beside Retry, and no other failure does", async () => {
+test("a start connecting GitHub would fix offers Sign in with GitHub beside Retry, and no other failure does", async () => {
   const failed = { ...start, state: "failed" as const, retryable: true, message: "Connect GitHub to clone it." };
   const calls: string[] = [];
   let refuse = false;
@@ -721,7 +721,8 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     );
   });
   const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
-  expect(connect?.textContent).toBe("Connect GitHub");
+  // The button reads Sign in with GitHub since #57143 renamed it (Leo-ask ask-e3ca38dae1).
+  expect(connect?.textContent).toBe("Sign in with GitHub");
   expect(connect?.getAttribute("data-role")).toBe("default");
   await act(async () => connect?.click());
   expect(calls).toEqual(["github.connect"]);

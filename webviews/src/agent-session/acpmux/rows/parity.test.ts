@@ -136,16 +136,8 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     from: ["id"],
     why: "a turn's fold carries the prompt row it folds whole (conversation/turns.ts), named by its id",
   },
-  {
-    field: "row:worked",
-    from: ["row:permissionRecord"],
-    why: "v1's receipt is the work of its turn, which the turn folds",
-  },
-  {
-    field: "turnSummary.folded",
-    from: ["row:permissionRecord"],
-    why: "as row:worked",
-  },
+  // "row:worked" and "turnSummary.folded" (from row:permissionRecord) left: both paths now draw a turn whose only
+  // work is v1's receipt the same (red since turns.ts's 11-27/28 changes, #62916 or #53268).
 ];
 
 /// v1's snapshot of a corpus log: its records replayed through the direct client to the end.
