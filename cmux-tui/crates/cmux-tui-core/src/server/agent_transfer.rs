@@ -146,7 +146,10 @@ pub const SHARE_MANIFEST_FIELD: &str = TRANSFER_FIELD;
 /// one its `identify` does not list, so an older machine image takes the chat without it
 /// instead of refusing the whole move (`cmux link agent move`).
 pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
-    &["transfer-composers-v1", "transfer-images-v1"];
+    &["transfer-composers-v1", "transfer-images-v1", AGENT_TRANSFER_UPLOADS_CAPABILITY];
+/// The chat's uploads ride the move bundle (acpmux `TRANSFER_UPLOADS`); named so the native
+/// owner's list names it without indexing the slice above.
+pub const AGENT_TRANSFER_UPLOADS_CAPABILITY: &str = "transfer-uploads-v1";
 /// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
 /// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
 pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";
@@ -640,9 +643,7 @@ impl Refusal {
             Self::UnknownTransfer => "no such move on this daemon",
             Self::Unguarded => "acpmux did not apply the receive guard",
             Self::SharesUnsupported => "update the move client to move a shared chat",
-            Self::Busy => {
-                "another move operation for this chat is still running; retry when it answers"
-            }
+            Self::Busy => "another move operation for this chat is still running",
             Self::Limit => "too many chat moves at once",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",

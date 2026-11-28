@@ -75,6 +75,7 @@ members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-browser-grants",
     "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
@@ -89,6 +90,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-app-feed",
     "crates/cmux-phone-core",
     "crates/cmux-browser-rules",
     "crates/cmux-app-workspace-creation",
@@ -127,6 +129,7 @@ members = [
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-no-checkout",
@@ -148,6 +151,7 @@ members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tui-lib",
     "crates/cmux-tui/tests/it/modules",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
@@ -200,6 +204,7 @@ members = [
     "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-design-core",
     "crates/cmux-chat-markdown",
     "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
@@ -284,6 +289,7 @@ default-members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-browser-grants",
     "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
@@ -293,6 +299,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-app-feed",
     "crates/cmux-phone-core",
     "crates/cmux-browser-rules",
     "crates/cmux-app-workspace-creation",
@@ -322,6 +329,7 @@ default-members = [
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
@@ -337,6 +345,7 @@ default-members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tui-lib",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
@@ -386,6 +395,7 @@ default-members = [
     "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-design-core",
     "crates/cmux-chat-markdown",
     "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
@@ -425,6 +435,9 @@ exclude = [
     "crates/cmux-rd-host",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
+    # Its own workspace and lockfile (a standalone reference plugin); cmux-tui
+    # links it as a path dependency (bin/cmux runs it by argv[0]).
+    "bindings/examples/rust-agent-screen-detection",
 ]
 
 [workspace.package]
@@ -486,6 +499,7 @@ cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-bytes = { path = "crates/cmux-bytes" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-cloud-phone-acp = { path = "crates/cmux-cloud-phone-acp" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
@@ -576,6 +590,7 @@ cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-browser-grants = { path = "crates/cmux-browser-grants" }
 cmux-intent = { path = "crates/cmux-intent" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }

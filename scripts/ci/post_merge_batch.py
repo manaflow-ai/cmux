@@ -92,6 +92,11 @@ MAX_REBISECTS = 2
 # contract, CmuxMobileKit tests ...), red since a commit three days back (0e0818af, 11-24), past the reach. Only for such
 # a red, the judges read this many batch runs further back, older than the reach's oldest run, to find its last green.
 DEEP_LOOKBACK_BATCHES = 72
+# A red with no green even in the deeper read is galloped back (gallop_on): one probe at the commit 1, 2, 4, ... commits
+# before its first red batch run's commit, the next doubling once the last came back red, up to this many commits back.
+# Batch run 46164328032 (11-28) called 23 reds "no green batch run in reach (82 read)": nothing ever bisected them, so
+# auto-revert never reached the 139 live base reds, most of them that old.
+GALLOP_MAX_COMMITS = 512
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -100,7 +105,17 @@ STEP_SEP = "|"
 # A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
 # until this many batch runs sit on that tip.
 MAX_TIP_BATCHES = 2
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# A live batch run this many minutes old whose judge job has not started is stalled: the tick cancels it and starts
+# the next batch, whose plan reads from the last judged batch, so its window covers the stalled one's commits too.
+# Until 2026-11-28 a live batch held every tick with no bound: run 46164328032 (16:17Z) sat 2.5 h on a Mac job stuck
+# in runner setup (blacksmith-6vcpu-macos-26 saturated; timeout-minutes does not count a runner wait) and a linux
+# job whose bound is 1090 min, and no base row moved after its fixes merged. The seven batch runs before it started
+# their judge 61 to 162 min in, so 200 leaves a healthy batch alone. NEXT_POST_MERGE_STALL_MINUTES sets it; 0: off.
+DEFAULT_STALL_MINUTES = 200
+# A stalled run still live this long past the stall bound did not take its cancel (a job stuck in runner setup):
+# the tick force-cancels it.
+FORCE_CANCEL_AFTER_MINUTES = 60
+SHA_RE =re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 PIECES_DRILL = "lane/post-merge-drill-pieces-"
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
@@ -156,13 +171,19 @@ def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
     return max(0.0, min(max(want, 15.0), left))
 
 
-def _core_reset() -> float | None:
-    """When the token's core limit resets (gh api rate_limit is not counted against it)."""
-    out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
-    try:
-        return float(json.loads(out.stdout)["resources"]["core"]["reset"])
-    except (ValueError, KeyError, TypeError):
-        return None
+def _core_reset(tokens: list[str] | None = None) -> float | None:
+    """When the soonest of the tokens' core limits resets (gh api rate_limit is not counted against it). Each token
+    has its own reset, and the first one back lets the call through: reading only the ambient token's reset could
+    wait past another token's reset."""
+    resets = []
+    for token in tokens or [""]:
+        env = {**os.environ, "GH_TOKEN": token} if token else None
+        out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True, env=env)
+        try:
+            resets.append(float(json.loads(out.stdout)["resources"]["core"]["reset"]))
+        except (ValueError, KeyError, TypeError):
+            pass
+    return min(resets) if resets else None
 
 
 def _distinct(*tokens: str) -> list[str]:
@@ -187,7 +208,7 @@ def write_tokens() -> list[str]:
     return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
-def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=None, tokens=None) -> object:
     """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
     turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
@@ -198,6 +219,9 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         data = json.dumps(fields)
     if tokens is None:
         tokens = read_tokens() if method == "GET" else write_tokens()
+    if reset_at is None:
+        def reset_at() -> float | None:
+            return _core_reset(tokens)
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
@@ -554,6 +578,32 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
+def stalled_batches(runs: list[dict], now: datetime, stall: int, judging=lambda run_id: True,
+                    self_run_id: int = 0) -> list[dict]:
+    """The live batch runs (never self_run_id) at least stall minutes old whose judge job has not started
+    (judging(run id) is False): the tick supersedes them. stall 0: none."""
+    if stall <= 0:
+        return []
+    return [r for r in runs
+            if is_batch(r) and r.get("status") != "completed" and r.get("id") != self_run_id
+            and (now - parse_time(r["created_at"])).total_seconds() / 60 >= stall and not judging(r["id"])]
+
+
+def superseded(runs: list[dict], stalled: list[dict]) -> list[dict]:
+    """RUNS with each stalled run read as completed (cancelled): tick_decision then counts it as a batch with no verdict."""
+    ids = {r.get("id") for r in stalled}
+    return [{**r, "status": "completed", "conclusion": "cancelled"} if r.get("id") in ids else r for r in runs]
+
+
+def stall_minutes(value: str | None) -> int:
+    """NEXT_POST_MERGE_STALL_MINUTES: unset or unreadable is the default; 0 turns superseding off."""
+    try:
+        minutes = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_STALL_MINUTES
+    return max(minutes, 0)
+
+
 def window_minutes(value: str | None) -> int:
     try:
         minutes = int(str(value or "").strip())
@@ -647,8 +697,28 @@ def tick(args: argparse.Namespace) -> int:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
     self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+
+    def judging(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("status") in ("in_progress", "completed")
+                   for j in run_jobs(args.repo, run_id))
+
+    now = datetime.now(timezone.utc)
+    stall = stall_minutes(getattr(args, "stall_minutes", None))
+    stalled = stalled_batches(runs, now, stall, judging, self_run_id)
+    for r in stalled:
+        age = (now - parse_time(r["created_at"])).total_seconds() / 60
+        how = "force-cancel" if age >= stall + FORCE_CANCEL_AFTER_MINUTES else "cancel"
+        print(f"supersede: batch run {r.get('id')} on {str(r.get('head_sha'))[:11]} is {r.get('status')} {age:.0f} min "
+              f"with no judge started (bound {stall} min): {how}")
+        if not args.dry_run:
+            try:
+                gh_api(f"repos/{args.repo}/actions/runs/{r['id']}/{how}", method="POST")
+            except RuntimeError as err:
+                if "HTTP 409" not in str(err):  # 409: it completed since the list; nothing left to cancel
+                    raise
+    runs = superseded(runs, stalled)
     action, reason = tick_decision(
-        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        tip, runs, now, window_minutes(args.window_minutes), judged,
         every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
     )
     print(f"{action}: {reason}")
@@ -870,9 +940,50 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
     return found, notes
 
 
+def gallop_on() -> bool:
+    """POST_MERGE_GALLOP (vars, default on; "0" turns it off): a red with no green batch run in reach is galloped back
+    (stuck_reds, GALLOP_MAX_COMMITS) instead of only named."""
+    return os.environ.get("POST_MERGE_GALLOP", "").strip() != "0"
+
+
+def first_parent_back(sha: str, n: int) -> str:
+    """The commit n first parents before sha, or "" when the history ends first (or git cannot say)."""
+    try:
+        return git("rev-parse", "--verify", "--quiet", f"{sha}~{n}^{{commit}}").strip()
+    except RuntimeError:
+        return ""
+
+
+def gallop_target(suite: str, name: str, only: str, first_red: str, probes: list[dict], verdict_of, back) -> tuple[str, int, str]:
+    """Where a red with no green in reach gallops: (sha, commits back, kind). kind 'green': a finished probe of this
+    suite job there was green, so sha is its last green and good..first_red is bisected as a stuck red; 'probe': no
+    finished probe there yet, so that is the next gallop probe; '' (sha empty): the history or GALLOP_MAX_COMMITS ends
+    first. Each red probe doubles the distance. verdict_of(probe run, sha) is that run's verdict for this red."""
+    n = 1
+    while n <= GALLOP_MAX_COMMITS:
+        at = back(first_red, n)
+        if not at:
+            return "", n, ""
+        prefix = f"{PROBE} {suite} {only or 'all'} at {at}"
+        verdict = ""
+        for p in probes:
+            title = p.get("display_title") or ""
+            if p.get("status") == "completed" and (title == prefix or title.startswith(prefix + " states ")):
+                verdict = verdict_of(p, at)
+                if verdict in ("success", "failure"):
+                    break
+        if verdict == "success":
+            return at, n, "green"
+        if verdict != "failure":
+            return at, n, "probe"
+        n *= 2
+    return "", n // 2, ""
+
+
 def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
                suites: dict[str, "Suite"], chain_start=None, steps: dict[str, frozenset] | None = None,
-               steps_of=None, skipped: dict[str, str] | None = None) -> list[tuple[str, str, str, str]]:
+               steps_of=None, skipped: dict[str, str] | None = None, back=None,
+               gallops: list | None = None) -> list[tuple[str, str, str, str]]:
     """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
 
     A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
@@ -884,7 +995,10 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
     runs (cmd_judge, before its origin) agrees with the batch run that dispatched it.
     skipped, when given, gets each red that is not bisected and why: the summary said only "a known red, no bisect"
-    for 23 of run 45987000605's 25 known reds, so nobody could tell a red past the reach from a capped one."""
+    for 23 of run 45987000605's 25 known reds, so nobody could tell a red past the reach from a capped one.
+    gallops, when given with back (first_parent_back) and gallop_on(), gets each red with no green in reach as
+    (job name, suite, gallop sha, first red sha, commits back): its next gallop probe (gallop_target), the good-anchor
+    probe at the gallop sha. Once one is green there, the red is bisected from it like any stuck red."""
     skip = skipped if skipped is not None else {}
     reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
@@ -910,11 +1024,36 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
             break
         if first is None:
             continue  # a new red: new_reds bisects it
-        if green is None:
-            skip[name] = f"no green batch run in reach ({len(earlier)} read), red since `{first['head_sha'][:11]}` or before"
-            continue
         only = suites[suite].probe_only(name.partition(" / ")[2]) if suite in suites else ""
-        key = (suite, only, green["head_sha"], first["head_sha"])
+        good = green["head_sha"] if green else ""
+        if green is None:
+            reach = f"no green batch run in reach ({len(earlier)} read), red since `{first['head_sha'][:11]}` or before"
+            if gallops is None or back is None or not gallop_on():
+                skip[name] = reach
+                continue
+
+            def verdict_of(p: dict, at: str, suite=suite, name=name, only=only) -> str:
+                if p["id"] not in cache:
+                    cache[p["id"]] = jobs_of(p["id"])
+                got = cache[p["id"]]
+                got = got[0] if isinstance(got, tuple) else got
+                step = STEP_SEP.join(sorted(red_step_names(steps, name))) if steps else ""
+                return probe_conclusion(got, Probe(suite, name, only, at, at, first["head_sha"], "", step=step),
+                                        steps_of(p["id"]) if steps_of else None)
+            at, n, kind = gallop_target(suite, name, only, first["head_sha"], probes, verdict_of, back)
+            if kind == "":
+                skip[name] = f"{reach}; no green galloping back {n} commits"
+                continue
+            if kind == "probe":
+                key = (suite, only, at, first["head_sha"])
+                if key not in seen and not any(p.get("status") != "completed" and (p.get("display_title") or "").startswith(f"{PROBE} {suite} {only or 'all'} at ")
+                                               for p in probes):
+                    seen.add(key)
+                    gallops.append((name, suite, at, first["head_sha"], n))
+                skip[name] = f"{reach}; galloping back {n} commits to `{at[:11]}`"
+                continue
+            good = at  # a gallop probe was green there: bisect from it
+        key = (suite, only, good, first["head_sha"])
         if key in seen:
             continue
         prefix = f"{PROBE} {suite} {only or 'all'} at "
@@ -926,7 +1065,7 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
         if any(p.get("status") != "completed" for p in running):
             skip[name] = "a probe of it is still running"
             continue
-        start = chain_start(green["head_sha"], first["head_sha"]) if chain_start else ""
+        start = chain_start(good, first["head_sha"]) if chain_start else ""
         done = 0
         for p in mine:
             if start and not (p.get("display_title") or "").endswith(f" at {start}"):
@@ -937,11 +1076,11 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
             if not isinstance(got, tuple) or got[1]:
                 done += 1
         if done >= MAX_REBISECTS:
-            skip[name] = (f"{done} bisects of `{green['head_sha'][:11]}..{first['head_sha'][:11]}` already ran with no revert;"
+            skip[name] = (f"{done} bisects of `{good[:11]}..{first['head_sha'][:11]}` already ran with no revert;"
                           " a person should read them")
             continue
         seen.add(key)
-        out.append((name, suite, green["head_sha"], first["head_sha"]))
+        out.append((name, suite, good, first["head_sha"]))
     return out
 
 
@@ -1490,8 +1629,16 @@ def cmd_judge(args: argparse.Namespace) -> int:
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites, steps_of(args.run_id), steps_of)
         deep = with_deeper_runs(args.repo, args.branch, args.sha, verdicts, runs, jobs_of)
         skipped: dict[str, str] = {}
+        gallops: list[tuple[str, str, str, str, int]] = []
         stuck = stuck_reds(args.sha, verdicts, deep, jobs_of, suites, chain_start=stuck_chain_start,
-                           steps=steps_of(args.run_id), steps_of=steps_of, skipped=skipped)
+                           steps=steps_of(args.run_id), steps_of=steps_of, skipped=skipped, back=first_parent_back,
+                           gallops=gallops)
+        now = datetime.now(timezone.utc)
+        capped = [(name, n) for name, suite, *_ in found + stuck + gallops if (n := over_probe_cap(runs, suites, suite, name, now))]
+        capped_names = {name for name, _ in capped}
+        for name, *_ in gallops:
+            if name in capped_names and name in skipped:
+                skipped[name] = skipped[name].split("; galloping back", 1)[0]  # capped: no gallop probe starts
         if stuck and revert_hold_on():
             try:
                 reverts = open_reverts(args.repo, args.branch)
@@ -1513,14 +1660,12 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
-        now = datetime.now(timezone.utc)
-        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
-        capped_names = {name for name, _ in capped}
         for name, n in capped:
             summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
                                   f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
         found = [f for f in found if f[0] not in capped_names]
         stuck = [s for s in stuck if s[0] not in capped_names]
+        gallops = [g for g in gallops if g[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
@@ -1547,6 +1692,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 dispatch_probe(args.repo, args.branch, probe)
         for name, _, good, bad in stuck[MAX_STUCK_CHAINS:]:
             summary(args.summary, f"- Stuck red `{name}` (green on `{good[:11]}`, red since `{bad[:11]}`): over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
+        room = max(0, MAX_STUCK_CHAINS - len(stuck))  # gallops share the stuck reds' chain cap
+        for name, suite, good, bad, n in gallops[:room]:
+            inner = name.partition(" / ")[2]
+            probe = Probe(suite, name, suites[suite].probe_only(inner), good, good, bad, str(args.run_id),
+                          step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
+                          states=red_states(suite, name, verdicts, reds_dir, steps_of(args.run_id)))
+            summary(args.summary, f"- Red `{name}` with no green in reach, red since `{bad[:11]}`: galloping back {n} commits, "
+                                  f"probing `{good[:11]}`; green there bisects `{good[:11]}`..`{bad[:11]}`.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good, bad, n in gallops[room:]:
+            summary(args.summary, f"- Red `{name}` (no green in reach, red since `{bad[:11]}`): its gallop {n} commits back is "
+                                  f"over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
         write_outputs(args.github_output, out)
         return 0
 
@@ -1572,10 +1730,15 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
             # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
             deep = with_deeper_runs(args.repo, args.branch, origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            # The same gallop as the batch judge: the runs before the origin hold no probe it started, so the gallop sha
+            # it probed (and bisects from once green) comes out the same here.
+            gallops: list[tuple[str, str, str, str, int]] = []
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, deep, jobs_of, suites,
                                                                                   chain_start=stuck_chain_start,
                                                                                   steps=steps_of(origin["id"]),
-                                                                                  steps_of=steps_of)]
+                                                                                  steps_of=steps_of, back=first_parent_back,
+                                                                                  gallops=gallops)]
+            found += [(name, suite, good) for name, suite, good, *_ in gallops]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
         # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
@@ -1705,7 +1868,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
     elif step == "anchored":
         summary(args.summary, f"`{probe.job}` is red at its last green `{probe.sha[:11]}` too: no commit in "
-                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert.")
+                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert. "
+                              "A gallop probe of a red with no green in reach: the next batch run probes twice as far back.")
     elif conclusion == "skipped":
         summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
@@ -1998,7 +2162,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
         p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
         p.add_argument("--dry-run", action="store_true")
-        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, plan 420, revert 300, tick 120)")
+        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 3900, plan 420, revert 900, tick 120)")
 
     def probe_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
@@ -2024,6 +2188,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
                    help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
     p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
+    p.add_argument("--stall-minutes", default=os.environ.get("NEXT_POST_MERGE_STALL_MINUTES"),
+                   help=f"cancel and replace a live batch this old whose judge has not started (default {DEFAULT_STALL_MINUTES}; 0: off)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")
@@ -2051,8 +2217,11 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)
-    # Within each job's timeout-minutes (judge 15, plan 10); the tick's shim is short and skips on a refusal.
-    budgets = {"judge": 600.0, "plan": 420.0, "revert": 900.0}
+    # Within each job's timeout-minutes (judge 70, plan 10); the tick's shim is short and skips on a refusal. The
+    # judge's budget outlasts a whole hourly reset: a judge that gives up ends its probe's bisect chain (its first
+    # read, its own run's jobs, has no re-dispatch). With 600 s, probe run 46155774726 (11-28 14:40Z) waited the
+    # whole budget, retried at 14:50:08 against a reset at 14:51:46 and died.
+    budgets = {"judge": 3900.0, "plan": 420.0, "revert": 900.0}
     API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else budgets.get(args.cmd, 120.0)
     return args.func(args)
 

@@ -362,6 +362,7 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    "mesh.hub.slow",
     "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
@@ -1205,6 +1206,11 @@ VM_MSGS = frozenset({
 VM_LEVELS = frozenset({"DEBUG", "INFO", "WARN", "ERROR", "FATAL"})
 VM_OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,47}$")
 VM_STATUS = re.compile(r"^[1-5][0-9]{2}$")
+# A store failure's `code` (workers/cmux-vm/src/db/sql.ts failureCode): a SQLSTATE such as 53300, a driver code such
+# as CONNECTION_CLOSED, or an error class name such as PostgresError; failureCode already lets nothing else through.
+# base.TOKEN wants a lowercase first letter, so it dropped every one of them (2026-11-28 21:02Z production store
+# failures read with no SQLSTATE).
+VM_STORE_CODE = re.compile(r"^(?:[0-9A-Z]{5}|[A-Z][A-Z0-9_]{1,39}|[A-Z][A-Za-z]{1,39}|unknown)$")
 LOGFMT_PAIR = re.compile(r'(?:^|\s)([A-Za-z][A-Za-z0-9_]{0,31})=("(?:[^"\\]|\\.)*"|[^\s"=]*)')
 # Fixed route words of cmux-vm's paths (workers/cmux-vm/openapi.json) that base.ROUTE_SEGMENTS lacks, so
 # `/v1/vms/*/pause` counts as that route and not as `/v1/vms/*/*`. Any other segment still prints hashed.
@@ -1258,6 +1264,8 @@ def vm_log(text):
     elif status is not None and VM_STATUS.match(status):
         out["status"] = int(status)
     code = base.typed(TOKEN, pairs.get("code"))
+    if code is None and isinstance(pairs.get("code"), str) and VM_STORE_CODE.match(pairs["code"]):
+        code = pairs["code"]
     if code is not None:
         out["code"] = code
     # Why a dependency call threw, as one of workers/cmux-vm/src/handlers/common.ts failureClass's fixed words.
