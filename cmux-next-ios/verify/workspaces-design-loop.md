@@ -316,7 +316,7 @@ swipe.
   Workspace.
 - **Filtered to an offline Mac with none**: "<Mac> is offline", last seen.
 - **Every Mac offline**: no Needs You or Recent; the folded offline lines
-  appear expanded under an `EmptyState`-style header "Your Macs are asleep"
+  appear expanded under an `EmptyState`-style header "Your Macs are offline"
   (`moon.zzz`), so the user still sees what exists.
 - **No search results**: `ContentUnavailableView.search`.
 
