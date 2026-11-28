@@ -13,10 +13,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser } from "playwright";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { gridTokenCss } = await importWithDom(() => import("./support/gridTokens"));
-const { requireBrowserLane } = await importWithDom(() => import("./support/requireBrowserLane"));
+import { gridTokenCss } from "./support/gridTokens";
+import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
