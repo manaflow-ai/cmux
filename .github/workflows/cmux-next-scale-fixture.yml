@@ -63,7 +63,7 @@ jobs:
       - name: The scale fixture's verdict and config (tests/test_scale_fixture_bench.py)
         run: python3 -I tests/test_scale_fixture_bench.py
 
-  measure:
+  measure-fleet:
     needs: harness
     # Same-repo pull requests only: a fork's head never reaches a fleet Mac.
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
