@@ -164,6 +164,7 @@ fn dial_uses_the_line_carrier_for_manifest_bytes() {
         reader.read_line(&mut first).unwrap();
         let first: Value = serde_json::from_str(first.trim()).unwrap();
         assert_eq!(first["lines"], true);
+        assert_eq!(first["redial"], false);
         assert_eq!(first["manifest_bytes"], expected.len());
 
         let mut decoded = vec![0; expected.len()];
@@ -175,7 +176,8 @@ fn dial_uses_the_line_carrier_for_manifest_bytes() {
         writer.flush().unwrap();
     });
 
-    let (reader, answer) = dial(&socket, "chat-test", "/workspace", &manifest, None).unwrap();
+    let (reader, answer) =
+        dial(&socket, "chat-test", "/workspace", &manifest, None, false).unwrap();
     assert!(ok(&answer));
     drop(reader);
     server.join().unwrap();
