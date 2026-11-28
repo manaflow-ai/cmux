@@ -6,8 +6,13 @@ extension Workspace {
     static let programStatusKey = "program_status"
 
     /// Applies one OSC 7501 report and publishes the resulting safe snapshot.
+    ///
+    /// A pane mirrored from remote tmux is not one of the workspace's `panels`;
+    /// its window mirror owns it. Its records are kept under its own surface,
+    /// like a local pane's, and the sidebar counts them for this workspace
+    /// (#22082).
     func applyProgramStatus(_ report: ProgramStatusReport, panelId: UUID) {
-        guard panels[panelId] != nil else { return }
+        guard ownsProgramStatusSurface(panelId) else { return }
         // Every shell prompt emits a prompt-start event; panes that never
         // reported program status have nothing to drop. A clear has nothing to remove either.
         if report.event == .promptStart || report.state == .clear,
@@ -24,6 +29,14 @@ extension Workspace {
         )
     }
 
+    /// Whether `surfaceId` can carry program status in this workspace: one of
+    /// its panels, or a live remote tmux pane mirrored by one of them.
+    func ownsProgramStatusSurface(_ surfaceId: UUID) -> Bool {
+        if panels[surfaceId] != nil { return true }
+        guard let container = remoteTmuxControlPane(surfaceID: surfaceId)?.containerPanelID else { return false }
+        return panels[container] != nil
+    }
+
     /// Removes working and blocked records after prompt-idle or child exit.
     func dropTransientProgramStatus(panelId: UUID) {
         let previousStore = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
@@ -38,8 +51,19 @@ extension Workspace {
         )
     }
 
-    /// Removes done and error records after the user returns to a pane.
+    /// Removes done and error records after the user returns to a pane. A
+    /// mirror tab stands for every remote tmux pane it shows, so returning to
+    /// it dismisses theirs too.
     func dismissCompletedProgramStatus(panelId: UUID) {
+        for paneSurfaceId in programStatusStoresByPanelId.keys.sorted(by: { $0.uuidString < $1.uuidString })
+        where paneSurfaceId != panelId && panels[paneSurfaceId] == nil
+            && remoteTmuxControlPane(surfaceID: paneSurfaceId)?.containerPanelID == panelId {
+            dismissCompletedProgramStatusRecords(surfaceId: paneSurfaceId)
+        }
+        dismissCompletedProgramStatusRecords(surfaceId: panelId)
+    }
+
+    private func dismissCompletedProgramStatusRecords(surfaceId panelId: UUID) {
         let updatedStore = updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dismissCompleted() }
         guard let store = updatedStore else { return }
         CmuxEventBus.shared.publishProgramStatusChanged(
@@ -177,7 +201,7 @@ extension Workspace {
 
     private func refreshProgramStatusWorkspaceEntry() {
         let entries = agentStatusEntriesByPanelId.compactMap { panelId, entries in
-            panels[panelId] == nil ? nil : entries[Self.programStatusKey]
+            ownsProgramStatusSurface(panelId) ? entries[Self.programStatusKey] : nil
         }
         let winner = entries.max(by: { lhs, rhs in
             lhs.priority == rhs.priority ? lhs.timestamp < rhs.timestamp : lhs.priority < rhs.priority

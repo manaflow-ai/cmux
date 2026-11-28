@@ -21,6 +21,9 @@ extension TerminalController {
                     forTabId: workspaceID,
                     surfaceId: surfaceID
                 )
+                // A removed pane's program status goes with it (#22082).
+                AppDelegate.shared?.workspaceFor(tabId: workspaceID)?
+                    .clearProgramStatusPanel(panelId: surfaceID)
             }
             controller?.cleanupSurfaceState(
                 surfaceIds: [surfaceID],
