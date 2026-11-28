@@ -478,11 +478,14 @@ mod pending_effort_tests {
         session.meta.lock().unwrap().remote_origin = true;
         assert_eq!(hub.session_summary(&session)["pendingEffort"], "high");
         // Any reported options end the promise, even when no effort option is offered.
-        session.meta.lock().unwrap().config_options = Some(Arc::new(json!([])));
+        session.meta.lock().unwrap().config_options = Some(json!([]).into());
         assert!(hub.session_summary(&session).get("pendingEffort").is_none());
-        session.meta.lock().unwrap().config_options = Some(Arc::new(json!([{
-            "id": "effort", "currentValue": "low", "options": [{"value": "low"}]
-        }])));
+        session.meta.lock().unwrap().config_options = Some(
+            json!([{
+                "id": "effort", "currentValue": "low", "options": [{"value": "low"}]
+            }])
+            .into(),
+        );
         let settled = hub.session_summary(&session);
         assert!(settled.get("pendingEffort").is_none());
         assert_eq!(settled["effort"], "low");
