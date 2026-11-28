@@ -91,11 +91,30 @@ pub(super) trait Head {
     fn blob(&self, generation: u64, sha256: &str) -> anyhow::Result<Option<Vec<u8>>>;
     fn put_blob(&self, generation: u64, bytes: &[u8]) -> anyhow::Result<String>;
     fn propose(&self, proposal: &Proposal) -> anyhow::Result<String>;
+    /// Whether the head keeps each file's permissions. A folder head does;
+    /// the `AgentHome` service carries text only, and every file it holds
+    /// reads `0o644`, so there a mode alone is never a change.
+    fn keeps_modes(&self) -> bool {
+        true
+    }
+    /// Whether a proposal to this head may carry `key` (the service refuses
+    /// a whole proposal over one path it does not take).
+    fn takes(&self, _key: &str) -> bool {
+        true
+    }
+    /// Accepts this device's own proposal `id`, based on `base_revision`,
+    /// when this device is the person's own (Leo, 2026-11-27, of the Accept
+    /// in Session Info: "get rid of it"): the new head revision. `None`: the
+    /// proposal waits for the person (a machine never accepts).
+    fn accept_own(&self, _id: &str, _base_revision: u64) -> anyhow::Result<Option<u64>> {
+        Ok(None)
+    }
 }
 
 /// A head kept in a folder: `head.json`, `blobs/g<generation>/<sha256>`,
 /// `proposals/<id>.json`. Tests use it, and a person can point machines at a
-/// shared folder (`--head DIR`) until the `AgentHome` service answers.
+/// shared folder (`--head DIR`); `--head https://HOST` is the `AgentHome`
+/// service ([`http::HttpHead`]).
 pub(super) struct DirHead {
     pub root: PathBuf,
 }
@@ -584,6 +603,10 @@ pub(super) struct Outcome {
     pub kept_local: Vec<String>,
     pub proposal: Option<String>,
     pub proposed: Vec<String>,
+    /// A person's push: the head revision their own device accepted its
+    /// proposal at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_revision: Option<u64>,
 }
 
 /// Deletes every carried file and writes back each original it replaced.
@@ -860,17 +883,23 @@ pub(super) fn propose(ctx: &Ctx<'_>) -> anyhow::Result<Outcome> {
         }
         Ok(local)
     })?;
+    let modes = ctx.head.keeps_modes();
+    let same = |held: Option<&Item>, found: &Item| {
+        held.is_some_and(|held| if modes { held == found } else { held.sha256 == found.sha256 })
+    };
     let mut patch = BTreeMap::new();
     for (key, found) in &local {
+        if !ctx.head.takes(key) {
+            continue;
+        }
         // Unchanged since the last sync, or already what the head holds.
-        if record.base.get(key) != Some(&found.item) && head.manifest.get(key) != Some(&found.item)
-        {
+        if !same(record.base.get(key), &found.item) && !same(head.manifest.get(key), &found.item) {
             ctx.head.put_blob(read.generation, &found.bytes)?;
             patch.insert(key.clone(), Some(found.item.clone()));
         }
     }
     for key in record.base.keys() {
-        if !local.contains_key(key) && head.manifest.contains_key(key) {
+        if !local.contains_key(key) && head.manifest.contains_key(key) && ctx.head.takes(key) {
             patch.insert(key.clone(), None);
         }
     }
@@ -889,10 +918,18 @@ pub(super) fn propose(ctx: &Ctx<'_>) -> anyhow::Result<Outcome> {
     Ok(out)
 }
 
-/// `push`: a pull, then a propose against the head it pulled.
+/// `push`: a pull, then a propose against the head it pulled. On the
+/// person's own device the head accepts that proposal at once, and a second
+/// pull records the head it made.
 pub(super) fn push(ctx: &Ctx<'_>) -> anyhow::Result<Outcome> {
     let pulled = pull(ctx)?;
     let mut out = propose(ctx)?;
+    if let Some(id) = out.proposal.clone()
+        && let Some(revision) = ctx.head.accept_own(&id, out.revision.unwrap_or_default())?
+    {
+        out.accepted_revision = Some(revision);
+        out.revision = pull(ctx)?.revision;
+    }
     out.written = pulled.written;
     out.deleted = pulled.deleted;
     out.restored = pulled.restored;
@@ -901,7 +938,7 @@ pub(super) fn push(ctx: &Ctx<'_>) -> anyhow::Result<Outcome> {
     Ok(out)
 }
 
-const USAGE: &str = "usage: cmux link memory pull|propose|push --head DIR [--home DIR] [--record DIR] [--user NAME|UID] [--device NAME]\n       cmux link memory plan [--home DIR] [--folder DIR]... [--ledger FILE] [--json]";
+const USAGE: &str = "usage: cmux link memory pull|propose|push --head https://HOST|DIR [--home DIR] [--record DIR] [--user NAME|UID] [--device NAME]\n       cmux link memory plan [--home DIR] [--folder DIR]... [--ledger FILE] [--json]";
 
 fn user_ids(name: &str) -> anyhow::Result<(u32, u32, PathBuf)> {
     let c = std::ffi::CString::new(name)?;
@@ -973,11 +1010,11 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
         let value = rest.next().with_context(|| format!("usage: {name} needs a value"))?;
         flags.insert(name, value);
     }
-    let head_dir = flags
+    let head_arg = flags
         .get("--head")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("CMUX_AGENT_HOME_HEAD").map(PathBuf::from))
-        .context("no head: pass --head DIR or set CMUX_AGENT_HOME_HEAD (the AgentHome service is not deployed yet)")?;
+        .map(|head| (*head).to_string())
+        .or_else(|| std::env::var("CMUX_AGENT_HOME_HEAD").ok().filter(|head| !head.is_empty()))
+        .context("no head: pass --head https://HOST (the AgentHome service) or --head DIR, or set CMUX_AGENT_HOME_HEAD")?;
     let (user, user_home) = match flags.get("--user") {
         Some(name) => {
             let (uid, gid, home) = user_ids(name)?;
@@ -1003,12 +1040,25 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
     if root && user.is_none() && !flags.contains_key("--user") && record == Path::new(ROOT_RECORD) {
         bail!("usage: as root, name the agent user with --user");
     }
-    let head = DirHead { root: head_dir };
+    let dir_head;
+    let http_head;
+    let head: &dyn Head = if http::is_url(&head_arg) {
+        let origin = http::origin_of(&head_arg)?;
+        // The person named this host (`--head` or the environment).
+        cmux_egress::allow_named(&origin);
+        let capability =
+            std::env::var("CMUX_AGENT_HOME_CAPABILITY").ok().filter(|value| !value.is_empty());
+        http_head = http::HttpHead::new(&origin, &agent_home_token()?, capability.as_deref())?;
+        &http_head
+    } else {
+        dir_head = DirHead { root: PathBuf::from(&head_arg) };
+        &dir_head
+    };
     let ctx = Ctx {
         home,
         user,
         record: RecordStore { root: record },
-        head: &head,
+        head,
         device: flags.get("--device").map(|device| (*device).to_string()).unwrap_or_else(hostname),
         machine: root,
         #[cfg(test)]
@@ -1027,8 +1077,28 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
     Ok(value)
 }
 
+/// The bearer token for the `AgentHome` service: `CMUX_AGENT_HOME_TOKEN`,
+/// else `CMUX_CLOUD_ACCESS_TOKEN`, else the signed-in cmux login's.
+fn agent_home_token() -> anyhow::Result<String> {
+    for name in ["CMUX_AGENT_HOME_TOKEN", "CMUX_CLOUD_ACCESS_TOKEN"] {
+        if let Ok(token) = std::env::var(name)
+            && !token.trim().is_empty()
+        {
+            return Ok(token.trim().to_string());
+        }
+    }
+    crate::cli::app_access_token().map_err(|error| {
+        anyhow::anyhow!(
+            "no AgentHome token: set CMUX_AGENT_HOME_TOKEN or sign in to cmux ({error})"
+        )
+    })
+}
+
 #[path = "memory_plan.rs"]
 mod plan;
+
+#[path = "memory_http.rs"]
+pub(crate) mod http;
 
 #[cfg(test)]
 #[path = "memory_tests.rs"]
