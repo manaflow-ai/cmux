@@ -1911,7 +1911,7 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   // when the steer came, held open in its row over the steer while the agent had not read it, so the
   // bubble draws over the whole reply (#56293, agent-pane-steer-split.test.ts, `steerOverReply`).
   // A reply that had ended before the steer came, or one acpmux said the agent read the steer under
-  // (direct.ts `steer_read`), stays over it when the answer is already under it: those words were
+  // (direct.ts `steer_read` without `midReply`), stays over it when the answer is already under it: those words were
   // written before the read (Leo, 2026-11-17: "the message you sent after my steer... shot up.
   // instead of landing after my steer prompt"; carriedSteerOrder.test.ts,
   // transcript-completed-fold.test.ts).

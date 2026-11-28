@@ -203,7 +203,8 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.think("The test races the timer.");
     b.tool("bun test flaky.test.ts", { ms: 600 });
     b.say("Fixed: the test now waits on the timer.", { chunks: 2 });
-    b.steer("also check the other timer test", { after: 50, readMs: 300 });
+    // Read while the answer still streamed (acpmux `steer_read.midReply`): its rest was written before the read.
+    b.steer("also check the other timer test", { after: 50, readMs: 300, midReply: true });
     b.say(" It passes 50 runs in a row.", { chunks: 1, after: 60 });
     return b.turnEnd("completed", 300).build();
   },

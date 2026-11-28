@@ -11088,13 +11088,19 @@ export class AcpmuxDirectClient {
         // acpmux would refuse. Its next words, which said so before, can come a minute later or
         // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
         // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
-        if (typeof msg.promptId === "string") this.landSteer(msg.promptId, true);
+        // `midReply`: acpmux says the agent read it while its model call still wrote the reply
+        // (claude_stdio `reply_streaming`): the rest of that reply was written before the read, so
+        // it runs on in its row and, the turn ended, the whole reply draws under the steer
+        // (`steerOverReply`, turns.ts `lateSteersLast`; Leo, 2026-11-25: "i steer RIGHT before you
+        // finish a turn but your completed sent message goes above mine").
+        const midReply = msg.midReply === true;
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId, !midReply);
         // What the agent writes once it read the steer answers it, below the steer: a reply held
         // open past it (`holdAssistantSegment`) ends here, even when its chunks carry no message id
         // or the same one, which would run the answer on in the row above the steer (Leo,
         // 2026-11-17: "and the message you sent after my steer... shot up. instead of landing after
         // my steer prompt"). The words before the read stay in their row above.
-        if (this.assistantCut) {
+        if (this.assistantCut && !midReply) {
           this.endAssistantSegment();
           this.streamingActivity = undefined;
         }
@@ -11930,7 +11936,8 @@ export class AcpmuxDirectClient {
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
-  /// `readHere`: acpmux's `steer_read` said the agent read it now, not a guess from what came next.
+  /// `readHere`: acpmux's `steer_read` said the agent read it now, after the reply it came under, not a guess
+  /// from what came next (one read mid-reply, `steer_read.midReply`, is not: that reply stays over it).
   private landSteer(promptId?: string, readHere = false): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
     if (!read.length) return;

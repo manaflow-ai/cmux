@@ -548,14 +548,16 @@ export class SimBuilder {
   }
 
   /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later
-   *  (`false`: the agent has not read it yet). */
+   *  (`false`: the agent has not read it yet). `midReply`: it read it while its model call still wrote the reply
+   *  (acpmux `steer_read.midReply`), so the rest of that reply comes from before the read. */
   steer(
     value: string,
     {
       readMs = 600,
       after = 300,
       extra = {},
-    }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
+      midReply = false,
+    }: { readMs?: number | false; after?: number; extra?: Record<string, unknown>; midReply?: boolean } = {},
   ): this {
     const promptId = `steer-${this.seq + 1}`;
     this.record(
@@ -574,7 +576,13 @@ export class SimBuilder {
       `steer: ${value.slice(0, 40)}`,
     );
     if (readMs === false) return this;
-    return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+    return this.record(
+      "mux",
+      "steer_read",
+      { promptId, turnId: this.turnId, ...(midReply ? { midReply: true } : {}) },
+      readMs,
+      "steer_read",
+    );
   }
 
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. `tracked`: acpmux also

@@ -165,6 +165,9 @@ impl Translator {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
                     Some("message_start") => {
+                        if parent.is_none() {
+                            self.reply_streaming.store(false, Ordering::SeqCst);
+                        }
                         if let Some(id) = ev.pointer("/message/id").and_then(Value::as_str) {
                             self.message_ids
                                 .lock()
@@ -203,6 +206,7 @@ impl Translator {
                                         .is_some_and(|text| !text.is_empty())
                                 {
                                     self.turn_output.store(true, Ordering::SeqCst);
+                                    self.reply_streaming.store(true, Ordering::SeqCst);
                                 }
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
@@ -228,6 +232,11 @@ impl Translator {
                             }
                             _ => {}
                         }
+                    }
+                    // The model call ended: what it wrote is whole, and a steer read from here on
+                    // is read after that reply, not under it.
+                    Some("message_stop") if parent.is_none() => {
+                        self.reply_streaming.store(false, Ordering::SeqCst);
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
@@ -405,9 +414,20 @@ impl Translator {
                     self.forget_batch(uuid).await;
                     for k in read {
                         let mut steered = json!({"stopReason": "steered"});
+                        let mut claude = serde_json::Map::new();
                         // Read after the turn it was steered into ended: the next one's (`carry.rs`).
                         if let Some(seq) = self.carried_steer(&k).await {
-                            steered.set("_meta", json!({"claude": {"carried": seq}}));
+                            claude.insert("carried".into(), json!(seq));
+                        }
+                        // Read while the model call was still writing its reply: the rest of that
+                        // reply is not an answer to the steer (Leo, 2026-11-25, chat-sim
+                        // `late-steer`); read after it, what comes next is (Leo, 2026-11-17,
+                        // carriedSteerOrder.test.ts).
+                        if self.reply_streaming.load(Ordering::SeqCst) {
+                            claude.insert("midReply".into(), json!(true));
+                        }
+                        if !claude.is_empty() {
+                            steered.set("_meta", json!({"claude": claude}));
                         }
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, steered));
