@@ -7,8 +7,11 @@
 //! 1. `seed`: the folder the caller names (the selected tab's folder for New
 //!    Agent Chat, the New Tab page's folder, a folder the user picked).
 //! 2. `chosen`: the workspace's agent folder (`workspace.agent_folder.set`).
-//! 3. `workspace`: the first folder of the workspace's terminal tabs, in
-//!    screen, pane and tab order.
+//! 3. `workspace`: the folder a new terminal of the workspace would inherit
+//!    (mux/new_terminal_cwd.rs: the active pane's terminal, then the panes by
+//!    focus, newest first, each terminal's live OSC 7 folder), then the other
+//!    terminal tabs' folders in screen, pane and tab order. One rule for a
+//!    new chat and a new terminal (NEW-TERMINAL-INHERITS-CWD).
 //! 4. `agent_home`: the workspace's private agent-home folder,
 //!    `<data dir>/cmux/agent-home/<workspace id>` (`cmux-next` on macOS; the app makes it). A seed
 //!    that is itself an agent-home folder (Open Chat of a chat that ran in
@@ -272,7 +275,15 @@ impl Mux {
             .read_registry_state(|connection| super::agent_folder::agent_folder(connection, &id))
             .map_err(crate::resource_api::operation_failed)?;
         let snapshot = crate::resource_api::public_session_snapshot(self)?;
-        let folders = tab_folders(&snapshot, &id);
+        let mut folders = self
+            .with_state(|state| state.workspace_by_public_id(&workspace).map(|w| w.id))
+            .map(|internal| self.new_terminal_cwd_folders(internal))
+            .unwrap_or_default();
+        for folder in tab_folders(&snapshot, &id) {
+            if !folders.contains(&folder) {
+                folders.push(folder);
+            }
+        }
         let home = crate::platform::home_dir();
         let base = agent_home_base(home.as_deref());
         Ok(resolve(&Inputs {

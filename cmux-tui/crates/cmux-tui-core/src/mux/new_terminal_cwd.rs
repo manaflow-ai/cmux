@@ -36,6 +36,22 @@ impl Mux {
             self.with_state(|state| new_terminal_cwd_candidates(state, pane, workspace));
         candidates.into_iter().find_map(|surface| surface.local_cwd())
     }
+
+    /// Every folder this resolver would try for a new terminal of `workspace`
+    /// (rules 2 and 3, no target pane), best first, without repeats. A new
+    /// agent chat reads the same list (state/agent_start.rs), so Cmd+T for a
+    /// chat and for a terminal start in the same folder.
+    pub(crate) fn new_terminal_cwd_folders(&self, workspace: WorkspaceId) -> Vec<String> {
+        let candidates =
+            self.with_state(|state| new_terminal_cwd_candidates(state, None, Some(workspace)));
+        let mut folders: Vec<String> = Vec::new();
+        for folder in candidates.into_iter().filter_map(|surface| surface.local_cwd()) {
+            if !folders.contains(&folder) {
+                folders.push(folder);
+            }
+        }
+        folders
+    }
 }
 
 /// The surfaces whose folder a new terminal may inherit, best first.
