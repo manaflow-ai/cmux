@@ -171,6 +171,19 @@ pub fn has_keychain_refs(env: &BTreeMap<String, String>) -> bool {
 /// The value goes only to the caller; nothing is logged.
 pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, String> {
     use wait_timeout::ChildExt;
+    // A model key acpmux wrote trusts acpmux, not `security`: read it through the framework. One
+    // `security` wrote before (no acpmux kind) is read below, as before.
+    #[cfg(target_os = "macos")]
+    if let (crate::claude_token::store::SERVICE, Some(account)) = (service, account) {
+        use crate::claude_token::store::macos::{Read, read};
+        match read(account)? {
+            Read::Value(value) => return Ok(value.as_str().to_owned()),
+            Read::Missing => {
+                return Err("not found (add the key again in Settings > Models)".into());
+            }
+            Read::Legacy => {}
+        }
+    }
     let mut cmd = if std::env::consts::OS == "macos" {
         let mut c = std::process::Command::new("/usr/bin/security");
         c.args(["find-generic-password", "-s", service]);
