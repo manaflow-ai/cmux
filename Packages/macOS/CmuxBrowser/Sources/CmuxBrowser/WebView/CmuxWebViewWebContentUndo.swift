@@ -1,5 +1,6 @@
 public import AppKit
 import CMUXDebugLog
+import ObjectiveC
 public import WebKit
 
 /// Base class for every WebKit view that cmux embeds in an app window.
@@ -30,6 +31,21 @@ open class CmuxUndoableWebView: WKWebView {
         }
         super.keyDown(with: event)
     }
+
+    /// WebKit's `_web_superDoCommandBySelector:`, which it calls to run a
+    /// key command no page handled; `WKWebView` passes it up the responder
+    /// chain. Escape's cancel goes on only while AppKit focus is in this
+    /// web view (`passesUnhandledKeyCommandToWindow(_:)`).
+    @objc(_web_superDoCommandBySelector:)
+    func webKitSuperDoCommand(by selector: Selector) {
+        guard passesUnhandledKeyCommandToWindow(selector),
+              let method = class_getInstanceMethod(WKWebView.self, Self.webKitSuperDoCommandSelector) else { return }
+        typealias SuperDoCommand = @convention(c) (WKWebView, Selector, Selector) -> Void
+        let passUp = unsafeBitCast(method_getImplementation(method), to: SuperDoCommand.self)
+        passUp(self, Self.webKitSuperDoCommandSelector, selector)
+    }
+
+    private static let webKitSuperDoCommandSelector = NSSelectorFromString("_web_superDoCommandBySelector:")
 }
 
 extension NSWindow {
