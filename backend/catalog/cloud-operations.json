@@ -2782,6 +2782,49 @@
                     "name": "int64"
                   }
                 }
+              },
+              "included_usd": {
+                "required": false,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "overage_usd": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -3621,6 +3664,74 @@
                 }
               },
               "total": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "rates": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "vcpu_hour_usd": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "memory_gib_hour_usd": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "stored_gib_month_usd": {
                 "required": true,
                 "type": {
                   "kind": "union",
@@ -37940,6 +38051,39 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "included_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "overage_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -39968,6 +40112,62 @@
                   "memory",
                   "stored",
                   "total"
+                ],
+                "additionalProperties": true
+              },
+              "rates": {
+                "type": "object",
+                "properties": {
+                  "vcpu_hour_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "memory_gib_hour_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "stored_gib_month_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu_hour_usd",
+                  "memory_gib_hour_usd",
+                  "stored_gib_month_usd"
                 ],
                 "additionalProperties": true
               },
@@ -90102,7 +90302,30 @@
         "selectors": {},
         "fields": {
           "cap_usd": {
-            "required": true,
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "overage_usd": {
+            "required": false,
             "type": {
               "kind": "nullable",
               "inner": {
@@ -90174,6 +90397,29 @@
                     ]
                   }
                 }
+              },
+              "overage_usd": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -90209,7 +90455,7 @@
         "expose": "never",
         "group": "usage"
       },
-      "docs": "Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.",
+      "docs": "Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -90231,11 +90477,26 @@
                 "type": "null"
               }
             ]
+          },
+          "overage_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": [
-          "cap_usd"
-        ],
         "additionalProperties": true,
         "$defs": {}
       },
@@ -90253,6 +90514,24 @@
             ]
           },
           "team_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overage_usd": {
             "anyOf": [
               {
                 "type": "number"

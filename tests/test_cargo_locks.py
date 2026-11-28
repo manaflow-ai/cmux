@@ -271,6 +271,7 @@ class BusyFixture(unittest.TestCase):
         self.now = 0.0
         self.module.clock = lambda: self.now
         self.calls: list[tuple[str, bool, float]] = []
+        self.metadata_calls: dict[str, list[bool]] = {}
         self.running = 0
         self.most_running = 0
         self.lock = threading.Lock()
@@ -294,12 +295,25 @@ class BusyFixture(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", f"change {relative}")
 
-    def fake_cargo(self, args, cwd, env, timeout=None, **_):
+    def fake_cargo(self, args, cwd, env, timeout=None, out=None, **_):
+        if args[0] == "metadata":
+            # Kept out of self.calls, which counts the resolves (`cargo update`) and their limits.
+            root = Path(cwd).relative_to(self.repo).as_posix()
+            self.metadata_calls.setdefault(root, []).append("--offline" in args)
+            code, err = self.fake_cargo_call(args, cwd, timeout, record=False)
+        else:
+            code, err = self.fake_cargo_call(args, cwd, timeout)
+        if code == 0 and args[0] == "metadata" and out is not None:
+            out.append('{"packages": []}')  # the fixture's locks list no packages
+        return code, err
+
+    def fake_cargo_call(self, args, cwd, timeout, record=True):
         limit = 120 if timeout is None else timeout
         root = Path(cwd).relative_to(self.repo).as_posix()
         offline = "--offline" in args
         with self.lock:
-            self.calls.append((root, offline, limit))
+            if record:
+                self.calls.append((root, offline, limit))
             if not offline:
                 self.running += 1
                 self.most_running = max(self.most_running, self.running)
@@ -318,6 +332,12 @@ class BusyFixture(unittest.TestCase):
                 return 101, STALE_MESSAGE.format(lock=Path(cwd) / "Cargo.lock")
             if kind == "ok":
                 return 0, ""
+            if kind in ("metadata-cold", "metadata-broken"):
+                # `cargo update --locked` resolves from the index alone; `cargo metadata --all-features` needs every
+                # crate's source, which a cold cargo home lacks offline (and a broken registry lacks either way).
+                if args[0] != "metadata" or (kind == "metadata-cold" and not offline):
+                    return 0, ""
+                return 101, OFFLINE_MISS if offline else "error: failed to download from `https://index.crates.io`\n"
             if offline:
                 return 101, OFFLINE_MISS
             if kind == "slow" and limit > 120:
@@ -345,6 +365,27 @@ class BusyFixture(unittest.TestCase):
 
 class BusyRunnerTests(BusyFixture):
     """The busy-runner cases (BusyFixture's docstring)."""
+
+    def test_a_cold_cache_metadata_miss_is_judged_with_the_network(self):
+        """Mango on cmux#60140, 2026-11-27: orphans() returned [] when `cargo metadata` failed, so on a host without
+        the crates cached the check passed without checking anything. The offline miss now leaves the workspace to
+        the network pass, which fetches and judges it."""
+        self.behaviour["other"] = "metadata-cold"
+
+        code, output = self.run_check()
+
+        self.assertEqual(code, 0, output)
+        self.assertIn("0 unchecked", output)
+        self.assertEqual(self.metadata_calls["other"], [True, False])
+
+    def test_a_workspace_cargo_metadata_cannot_resolve_is_unchecked_never_ok(self):
+        self.behaviour["other"] = "metadata-broken"
+
+        code, output = self.run_check()
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: other (cargo metadata --format-version 1 --all-features --locked failed: "
+                      "error: failed to download", output)
 
     def test_a_stale_lock_still_fails(self):
         self.behaviour["ffi"] = "stale"

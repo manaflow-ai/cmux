@@ -83,6 +83,9 @@ const VIEW_REPORT = {
     decoded: 30,
     decode_errors: 0,
     mbit_per_s: 1.8412345,
+    first_frame_ms: 123.4,
+    luma_variance: 456.7,
+    hub_approval: "permission",
     decode_ms: { p50: 1.1, p95: 2.3 },
     presented: 30,
     host_stats_last: null
@@ -1582,10 +1585,11 @@ describe("the zero-touch share", () => {
       daemonShareHost: { state: "set_up" },
       deviceId: "dev_host1",
       streamingMs: 2_000,
+      hubApproval: "permission",
       hostPrompted: false,
       requestsEmpty: true,
       viewerHomeHeld: 0,
-      view: { connected: true, decoded: 30, frames: 31, mbitPerS: 1.841, width: 1920, height: 1080, encoder: "openh264", path: "host" },
+      view: { connected: true, decoded: 30, frames: 31, mbitPerS: 1.841, width: 1920, height: 1080, encoder: "openh264", path: "host", firstFrameMs: 123.4, lumaVariance: 456.7 },
       guest: { signedIn: true, sawMachine: false, request: { code: 1, refused: true, hubCode: "404 not_found" } }
     })
     // Online 4 s after the daemon's start, found by the next 3 s list.
@@ -1842,7 +1846,7 @@ describe("the zero-touch share", () => {
     expect(joinedDevice([listed[1]!], listed, "other")).toBeUndefined()
     // An offline device of that name is not the joined machine online.
     expect(joinedDevice([], [{ ...listed[1]!, online: false }], "ci-join-1")).toBeUndefined()
-    expect(viewStats(`Streaming 1920x1080\n${JSON.stringify(VIEW_REPORT)}\nSession ended: x\n`)).toMatchObject({ decoded: 30, mbitPerS: 1.841, encoder: "openh264" })
+    expect(viewStats(`Streaming 1920x1080\n${JSON.stringify(VIEW_REPORT)}\nSession ended: x\n`)).toMatchObject({ decoded: 30, mbitPerS: 1.841, encoder: "openh264", firstFrameMs: 123.4, lumaVariance: 456.7, hubApproval: "permission" })
     expect(viewStats("nothing\n")).toBeNull()
     // Token-shaped words never reach the evidence.
     expect(viewStats(JSON.stringify({ view: { ended: `bye ${TOKEN}`, welcome: { encoder: "eyJabc" } } }))).toMatchObject({ ended: null, encoder: null })

@@ -66,6 +66,10 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
+try:
+    import live_frames  # noqa: E402  (a frame of each applied patch in the chat, RFD 0152)
+except ImportError:  # a copy outside scripts/: no frames
+    live_frames = None
 
 TREE = Path(__file__).resolve().parents[2]
 QUIT_TIMEOUT_S = 30
@@ -797,6 +801,8 @@ class Phases:
                 if row.get("saved_at"):
                     row["saved_to_applied_s"] = round(float(at) - row["saved_at"], 3)
                 self.write(row)
+                if live_frames:
+                    live_frames.built("swift")  # the app runs the patch: the chat's frame shows it
         for name, (since, row) in list(self.waiting.items()):
             if time.monotonic() - since > self.APPLIED_WAIT_S:
                 del self.waiting[name]
