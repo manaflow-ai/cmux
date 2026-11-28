@@ -171,6 +171,7 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
