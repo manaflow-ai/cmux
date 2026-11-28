@@ -181,14 +181,24 @@ struct HomeWindowControlsTests {
     @Test(arguments: [1, 2, 3] as [CGFloat])
     func theChatButtonsCentreOnAHalfPointLine(_ scale: CGFloat) {
         let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
-        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: scale)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: row, scale: scale)
         let pixel = 1 / scale
         #expect(abs(frames.chats.midY - row.midY) < pixel / 2 + 0.001, "Chats is off the lights' line by more than half a pixel")
         #expect(frames.chats.minY * scale == (frames.chats.minY * scale).rounded(), "Chats is off the pixel grid")
         #expect(frames.compose.minY == frames.chats.minY)
         #expect(frames.compose.minX - frames.chats.maxX == HomeChatColumnView.buttonGap)
-        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
+        #expect(frames.chats.minX == row.maxX + HomeChatColumnView.buttonGap)
         if scale == 2 { #expect(frames.chats.midY == row.midY) }
+    }
+
+    /// Away from the lights (the chat right of the list) the buttons are centred in the header's
+    /// band, 11 pt from the top, not on the lights' line 6 pt from it (the person, 2026-11-26).
+    @Test func theChatButtonsCentreInTheBandAwayFromTheLights() {
+        let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: 2)
+        #expect(frames.chats.midY == 700 - HomeSidebarHeaderLayout.band / 2)
+        #expect(700 - frames.chats.maxY == (HomeSidebarHeaderLayout.band - HomeChatComposeButton.side) / 2)
+        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
     }
 
     // MARK: The layout alone

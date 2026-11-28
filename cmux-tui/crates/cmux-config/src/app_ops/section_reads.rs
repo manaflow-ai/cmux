@@ -151,6 +151,10 @@ impl<'a> Reader<'a> {
     }
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn direct_rows<'a>(
     schema: &'a Schema,
     prefix: &[String],
@@ -507,10 +511,18 @@ const THEME_EDIT_TOKENS: [&str; 21] = [
     "accent",
 ];
 
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn is_edit_color(text: &str) -> bool {
     text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn theme_edits(request: &Value) -> Result<Value, OpError> {
     const PATH: &str = "appearance.themeEdits";
     let root = root_of(request)?;
