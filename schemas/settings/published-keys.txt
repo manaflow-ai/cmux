@@ -1028,6 +1028,8 @@ updates.showWhatsNew
 updates.web
 updates.webCas
 updates.whatsNewInstall
+window.settingsLanding
+window.settingsLeadPages
 window.settingsPresentation
 window.titlebar
 window.titlebarButtons

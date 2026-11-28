@@ -98,7 +98,11 @@
     // (index.css live-activity-focus, 2.2s steps(30) infinite).
     "agentPane.display.thinking.shimmer": "continuous",
     "agentPane.display.thinking.shimmerPeriod": 2200,
-    "agentPane.display.thinking.shimmerBand": 72
+    "agentPane.display.thinking.shimmerBand": 72,
+    // Settings (parity table, settings): the reference app's settings open on General (theme, timestamps),
+    // then its models and keybindings pages.
+    "window.settingsLanding": "general",
+    "window.settingsLeadPages": ["general", "models", "keyboard"]
     // Popovers, menus and tooltips (150 ms, cubic-bezier(0.4, 0, 0.2, 1)) and folds (200 ms) are timed
     // by agent-pane/theme.css's motion tokens. Not set: the 0.97 press scale (a chip press draws nothing in cmux).
   }
