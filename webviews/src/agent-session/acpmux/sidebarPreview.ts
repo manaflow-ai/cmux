@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react";
-
 /** Opt-in visual treatments for a session's latest-reply hover card. */
 export type SidebarPreviewVariant = "card" | "quiet" | "outline";
 
@@ -48,17 +46,4 @@ export function configureSidebarPreviewVariant(value: unknown): void {
 export function configureNativeSidebarPreviewVariant(value: unknown): void {
   nativeVariant = readSidebarPreviewVariant(value);
   if (customizationOverride === undefined) publish(queryOverride ?? nativeVariant);
-}
-
-/** Reads the page-level debug choice, unless a gallery/prototype passes an explicit prop. */
-export function useSidebarPreviewVariant(override?: SidebarPreviewVariant): SidebarPreviewVariant {
-  const configured = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => current,
-    () => DEFAULT_VARIANT,
-  );
-  return override ?? configured;
 }
