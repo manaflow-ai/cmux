@@ -199,6 +199,8 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Sign in with GitHub on a Cloud start or a chat's card runs the account's GitHub connect.
+        .onAppear { GitHubSignInHook.run = GitHubConnect.signIn }
         // Back in the app: a keyboard the tracker holds as up while nothing
         // takes keys went away unannounced; every composer docked to it rests
         // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).

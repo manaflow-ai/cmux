@@ -424,7 +424,11 @@ class Agents:
         # ACPMUX_SOCKET counts only beside the ACPMUX_HOME it belongs to (acpmux config.rs autostart_refusal): with the
         # step's own home inherited, `acpmux new` refused the app's socket ("acpmux starts a daemon only where its lock
         # and socket share one home") and the chat rows were unmeasurable on cmux9s and cmux19, 2026-11-28.
-        home = daemon_home_for(socket_path, os.path.join(app.root, "h")) if getattr(app, "root", None) else None
+        # The daemon's own environment first (bench_memory.acpmux_daemon_home), then the homes a build picks.
+        read_home = getattr(bm, "acpmux_daemon_home", None)
+        home = read_home(socket_path) if read_home else None
+        if not home and getattr(app, "root", None):
+            home = daemon_home_for(socket_path, os.path.join(app.root, "h"))
         if home:
             self.env["ACPMUX_HOME"] = home
         self.streaming = []

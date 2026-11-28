@@ -418,12 +418,6 @@
       "title" : "Session Info",
       "type" : "string"
     },
-    "agentPane.display.sessionInfo.sections.carried" : {
-      "default" : true,
-      "description" : "The MCP servers and carried the chat has.",
-      "title" : "Session Info: Carried memory",
-      "type" : "boolean"
-    },
     "agentPane.display.sessionInfo.sections.changes" : {
       "default" : true,
       "description" : "The chat's pull requests and their checks.",
@@ -3543,6 +3537,12 @@
       "title" : "Agent Pointer Motion",
       "type" : "string"
     },
+    "browser.agents.openSignedOut" : {
+      "default" : false,
+      "description" : "Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile.",
+      "title" : "Open Agent Tabs Signed Out",
+      "type" : "boolean"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -4898,6 +4898,12 @@
       "title" : "Browser Profile Card",
       "type" : "boolean"
     },
+    "experiments.chat_render_pipeline" : {
+      "default" : false,
+      "description" : "Skip rendering offscreen rows from completed turns while keeping their place in the chat.",
+      "title" : "Chat Render Pipeline",
+      "type" : "boolean"
+    },
     "experiments.chatInstantUnderLoad" : {
       "default" : false,
       "description" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show.",
@@ -4962,6 +4968,12 @@
       "default" : false,
       "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
       "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
+    "experiments.feed" : {
+      "default" : false,
+      "description" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.",
+      "title" : "Feed",
       "type" : "boolean"
     },
     "experiments.foldSummaryCounts" : {

@@ -1079,6 +1079,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/wait/park",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wait/unpark",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bg/rearm",
       "params": true,
       "result": true

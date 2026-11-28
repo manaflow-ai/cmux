@@ -80,6 +80,92 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class SwiftTestCompileGateTest(unittest.TestCase):
+    """A Swift change's test targets compile on its landing head (swift-test-compile, land_gate). Since 2026-11-21 no
+    pull request into feat-cmux-next compiled a test target (fleet-test-compile.yml cut, then retired by #61890; swift
+    test after merge), and 11-21..11-28 ten CmuxNext test targets stopped compiling on the base after their change
+    merged green (cause compile-or-lint-slip). Each culprit below is the change's own Swift files."""
+
+    CULPRITS = {
+        "#54622": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift"],
+        "#55279": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeChatPage.swift",
+                   "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests/CustomizeChatPageTests.swift"],
+        "#53109": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitHubRequest.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudGitHubRepos.swift"],
+        "#57696": ["Packages/macOS/CmuxNext/Package.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService.swift"],
+    }
+
+    def test_each_culprit_routes_a_test_target_compile_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("swift-test-compile", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_every_macos_swift_source_reaches_a_landing_step_that_compiles_test_targets(self) -> None:
+        # The class: a landing head that changes a macOS package's Swift (source or test) runs a step that builds the
+        # test targets, not only the app. A step that compiles them reads the fleet's test-compile phase.
+        t = ci_steps.load()
+        compilers = {name for name, step in t.steps.items() if "--phase test-compile" in step.run}
+        self.assertTrue(compilers, "no step reads the build fleet's test-target compile")
+        for name in compilers:
+            step = t.steps[name]
+            self.assertTrue(step.land_gate and step.job in ("linux",) and step.blocks, name)
+        dirs = sorted({p.parent.relative_to(ROOT).as_posix()
+                       for p in (ROOT / "Packages" / "macOS").glob("*/Package.swift")})
+        self.assertTrue(dirs)
+        for package in dirs:
+            for kind in ("Sources/X/A.swift", "Tests/XTests/A.swift"):
+                path = f"{package}/{kind}"
+                with self.subTest(path=path):
+                    self.assertTrue(compilers & set(ci_steps.nightly_gate_steps(t, [path], ["linux"])))
+
+    def test_a_non_swift_change_does_not_start_it(self) -> None:
+        t = ci_steps.load()
+        for path in ("webviews/src/app.ts", "cmux-tui/crates/acpmux/src/lib.rs", "Packages/macOS/CmuxNext/README.md"):
+            with self.subTest(path=path):
+                self.assertNotIn("swift-test-compile", ci_steps.nightly_gate_steps(t, [path], ["linux"]))
+
+    def run_step(self, verdicts: dict[str, str], plan: str = "Packages/macOS/CmuxNext CmuxNextAppTests\n"):
+        """Run the step's script in a two-commit repository whose plan and fleet reader are fakes; VERDICTS maps
+        'head' and 'base' to the reader's word."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "CI_TOOLS": str(root / "tools"), "GITHUB_EVENT_PATH": ""}
+            (root / "tools").mkdir()
+            git = lambda *a: subprocess.run(["git", *a], cwd=root, env=env, check=True, capture_output=True)  # noqa: E731
+            git("init", "-q")
+            (root / "scripts" / "ci").mkdir(parents=True)
+            (root / "scripts/ci/compile_test_plan.py").write_text(f"import sys\nsys.stdout.write({plan!r})\n")
+            git("add", "-A")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD").stdout.decode().strip()
+            words = {base: verdicts.get("base", "none")}
+            (root / "a.swift").write_text("x\n")
+            git("add", "-A")
+            git("commit", "-qm", "head")
+            words[git("rev-parse", "HEAD").stdout.decode().strip()] = verdicts.get("head", "none")
+            (root / "scripts/ci/fleet_compile_result.py").write_text(textwrap.dedent(f"""
+                import sys
+                a = sys.argv
+                assert a[a.index("--phase") + 1] == "test-compile" and a[a.index("--packages") + 1] == "CmuxNext"
+                print({words!r}[a[a.index("--sha") + 1]])
+            """))
+            run = ci_steps.load().steps["swift-test-compile"].run
+            return subprocess.run(["bash", "-c", run], cwd=root, env=env, capture_output=True, text=True)
+
+    def test_red_only_for_a_test_compile_red_the_base_does_not_have(self) -> None:
+        cases = [({"head": "pass"}, 0), ({"head": "fail", "base": "pass"}, 1), ({"head": "fail", "base": "fail"}, 0),
+                 ({"head": "fail", "base": "none"}, 0), ({"head": "none"}, 0), ({"head": "superseded"}, 0)]
+        for verdicts, rc in cases:
+            with self.subTest(verdicts=verdicts):
+                got = self.run_step(verdicts)
+                self.assertEqual(got.returncode, rc, got.stdout + got.stderr)
+        self.assertEqual(self.run_step({"head": "fail", "base": "pass"}, plan="").returncode, 0)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
@@ -249,6 +335,30 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("--base", step.run)
         self.assertIn("--skip typecheck", step.run)
         self.assertEqual(step.tier, "push", "a full-tier head's ci-web react-apps-check runs them; no second run")
+
+    def test_hook_tests_keep_their_gate_without_spending_the_typecheck_timeout(self) -> None:
+        table = ci_steps.load()
+        hooks = table.steps["web-lint-hook-tests"]
+        types = table.steps["webviews-typecheck"]
+        self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
+        self.assertNotIn("test_web_lint_prepush.py", types.run)
+        self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
+        for step in (hooks, types):
+            self.assertTrue(step.blocks)
+            self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
+            self.assertEqual(step.needs, ("bun", "node"))
+        self.assertEqual(hooks.inputs, types.inputs)
+        self.assertEqual(hooks.nightly, types.nightly)
+        for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
+                     "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
+            with self.subTest(path=path):
+                for name in (hooks.name, types.name):
+                    self.assertIn(name, ci_steps.route(table, [path])["linux"])
+                    self.assertIn(name, self.landing([path])[2][1])
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
@@ -1910,10 +2020,10 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
-                      "webviews-typecheck", "cmux-vm-cloud", "webviews-checks"}
+                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -2474,16 +2584,17 @@ class WebBrowserStepsTest(unittest.TestCase):
 class RustToolCompileCacheTest(unittest.TestCase):
     """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
     SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
-    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), keeps a wrapper its caller sets on
+    cargo (cargo-giant-lock.sh, with sccache inside it), and changes nothing elsewhere."""
 
-    def run_tool(self, **env: str) -> tuple[str, str]:
+    def run_tool(self, call_env: dict[str, str] | None = None, **env: str) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
             for d in (cargo_home / "bin", tools, stub_bin, cache):
                 d.mkdir(parents=True)
             (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
-            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} inner=${CARGO_GROUPS_INNER_WRAPPER:-none} args=$*"\n')
             (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
             for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
                 f.chmod(0o755)
@@ -2493,23 +2604,31 @@ class RustToolCompileCacheTest(unittest.TestCase):
             full = {k: v for k, v in full.items() if v != ""}
             subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
                            capture_output=True, text=True, cwd=ROOT)
-            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env={**full, **(call_env or {})},
+                                  check=True,
                                   capture_output=True, text=True).stdout.strip()
             return said, str(stub_bin / "sccache")
 
     def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
         said, sccache = self.run_tool()
-        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+        self.assertEqual(said, f"wrapper={sccache} inner=none args=test -p x")
 
     def test_a_wrapper_already_set_is_kept(self) -> None:
         said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
-        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+        self.assertEqual(said, "wrapper=/opt/kache/kache inner=none args=test -p x")
 
     def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
         for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
             with self.subTest(env=env):
                 said, _ = self.run_tool(**env)
-                self.assertEqual(said, "wrapper=none args=test -p x")
+                self.assertEqual(said, "wrapper=none inner=none args=test -p x")
+
+    def test_a_callers_giant_lock_is_kept_with_sccache_inside(self) -> None:
+        # cmux-next-member-tests.sh and cargo-groups.sh set RUSTC_WRAPPER to the giant lock before running cargo; the
+        # shim used to overwrite it with sccache, dropping the lock.
+        lock = "/repo/scripts/ci/cargo-giant-lock.sh"
+        said, sccache = self.run_tool(call_env={"RUSTC_WRAPPER": lock})
+        self.assertEqual(said, f"wrapper={lock} inner={sccache} args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):

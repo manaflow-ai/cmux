@@ -33,7 +33,7 @@ networking cannot turn this into a direct-path test.
 | --- | --- | --- | --- |
 | `route` | Linux | 5m | Chooses `run_e2e`, `run_clients` (false for a `backend_only` dispatch) and the app tag. |
 | `backend` | Linux (`LINUX_RUNNER`) | 150m | Starts the per-run backend ([Per-run backend](#per-run-backend)), then holds until the macOS job releases it. |
-| `mac-ios-e2e` | macOS (`MACOS_RUNNER_IOS`, then `MACOS_RUNNER_PR`) | 120m | Builds both apps with the backend's origins baked in, waits for the backend, boots an isolated simulator, signs in, pairs, verifies relay-only defaults, runs the six steps, uploads evidence, and releases the backend. |
+| `mac-ios-e2e` | macOS (Blacksmith: the `RUNNER_POOLS` `macos_26` member when it is a Blacksmith label, else `blacksmith-6vcpu-macos-26`) | 120m | Builds both apps with the backend's origins baked in, waits for the backend, boots an isolated simulator, signs in, pairs, verifies relay-only defaults, runs the six steps, uploads evidence, and releases the backend. |
 | `ios-e2e-status` | Linux | 5m | Always-run aggregate that reports the routed conclusion. |
 
 `backend` and `mac-ios-e2e` start together after `route`. The macOS job does
@@ -165,8 +165,8 @@ repository variables `TS_E2E_OIDC_CLIENT_ID` and `TS_E2E_OIDC_AUDIENCE`.
 ## Runners that already run Tailscale
 
 Both jobs join the tailnet as ephemeral CI nodes and log out at the end, so
-they must run on ephemeral runners (Blacksmith today, through `LINUX_RUNNER`
-and `MACOS_RUNNER_IOS`). On a host that already runs Tailscale, such as a
+they must run on ephemeral runners (the macOS job is pinned to Blacksmith
+labels; `MACOS_RUNNER_IOS` names fleet Macs and is not read here). On a host that already runs Tailscale, such as a
 self-hosted fleet Mac mini, the join would re-register that host's own node
 under the CI tag, and the logout would drop the host from the tailnet. Each job
 therefore runs `scripts/e2e/require-fresh-tailnet-host.sh` first and fails,
