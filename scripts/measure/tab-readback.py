@@ -335,6 +335,12 @@ def main() -> int:
         receipt["error"] = "the copy's control socket never answered"
     else:
         time.sleep(4)
+        if not ax_elements(pid):
+            # An empty tree is the rig (cua-driver grant, memory pressure), not the app: say so, exit 3.
+            receipt["error"] = "rig: cua-driver read no accessibility elements from the copy's windows"
+            lkr.say("TRB FAIL rig: " + receipt["error"])
+            (out / "result.json").write_text(json.dumps(receipt, indent=2))
+            return 3
         scale = float(lkr.cua("get_screen_size", {}).get("scale_factor") or 2.0)
         receipt["scale"] = scale
         try:
