@@ -46,3 +46,9 @@ of the fast tier's leased root. A reused checkout can retain `.build` links afte
 targets are evicted; `owned_spm_scratch.py link` recreates the target and relinks it before
 resolution. `Scratch.test_integration_setup_repairs_a_build_link_after_cache_eviction` checks
 this case, and `MacIntegrationGateTest` checks that narrow routing includes the setup.
+
+Pinned Mac jobs request both `cmux-mac` and the `xcode-<version>` capability parsed from
+`CMUX_CI_XCODE_APP_MACOS_26`; the normal router and verdict recovery share the parser.
+A generic Mac label previously selected a runner without the pinned Xcode, failing before
+these assertions. `PinnedPipelineRunnerTest` covers version changes, both callers, sparse
+checkout dependencies and every pinned job, while preserving external/fork routes.

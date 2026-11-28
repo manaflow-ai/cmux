@@ -1282,7 +1282,8 @@ class PipelineTest(unittest.TestCase):
             "jobs": "${{ needs.route.outputs.table || '' }}",
             "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
             "mac_integration": "${{ needs.route.outputs.mac_integration || '' }}",
-            "mac_integration_only": "${{ needs.route.outputs.mac_integration_only || '' }}"})
+            "mac_integration_only": "${{ needs.route.outputs.mac_integration_only || '' }}",
+            "mac_runner": "${{ needs.route.outputs.mac_runner }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR

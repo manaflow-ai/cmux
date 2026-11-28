@@ -75,6 +75,7 @@ except Exception:  # noqa: BLE001
 import docs_only_paths  # noqa: E402
 import fast_track  # noqa: E402
 import head_tier  # noqa: E402
+import mac_grants  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
@@ -712,6 +713,7 @@ def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None
         out.write(f"only={' '.join(only or [])}\n")
         out.write(f"mac_integration={' '.join(mac_integration or [])}\n")
         out.write(f"mac_integration_only={' '.join(mac_integration_only or [])}\n")
+        out.write(f"mac_runner={mac_grants.pinned_runner(os.environ.get('CMUX_CI_XCODE_APP'))}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")

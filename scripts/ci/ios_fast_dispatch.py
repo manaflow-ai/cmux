@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_http  # noqa: E402
+import mac_grants  # noqa: E402
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 BASE = "feat-cmux-next"
@@ -85,16 +86,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not (repo and pr.isdigit() and token):
             raise Refused("REPO, PR (a number) and GH_TOKEN are needed")
+        mac_runner = mac_grants.pinned_runner(os.environ.get("CMUX_CI_XCODE_APP"))
         merge = check_pr(get(f"repos/{repo}/pulls/{pr}", token), repo, sha)
         base = check_merge(get(f"repos/{repo}/commits/{merge}", token), merge, sha)
-    except Refused as e:
+    except (Refused, ValueError) as e:
         print(f"::error title=ios fast verdict dispatch::{e}")
         return 1
     print(f"#{pr} head {sha}: testing merge commit {merge} (base {base})")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as f:
-            f.write(f"merge={merge}\nbase={base}\n")
+            f.write(f"merge={merge}\nbase={base}\nmac_runner={mac_runner}\n")
     return 0
 
 
