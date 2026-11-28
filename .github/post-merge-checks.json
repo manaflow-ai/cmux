@@ -261,6 +261,54 @@
     "whats-new-gallery.yml": {
       "kind": "publish",
       "why": "publishes the What's New gallery pictures"
+    },
+    "bench-baselines-nightly.yml": {
+      "kind": "publish",
+      "why": "records the bench baselines a pull request fetches for its areas (R2), from the base"
+    },
+    "cloud-mvp-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of the published NIGHTLY: reads the Auto/Cloud MVP back in the app; push only on its own file"
+    },
+    "cmux-next-web-perf.yml": {
+      "kind": "check",
+      "why": "manual performance runs; the push on its own file only checks the workflow starts, there is no pull request baseline yet"
+    },
+    "cmux-tui-clippy-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's clippy target seed the fleet's cold clippy-changed steps restore"
+    },
+    "cmux-vmd-host-artifacts.yml": {
+      "kind": "publish",
+      "why": "publishes the cmux-vmd host artifacts a new microVM host installs at boot"
+    },
+    "ios-fast-verdict-dispatch.yml": {
+      "kind": "publish",
+      "why": "a bot that dispatches the iOS fast verdict for a pull request head; push only on its own file"
+    },
+    "ios-fast-verdict-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the R2 seed the hosted-Mac iOS fast verdict restores, from the base"
+    },
+    "leo-session-archive-bucket.yml": {
+      "kind": "publish",
+      "why": "provisions Leo's session archive bucket and sealed credential; push only on its own files"
+    },
+    "mobile-old-phones.yml": {
+      "kind": "publish",
+      "why": "a probe of shipped iPhone builds against the deployed mobile API"
+    },
+    "repo-archive-store.yml": {
+      "kind": "publish",
+      "why": "provisions the repo archive store bucket and its sealed credentials; push only on its own files"
+    },
+    "vault-edge-e2e.yml": {
+      "kind": "publish",
+      "why": "a probe of vault edge grants on a real Cloud VM against the deployed backend; push only on its own file"
+    },
+    "web-bundle-matrix.yml": {
+      "kind": "check",
+      "why": "every way the cmux-next web bundles can break, on each base push; a red shows on base and names its owner"
     }
   }
 }

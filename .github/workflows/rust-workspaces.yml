@@ -112,6 +112,7 @@ on:
       - "schemas/sidebar-session-tree/vectors.json"
       - "schemas/tab-group-rules/vectors.json"
       - "schemas/tab-layout-rules/vectors.json"
+      - "schemas/tab-selection/vectors.json"
       - "schemas/tab-strip-commands/vectors.json"
       - "schemas/terminal-corpus/**"
       - "schemas/terminal-size-claim/table.json"

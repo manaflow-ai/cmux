@@ -33,6 +33,12 @@ on:
 
 permissions: {}
 
+# A feat-cmux-next push run gives way to the next push's run. A run another workflow calls (workflow_call) keys on
+# the caller's run, so it never shares a group with its caller (a deadlock) or with another caller's run.
+concurrency:
+  group: ${{ github.event_name == 'push' && format('nightly-pr-build-{0}', github.ref) || format('nightly-pr-build-call-{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
 jobs:
   # One run per 30-minute window on the tip: the first push of each window runs the jobs below over every commit
   # since the last tip this ran on (needs.coalesce.outputs.base); the window's other pushes skip them, no runner
