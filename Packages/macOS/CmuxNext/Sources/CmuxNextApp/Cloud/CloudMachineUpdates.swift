@@ -28,9 +28,7 @@ final class CloudMachineUpdates {
     private var follower = HandshakeFollower()
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
 
-    private init(services: AppServices) {
-        self.services = services
-    }
+    private init(services: AppServices) { self.services = services }
 
     /// Follows the app's Cloud machines until the app quits, starting after the first frame.
     @discardableResult

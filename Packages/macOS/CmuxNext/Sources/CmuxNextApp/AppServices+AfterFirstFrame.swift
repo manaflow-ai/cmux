@@ -47,7 +47,6 @@ extension AppServices {
         }
         DaemonClosedHistory.emptyAgentHomeTrash()
         CloudMachineUpdates.start(self)
-        // Each new link to a Cloud machine (a resume, a restarted daemon) gets its chats' credentials again (cmux#57418).
         cloud.agentCredentials.resendOnNewLinks { [machines = self.machines] in machines.cloud.map { .init(machine: $0.machineID, handshake: CloudMachineUpdates.handshake($0, machines: machines)) } }
         autoArchive.start()
         workspaceHibernation.start()
