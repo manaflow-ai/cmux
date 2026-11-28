@@ -485,6 +485,7 @@ impl LocalStore {
     /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
     /// back from its end, as `scan_back` does. A segment with no copy, or [`COPY_AFTER`] bytes
     /// past its copy, gets one first ([`Self::copy_for_read_back`]).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn scan_back_in(
         &self,
         id: &str,
