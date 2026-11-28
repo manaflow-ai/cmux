@@ -971,6 +971,34 @@
           ]
         },
         {
+          "key": "mobile.siteDataHandoff",
+          "title": {
+            "key": "settings.mobile.siteDataHandoff",
+            "text": "Share Cookies and Site Data on iPhone"
+          },
+          "help": {
+            "key": "settings.mobile.siteDataHandoff.help",
+            "text": "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site."
+          },
+          "summary": {
+            "key": "settings.mobile.siteDataHandoff.summary",
+            "text": "Shares cookies and site storage when opening on iPhone"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "browser",
+            "cookie",
+            "cookies",
+            "site data",
+            "storage",
+            "handoff"
+          ]
+        },
+        {
           "key": "mobile.autoApprovePhones",
           "title": {
             "key": "settings.mobile.autoApprovePhones",
