@@ -257,6 +257,7 @@ dependencies = [
  "cmux-bounded",
  "cmux-json",
  "cmux-scope",
+ "cmux-view-rows",
  "crossterm",
  "dirs",
  "futures-util",
@@ -2744,6 +2745,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-phone-page"
 version = "0.1.0"
 dependencies = [
@@ -3010,6 +3020,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3590,6 +3601,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-e2e",
+ "cmux-view-rows",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
