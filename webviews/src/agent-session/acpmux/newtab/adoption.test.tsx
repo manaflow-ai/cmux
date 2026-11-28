@@ -8,6 +8,7 @@ import {
   injectedNewTabContext,
   NEW_TAB_ADOPT_EVENT,
   NEW_TAB_PLACES_EVENT,
+  useEarlyNewTabContext,
   useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
@@ -72,6 +73,43 @@ function mount() {
 }
 
 const places = (detail: unknown) => new dom!.window.CustomEvent(NEW_TAB_PLACES_EVENT, { detail });
+
+test("a refused early context does not identify an unknown page as a chat", async () => {
+  let known = false;
+  const read = () => Promise.reject(new Error("context unavailable"));
+  const take = () => {
+    throw new Error("a refused read has no context");
+  };
+  const settle = () => {
+    known = true;
+  };
+  function Probe() {
+    useEarlyNewTabContext(read, take, settle);
+    return null;
+  }
+  await act(async () => root!.render(<Probe />));
+  // App keeps the surface hidden until ready identifies it or reports the host error.
+  expect(known).toBe(false);
+});
+
+test.each([false, true])("an answered context identifies the page (New Tab: %s)", async (isNewTab) => {
+  let known = false;
+  let context: NewTabHost | undefined;
+  const read = () => Promise.resolve(isNewTab ? { newTab: true } : {});
+  const take = (host: NewTabHost) => {
+    context = host;
+  };
+  const settle = () => {
+    known = true;
+  };
+  function Probe() {
+    useEarlyNewTabContext(read, take, settle);
+    return null;
+  }
+  await act(async () => root!.render(<Probe />));
+  expect(known).toBe(true);
+  expect(context !== undefined).toBe(isNewTab);
+});
 
 test("a cold page whose actions event came before its listener lists them from the handshake", () => {
   (dom!.window as { __cmuxNewTabContext?: unknown }).__cmuxNewTabContext = { omnibar: { ...EMPTY_OMNIBAR } };

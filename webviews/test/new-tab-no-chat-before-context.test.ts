@@ -83,13 +83,13 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
   /// Opens the pane with no injected context. `newTab.context` answers after `contextDelay` (naming a
   /// New Tab page when `isNewTab`), the handshake after `handshakeDelay`. Returns each distinct
   /// screen it showed, with whether `newTab.context` had answered by then.
-  async function open(name: string, isNewTab: boolean, settle: string): Promise<Shown[]> {
+  async function open(name: string, isNewTab: boolean, settle: string, refuseContext = false): Promise<Shown[]> {
     const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
     const page = await context.newPage();
     await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
-      ({ endpoint, home, isNewTab }) => {
+      ({ endpoint, home, isNewTab, refuseContext }) => {
         const newTab = { kind: "agent", hotkeys: {}, home, projects: [], host: "cosmic-gray" };
         const w = window as unknown as { __answered: boolean; __shown: Shown[] };
         w.__answered = false;
@@ -99,6 +99,7 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
         const answer = (method: string): unknown => {
           switch (method) {
             case "newTab.context":
+              if (refuseContext) return Promise.resolve({ ok: false, error: "context unavailable" });
               return later(300, isNewTab ? { newTab } : {}, () => (w.__answered = true));
             case "ready":
               return later(800, {
@@ -135,7 +136,7 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
         new MutationObserver(read).observe(document, { subtree: true, childList: true, attributes: true });
         window.cmuxAfterPaint(read);
       },
-      { endpoint, home: HOME, isNewTab },
+      { endpoint, home: HOME, isNewTab, refuseContext },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -146,6 +147,15 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
     console.info(`${name} ${isNewTab ? "new tab" : "chat"}: ${JSON.stringify(shown)}`);
     return shown;
   }
+
+  test.each(engines.map(([name]) => name))(
+    "%s: a refused early context waits for the New Tab handshake without drawing chat",
+    async (name) => {
+      const shown = await open(name, true, ".nt-field", true);
+      expect(shown.filter((entry) => entry.screen === "chat" || entry.screen === "both")).toEqual([]);
+      expect(shown.at(-1)?.screen).toBe("newTab");
+    },
+  );
 
   test.each(engines.map(([name]) => name))(
     "%s: a New Tab page with no injected context never draws the chat screen",
