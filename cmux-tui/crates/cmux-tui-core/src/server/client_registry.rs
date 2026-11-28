@@ -335,7 +335,7 @@ pub(crate) struct ClientRegistry {
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
-    pub(super) apps: crate::apps::AppsSlot,
+    pub(crate) apps: crate::apps::AppsSlot,
     /// The local Tasks owner link of the routed `tasks` namespace (tasks_link.rs).
     pub(crate) tasks: crate::tasks_link::TasksLink,
     /// Script sessions by connection (`script-*`, crate::scripts).

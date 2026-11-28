@@ -239,8 +239,6 @@ mod frontend_browser_history;
 mod history_search;
 mod icon_assets;
 mod launch_snapshot;
-#[cfg(unix)]
-pub(crate) mod machine_state_push;
 pub(crate) use launch_snapshot::{
     LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
 };

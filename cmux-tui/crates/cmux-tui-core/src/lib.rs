@@ -36,6 +36,8 @@ pub mod first_party_dir;
 #[cfg(all(test, unix))]
 mod fork_tests;
 mod lock_rank;
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
 pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;

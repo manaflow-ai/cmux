@@ -193,7 +193,7 @@ enum Command {
     #[serde(rename = "apps-team-event")]
     TeamEvent { event: String, data: Value },
     /// The Cloud machines the app shows: the daemon holds each one's state socket and answers
-    /// with `apps-cloud-machine` events (`server/machine_state_push.rs`). Replaces this
+    /// with `apps-cloud-machine` events (`machine_state_push.rs`). Replaces this
     /// connection's list; an empty one closes its sockets. Verified app only.
     #[serde(rename = "apps-machine-state-watch")]
     MachineStateWatch {
@@ -606,18 +606,18 @@ pub(super) fn try_handle(
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
         #[cfg(unix)]
         Command::MachineStateWatch { machines, platform, team } => {
-            let sink: super::machine_state_push::Sink = {
+            let sink: crate::machine_state_push::Sink = {
                 let writer = writer.clone();
                 Arc::new(move |event: &Value| writer.send_control(event).is_ok())
             };
-            let host = Arc::new(super::machine_state_push::MuxHost(Arc::downgrade(mux)));
+            let host = Arc::new(crate::machine_state_push::MuxHost(Arc::downgrade(mux)));
             mux.cloud_services()
                 .machine_state
                 .watch(
                     client,
                     sink,
                     host,
-                    super::machine_state_push::Watch { machines, platform, team },
+                    crate::machine_state_push::Watch { machines, platform, team },
                 )
                 .map(|()| json!({ "ok": true }))
                 .map_err(|why| crate::apps::ApiError::new("validation.invalid", why))
