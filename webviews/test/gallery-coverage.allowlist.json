@@ -171,7 +171,6 @@
     "pages/settings/components/EndpointForm.tsx#EndpointForm",
     "pages/settings/components/GitHubAccountsCard.tsx#GitHubAccountsCard",
     "pages/settings/components/ModelsCard.tsx#AddConnectionSheet",
-    "pages/settings/components/ModelsCard.tsx#ChatGPTStatus",
     "pages/settings/components/NoticesCard.tsx#NoticesCard",
     "pages/settings/components/PersonalizationCard.tsx#PersonalizationCard",
     "pages/settings/components/ProviderAccounts.tsx#ProviderAccounts",

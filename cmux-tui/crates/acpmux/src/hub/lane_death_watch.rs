@@ -10,9 +10,14 @@
 //! takes next (`death_route::route`) and the command that runs it. Its prompt id is the same
 //! for every try of one death, so a resend never doubles it. Rows of this machine's own
 //! sessions are not read: a dead lane here is the local reports' (`hub/lane_reports.rs`).
+//!
+//! Restart intensity (RFD 0181 B8): a lane's [`MAX_DEATHS`]th death within [`WINDOW_MS`] logs
+//! `restart-intensity` at warn on every daemon. With `ACPMUX_RESTART_INTENSITY=1` its notice
+//! also says to take the work over instead of restarting it; off (the default) the notice is
+//! what it was.
 
 use super::*;
-use crate::lane_death_watch::{GRACE_MS, KIND, Notice, Watch};
+use crate::lane_death_watch::{GRACE_MS, KIND, MAX_DEATHS, Notice, WINDOW_MS, Watch};
 use std::collections::HashMap;
 
 /// How often the watch looks: a pass reads two in-memory lists.
@@ -24,6 +29,12 @@ const MAX_PER_PASS: usize = 20;
 /// Whether the watch is on (`ACPMUX_LANE_DEATH_WATCH=0` turns it off).
 fn enabled() -> bool {
     std::env::var("ACPMUX_LANE_DEATH_WATCH").map_or(true, |v| v.trim() != "0")
+}
+
+/// Whether restart intensity hands a looping lane over (`ACPMUX_RESTART_INTENSITY=1`); off,
+/// it is counted and logged only.
+fn intensity_on() -> bool {
+    std::env::var("ACPMUX_RESTART_INTENSITY").is_ok_and(|v| v.trim() == "1")
 }
 
 /// The local sessions a starter tag can name: id, name and `HOST/NAME` for this machine's
@@ -52,7 +63,7 @@ impl Hub {
         self.scope.spawn_until_cancelled("lane-death-watch", async move {
             let mut every = tokio::time::interval(TICK);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            let mut watch = Watch::default();
+            let mut watch = Watch::new(if intensity_on() { MAX_DEATHS } else { 0 });
             loop {
                 every.tick().await;
                 let Some(hub) = weak.upgrade() else { break };
@@ -83,6 +94,12 @@ impl Hub {
             |p| local.contains_key(p),
             |host| self.peer_by_name(host).is_some_and(|peer| peer.idle_parked()),
         );
+        for n in notices.iter().filter(|n| n.deaths >= MAX_DEATHS) {
+            tracing::warn!(lane = %n.key, host = %n.host, parent = %n.parent, deaths = n.deaths,
+                window_min = WINDOW_MS / 60_000, max = MAX_DEATHS, handed_over = intensity_on(),
+                "restart-intensity: a lane died {} times within {} min", n.deaths,
+                WINDOW_MS / 60_000);
+        }
         for n in notices.into_iter().take(MAX_PER_PASS) {
             let Some(parent) = local.get(&n.parent).cloned() else { continue };
             match self.lane_death_to_parent(parent, &n, now_ms).await {

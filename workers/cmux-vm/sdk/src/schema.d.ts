@@ -3167,6 +3167,9 @@ export interface operations {
                 "x-cmux-team-id"?: string;
                 /** @description a string at most 255 character(s) long */
                 "idempotency-key"?: string;
+                "x-cmux-create-priority"?: "background";
+                /** @description a string at most 20 character(s) long */
+                "x-cmux-create-deadline"?: string;
             };
             path?: never;
             cookie?: never;

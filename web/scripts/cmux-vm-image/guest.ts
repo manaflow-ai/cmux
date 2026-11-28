@@ -8,6 +8,7 @@ import path from "node:path";
 import { Freestyle } from "freestyle";
 import { installCapacityRetry } from "./capacity";
 import { guestShellProblems } from "./shell-check";
+import { detachedExec, type DetachedExecOptions, type DetachedExecVm } from "./detached-exec";
 
 export const BUILD_ENV = {
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -198,15 +199,69 @@ export async function firstExec(vm: Vm, t0: number, budgetMs = 60_000): Promise<
 
 export type ExecResult = { code: number; stdout: string; stderr: string; ms: number };
 
+/**
+ * What the guest's disk and CPU look like right now, in one line: IO/CPU/memory pressure, vmstat's blocked and
+ * iowait columns, and a timed O_DIRECT read of a large file (a read the page cache cannot answer). Rolls 46107492079
+ * (clean past the 300 s cap; identity-final 193 s against about 1 s) and 46100096471 stalled on builders and clones
+ * booted from a snapshot, while builders built from scratch ran fast; this line tells a disk the provider is still
+ * filling in (high io pressure, slow dd) from a busy CPU or a noisy host. Bounded, and it never fails a step.
+ */
+export const IO_PROBE_COMMAND = [
+  `echo "psi_io $(tr '\\n' ' ' </proc/pressure/io 2>/dev/null)"`,
+  `echo "psi_cpu $(head -n1 /proc/pressure/cpu 2>/dev/null)"`,
+  `echo "psi_mem $(head -n1 /proc/pressure/memory 2>/dev/null)"`,
+  `timeout 5 vmstat 1 2 2>/dev/null | tail -n1 | awk '{print "vmstat r=" $1 " b=" $2 " wa=" $16 " st=" $17}'`,
+  `f=$(timeout 5 find /opt/cmux /usr/lib -xdev -type f -size +40M 2>/dev/null | head -n1)`,
+  `if [ -n "$f" ]; then s=$(date +%s%N); timeout 10 dd if="$f" of=/dev/null bs=1M count=32 iflag=direct 2>/dev/null || true; e=$(date +%s%N); echo "dd_direct_32M_ms $(( (e - s) / 1000000 )) $f"; else echo "dd_direct none"; fi`,
+].join("; ");
+
+/** A step this slow logs an IO_PROBE line after it (the green roll's slowest plain step is under 60 s). */
+export const SLOW_STEP_PROBE_SECS = 60;
+/** At most this many probes per log, so a VM that stalls everywhere adds seconds, not minutes. */
+export const IO_PROBE_LIMIT = 8;
+
+/** The IO_PROBE_COMMAND line; an error or timeout comes back as text, never thrown. */
+export async function ioProbe(vm: Vm, timeoutMs = 30_000): Promise<string> {
+  try {
+    const r = await run(vm, IO_PROBE_COMMAND, timeoutMs);
+    const out = r.stdout.trim().split("\n").filter(Boolean).join(" | ");
+    return `${out || "no output"} (status=${r.code} ${(r.ms / 1000).toFixed(1)}s)`;
+  } catch (error) {
+    return `probe failed: ${String(error).slice(0, 200)}`;
+  }
+}
+
 export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, user = "root"): Promise<ExecResult> {
   const t0 = Date.now();
   const r = await vm.exec({ command: `${HOME_PREFIX} && ${command}`, env: BUILD_ENV, timeoutMs, linuxUser: user });
   return { code: r.statusCode ?? 124, stdout: r.stdout ?? "", stderr: r.stderr ?? "", ms: Date.now() - t0 };
 }
 
+let heldSeq = 0;
+
+/**
+ * A command that holds for a minute or more by design (the smoke's daemon holds): run detached with short polls
+ * (detached-exec.ts), not one exec held open for its whole length. Roll 46106332407 (2026-11-28) lost its smoke
+ * to `TimeoutError: The operation timed out.` about 7 min into the 60 s boot hold, with the provider answering 503
+ * on the same VM's delete: the client's background-request poll of that one long exec went unanswered. A lost poll
+ * here costs one poll. Same result shape as run(); `label` names the guest dir and the error.
+ */
+export async function runHeld(
+  vm: Pick<Vm, "exec">, label: string, command: string, budgetMs: number,
+  options: { user?: string; root?: string; poll?: Pick<DetachedExecOptions, "firstPollMs" | "maxPollMs" | "graceMs" | "outageMs" | "callMs"> } = {},
+): Promise<ExecResult> {
+  const dir = `${options.root ?? "/root/.cmux-held"}/${label.replace(/[^a-z0-9-]/gi, "-")}-${process.pid}-${++heldSeq}`;
+  try {
+    return await detachedExec(vm as DetachedExecVm, command, { dir, budgetMs, env: BUILD_ENV, linuxUser: options.user ?? "root", prefix: HOME_PREFIX, ...options.poll });
+  } catch (error) {
+    throw new Error(`${label}: ${String(error)}`);
+  }
+}
+
 /** Logged steps; a failed step throws with its output tail. */
 export class StepLog {
   readonly steps: Array<{ label: string; secs: number }> = [];
+  private ioProbes = 0;
   constructor(readonly logFile: string) {
     mkdirSync(path.dirname(logFile), { recursive: true });
   }
@@ -214,6 +269,13 @@ export class StepLog {
     console.log(line);
     appendFileSync(this.logFile, `${line}\n`);
   }
+  /** Logs `IO_PROBE [label] why :: ...` (IO_PROBE_COMMAND), up to IO_PROBE_LIMIT per log. */
+  async logIoProbe(vm: Vm, label: string, why: string): Promise<void> {
+    if (this.ioProbes >= IO_PROBE_LIMIT) return;
+    this.ioProbes++;
+    this.log(`IO_PROBE [${label}] ${why} :: ${await ioProbe(vm)}`);
+  }
+
   async step(vm: Vm, label: string, command: string, timeoutMs = STEP_TIMEOUT_MS): Promise<string> {
     // The guest runs it with /bin/sh (dash): refuse here, in a second, what would fail there after the layers before it.
     const shellCheck = guestShellProblems(command);
@@ -226,6 +288,7 @@ export class StepLog {
     const secs = r.ms / 1000;
     this.steps.push({ label, secs });
     appendFileSync(this.logFile, `--- [${label}] status=${r.code} ${secs.toFixed(1)}s\n${r.stdout}\n--- stderr\n${r.stderr.slice(-3000)}\n`);
+    if (r.code !== 0 || secs >= SLOW_STEP_PROBE_SECS) await this.logIoProbe(vm, label, `after status=${r.code} ${secs.toFixed(1)}s`);
     if (r.code !== 0) {
       this.log(`STEP FAILED [${label}] status=${r.code} (${secs.toFixed(1)}s)\nstdout: ${r.stdout.slice(-3000)}\nstderr: ${r.stderr.slice(-3000)}`);
       throw new Error(`step ${label} failed`);
@@ -244,7 +307,7 @@ export class StepLog {
    */
   async detachedStep(
     vm: Vm, label: string, command: string,
-    options: { dir: string; budgetMs: number; pollMs?: number; sleep?: (ms: number) => Promise<unknown>; now?: () => number },
+    options: { dir: string; budgetMs: number; pollMs?: number; sleep?: (ms: number) => Promise<unknown>; now?: () => number; wake?: () => Promise<unknown> },
   ): Promise<string> {
     const shellCheck = guestShellProblems(command);
     for (const s of shellCheck.suspect) this.log(`WARN [${label}] ${s}`);
@@ -273,14 +336,25 @@ export class StepLog {
     // The guest ends the command at the budget; the grace covers its kill, the status write and a slow poll.
     const deadline = t0 + options.budgetMs + DETACHED_GRACE_MS;
     let pollError: unknown;
+    let failedPolls = 0;
     for (;;) {
       await wait(pollMs);
       let status = "";
       try {
         status = (await run(vm, `cat ${dir}/status 2>/dev/null || true`, DETACHED_CALL_MS)).stdout.trim();
         pollError = undefined;
+        failedPolls = 0;
       } catch (error) {
         pollError = error;
+        // A run of failed polls may be a paused or stopped VM rather than a blip (roll 46078031124: every poll of the
+        // sbom step failed for its whole budget, then each retry's first exec): ask the provider and start it.
+        if (++failedPolls % DETACHED_WAKE_AFTER_FAILED_POLLS === 0 && options.wake) {
+          try {
+            await options.wake();
+          } catch (wakeError) {
+            this.log(`WARN [${label}] wake after ${failedPolls} failed polls: ${String(wakeError)}`);
+          }
+        }
       }
       if (status !== "") {
         const r = await run(vm, `cat ${dir}/out; echo ${DETACHED_STDERR_MARK}; tail -c 3000 ${dir}/err`, DETACHED_CALL_MS);
@@ -313,6 +387,26 @@ export class StepLog {
 export const DETACHED_CALL_MS = 30_000;
 export const DETACHED_POLL_MS = 10_000;
 export const DETACHED_GRACE_MS = 60_000;
+/** Failed polls in a row (DETACHED_POLL_MS + DETACHED_CALL_MS each, about a minute for 2) before detachedStep's wake. */
+export const DETACHED_WAKE_AFTER_FAILED_POLLS = 2;
+
+/**
+ * Reads the VM's provider state and starts it when it is not running: createVm gives every harness VM a
+ * HARNESS_IDLE_TIMEOUT_SECONDS network-idle pause, and a builder kept for the inventory runs a long detached scan
+ * with nothing on the network. Logs the state either way, so an unreachable guest names its cause in the log.
+ * Returns the state it found.
+ */
+export async function wakeVm(vm: Pick<Vm, "data" | "start">, log: (line: string) => void, label: string): Promise<string> {
+  const state = String((await vm.data()).state);
+  if (state === "running" || state === "starting") {
+    log(`VM_STATE [${label}] ${state}`);
+    return state;
+  }
+  log(`VM_STATE [${label}] ${state}: starting it`);
+  const after = await vm.start();
+  log(`VM_STATE [${label}] after start: ${String(after?.state ?? "unknown")}`);
+  return state;
+}
 const DETACHED_STDERR_MARK = "--cmux-detached-stderr--";
 
 export function argValue(name: string, argv = process.argv): string | undefined {
