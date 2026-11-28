@@ -49,6 +49,7 @@ import {
 } from "./ledgerModel";
 import { isOlderDaemon } from "../queue/queueModel";
 import { UNKNOWN } from "../usageStats";
+import type { LedgerCache } from "./ledgerCache";
 import "./ledger.css";
 import { intl } from "../../../ui/intl";
 import { WithFacts } from "../chips/FactsHoverCard";
@@ -64,22 +65,6 @@ type LedgerState =
   | { phase: "failed"; reply?: LedgerReply };
 
 const ROW_HEIGHT: Record<LedgerLook, number> = { bars: 52, table: 36, stacked: 60 };
-
-/// Tokens in: uncached input plus cache writes, never cache reads.
-type LedgerView = { range: LedgerRange; group: LedgerGroup; reply?: LedgerReply };
-
-/// What Costs last showed, kept by History (newtab/HistoryScreen.tsx) while another tab shows.
-export type LedgerCache = { view(): LedgerView | undefined; keep(view: LedgerView): void };
-
-export function createLedgerCache(): LedgerCache {
-  let view: LedgerView | undefined;
-  return {
-    view: () => view,
-    keep: (next) => {
-      view = next;
-    },
-  };
-}
 
 /// What the note line says after a Save.
 type SaveWord = "saved" | "copied" | "failed";

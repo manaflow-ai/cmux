@@ -8,7 +8,7 @@ import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import { CloudStartView } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
-import type { CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
+import type { CloudSetupStepsLook } from "./conversation/cloudSetupStep";
 
 const base: CloudStartProgress = {
   key: "gallery",

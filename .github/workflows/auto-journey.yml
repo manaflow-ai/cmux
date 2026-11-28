@@ -88,6 +88,8 @@ jobs:
               exit 1
             fi
             src="$RUNNER_TEMP/auto-journey-src"
+            # A re-used checkout keeps an earlier job's registration after RUNNER_TEMP is emptied.
+            git worktree prune
             git worktree add --detach "$src" "$sha"
           fi
           (cd "$src" && git submodule update --init --depth 1 ghostty ghostty-next)
