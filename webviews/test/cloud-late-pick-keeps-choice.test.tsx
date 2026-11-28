@@ -288,10 +288,10 @@ test("a GitHub repository picked while the remembered folder's grant is out is t
 test("a choice made on This Mac before Cloud was picked does not hold off Cloud's late default", async () => {
   const pane = await mount("github:acme/api", { cloud: false });
   await chooseNoFolder();
-  // Cloud from the Where menu, as the person picks it.
+  // Cloud from the Computer menu (the Where control, renamed in cmux#51769), as the person picks it.
   const where = () =>
     host.querySelector<HTMLButtonElement>(
-      `.acpmux-composer-context button[aria-label^="${t("composer.environment")}"]`,
+      `.acpmux-composer-context button[aria-label^="${t("composer.computer")}"]`,
     );
   await until(() => where() !== null, "the composer has its Where control");
   await act(async () => where()!.click());
