@@ -11630,6 +11630,11 @@ export class AcpmuxDirectClient {
         this.ownSteerBelow(running.id)
       )
         this.rows.placeAfterCurrent(id);
+    } else if (event.kind === "plan") {
+      // A plan update draws nothing since cmux keeps no to-do list (#55935), yet it is still the
+      // agent's next step (#36909): a reply held open past a steer or notice (`holdAssistantSegment`)
+      // ends here, so the text after it starts below what landed (Leo, 2026-11-05).
+      if (this.assistantCut) this.endAssistantSegment();
     }
   }
 

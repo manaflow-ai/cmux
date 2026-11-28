@@ -43,6 +43,8 @@ test("App.tsx gates every line under the header by the record the transcript rea
   const floating = [
     "!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips",
     "!sessionInfo.on && !summaryCard.column && summaryPanel",
+    // The Environment card sits absolutely at the chat's top right (session-info/environmentCard.css, #47049).
+    "environmentCardNode}",
   ];
   const conditionals = [...between.matchAll(/^ {16}\{(?!\/\*)([^\n]*)/gm)].map((match) => match[1]!);
   expect(conditionals.length).toBeGreaterThan(5);
