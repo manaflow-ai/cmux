@@ -70,3 +70,28 @@ extension PaneContentRidesTests {
         #expect(content.paneRidesCommitMotion, "a pane that shows \(name) in its own layer does not ride")
     }
 }
+
+/// A Chromium page whose pixels are in the window's layer tree (an agent chat on Chromium, layer hosted).
+@MainActor private final class LayerHostedPage: NSView, PaneContentOwnWindow {
+    var drawsInOwnWindow = false
+}
+
+extension PaneContentRidesTests {
+    /// Lawrence 2026-11-28: Cmd-Shift-Enter on a chat thread showed no zoom motion. The chat runs on Chromium, but its
+    /// page is layer hosted: the pane's moving clip cuts it, so its pane rides; a page back in its own window does not.
+    @Test
+    func aLayerHostedChromiumChatRidesItsZoom() {
+        _ = NSApplication.shared
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let area = PaneContentAreaView(frame: content.bounds)
+        content.addSubview(area)
+        let page = LayerHostedPage()
+        let view = InternalPageView(key: "pane-layer-hosted-chat", page: .homeTab, content: page)
+        view.frame = area.bounds
+        area.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(content.paneRidesCommitMotion, "a layer-hosted Chromium page shows its zoom in one frame")
+        page.drawsInOwnWindow = true
+        #expect(!content.paneRidesCommitMotion, "a page in its own child window rides the move")
+    }
+}

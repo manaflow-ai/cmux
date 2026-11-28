@@ -117,6 +117,12 @@ extension CEFTab {
         return host.hostView.pageClipInWindow
     }
 
+    /// Whether this tab's page shows its pixels in the cmux window's layer tree now (`CEFLayerHosting.page`): the tab is
+    /// its pane's shown tab, in its container, and its page is layer hosted. A pane's moving clip cuts it then.
+    public var drawsPageInLayerTree: Bool {
+        host.visibleTab === self && host.hostView.superview === container && host.hostView.layerHosting.page != nil
+    }
+
     /// `rects` (content view coordinates) in a subview at `frame`.
     private static func local(_ rects: [CGRect], in frame: CGRect) -> [CGRect] {
         rects.compactMap { rect in
