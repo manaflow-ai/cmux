@@ -90,7 +90,9 @@ public final class AgentPaneNewTabFrame {
                 await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
                 guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
                       let snapshot = await redraw.snapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
-                      takenAt == self.generation, self.shows(view.model) == before else { return }
+                      takenAt == self.generation, self.shows(view.model) == before,
+                      view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
+                      host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance else { return }
                 self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
             }
         }

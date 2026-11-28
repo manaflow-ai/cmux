@@ -686,3 +686,9 @@ extension PaneController {
         return services.cache.browser(for: tab).map(TabContent.browser)
     }
 }
+
+extension PaneController: NewTabPaneGeometrySource {
+    var newTabPaneView: NSView { view }
+    var newTabLayout: LayoutRootView? { workspace?.layoutView }
+    var newTabHidesTabBar: Bool { hidesTabBar || isAppPane }
+}

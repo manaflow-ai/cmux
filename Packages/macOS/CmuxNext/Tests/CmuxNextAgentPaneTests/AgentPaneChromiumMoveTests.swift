@@ -58,6 +58,57 @@ struct AgentPaneChromiumMoveTests {
         page.calls.filter { $0.method == "Runtime.evaluate" && ($0.params["expression"] as? String)?.contains("innerWidth") == true }.count
     }
 
+    private final class CoveredPane: NSView, AgentPaneMoveCoverHost {
+        var launchImageView: NSView?
+        var launchImageInvokesResizeCallback = true
+        var onLaunchImageCleared: (() -> Void)?
+        func showLaunchImage(_ image: NSImage, limit _: Duration) {
+            let cover = NSImageView(frame: bounds)
+            cover.image = image
+            addSubview(cover)
+            launchImageView = cover
+        }
+
+        func clearLaunchImage(ifShowing image: NSView) {
+            guard launchImageView === image else { return }
+            image.removeFromSuperview()
+            launchImageView = nil
+            onLaunchImageCleared?()
+        }
+    }
+
+    @Test func splitCoverStaysUntilChromiumDrawsAtTheSplitSize() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        let size = NSSize(width: 413, height: 587)
+        let window = pane(size)
+        defer { window.close() }
+        let host = CoveredPane(frame: NSRect(origin: .zero, size: size))
+        window.contentView?.addSubview(host)
+        let frames = AgentPaneNewTabFrame.shared
+        let appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        frames.store(NSImage(size: size), size: size, appearance: appearance, generation: frames.generation)
+        view.coverMove(in: host, size: size, limit: .seconds(3), mark: { _ in })
+        #expect(host.launchImageView != nil, "the first split frame uses the exact-size cached composer")
+        var sawCoverWhileWaiting = false
+        page.answer = { method, params in
+            if method == "Runtime.evaluate", (params["expression"] as? String)?.contains("innerWidth") == true {
+                sawCoverWhileWaiting = host.launchImageView != nil
+            }
+            return nil
+        }
+        host.addSubview(view)
+        view.frame = host.bounds
+        view.layoutSubtreeIfNeeded()
+        #expect(host.launchImageView != nil)
+        #expect(view.holdsPageAway)
+        let deadline = Date().addingTimeInterval(5)
+        while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sawCoverWhileWaiting)
+        #expect(host.launchImageView == nil)
+        #expect(!view.holdsPageAway)
+        #expect(sizeWaits(page) == 1)
+    }
+
     @Test func aPageParkedAtThePanesSizeShowsInPlaceInItsFirstLayout() async throws {
         let (view, page) = try await parkedChromiumPage()
         var moves = 0

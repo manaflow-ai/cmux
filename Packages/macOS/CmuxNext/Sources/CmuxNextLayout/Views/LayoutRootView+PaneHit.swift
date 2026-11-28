@@ -26,4 +26,10 @@ extension LayoutRootView {
         return view.newSplitPaneSize(splitting: pane, zone: zone)
     }
 
+    /// Pane content size after inserting a new pane at an existing divider, before the daemon reply.
+    public func newDividerPaneSize(splitting split: SplitID, ratio: Double) -> CGSize? {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
+        return view.newDividerPaneSize(splitting: split, ratio: ratio)
+    }
+
 }

@@ -149,7 +149,7 @@ struct NewTabSpareStaysInWindowTests {
             }
             // Cmd-T: the pool hands out its oldest spare and the pane shows it. With no spare (the pool refused the
             // closed page) the press makes a cold page, as the app does.
-            let spare = pool.take(for: window, size: NewTabSparePool.newTabContentSize(in: pane))?.view
+            let spare = pool.take(for: window, size: pane.newTabContentSize)?.view
             try #require(spare != nil || refusal != nil, "fixture: pair \(pair): the pool had no spare")
             let taken = try #require(spare ?? made(NewTabPage.sparePage(services)), "fixture: pair \(pair): no page")
             presses.append(Press(samePage: taken === shown, inWindow: taken.window === window,

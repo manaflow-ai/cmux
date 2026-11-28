@@ -26,10 +26,13 @@ public final class AgentPaneSpareCovers {
         // it painted at its parked size and while its cover is taken (`PageWebView+AwayDrawing`), so the next
         // handout shows a page already drawn; between those it reports hidden to Chromium, as a background tab.
         view.isHidden = false
-        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         view.model.whenPainted { [weak self, weak view] in
             guard let self, let view, generations[id] == generation, parked(view) else { return }
-            view.redraw.rememberFrame(of: view, appearance: appearance, completion: completion)
+            let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+            view.redraw.rememberFrame(of: view, appearance: appearance, valid: { [weak self, weak view] in
+                guard let self, let view else { return false }
+                return generations[id] == generation && parked(view)
+            }, completion: completion)
         }
     }
 

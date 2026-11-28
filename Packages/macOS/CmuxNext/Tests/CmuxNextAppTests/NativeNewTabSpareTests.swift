@@ -130,7 +130,7 @@ struct NativeNewTabSpareTests {
         frame.size.width -= 400
         window.setFrame(frame, display: false)
         content.contentView.layoutSubtreeIfNeeded()
-        let size = NewTabSparePool.newTabContentSize(in: pane)
+        let size = pane.newTabContentSize
         try #require(size.width < madeWidth - 300, "the pane did not narrow (\(madeWidth) -> \(size.width))")
         _ = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
         try #require(Self.host(in: pane.view) === spare, "Cmd-T did not adopt the spare")

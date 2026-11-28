@@ -114,7 +114,65 @@ extension ScreenContentView {
 
     /// Exact pane bounds for an idle New Tab pre-render, using the drop's final split geometry.
     func newSplitPaneSize(splitting pane: PaneID, zone: PaneDropZone) -> CGSize? {
-        guard !isCanvas, let cell = predictedGeometry(splitting: pane, zone: zone, removing: nil)?.panes[DropPreviewLayout.newPane] else { return nil }
+        // Canvas splits retain the source pane's size. Strip splits can move the camera, which
+        // suppresses a drop highlight but does not change the new pane's content size.
+        if isCanvas { return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: context.style).size } }
+        guard let predicted = newTabSplitLayout(splitting: pane, zone: zone) else { return nil }
+        let after = ScreenGeometry.compute(predicted, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
+        guard let cell = after.panes[DropPreviewLayout.newPane] else { return nil }
+        return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
+    }
+
+    /// A keyboard split stays inside its row. Reuse the existing split predictor on that row's
+    /// tree, retaining the other rows and column widths when computing its target size.
+    private func newTabSplitLayout(splitting pane: PaneID, zone: PaneDropZone) -> ScreenLayout? {
+        func predict(_ source: ScreenLayout) -> ScreenLayout? {
+            DropPreviewLayout(splitting: pane, zone: zone, in: source, removing: nil,
+                              evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed)?.layout
+        }
+        if case var .columns(columns) = layout {
+            for column in columns.indices where columns[column].hasRows {
+                for row in columns[column].rows.indices where columns[column].rows[row].root.contains(pane) {
+                    guard case let .splits(root)? = predict(.splits(columns[column].rows[row].root)) else { return nil }
+                    columns[column].rows[row].root = root
+                    return .columns(columns)
+                }
+            }
+        }
+        return predict(layout)
+    }
+
+    /// Exact content size of the pane inserted at a divider. The divider keeps its old axis,
+    /// moves to `ratio`, and the new pane is the second child of the first side; this mirrors
+    /// `DividerInsertPlan` before the daemon creates the pane.
+    func newDividerPaneSize(splitting split: SplitID, ratio: Double) -> CGSize? {
+        let after: ScreenLayout
+        switch layout {
+        case let .splits(root):
+            guard let predicted = NewTabDividerLayout.predict(root, split: split, ratio: ratio) else { return nil }
+            after = .splits(predicted)
+        case let .columns(columns):
+            var changed = columns
+            var found = false
+            for index in changed.indices {
+                if changed[index].hasRows {
+                    for row in changed[index].rows.indices {
+                        if let predicted = NewTabDividerLayout.predict(changed[index].rows[row].root, split: split, ratio: ratio) {
+                            changed[index].rows[row].root = predicted
+                            found = true
+                        }
+                    }
+                } else if let predicted = NewTabDividerLayout.predict(changed[index].root, split: split, ratio: ratio) {
+                    changed[index].root = predicted
+                    found = true
+                }
+            }
+            guard found else { return nil }
+            after = .columns(changed)
+        }
+        let computed = ScreenGeometry.compute(after, viewport: bounds.size, style: context.style,
+                                              scale: window?.backingScaleFactor ?? 2)
+        guard let cell = computed.panes[NewTabDividerLayout.newPane] else { return nil }
         return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
     }
 

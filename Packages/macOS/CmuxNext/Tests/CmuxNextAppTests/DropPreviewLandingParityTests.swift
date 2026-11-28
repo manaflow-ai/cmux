@@ -65,6 +65,23 @@ struct DropPreviewLandingParityTests {
 
     // MARK: Drop
 
+    @Test(arguments: DropPreviewLandingParityTests.layouts.indices)
+    func newTabPrefetchSizeMatchesTheLandedSplit(_ index: Int) throws {
+        let (_, tree) = Self.layouts[index]
+        let window = Window(tree)
+        defer { window.window.closeAfterTest() }
+        let view = try #require(window.root.screenViews["s"])
+        for pane in tree.panes {
+            for zone in [PaneDropZone.right, .bottom] {
+                let predicted = try #require(view.newSplitPaneSize(splitting: pane, zone: zone))
+                let landed = Self.land(tree, pane: pane, zone: zone, removing: nil, order: .sizingFirst, in: view)
+                let target = try #require(landed[Self.newPane]).insetBy(dx: -2, dy: -2)
+                #expect(abs(predicted.width - target.width) < 1)
+                #expect(abs(predicted.height - target.height) < 1)
+            }
+        }
+    }
+
     enum Order { case sizingFirst, treeFirst }
 
     static let newPane = PaneID(rawValue: "n")
