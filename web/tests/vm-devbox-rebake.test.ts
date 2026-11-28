@@ -145,6 +145,11 @@ describe("rebake inputs", () => {
       ...REBAKE_INPUTS.exclude.map((glob) => `!${glob}`),
       "web/scripts/devbox-rebake.ts",
       ".github/workflows/cloud-devbox-image-rebake.yml",
+      "web/scripts/promote-devbox-image.ts",
+      "web/scripts/verify-devbox-image.ts",
+      "web/scripts/devbox-agent-launch.ts",
+      "web/scripts/devbox-agent-launch.py",
+      "web/scripts/check-devbox-image-reachable.ts",
     ]);
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.

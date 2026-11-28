@@ -14,7 +14,8 @@
 # The controller runs an unlisted scripts/measure script only at a commit on feat-cmux-next or main, so --ref
 # defaults to this checkout's merge-base with origin/feat-cmux-next (a PR head is refused with HTTP 400).
 # Exit: the host half's exit (0 measured, 1 failed, 3 unreachable), 2 bad arguments, 4 no viewer address,
-# 5 a half was refused at submit (a refused viewer means the host is never sent; a refused host cancels the viewer), 6 a Mac is offline, paused or reserved
+# 5 a half was refused at submit (a refused viewer means the host is never sent; a refused host cancels the viewer), 6 a Mac is offline, paused or reserved,
+# 7 the worker list could not be read (a slow or unreachable controller, not a missing Mac: retry)
 # (--queue-anyway queues behind it instead; each half is pinned strictly, so it waits for that Mac and never moves).
 # Whenever the launcher exits, it cancels any of its steps still queued or running, so no half outlives it.
 set -uo pipefail
@@ -50,9 +51,11 @@ common=(--class exclusive --measurement --label measure --script "$script" --ref
 # Mac frees up, hours at a time: the probe on a disk-paused viewer waited 140 min before the outer timeout. Ask first.
 if [[ -z "$queue_anyway" ]]; then
   for mac in "$host_mac" "$viewer_mac"; do
-    table=$(cmux-ci workers --name "$mac" --table 2>&1)
+    table=$(cmux-ci workers --name "$mac" --table 2>&1); rc=$?
     line=$(grep -E "^$mac " <<<"$table" | head -1)
     why=""
+    # A slow controller is not a missing Mac: say so, so the caller retries instead of picking another Mac.
+    (( rc == 0 )) || { echo "launch: could not read the worker list for $mac (cmux-ci workers exit $rc): $(tail -1 <<<"$table"); retry, raise CMUX_CI_READ_TIMEOUT, or pass --queue-anyway" >&2; exit 7; }
     [[ -n "$line" ]] || why="not in the worker list"
     [[ -z "$why" && "$line" != *" state=online "* ]] && why="offline (${line%%  healthy=*})"
     [[ -z "$why" && "$line" != *" paused=- "* ]] && why="claims paused: $(grep -oE 'paused=[^ ]+' <<<"$line")"

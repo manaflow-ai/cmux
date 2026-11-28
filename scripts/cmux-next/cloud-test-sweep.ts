@@ -19,6 +19,13 @@
  * the test account itself (another member's machine is never touched, and a shared team is skipped when the account's
  * own user id is unknown). Production is refused.
  *
+ * It also takes the journey-owned leftovers younger than the window, by the journey's own sweep rule
+ * (staleJourneyMachines: a name only a run that deletes its machine gives, past that run's bound, in any state), with
+ * the same creator filter. A journey sweeps them too, but only once a journey gets that far: 2026-11-28 07:12Z the
+ * staging test team held 102 machines, none a day old (this sweep picked 0), its owner object answered
+ * cloud.machine.list "Durable Object exceeded its CPU time limit", and the relay deploy's journey-staging failed twice
+ * on exec 503 vm_unavailable (overloaded) (run 46115218791).
+ *
  * --out DIR gets sweep.json (every scope's counts, each deleted machine and its answer) and summary.md, the table of
  * what it deleted. Secrets are sent only in headers or bodies and scrubbed from every line printed. It fails when a
  * delete is refused (a leftover that cannot go is a red run, not a silent one).
@@ -26,7 +33,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { STACK, STACK_API, listAllMachines, resolveBackend, scrub } from "./cloud-journey.ts";
+import { STACK, STACK_API, listAllMachines, resolveBackend, scrub, staleJourneyMachines } from "./cloud-journey.ts";
 
 type Answer = { status: number; body: any };
 
@@ -63,6 +70,25 @@ export function stalePicks(rows: any[], nowMs: number, minAgeMs: number, creator
     else if (RUNNING_STATUSES.has(status) && last !== null && nowMs - last > minAgeMs) why = `${status} with no activity for ${Math.floor((nowMs - last) / 3_600_000)} h`;
     if (!why) continue;
     out.push({ id, name: String(r.name ?? ""), status, created: iso(r.created_at)!, last_active: iso(last), why });
+  }
+  return out;
+}
+
+/**
+ * stalePicks, then the journey-owned rows staleJourneyMachines takes that stalePicks left (younger than the window),
+ * under the same creator filter, so a journey's leaked machines go within its own bound instead of a day.
+ */
+export function sweepPicks(rows: any[], nowMs: number, minAgeMs: number, creator: string | null = null): SweepPick[] {
+  const out = stalePicks(rows, nowMs, minAgeMs, creator);
+  const have = new Set(out.map((p) => p.id));
+  const mine = rows.filter((r) => r && typeof r === "object" && (creator === null || String(r.creator ?? "") === creator));
+  const byId = new Map(mine.map((r) => [String(r.id ?? r.machine_id ?? ""), r]));
+  for (const m of staleJourneyMachines(mine, nowMs)) {
+    if (have.has(m.id)) continue;
+    const r = byId.get(m.id);
+    const last = typeof r?.last_active_at === "number" && Number.isFinite(r.last_active_at) ? r.last_active_at : null;
+    out.push({ id: m.id, name: m.name, status: m.status, created: m.created, last_active: iso(last), why: `journey-owned ${m.status}, past its run's bound` });
+    have.add(m.id);
   }
   return out;
 }
@@ -114,6 +140,31 @@ async function http(method: string, url: string, body: unknown, headers: Record<
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Tries of one /v1/read before the sweep gives up on it. */
+export const READ_TRIES = 3;
+
+/** A read answer worth sending again: no answer (transport), a 429 or 5xx, or one the API marks retryable. */
+export function retryableRead(r: Answer): boolean {
+  return r.status === 0 || r.status === 429 || r.status >= 500 || r.body?.error?.retryable === true;
+}
+
+/**
+ * One /v1/read, sent up to `tries` times while its answer is retryable (reads change nothing, so a resend is safe).
+ * Run 46130928568 (2026-11-28 09:32Z) went red on one cloud.machine.list that timed out at 30 s, answered as
+ * {"code":"transport","retryable":true}: the staging test team's owner object was CPU-bound (see the header), and
+ * the sweep read it once. A refusal that is not retryable, or the last try's answer, still throws.
+ */
+export async function readWithRetry(send: () => Promise<Answer>, name: string, tries = READ_TRIES, backoffMs = 5_000, wait: (ms: number) => Promise<unknown> = sleep): Promise<any> {
+  let r: Answer = { status: 0, body: {} };
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    r = await send();
+    if (r.status === 200 && r.body?.ok !== false) return r.body.value;
+    if (!retryableRead(r) || attempt === tries) break;
+    await wait(backoffMs * attempt);
+  }
+  throw new Error(`${name}: HTTP ${r.status} ${JSON.stringify(r.body?.error ?? r.body).slice(0, 300)}${tries > 1 && retryableRead(r) ? ` (after ${tries} tries)` : ""}`);
+}
 const argValue = (flag: string, argv: string[]) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -141,11 +192,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   secrets.push(signIn.body.access_token, String(signIn.body.refresh_token ?? ""));
   const bearer = { authorization: `Bearer ${signIn.body.access_token}` };
   const headers = (team: string | null) => ({ ...bearer, ...(team ? { "x-cmux-team": team } : {}) });
-  const read = async (team: string | null, name: string, params: unknown) => {
-    const r = await http("POST", `${backend.api}/v1/read`, { op: name, params }, headers(team), 30_000);
-    if (r.status !== 200 || r.body?.ok === false) throw new Error(`${name}: HTTP ${r.status} ${JSON.stringify(r.body?.error ?? r.body).slice(0, 300)}`);
-    return r.body.value;
-  };
+  const read = (team: string | null, name: string, params: unknown) =>
+    readWithRetry(() => http("POST", `${backend.api}/v1/read`, { op: name, params }, headers(team), 30_000), name);
   const op = (team: string | null, name: string, params: unknown, key: string) => http("POST", `${backend.api}/v1/ops`, { op: name, params, idempotency_key: key }, headers(team));
 
   const ensure = await op(null, "user.ensure", {}, `${tag}-ensure`);
@@ -166,8 +214,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let budget = MAX_DELETES;
   let refused = 0;
   for (const { scope, team } of teams) {
-    const rows = await listAllMachines((p) => read(team, "cloud.machine.list", p), 40);
-    const picks = stalePicks(rows, now, minAgeMs, team === null ? null : me).slice(0, budget);
+    const rows = await listAllMachines((p) => read(team, "cloud.machine.list", p), 40, { partial: true });
+    const picks = sweepPicks(rows, now, minAgeMs, team === null ? null : me).slice(0, budget);
     budget -= picks.length;
     const entry = { scope, before: statusCounts(rows), picks: picks as Array<SweepPick & { ok?: boolean; error?: string | null }> };
     report.scopes.push(entry);

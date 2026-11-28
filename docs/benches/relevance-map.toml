@@ -121,7 +121,7 @@ situations = ["bridge"]
 benches = ["ChiefFaceFlushBenchTests"]
 tests = [
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-home-rules",
-  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi",
+  "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi",
 ]
 budget = "sidebar flush of 1,104 rows x 5 Chiefs under 250 ms"
 
@@ -251,6 +251,15 @@ paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/cmux-terminal-find", "cm
 benches = ["terminal-throughput-quick"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt history_", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-find -p cmux-terminal-projection"]
 
+# coverage-map.md's row 8 (cmux#62415). The crate itself stays Terminal core's (that area is first in file order);
+# the scrollback read files route here.
+[[area]]
+name = "Terminal scrollback reads (daemon `read-scrollback`, find, projection parity)"
+paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/ghostty-vt/src/styled_history_tests.rs", "cmux-tui/crates/ghostty-vt/src/screen_row_text_tests.rs", "cmux-tui/crates/ghostty-vt/src/terminal_screen_text.rs"]
+benches = ["styled_history_page_bench", "screen_row_text_bench"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_history_page_looks_up_each_page_not_each_row"]
+budget = "under 1,024 row lookups per 8,192-row page (a_long_history_page_looks_up_each_page_not_each_row)"
+
 [[area]]
 name = "Palette and omnibar"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette"]
@@ -264,12 +273,16 @@ name = "iOS workspace sync and live link"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive"]
 situations = ["main-thread"]
 benches = ["WorkspaceSyncPerformanceTests", "LinkSmoothnessBenchTests", "CloseTabRoundTripBench", "ResumeLiveBenchTests", "ResumeMatrixBenchTests", "TerminalLoadBench", "TranscriptReadFirstR1Bench", "mobile-flows"]
+tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter 'AcpmuxHubCatchUpTests|CloseTabRoundTripBench|WorkspaceSyncKnownTests'"]
+budget = "counts, not time: a catch-up chat list applies whole (2 rows in, 2 rows held: AcpmuxHubCatchUpTests); 1 round trip per tab close, 3 before (CloseTabRoundTripBench); 0 whole-tree reads on an unchanged same-Mac redial at 1,000 workspaces: 374 list bytes, not the 232,191-byte tree (WorkspaceSyncKnownTests)"
 
 [[area]]
 name = "iOS terminal"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal"]
 situations = ["main-thread"]
-benches = ["TerminalHistoryWindowBench", "TerminalScrollBenchUITests"]
+benches = ["TerminalHistoryWindowBench", "TerminalScrollBenchUITests", "phone-speed"]
+tests = ["cargo run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check"]
+budget = "phone-speed-icount: Callgrind Ir per 10 operations within 10% of scripts/bench/phone-speed/baseline.tsv (echo-100 7,369,231; stream-100 7,863,191; rotate-100 46,123,281), and 10,000 lines of scrollback at most 1.2x 100 lines"
 
 [[area]]
 name = "Cloud relay and sync"
@@ -438,7 +451,7 @@ paths = [
 situations = ["main-thread", "visible-ui"]
 benches = ["launch", "launch-bare", "TerminalLaunchFrameKeeperBenchTests"]
 tests = [
-  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-shell",
+  "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-launch-shell",
   "swift test --package-path Packages/macOS/CmuxNext --filter 'LaunchShellTests|LaunchFirstFrameRevealTests|HomeLaunchRevealTests|TerminalLaunchFrameTests|FirstFrameGateTests'",
 ]
 budget = "0 opaque cover frames: stage zero never draws the plain shell, so the first frame is the window as it was; 1 window planned (the front one); first-frame work runs once, after the gate"
@@ -451,6 +464,365 @@ situations = ["visible-ui"]
 benches = []
 tests = ["cd webviews && bun test test/composer-hat-line-ink.test.ts"]
 budget = "0 accent- or link-coloured words and 0 filled chips on the open hat line, hovered or not, light and dark, at 360 and 900 px; 0 overlaps between the panel button and the words or \"+N more\""
+
+# ---- areas the red goals rest on (cmuxterm-hq goals/*.md product_paths; leo-workspace tools/area-view) --------
+
+[[area]]
+name = "Screen sharing"
+# Goals screen-share-fast, screen-share-quality-ladder, screen-share-e2e, ss-ios-viewer, screen-share-phone, cloud-desktop-agent
+# (cmuxterm-hq goals/): a key press reaches the presented frame in at most 100 ms p95, first frame within 2 s p95, a shared
+# screen's real frames and a key and click round-trip, on a Mac viewing a Mac, the iPhone viewing a Mac, and a Cloud desktop.
+paths = [
+  "cmux-tui/crates/cmux-rd-host",
+  "cmux-tui/crates/cmux-rd-core",
+  "cmux-tui/crates/cmux-encode",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing",
+]
+benches = ["screen-share", "RemoteDecodeRangeBenchTests"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-core -p cmux-encode",
+  "cargo test --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --no-default-features --features openh264,link",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'MacScreenRdLineTests|MacScreenStreamProcessTests|RemoteFastPresentTests|RemoteEncoderDropTests|RemoteRdHandshakeTests'",
+]
+budget = "key press to the presented frame at most 100 ms p95 (60 ms p50); connect to first frame at most 2,000 ms p95"
+
+[[area]]
+name = "Remote connect and reconnect"
+# Goals remote-connect-phone-list (probe remote-connect-phone-production: from the iPhone's machine list a person opens a session on
+# their Mac that answers) and remote-reconnect-after-relaunch (probe connection-reconnect-chat: sessions stay usable after a quit and relaunch).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemote",
+]
+benches = ["remote-connect-phone-production", "connection-reconnect-chat"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'IPhoneHostRemoteControlTests|MobileHostPairingTests|RemoteConnectRecoveryTests|RemoteLinkOneRedialerTests'",
+]
+budget = "every 6 hours on the newest Nightly and iPhone app, a session opened from the phone's machine list answers; sessions usable after quit and relaunch"
+
+[[area]]
+name = "Cloud start"
+# Leo's Cloud start: a chat that starts at once and answers in seconds, for every folder x team x bypass combination
+# (goals cloud-instant-start, cloud-instant-start-journey, cloud-first-reply-p95-journey, rfd0135-first-reply-30s,
+# rfd0135-first-reply-20-of-20, cloud-start-matrix, cloud-environment-auto, probes-cover-start-combinations,
+# onboarding-new-person). Measured by hourly and 6-hourly production probes, not a bench in this tree.
+paths = [
+  "cmux-tui/crates/cmux-cloud-start-core",
+  "cmux-tui/crates/cmux-cloud-environment",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudStart",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
+]
+situations = ["main-thread"]
+benches = ["cloud-journey-first-text-production", "cloud-start-matrix-production"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-start-core",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-environment",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'AgentPaneCloudStartTests|CloudPlaceFlowsTests'",
+]
+budget = "start to first text p50 at most 3,000 ms and p95 at most 8,823 ms over the newest 20 real-model journey runs, 20 of 20 with a real reply; every start combination passes its matrix row"
+
+[[area]]
+name = "Cloud chat and client"
+# Cloud chats that open, reply and recover on their own (goals cloud-chat-999, cloud-chat-attach-budget,
+# cloud-chat-waiting-always-explained, cloud-errors-self-recover, cloud-client-swift-to-rust). The Swift HTTP client
+# moves into cmux-cloud-client; the swift-cloud-http.py count falls to 0.
+paths = [
+  "cmux-tui/crates/cmux-cloud-client",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
+  "Packages/Shared/CmuxAPIClient",
+]
+situations = ["main-thread"]
+benches = ["cloud-chat-replies-production", "cloud-chat-attach-production"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-client",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudChatRecoveryAttachTests|CloudMachineRouteTests'",
+]
+budget = "at least 0.999 of cloud chat reply probes available, attach click to transcript p95 at most 707 ms, 0 unexplained waits, 0 Swift files building a Cloud HTTP request"
+
+[[area]]
+name = "Cloud machines"
+# A personal Cloud machine that is ready, resumes and lists fast (goals cloud-machine-ready, cloud-personal-machine,
+# cloud-machines-last-seen-cold-start).
+paths = ["cmux-tui/crates/cmux-cloud-machine"]
+benches = ["machine-ready-after-create", "machine-resume", "cloud-last-seen-cold-start"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-machine",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudLastSeenMachinesTests|AgentPaneCloudMachineRequestTests'",
+]
+budget = "machine ready after create p95 at most 10,000 ms; resume availability at least 0.99; last-seen list on a cold start p95 at most 1,000 ms"
+
+[[area]]
+name = "Cloud sign-in"
+# Zero re-login in Cloud chat (goal cloud-zero-login).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials",
+  "Packages/Shared/CmuxAuthRuntime",
+]
+benches = ["cloud-chat-pro-no-relogin"]
+tests = [
+  "swift test --package-path Packages/Shared/CmuxAuthRuntime --filter AuthCoordinatorCloudTokenTests",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudCredentialRelayRefusalTests|CloudSignInEnrollCallerTests'",
+]
+budget = "0 re-logins: the no-relogin probe passes at least 0.95 of runs with lower confidence bound at least 0.85"
+
+[[area]]
+name = "Cloud carrier"
+# A Cloud chat survives a dropped relay: ssh backup and no lost output (goals cloud-carrier-ssh-backup,
+# cloud-resume-no-lost-output).
+paths = ["cmux-tui/crates/cmux-remote"]
+benches = ["cloud-carrier-ssh-failover", "cloud-carrier-chaos-staging"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote"]
+budget = "a relay killed mid-turn loses and repeats 0 output; the chat continues over ssh from the acpmux seq"
+
+[[area]]
+name = "Cloud vault"
+# No plaintext secret on a Cloud machine and no way around the vault (goals cloud-machine-no-plaintext-secrets,
+# cloud-secrets-adversarial-no-leak, cloud-vault-adversarial-all-paths, cloud-vault-no-bypass).
+paths = [
+  "cmux-tui/crates/cmux-vault-e2e",
+  "cmux-tui/crates/cmux-vault-egress",
+]
+benches = [
+  "cloud-machine-no-plaintext-secrets-production",
+  "cloud-vault-adversarial-production",
+  "cloud-vault-no-bypass-production",
+]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-egress",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e",
+]
+budget = "0 plaintext secrets and 0 bypasses: every attack class in the vault census is refused on a live production machine"
+
+[[area]]
+name = "Session transfer"
+# Moving a session between local, Cloud and other machines (goals cloud-move-to-cloud-budget,
+# cloud-move-to-local-budget, offload-anywhere, session-move-machines, session-move-matrix-green, super-highway).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer",
+  "cmux-tui/crates/cmux-session-cloud",
+]
+situations = ["main-thread"]
+benches = [
+  "cloud-session-move-to-cloud-production",
+  "cloud-session-move-to-local-production",
+  "session-move-gcp",
+  "super-highway-moves",
+]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-session-cloud",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudMoveTests|SessionMoveSelectionTests'",
+]
+budget = "move start to the far side's first output p95 at most 10,000 ms each way; offload round trip p95 at most 5,000 ms; the move matrix green for 24 hours"
+
+[[area]]
+name = "Connectivity"
+# Connections within target (goal connections-within-target: connections.within_target_share at least 0.95).
+# No bench or probe row covers it; NOW's metric is the only measure.
+paths = [
+  "Packages/Shared/CmuxConnectivityTelemetry",
+  "web/services/connectivity",
+]
+benches = []
+tests = [
+  "swift test --package-path Packages/Shared/CmuxConnectivityTelemetry --filter ConnectivityAudienceTests",
+  "cd web && bun test tests/connectivity-authority.test.ts",
+]
+budget = "at least 0.95 of connections within target, the 24 h mean of NOW's passes"
+
+[[area]]
+name = "Weft"
+# Weft first byte (goal weft-first-byte: weft.first_byte_s p95 at most 0.07 s). NOW's metric only; no bench row.
+paths = ["cmux-tui/crates/cmux-weft"]
+benches = []
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-weft"]
+budget = "first byte p95 at most 0.07 s over 24 h of NOW's passes"
+
+[[area]]
+name = "Home accessibility"
+# Goal a11y-baseline (cmuxterm-hq goals/): the accessibility walk of NEXT Home, sidebar, composer and iOS home finds 0 unlabeled controls in light and dark, and animations honor Reduce Motion.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextHome"]
+benches = ["a11y-baseline"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HomeAccessibilityNamesTests|MacScreenHomeAccessibilityTests'"]
+budget = "0 unlabeled controls in Home, the sidebar, the composer and the iOS home, in light and dark; every animation honors Reduce Motion"
+
+[[area]]
+name = "acpmux under duress"
+# Goal acpmux-under-duress (cmuxterm-hq goals/): every leg of the acpmux duress bench meets its target, none missing or incomplete (RFD 0124).
+paths = ["cmux-tui/crates/cmux-duress"]
+benches = ["agent-class-duress"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress"]
+budget = "acpmux_duress.unmet 0 legs: CLI p99 of ls, send and register under 500 ms with no failed call, false-dead 0, a killed session caught under 60 s"
+
+[[area]]
+name = "Agent integrations settings"
+# Goals agent-hooks-in-cmux, agent-mcp-in-cmux, agent-settings-in-cmux, agent-skills-in-cmux (cmuxterm-hq goals/): Claude Code and Codex hooks, MCP servers, settings and skills are listed and editable in NEXT, edits round-trip.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations"]
+benches = ["agent-hooks-in-cmux", "agent-mcp-in-cmux", "agent-settings-in-cmux", "agent-skills-in-cmux"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'SettingsAgentIntegrationsTests|SettingsAgentMcpServersTests|SettingsAgentSkillsTests|SettingsAgentIntegrationsExecutorTests'"]
+budget = "each probe passes on its newest run: every hook, server, setting and skill listed, and an edit round-trips without losing other entries"
+
+[[area]]
+name = "Onboarding and first run"
+# Goals first-run-one-screen, next-first-run-setup, onboarding-new-person, agent-shortcut-found (cmuxterm-hq goals/): a fresh install reaches a first agent reply with at most one decision, and a new person finds the start-an-agent shortcut.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextKeys",
+  "webviews/src/pages/onboarding",
+]
+benches = ["first-run-one-screen-nightly", "next-first-run-setup-nightly", "onboarding-new-person-production", "agent-shortcut-found-nightly"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'FirstRunSetupTests|OnboardingAgentsStepTests|OnboardingAccountSignInTests|MessageChiefGlobalHotKeyTests'",
+  "bash scripts/ci/run-webviews-tests.sh pages/onboarding/",
+]
+budget = "each probe ok on the newest nightly run: a clean Mac reaches a first agent reply with at most one decision before the composer, and the agent shortcut is offered in one click"
+
+[[area]]
+name = "Agent lanes orchestrator"
+# Goal competitive-orchestrator-16 (cmuxterm-hq goals/): one chat supervises 16 worktree children, local and cloud, with no UI frame over 16 ms while all stream.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes"]
+benches = ["webviews/bench/orchestrator-16.bench.ts"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'AgentLanesTests|AgentLaneStoreNamesCostTests'"]
+budget = "competitive.orchestrator.p99_frame_ms_16_children at most 7 ms (ceiling 16 ms) with 16 children streaming"
+
+[[area]]
+name = "Computer Use"
+# Goal computer-use-click-lands-everywhere (cmuxterm-hq goals/): every scheduled click lands where the agent aimed it, across all surfaces.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse"]
+benches = ["cloud-desktop-agent-production"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'ComputerUseSessionActionsTests|ComputerUsePreviewRouterTests'"]
+budget = "click_ok_share at least 0.99 (p50 of the probe's newest 20 rows)"
+
+[[area]]
+name = "Comment round-trip"
+# Goal extend-comment-round-trip-beyond (cmuxterm-hq goals/): Leo's comments round-trip to the agent on every surface, not only the three covered ones.
+paths = ["webviews/src/comments", "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments"]
+benches = ["cloud-chat-replies-production"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'TerminalCommentThreadsTests|BrowserCommentThreadsTests|DiffCommentsTests'"]
+budget = "cloud-chat-replies-production ok on its newest run: a comment reaches its agent and the reply returns on every surface"
+
+[[area]]
+name = "Hang reports"
+# Goal field-hang-seconds-tenth (cmuxterm-hq goals/): NIGHTLY main-thread hang seconds per day fall to a tenth of the first reading and below 10 s/day.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextHangReports"]
+benches = []
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HangReportCollectorTests|HangReportServiceTests|HangReportAskPolicyTests'"]
+budget = "field_hang_s_per_day at most 10 s over 7 days on every hang-watch Mac"
+
+[[area]]
+name = "iOS app release"
+# Goals ios-app-store-live, ios-quality-climb (cmuxterm-hq goals/): the iOS app is live on the App Store and keeps the release bar (App Review gate YES, simulator read-back passes).
+paths = ["cmux-next-ios/AppStoreReview", "cmux-next-ios/CmuxMobileKit"]
+benches = ["ios-app-store-live-production", "ios-release-bar"]
+tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileAgentChatTests"]
+budget = "App Review readiness gate YES at the submitted head, ios-release-bar passes, no red on the last 10 main pushes"
+
+[[area]]
+name = "Launch first frame"
+# Goal next-launch-instant (cmuxterm-hq goals/): NEXT cold-starts to its first window and Home in 0.6 s or less.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages"]
+benches = ["launch", "launch-bare"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'AgentPaneLaunchImagesAlphaTests|AgentPaneLaunchImageReadTests'"]
+budget = "app_warm_launch_idle_median_ms at most 380 ms; first window and Home within 600 ms of launch"
+
+[[area]]
+name = "Notification banners"
+# Goals notify-banner-click, notify-banner-click-all-paths, notify-banner-click-burst-and-relaunch, notify-banner-click-concurrent-chats, notify-banner-fleet-self-checking (cmuxterm-hq goals/): each agent chat notification shows exactly one macOS banner and its click opens that chat's tab.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextNotifications"]
+benches = ["notify-banner-click-nightly"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'NotificationBannerContentTests|NotificationsControlTests'"]
+budget = "notify-banner-click-nightly ok: exactly one banner per finished turn, failed turn and wait, and its click opens that chat's tab"
+
+[[area]]
+name = "Screenshot into chat"
+# Goal screenshot-into-chat (cmuxterm-hq goals/): a person sends a screenshot into a NEXT chat from another app in one step.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots"]
+benches = ["screenshot-into-chat-nightly"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'ScreenshotDropSaverTests|ScreenshotsPageWiringTests|NewestPictureTests'"]
+budget = "screenshot-into-chat-nightly ok on the newest nightly: capture shortcut, Share menu or Service lands the image in the chat in one step"
+
+[[area]]
+name = "Customization and themes"
+# Goals customization-capability-matrix, customize-app-profiles, customize-composer-nightly, look-packs-land,
+# theme-live-reload (cmuxterm-hq goals/): the extension SDK, look packs and theme files customize NEXT, and a theme save shows within 1 s.
+paths = [
+  "cmux-tui/crates/cmux-extension-sdk",
+  "cmux-tui/crates/cmux-customize",
+  "cmux-tui/crates/cmux-theme-pack",
+  "cmux-tui/crates/cmux-agent-customize",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes",
+]
+benches = ["customize-composer-nightly", "feature-flow-looks", "theme-live-reload-nightly"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-customize",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-theme-pack",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'ThemeLivePreviewTests|ThemeFileSaveTests'",
+]
+budget = "every theme-file save on screen within 1,000 ms (200 saves, no miss); the three scheduled probes pass fresh"
+
+[[area]]
+name = "Hibernation and tab discard"
+# Goals infinite-items-flat, infinite-tabs-flat: memory with 1,000 items or tabs stays within 1.2x of an empty app.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
+  "cmux-tui/crates/cmux-tab-discard",
+]
+benches = ["footprint"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HibernationRankingTests|WorkspaceHibernationTests'"]
+budget = "memory with 1,000 items or tabs at most 1.2x an empty app; growth per day near 0; idle CPU equal to the empty app's"
+
+[[area]]
+name = "Split layout reducer"
+# Goal instant-splits: every split, close and divider drag settles within 120 ms of its animation end.
+paths = ["cmux-tui/crates/cmux-layout-reducer"]
+benches = ["LayoutDragBench", "PaneMotionBench"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer"]
+budget = "each cell settles within 120 ms of its transition's animation end; split_scale score 1.0"
+
+[[area]]
+name = "Composer send and local start"
+# Goals local-composer-combinations-via-ui, local-start-matrix: every composer and start-picker combination sends from the UI.
+paths = ["cmux-tui/crates/cmux-composer-send"]
+benches = ["local-composer-matrix-nightly", "local-start-matrix-nightly"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-composer-send"]
+budget = "composer matrix probe passes fresh; the worst start-matrix cell passes at least 95% of its last 20 decided runs"
+
+[[area]]
+name = "Classic import"
+# Goal next-zero-classic-footprint-all-surfaces: NEXT leaves no Classic footprint on any surface.
+paths = ["cmux-tui/crates/cmux-classic-import"]
+benches = ["next-zero-classic-footprint-nightly"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-classic-import"]
+budget = "the nightly probe passes fresh: every Classic surface listed after fresh NEXT flows shows zero footprint"
+
+[[area]]
+name = "Daemon recovery"
+# Goals remote-reconnect-after-relaunch, restart-to-chat: after a relaunch the daemon and chat come back fast.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery"]
+benches = ["connection-reconnect-chat"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'DaemonRecoveryNoticeTests|DaemonRecoveryAfterFailedStartsTests'"]
+budget = "relaunch to a drawn live chat at most 600 ms median; the reconnect-chat probe row ok and fresh"
+
+[[area]]
+name = "App bundle size"
+# Goal bundle-size-falls: the installed NEXT app shrinks.
+paths = ["scripts/thin-app-bundle.sh", "scripts/strip-release-bundle.sh"]
+benches = ["bundle"]
+tests = [
+  "bash tests/test_thin_app_bundle.sh",
+  "bash tests/test_strip_release_bundle.sh",
+]
+budget = "newest NEXT NIGHTLY installed app at most 500 MB"
+
+[[area]]
+name = "What's new"
+# Goal whats-new-pretty: every New or Improved highlight has media, every Improved one a before and after pair.
+paths = ["scripts/whats-new", "webviews/src/pages/changelog"]
+benches = []
+tests = ["python3 -I -m unittest discover -s scripts/whats-new -p 'test_*.py'"]
+budget = "0 New or Improved highlights without media (whats_new.missing = 0) over the newest 10 nightlies"
 
 # ---- generated by `scripts/bench/cmux-bench for-paths --write`; edit above this line ----
 
@@ -1967,12 +2339,20 @@ paths = ["Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxUpdater --filter CmuxUpdaterTests"]
 
 [[unit]]
+name = "swift:UiHomeHost"
+paths = ["Prototypes/UiLayerHost/Sources/UiHomeHost/**"]
+
+[[unit]]
 name = "swift:UiLayerHost"
 paths = ["Prototypes/UiLayerHost/Sources/UiLayerHost/**"]
 
 [[unit]]
 name = "swift:UiLayerSourceWatcher"
 paths = ["Prototypes/UiLayerHost/Sources/UiLayerSourceWatcher/**"]
+
+[[unit]]
+name = "swift:UiShellShootKit"
+paths = ["Prototypes/UiLayerHost/Sources/UiShellShootKit/**"]
 
 [[unit]]
 name = "swift:ViewShell"
@@ -2358,7 +2738,7 @@ dependents = ["acpmux", "acpmux-standalone", "cmux-tui"]
 [[unit]]
 name = "rust:acpmux-client"
 paths = ["cmux-tui/crates/acpmux-client/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux-client", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-core -p cmux-app-ffi -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux-client", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-core -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["acpmux", "acpmux-core", "cmux-app-ffi", "cmux-tui-core"]
 
 [[unit]]
@@ -2403,13 +2783,13 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p chatmux-relay"]
 [[unit]]
 name = "rust:cmux-acpmux-remote-wire"
 paths = ["cmux-tui/crates/cmux-acpmux-remote-wire/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-acpmux-remote-wire", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-acpmux-remote-wire", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-action-catalog"
 paths = ["cmux-tui/crates/cmux-action-catalog/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-action-catalog", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-app-manifest -p cmux-customize -p cmux-customize-recipes -p cmux-layout-reducer -p cmux-palette-eval -p cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-action-catalog", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-manifest -p cmux-customize -p cmux-customize-recipes -p cmux-layout-reducer -p cmux-palette-eval -p cmux-tui"]
 dependents = ["cmux-app-ffi", "cmux-app-manifest", "cmux-customize", "cmux-customize-recipes", "cmux-layout-reducer", "cmux-palette-eval", "cmux-tui"]
 
 [[unit]]
@@ -2427,7 +2807,7 @@ dependents = ["acpmux", "cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-agent-pane-policy"
 paths = ["cmux-tui/crates/cmux-agent-pane-policy/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-agent-pane-policy", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-app-ffi -p cmux-build-space -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-agent-pane-policy", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-build-space -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["acpmux", "cmux-app-ffi", "cmux-build-space", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
@@ -2439,7 +2819,7 @@ dependents = ["acpmux", "cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-app-ffi"
 paths = ["cmux-tui/crates/cmux-app-ffi/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-app-host"
@@ -2467,8 +2847,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-auth-coordinato
 [[unit]]
 name = "rust:cmux-auto-session"
 paths = ["cmux-tui/crates/cmux-auto-session/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-auto-session", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-api"]
-dependents = ["acpmux", "cmux-cloud-api"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-auto-session", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-api", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-auto -p cmux-mobile-link-ffi"]
+dependents = ["acpmux", "cmux-cloud-api", "cmux-mobile-auto", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-autocloud"
@@ -2490,13 +2870,13 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-backdrop-gen"]
 [[unit]]
 name = "rust:cmux-background-ready"
 paths = ["cmux-tui/crates/cmux-background-ready/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-background-ready", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-background-ready", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-bookmarks-core"
 paths = ["cmux-tui/crates/cmux-bookmarks-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bookmarks-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bookmarks-ops -p cmux-layout-reducer-ffi -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bookmarks-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bookmarks-ops -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-bookmarks-ops", "cmux-layout-reducer-ffi", "cmux-tui-core"]
 
 [[unit]]
@@ -2514,20 +2894,20 @@ dependents = ["acpmux", "acpmux-tui"]
 [[unit]]
 name = "rust:cmux-braid-carrier"
 paths = ["cmux-tui/crates/cmux-braid-carrier/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-carrier", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote"]
-dependents = ["cmux-remote"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-carrier", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote"]
+dependents = ["cmux-mobile-link", "cmux-remote"]
 
 [[unit]]
 name = "rust:cmux-braid-class"
 paths = ["cmux-tui/crates/cmux-braid-class/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-class", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-protocol -p cmux-wg"]
-dependents = ["cmux-remote-protocol", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-class", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-protocol -p cmux-wg"]
+dependents = ["cmux-mobile-link", "cmux-remote-protocol", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-braid-path"
 paths = ["cmux-tui/crates/cmux-braid-path/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-path", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote -p cmux-tui -p cmux-wg"]
-dependents = ["cmux-remote", "cmux-tui", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-path", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote -p cmux-tui -p cmux-wg"]
+dependents = ["cmux-mobile-link", "cmux-remote", "cmux-tui", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-braid-session"
@@ -2550,7 +2930,7 @@ dependents = ["cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-browser-rules"
 paths = ["cmux-tui/crates/cmux-browser-rules/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-browser-rules", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-browser-rules", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
@@ -2567,13 +2947,14 @@ dependents = ["cmux-remote", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-build-space"
 paths = ["cmux-tui/crates/cmux-build-space/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-build-space", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-server -p cmux-tui -p cmux-tui-core"]
-dependents = ["acpmux", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-server", "cmux-tui", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-build-space", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-server -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link"]
+dependents = ["acpmux", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-mobile-host", "cmux-mobile-link", "cmux-server", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-bundle"
 paths = ["cmux-tui/crates/cmux-bundle/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bundle"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-bundle", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-bytes"
@@ -2596,7 +2977,7 @@ dependents = ["acpmux", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-chat-markdown"
 paths = ["cmux-tui/crates/cmux-chat-markdown/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-chat-markdown", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-chat-markdown", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -2630,8 +3011,8 @@ dependents = ["acpmux", "cmux-autocloud", "cmux-cloud-api", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-cloud-config"
 paths = ["cmux-tui/crates/cmux-cloud-config/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-config", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-autocloud -p cmux-cloud-client -p cmux-layout-reducer-ffi -p cmux-tui"]
-dependents = ["cmux-autocloud", "cmux-cloud-client", "cmux-layout-reducer-ffi", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-config", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-autocloud -p cmux-cloud-client -p cmux-tui", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm"]
+dependents = ["cmux-autocloud", "cmux-cloud-client", "cmux-layout-reducer-ffi", "cmux-tui", "cmux-vm"]
 
 [[unit]]
 name = "rust:cmux-cloud-disk"
@@ -2648,25 +3029,25 @@ dependents = ["acpmux", "cmux-autocloud", "cmux-cloud-client", "cmux-cloud-confi
 [[unit]]
 name = "rust:cmux-cloud-handlers"
 paths = ["cmux-tui/crates/cmux-cloud-handlers/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-handlers", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-tui"]
-dependents = ["cmux-layout-reducer-ffi", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-handlers", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
+dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-link-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-cloud-machine"
 paths = ["cmux-tui/crates/cmux-cloud-machine/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-machine", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-api -p cmux-cloud-client -p cmux-layout-reducer-ffi -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-machine", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-api -p cmux-cloud-client -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-cloud-api", "cmux-cloud-client", "cmux-layout-reducer-ffi", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-cloud-start-core"
 paths = ["cmux-tui/crates/cmux-cloud-start-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-start-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-handlers -p cmux-host -p cmux-layout-reducer-ffi -p cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-start-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-cloud-handlers -p cmux-host -p cmux-tui", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["acpmux", "cmux-cloud-handlers", "cmux-host", "cmux-layout-reducer-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-cloud-tasks"
 paths = ["cmux-tui/crates/cmux-cloud-tasks/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-tasks", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-tasks", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
@@ -2678,7 +3059,7 @@ dependents = ["acpmux", "cmux-autocloud", "cmux-cloud-client", "cmux-mobile-core
 [[unit]]
 name = "rust:cmux-codecs"
 paths = ["cmux-tui/crates/cmux-codecs/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-host"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host"]
 dependents = ["cmux-rd-host"]
 
 [[unit]]
@@ -2696,13 +3077,13 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-composer-send"
 paths = ["cmux-tui/crates/cmux-composer-send/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-composer-send", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui"]
-dependents = ["acpmux", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-composer-send", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["acpmux", "cmux-mobile-link-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-computer-use"
 paths = ["cmux-tui/crates/cmux-computer-use/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-computer-use", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-computer-use-ffi -p cmux-rd-host -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-computer-use", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-computer-use-ffi -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host"]
 dependents = ["acpmux", "cmux-computer-use-ffi", "cmux-rd-host", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
@@ -2719,7 +3100,7 @@ dependents = ["cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-config"
 paths = ["cmux-tui/crates/cmux-config/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-app-ffi -p cmux-app-manifest -p cmux-classic-import -p cmux-customize -p cmux-customize-recipes -p cmux-theme-pack -p cmux-tui -p cmux-tui-core -p cmux-tui-util -p cmux-usage-patterns -p cmux-usage-share"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-app-manifest -p cmux-classic-import -p cmux-customize -p cmux-customize-recipes -p cmux-theme-pack -p cmux-tui -p cmux-tui-core -p cmux-tui-util -p cmux-usage-patterns -p cmux-usage-share", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["acpmux", "cmux-agent-customize", "cmux-app-ffi", "cmux-app-manifest", "cmux-classic-import", "cmux-customize", "cmux-customize-recipes", "cmux-theme-pack", "cmux-tui", "cmux-tui-core", "cmux-tui-util", "cmux-usage-patterns", "cmux-usage-share"]
 
 [[unit]]
@@ -2731,7 +3112,7 @@ dependents = ["cmux-chief", "cmux-mobile-ffi", "cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-cookie-sync"
 paths = ["cmux-tui/crates/cmux-cookie-sync/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cookie-sync", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cookie-sync", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -2754,20 +3135,20 @@ dependents = ["cmux-tui"]
 [[unit]]
 name = "rust:cmux-daemon-conn-core"
 paths = ["cmux-tui/crates/cmux-daemon-conn-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-daemon-conn-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-daemon-conn-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-daemon-launch-core"
 paths = ["cmux-tui/crates/cmux-daemon-launch-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-daemon-launch-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-daemon-launch-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
 dependents = ["cmux-app-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-deadline"
 paths = ["cmux-tui/crates/cmux-deadline/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-deadline", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-bounded -p cmux-remote"]
-dependents = ["acpmux", "cmux-bounded", "cmux-remote"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-deadline", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-bounded -p cmux-remote", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["acpmux", "cmux-bounded", "cmux-mobile-host", "cmux-remote"]
 
 [[unit]]
 name = "rust:cmux-device-kind"
@@ -2783,8 +3164,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress"]
 [[unit]]
 name = "rust:cmux-egress"
 paths = ["cmux-tui/crates/cmux-egress/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-egress", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-autocloud -p cmux-browser-sync -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-coderouter -p cmux-git-cache -p cmux-no-checkout -p cmux-projection -p cmux-server -p cmux-session-cloud -p cmux-stack-auth -p cmux-tailnet -p cmux-tui -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-vm-pool -p cmux-weft"]
-dependents = ["acpmux", "chatmux-relay", "cmux-autocloud", "cmux-browser-sync", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-coderouter", "cmux-git-cache", "cmux-no-checkout", "cmux-projection", "cmux-server", "cmux-session-cloud", "cmux-stack-auth", "cmux-tailnet", "cmux-tui", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-vm-pool", "cmux-weft"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-egress", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-autocloud -p cmux-browser-sync -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-coderouter -p cmux-git-cache -p cmux-no-checkout -p cmux-projection -p cmux-server -p cmux-session-cloud -p cmux-stack-auth -p cmux-tailnet -p cmux-tui -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-vm-pool -p cmux-weft", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link"]
+dependents = ["acpmux", "chatmux-relay", "cmux-autocloud", "cmux-browser-sync", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-coderouter", "cmux-git-cache", "cmux-mobile-host", "cmux-mobile-link", "cmux-no-checkout", "cmux-projection", "cmux-server", "cmux-session-cloud", "cmux-stack-auth", "cmux-tailnet", "cmux-tui", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-vm-pool", "cmux-weft"]
 
 [[unit]]
 name = "rust:cmux-embed"
@@ -2801,13 +3182,13 @@ dependents = ["cmux-embed"]
 [[unit]]
 name = "rust:cmux-encode"
 paths = ["cmux-tui/crates/cmux-encode/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-encode", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-codecs -p cmux-rd-host -p cmux-remote-browser-host -p cmux-remote-browser-testhost"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-encode", "cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost"]
 dependents = ["cmux-codecs", "cmux-rd-host", "cmux-remote-browser-host", "cmux-remote-browser-testhost"]
 
 [[unit]]
 name = "rust:cmux-error-journal"
 paths = ["cmux-tui/crates/cmux-error-journal/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-error-journal", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-error-journal", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
@@ -2818,8 +3199,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-extension-sdk"]
 [[unit]]
 name = "rust:cmux-fault"
 paths = ["cmux-tui/crates/cmux-fault/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-fault", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-bundle -p cmux-duress -p cmux-remote -p cmux-tui"]
-dependents = ["acpmux", "cmux-bundle", "cmux-duress", "cmux-remote", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-fault", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-bundle -p cmux-duress -p cmux-remote -p cmux-tui", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi"]
+dependents = ["acpmux", "cmux-bundle", "cmux-duress", "cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-remote", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-feed-core"
@@ -2836,7 +3217,7 @@ dependents = ["acpmux", "cmux-terminal-prediction"]
 [[unit]]
 name = "rust:cmux-file-lock"
 paths = ["cmux-tui/crates/cmux-file-lock/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-file-lock", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-classic-import -p cmux-customize -p cmux-git -p cmux-host -p cmux-hub-host -p cmux-projection -p cmux-rd-host -p cmux-signed-bundle -p cmux-theme-pack -p cmux-tui -p cmux-tui-core -p cmux-worktree-care"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-file-lock", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-classic-import -p cmux-customize -p cmux-git -p cmux-host -p cmux-hub-host -p cmux-projection -p cmux-signed-bundle -p cmux-theme-pack -p cmux-tui -p cmux-tui-core -p cmux-worktree-care", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host"]
 dependents = ["acpmux", "cmux-classic-import", "cmux-customize", "cmux-git", "cmux-host", "cmux-hub-host", "cmux-projection", "cmux-rd-host", "cmux-signed-bundle", "cmux-theme-pack", "cmux-tui", "cmux-tui-core", "cmux-worktree-care"]
 
 [[unit]]
@@ -2853,13 +3234,14 @@ dependents = ["cmux-holder", "cmux-panic-log", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-focus-core"
 paths = ["cmux-tui/crates/cmux-focus-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-focus-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-focus-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui -p cmux-tui-core"]
 dependents = ["cmux-layout-reducer-ffi", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-follow-cam"
 paths = ["cmux-tui/crates/cmux-follow-cam/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-follow-cam"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-follow-cam", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-forum-hosted"
@@ -2882,7 +3264,7 @@ dependents = ["cmux-host"]
 [[unit]]
 name = "rust:cmux-health-core"
 paths = ["cmux-tui/crates/cmux-health-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-health-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-health-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -2905,13 +3287,14 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-holder-v3"]
 [[unit]]
 name = "rust:cmux-home-rules"
 paths = ["cmux-tui/crates/cmux-home-rules/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-home-rules", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-home-rules", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-hop-relay"
 paths = ["cmux-tui/crates/cmux-hop-relay/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-hop-relay"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-hop-relay", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link"]
+dependents = ["cmux-mobile-link"]
 
 [[unit]]
 name = "rust:cmux-host"
@@ -2928,7 +3311,7 @@ dependents = ["acpmux", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-hub-host"
 paths = ["cmux-tui/crates/cmux-hub-host/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-hub-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-rd-host"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-hub-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host"]
 dependents = ["acpmux", "cmux-rd-host"]
 
 [[unit]]
@@ -2940,7 +3323,7 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-imessage"
 paths = ["cmux-tui/crates/cmux-imessage/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-imessage", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-imessage", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
@@ -2958,7 +3341,7 @@ dependents = ["acpmux", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-interactivity"
 paths = ["cmux-tui/crates/cmux-interactivity/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-interactivity", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-interactivity", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui-core"]
 dependents = ["cmux-app-ffi", "cmux-tui-core"]
 
 [[unit]]
@@ -2970,13 +3353,13 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-json"
 paths = ["cmux-tui/crates/cmux-json/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-json", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-tui -p chatmux-relay -p cmux-app-host -p cmux-browser-host -p cmux-cloud-api -p cmux-coderouter -p cmux-config -p cmux-feed-core -p cmux-host -p cmux-remote -p cmux-server -p cmux-server-core -p cmux-terminal-client -p cmux-tui -p cmux-tui-cdp -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-tui-hooks -p cmux-tui-util"]
-dependents = ["acpmux", "acpmux-tui", "chatmux-relay", "cmux-app-host", "cmux-browser-host", "cmux-cloud-api", "cmux-coderouter", "cmux-config", "cmux-feed-core", "cmux-host", "cmux-remote", "cmux-server", "cmux-server-core", "cmux-terminal-client", "cmux-tui", "cmux-tui-cdp", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-tui-hooks", "cmux-tui-util"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-json", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-tui -p chatmux-relay -p cmux-app-host -p cmux-browser-host -p cmux-cloud-api -p cmux-coderouter -p cmux-config -p cmux-feed-core -p cmux-host -p cmux-remote -p cmux-server -p cmux-server-core -p cmux-terminal-client -p cmux-tui -p cmux-tui-cdp -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-tui-hooks -p cmux-tui-util", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["acpmux", "acpmux-tui", "chatmux-relay", "cmux-app-host", "cmux-browser-host", "cmux-cloud-api", "cmux-coderouter", "cmux-config", "cmux-feed-core", "cmux-host", "cmux-mobile-host", "cmux-remote", "cmux-server", "cmux-server-core", "cmux-terminal-client", "cmux-tui", "cmux-tui-cdp", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-tui-hooks", "cmux-tui-util"]
 
 [[unit]]
 name = "rust:cmux-keymap"
 paths = ["cmux-tui/crates/cmux-keymap/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-keymap", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-keymap", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -2988,7 +3371,7 @@ dependents = ["cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-launch-image"
 paths = ["cmux-tui/crates/cmux-launch-image/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-image", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-image", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -2999,38 +3382,38 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-preread"
 [[unit]]
 name = "rust:cmux-launch-record"
 paths = ["cmux-tui/crates/cmux-launch-record/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-record", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-launch-shell"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-launch-record", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi -p cmux-launch-shell"]
 dependents = ["cmux-app-ffi", "cmux-launch-shell"]
 
 [[unit]]
 name = "rust:cmux-launch-shell"
 paths = ["cmux-tui/crates/cmux-launch-shell/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-shell", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-launch-shell", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-layout-cache"
 paths = ["cmux-tui/crates/cmux-layout-cache/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-cache", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-cache", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-layout-reducer"
 paths = ["cmux-tui/crates/cmux-layout-reducer/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config -p cmux-layout-reducer-ffi -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-config", "cmux-layout-reducer-ffi", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-layout-reducer-ffi"
 paths = ["cmux-tui/crates/cmux-layout-reducer-ffi/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-lifeline"
 paths = ["cmux-tui/crates/cmux-lifeline/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-lifeline", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-client -p cmux-cloud-machine -p cmux-tui"]
-dependents = ["cmux-cloud-client", "cmux-cloud-machine", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-lifeline", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-client -p cmux-cloud-machine -p cmux-tui", "cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm"]
+dependents = ["cmux-cloud-client", "cmux-cloud-machine", "cmux-tui", "cmux-vm"]
 
 [[unit]]
 name = "rust:cmux-link"
@@ -3047,8 +3430,8 @@ dependents = ["acpmux", "cmux-coderouter", "cmux-daemon-launch-core", "cmux-pane
 [[unit]]
 name = "rust:cmux-local-url"
 paths = ["cmux-tui/crates/cmux-local-url/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-local-url", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui-core"]
-dependents = ["acpmux", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-local-url", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui-core", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["acpmux", "cmux-mobile-link-ffi", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-mcp-connect"
@@ -3059,8 +3442,8 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-message-preview"
 paths = ["cmux-tui/crates/cmux-message-preview/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-message-preview", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config -p cmux-conversation"]
-dependents = ["cmux-config", "cmux-conversation"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-message-preview", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-config -p cmux-conversation", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["cmux-config", "cmux-conversation", "cmux-mobile-host"]
 
 [[unit]]
 name = "rust:cmux-migrate"
@@ -3071,8 +3454,8 @@ dependents = ["cmux-tui"]
 [[unit]]
 name = "rust:cmux-mobile-core"
 paths = ["cmux-tui/crates/cmux-mobile-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
-dependents = ["cmux-mobile-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-ffi", "cmux-mobile-host", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-mobile-ffi"
@@ -3082,18 +3465,19 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
 [[unit]]
 name = "rust:cmux-mobile-host-core"
 paths = ["cmux-tui/crates/cmux-mobile-host-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-host-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-host-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
 name = "rust:cmux-mobile-last-place"
 paths = ["cmux-tui/crates/cmux-mobile-last-place/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-last-place"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-last-place", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-motion"
 paths = ["cmux-tui/crates/cmux-motion/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-motion", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-layout-reducer"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-motion", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer"]
 dependents = ["cmux-app-ffi", "cmux-layout-reducer"]
 
 [[unit]]
@@ -3116,8 +3500,8 @@ dependents = ["cmux-tui"]
 [[unit]]
 name = "rust:cmux-output-paint"
 paths = ["cmux-tui/crates/cmux-output-paint/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-output-paint", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress -p cmux-tui-core"]
-dependents = ["cmux-duress", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-output-paint", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress -p cmux-tui-core", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["cmux-duress", "cmux-mobile-host", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-palette-eval"
@@ -3127,13 +3511,13 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-palette-eval"]
 [[unit]]
 name = "rust:cmux-palette-ranker"
 paths = ["cmux-tui/crates/cmux-palette-ranker/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-palette-ranker", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-app-ffi -p cmux-palette-eval -p cmux-tui -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-palette-ranker", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-palette-eval -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["acpmux", "cmux-app-ffi", "cmux-palette-eval", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-pane-pictures"
 paths = ["cmux-tui/crates/cmux-pane-pictures/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-pane-pictures", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-pane-pictures", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -3148,10 +3532,16 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-panic-log", "ca
 dependents = ["acpmux", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
+name = "rust:cmux-phone-core"
+paths = ["cmux-tui/crates/cmux-phone-core/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
+dependents = ["cmux-layout-reducer-ffi"]
+
+[[unit]]
 name = "rust:cmux-phone-page"
 paths = ["cmux-tui/crates/cmux-phone-page/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-page", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
-dependents = ["cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-page", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
+dependents = ["cmux-mobile-host", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-pool-pod"
@@ -3168,7 +3558,7 @@ dependents = ["acpmux", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-process"
 paths = ["cmux-tui/crates/cmux-process/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-process", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-app-ffi -p cmux-apps -p cmux-autocloud -p cmux-browser-host -p cmux-cas -p cmux-computer-use -p cmux-files-host -p cmux-follow-cam -p cmux-git-cache -p cmux-holder -p cmux-host -p cmux-hub-host -p cmux-link -p cmux-nat-probe -p cmux-no-checkout -p cmux-pool-pod -p cmux-projection -p cmux-pty -p cmux-rd-host -p cmux-remote -p cmux-remote-browser-host -p cmux-repro -p cmux-signed-bundle -p cmux-supervise-core -p cmux-tailnet-local -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-vmd -p coord-sim"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-process", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-apps -p cmux-autocloud -p cmux-browser-host -p cmux-cas -p cmux-computer-use -p cmux-files-host -p cmux-follow-cam -p cmux-git-cache -p cmux-holder -p cmux-host -p cmux-hub-host -p cmux-link -p cmux-nat-probe -p cmux-no-checkout -p cmux-pool-pod -p cmux-projection -p cmux-pty -p cmux-remote -p cmux-repro -p cmux-signed-bundle -p cmux-supervise-core -p cmux-tailnet-local -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-vmd", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/coord-sim/Cargo.toml -p coord-sim"]
 dependents = ["acpmux", "cmux-agent-customize", "cmux-app-ffi", "cmux-apps", "cmux-autocloud", "cmux-browser-host", "cmux-cas", "cmux-computer-use", "cmux-files-host", "cmux-follow-cam", "cmux-git-cache", "cmux-holder", "cmux-host", "cmux-hub-host", "cmux-link", "cmux-nat-probe", "cmux-no-checkout", "cmux-pool-pod", "cmux-projection", "cmux-pty", "cmux-rd-host", "cmux-remote", "cmux-remote-browser-host", "cmux-repro", "cmux-signed-bundle", "cmux-supervise-core", "cmux-tailnet-local", "cmux-tui", "cmux-tui-core", "cmux-tui-platform", "cmux-vmd", "coord-sim"]
 
 [[unit]]
@@ -3180,8 +3570,8 @@ dependents = ["cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-proxy"
 paths = ["cmux-tui/crates/cmux-proxy/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-proxy", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote -p cmux-tui"]
-dependents = ["cmux-remote", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-proxy", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote -p cmux-tui"]
+dependents = ["cmux-mobile-link", "cmux-remote", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-pty"
@@ -3192,44 +3582,44 @@ dependents = ["chatmux-relay", "cmux-remote", "cmux-terminal-host-protocol", "cm
 [[unit]]
 name = "rust:cmux-rd-core"
 paths = ["cmux-tui/crates/cmux-rd-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-codecs -p cmux-layout-reducer-ffi -p cmux-rd-engine -p cmux-rd-ffi -p cmux-rd-host -p cmux-remote-browser-host -p cmux-remote-browser-testhost -p cmux-wg"]
-dependents = ["cmux-codecs", "cmux-layout-reducer-ffi", "cmux-rd-engine", "cmux-rd-ffi", "cmux-rd-host", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-core", "cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-rd-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-engine -p cmux-wg", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost"]
+dependents = ["cmux-codecs", "cmux-layout-reducer-ffi", "cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-rd-engine", "cmux-rd-ffi", "cmux-rd-host", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-rd-engine"
 paths = ["cmux-tui/crates/cmux-rd-engine/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-engine", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-codecs -p cmux-rd-ffi -p cmux-rd-host -p cmux-remote-browser-host -p cmux-remote-browser-testhost -p cmux-wg"]
-dependents = ["cmux-codecs", "cmux-rd-ffi", "cmux-rd-host", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-engine", "cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-rd-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wg"]
+dependents = ["cmux-codecs", "cmux-mobile-host", "cmux-mobile-link-ffi", "cmux-rd-ffi", "cmux-rd-host", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-rd-ffi"
 paths = ["cmux-tui/crates/cmux-rd-ffi/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-remote-browser-host -p cmux-remote-browser-testhost"]
-dependents = ["cmux-app-ffi", "cmux-remote-browser-host", "cmux-remote-browser-testhost"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-rd-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost"]
+dependents = ["cmux-app-ffi", "cmux-mobile-link-ffi", "cmux-remote-browser-host", "cmux-remote-browser-testhost"]
 
 [[unit]]
 name = "rust:cmux-rd-host"
 paths = ["cmux-tui/crates/cmux-rd-host/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
 dependents = ["cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-rd-link"
 paths = ["cmux-tui/crates/cmux-rd-link/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-host -p cmux-tui -p cmux-wg"]
-dependents = ["cmux-rd-host", "cmux-tui", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-link", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui -p cmux-wg"]
+dependents = ["cmux-mobile-link-ffi", "cmux-rd-host", "cmux-tui", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-rd-proto"
 paths = ["cmux-tui/crates/cmux-rd-proto/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-proto", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-codecs -p cmux-hub-host -p cmux-rd-core -p cmux-rd-engine -p cmux-rd-ffi -p cmux-rd-host -p cmux-rd-link -p cmux-remote-browser-host -p cmux-remote-browser-testhost -p cmux-tui -p cmux-wg"]
-dependents = ["cmux-codecs", "cmux-hub-host", "cmux-rd-core", "cmux-rd-engine", "cmux-rd-ffi", "cmux-rd-host", "cmux-rd-link", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-tui", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-proto", "cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p cmux-codecs", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-hub-host -p cmux-rd-core -p cmux-rd-engine -p cmux-rd-link -p cmux-tui -p cmux-wg", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-rd-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost"]
+dependents = ["cmux-codecs", "cmux-hub-host", "cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-rd-core", "cmux-rd-engine", "cmux-rd-ffi", "cmux-rd-host", "cmux-rd-link", "cmux-remote-browser-host", "cmux-remote-browser-testhost", "cmux-tui", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-rd-screen"
 paths = ["cmux-tui/crates/cmux-rd-screen/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-screen", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-mobile-ffi -p cmux-rd-screen-ffi"]
-dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-ffi", "cmux-rd-screen-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-screen", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi -p cmux-rd-screen-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-ffi", "cmux-mobile-link-ffi", "cmux-rd-screen-ffi"]
 
 [[unit]]
 name = "rust:cmux-rd-screen-ffi"
@@ -3250,8 +3640,8 @@ dependents = ["acpmux", "cmux-remote", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-relay-snapshot"
 paths = ["cmux-tui/crates/cmux-relay-snapshot/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-relay-snapshot", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-core -p cmux-tui-cloud-conversations"]
-dependents = ["cmux-mobile-core", "cmux-tui-cloud-conversations"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-relay-snapshot", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-core -p cmux-tui-cloud-conversations", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-core", "cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-tui-cloud-conversations"]
 
 [[unit]]
 name = "rust:cmux-remote"
@@ -3262,24 +3652,24 @@ dependents = ["acpmux", "cmux-terminal-client", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-remote-browser"
 paths = ["cmux-tui/crates/cmux-remote-browser/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-browser", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-ffi -p cmux-remote-browser-host"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-browser", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-rd-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host"]
 dependents = ["cmux-rd-ffi", "cmux-remote-browser-host"]
 
 [[unit]]
 name = "rust:cmux-remote-browser-host"
 paths = ["cmux-tui/crates/cmux-remote-browser-host/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-browser-host"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host"]
 
 [[unit]]
 name = "rust:cmux-remote-browser-testhost"
 paths = ["cmux-tui/crates/cmux-remote-browser-testhost/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-browser-testhost"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml -p cmux-remote-browser-testhost"]
 
 [[unit]]
 name = "rust:cmux-remote-protocol"
 paths = ["cmux-tui/crates/cmux-remote-protocol/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-protocol", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-relay -p cmux-remote -p cmux-remote-web -p cmux-terminal-client -p cmux-tui -p cmux-tui-core"]
-dependents = ["acpmux", "cmux-relay", "cmux-remote", "cmux-remote-web", "cmux-terminal-client", "cmux-tui", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote-protocol", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-relay -p cmux-remote -p cmux-remote-web -p cmux-terminal-client -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link"]
+dependents = ["acpmux", "cmux-mobile-link", "cmux-relay", "cmux-remote", "cmux-remote-web", "cmux-terminal-client", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-remote-web"
@@ -3301,13 +3691,13 @@ dependents = ["acpmux", "acpmux-core", "acpmux-tui", "cmux-autocloud", "cmux-bui
 [[unit]]
 name = "rust:cmux-screenshots"
 paths = ["cmux-tui/crates/cmux-screenshots/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-screenshots", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-screenshots", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
 name = "rust:cmux-sdk-ffi"
 paths = ["cmux-tui/crates/cmux-sdk-ffi/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-sdk-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-sdk-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -3337,8 +3727,8 @@ dependents = ["acpmux", "cmux-session-cloud"]
 [[unit]]
 name = "rust:cmux-share-approval"
 paths = ["cmux-tui/crates/cmux-share-approval/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-share-approval", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-rd-ffi"]
-dependents = ["acpmux", "cmux-rd-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-share-approval", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-rd-ffi"]
+dependents = ["acpmux", "cmux-mobile-link-ffi", "cmux-rd-ffi"]
 
 [[unit]]
 name = "rust:cmux-shotdiff"
@@ -3348,7 +3738,7 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-shotdiff"]
 [[unit]]
 name = "rust:cmux-sign-clone-sweep"
 paths = ["cmux-tui/crates/cmux-sign-clone-sweep/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-sign-clone-sweep", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-sign-clone-sweep", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
 dependents = ["cmux-app-ffi", "cmux-tui"]
 
 [[unit]]
@@ -3390,13 +3780,14 @@ dependents = ["acpmux", "cmux-team-messaging", "cmux-tui"]
 [[unit]]
 name = "rust:cmux-tab-discard"
 paths = ["cmux-tui/crates/cmux-tab-discard/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tab-discard", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tab-discard", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
 name = "rust:cmux-tab-snapshots"
 paths = ["cmux-tui/crates/cmux-tab-snapshots/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tab-snapshots"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tab-snapshots", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-host", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-tag-cache"
@@ -3407,8 +3798,8 @@ dependents = ["acpmux", "cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-tailnet"
 paths = ["cmux-tui/crates/cmux-tailnet/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tailnet", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tailnet-front"]
-dependents = ["acpmux", "cmux-tailnet-front"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tailnet", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tailnet-front", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-tailnet"]
+dependents = ["acpmux", "cmux-mobile-tailnet", "cmux-tailnet-front"]
 
 [[unit]]
 name = "rust:cmux-tailnet-front"
@@ -3419,8 +3810,8 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-tailnet-join"
 paths = ["cmux-tui/crates/cmux-tailnet-join/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tailnet-join", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui"]
-dependents = ["acpmux", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tailnet-join", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-tailnet"]
+dependents = ["acpmux", "cmux-mobile-tailnet", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-tailnet-local"
@@ -3437,7 +3828,7 @@ dependents = ["cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-tasks-core"
 paths = ["cmux-tui/crates/cmux-tasks-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tasks-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-tasks -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tasks-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tasks -p cmux-tui-core"]
 dependents = ["cmux-layout-reducer-ffi", "cmux-tasks", "cmux-tui-core"]
 
 [[unit]]
@@ -3473,13 +3864,14 @@ dependents = ["cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-terminal-prediction"
 paths = ["cmux-tui/crates/cmux-terminal-prediction/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-prediction", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
-dependents = ["cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-prediction", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["cmux-app-ffi", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-terminal-projection"
 paths = ["cmux-tui/crates/cmux-terminal-projection/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-projection"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-projection", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link -p cmux-mobile-link-ffi"]
+dependents = ["cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-terminal-sizing"
@@ -3502,8 +3894,8 @@ dependents = ["cmux-config", "cmux-customize", "cmux-tui", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-transport"
 paths = ["cmux-tui/crates/cmux-transport/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-transport", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-braid-path -p cmux-hop-relay -p cmux-rd-link -p cmux-wg"]
-dependents = ["acpmux", "cmux-braid-path", "cmux-hop-relay", "cmux-rd-link", "cmux-wg"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-transport", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-braid-path -p cmux-hop-relay -p cmux-rd-link -p cmux-wg", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link"]
+dependents = ["acpmux", "cmux-braid-path", "cmux-hop-relay", "cmux-mobile-host", "cmux-mobile-link", "cmux-rd-link", "cmux-wg"]
 
 [[unit]]
 name = "rust:cmux-transport-rewrite"
@@ -3585,7 +3977,7 @@ dependents = ["acpmux", "chatmux-relay", "cmux-agent-pane-policy", "cmux-coderou
 [[unit]]
 name = "rust:cmux-update-prewarm-core"
 paths = ["cmux-tui/crates/cmux-update-prewarm-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-update-prewarm-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-update-prewarm-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["cmux-app-ffi"]
 
 [[unit]]
@@ -3597,7 +3989,7 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-url-input"
 paths = ["cmux-tui/crates/cmux-url-input/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-url-input", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi -p cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-url-input", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui-core"]
 dependents = ["cmux-app-ffi", "cmux-tui-core"]
 
 [[unit]]
@@ -3615,8 +4007,8 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-vault-e2e"
 paths = ["cmux-tui/crates/cmux-vault-e2e/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
-dependents = ["cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
+dependents = ["cmux-mobile-link-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-vault-egress"
@@ -3627,7 +4019,8 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-view-rows"
 paths = ["cmux-tui/crates/cmux-view-rows/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-view-rows"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-view-rows", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux-tui -p cmux-tui"]
+dependents = ["acpmux-tui", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-vm-pool"
@@ -3643,13 +4036,13 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vmd"]
 [[unit]]
 name = "rust:cmux-vnc"
 paths = ["cmux-tui/crates/cmux-vnc/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vnc", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer-ffi -p cmux-rd-screen-ffi -p cmux-tui"]
-dependents = ["cmux-layout-reducer-ffi", "cmux-rd-screen-ffi", "cmux-tui"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vnc", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-screen-ffi -p cmux-tui"]
+dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-link-ffi", "cmux-rd-screen-ffi", "cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-wallpaper"
 paths = ["cmux-tui/crates/cmux-wallpaper/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wallpaper", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-app-ffi -p cmux-app-manifest"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wallpaper", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-app-manifest", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi"]
 dependents = ["acpmux", "cmux-app-ffi", "cmux-app-manifest"]
 
 [[unit]]
@@ -3666,8 +4059,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-weft"]
 [[unit]]
 name = "rust:cmux-wg"
 paths = ["cmux-tui/crates/cmux-wg/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wg", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-rd-host -p cmux-remote -p cmux-terminal-client -p cmux-tui -p cmux-weft -p cmux-wg-tun"]
-dependents = ["acpmux", "cmux-rd-host", "cmux-remote", "cmux-terminal-client", "cmux-tui", "cmux-weft", "cmux-wg-tun"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wg", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-remote -p cmux-terminal-client -p cmux-tui -p cmux-weft -p cmux-wg-tun", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host"]
+dependents = ["acpmux", "cmux-mobile-host", "cmux-mobile-link", "cmux-rd-host", "cmux-remote", "cmux-terminal-client", "cmux-tui", "cmux-weft", "cmux-wg-tun"]
 
 [[unit]]
 name = "rust:cmux-wg-tun"
@@ -3677,8 +4070,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-wg-tun"]
 [[unit]]
 name = "rust:cmux-window-rules"
 paths = ["cmux-tui/crates/cmux-window-rules/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-window-rules", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-launch-shell -p cmux-layout-reducer-ffi"]
-dependents = ["cmux-launch-shell", "cmux-layout-reducer-ffi"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-window-rules", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-launch-shell -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
+dependents = ["cmux-launch-shell", "cmux-layout-reducer-ffi", "cmux-mobile-link-ffi"]
 
 [[unit]]
 name = "rust:cmux-worktree-care"
@@ -3689,7 +4082,7 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:coord-sim"
 paths = ["cmux-tui/crates/coord-sim/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p coord-sim"]
+tests = ["cargo test --manifest-path cmux-tui/crates/coord-sim/Cargo.toml -p coord-sim"]
 
 [[unit]]
 name = "rust:ghostty-vt"
@@ -4352,6 +4745,10 @@ name = "schemas:tab-layout-rules"
 paths = ["schemas/tab-layout-rules/**"]
 
 [[unit]]
+name = "schemas:tab-selection"
+paths = ["schemas/tab-selection/**"]
+
+[[unit]]
 name = "schemas:tab-strip-commands"
 paths = ["schemas/tab-strip-commands/**"]
 
@@ -5010,7 +5407,8 @@ paths = ["workers/cmux-vm/**"]
 [[unit]]
 name = "rust:cmux-vm"
 paths = ["workers/cmux-vm/cli/crates/cmux-vm/**"]
-tests = ["cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm"]
+tests = ["cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
+dependents = ["cmux-tui"]
 
 [[unit]]
 name = "rust:cmux-vm-client"

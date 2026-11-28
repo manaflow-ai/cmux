@@ -1006,7 +1006,8 @@ fn subagent_newest_page_perf() {
     // headroom for a loaded runner (the PR's duress table: 100k lines p95 ~117 ms with every core busy).
     const BUDGET_MS: [(usize, f64); 3] = [(2_000, 25.0), (20_000, 100.0), (100_000, 250.0)];
     let pct = |runs: &[f64], p: f64| {
-        runs[((runs.len() as f64 * p).ceil() as usize).clamp(1, runs.len()) - 1]
+        let rank = ((runs.len() as f64 * p).ceil() as usize).clamp(1, runs.len());
+        runs.get(rank.saturating_sub(1)).copied().unwrap_or(f64::NAN)
     };
     let mut over = Vec::new();
     for (later, budget) in BUDGET_MS {
