@@ -15,6 +15,11 @@
       "risk": "money",
       "digest": "4f036d40b60b6a45"
     },
+    "cloud.artifacts.read": {
+      "source": "local",
+      "class": "read",
+      "digest": "b9af125af6a2590d"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",

@@ -584,6 +584,7 @@ Ops no app may call:
 - `client.sizing.release`
 - `client.sizing.set`
 - `cloud.allotment.set`
+- `cloud.artifacts.read`
 - `cloud.billing.checkout`
 - `cloud.environment.boot`
 - `cloud.environment.build`
