@@ -172,24 +172,61 @@ fn track_git_revision(manifest_dir: &Path) {
     // refresh (this script's calls and acpmux's), so tracking it reran both
     // scripts on an unchanged tree. Cost: staging alone (`git add` of a new
     // file, `git rm --cached`) no longer refreshes the identity until the next
-    // source change or commit; the binary is the same. logs/HEAD covers a
-    // commit on a branch whose ref is packed (no loose ref file to track).
+    // source change or commit; the binary is the same.
+    //
+    // Only files whose bytes are the ref state: HEAD (a checkout, or a commit
+    // on a detached HEAD, rewrites it), packed-refs, and the branch ref HEAD
+    // names (a commit, amend, reset or rebase rewrites its loose file). A
+    // fresh clone of the same commit has the same bytes, so a cache that
+    // serves mtimes by content (hq build-fleet/cache-bench) leaves this script
+    // fresh. Not logs/HEAD, though every ref move appends to it: its lines
+    // carry wall-clock times, so every clone differs and a target/ restored
+    // under a fresh clone reran this script. The case it covered, a commit on
+    // a branch whose ref is packed (no loose file to watch yet), is covered by
+    // `branch_ref_watch_path`; a clone writes its branch loose, so that case
+    // never meets a cache. tests/git_watch_lint.rs keeps every cmux-tui build
+    // script off logs/, index, FETCH_HEAD and ORIG_HEAD.
     track_git_path(manifest_dir, "HEAD");
-    track_git_path(manifest_dir, "logs/HEAD");
     track_git_path(manifest_dir, "packed-refs");
-    // The ref store of a reftable repository (no loose refs, no logs/HEAD).
+    // The ref store of a reftable repository (no loose refs).
     track_git_path(manifest_dir, "reftable/tables.list");
-    if let Some(reference) = git(manifest_dir, &["symbolic-ref", "-q", "HEAD"]) {
-        track_git_path(manifest_dir, &reference);
+    if let Some(reference) = git(manifest_dir, &["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = branch_ref_watch_path(manifest_dir, &reference)
+    {
+        emit_cargo_path_directive("rerun-if-changed", &path);
     }
 }
 
+fn git_path(manifest_dir: &Path, path: &str) -> Option<PathBuf> {
+    git(manifest_dir, &["rev-parse", "--path-format=absolute", "--git-path", path])
+        .map(PathBuf::from)
+}
+
 fn track_git_path(manifest_dir: &Path, path: &str) {
-    if let Some(path) = git(manifest_dir, &["rev-parse", "--git-path", path])
-        && Path::new(&path).exists()
+    if let Some(path) = git_path(manifest_dir, path)
+        && path.exists()
     {
-        emit_cargo_path_directive("rerun-if-changed", Path::new(&path));
+        emit_cargo_path_directive("rerun-if-changed", &path);
     }
+}
+
+/// What to watch for the branch `reference` (`refs/heads/...`): its loose ref
+/// file, or, when the ref is packed and has no loose file, the nearest
+/// existing directory under refs/ that the file will be created in, so the
+/// first commit on a packed branch (which writes the loose file) still reruns
+/// this script.
+fn branch_ref_watch_path(manifest_dir: &Path, reference: &str) -> Option<PathBuf> {
+    let loose = git_path(manifest_dir, reference)?;
+    if loose.exists() {
+        return Some(loose);
+    }
+    let refs = git_path(manifest_dir, "refs")?;
+    loose
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(&refs))
+        .find(|dir| dir.is_dir())
+        .map(Path::to_owned)
 }
 
 fn track_source_files(git_root: &Path, source_files: &[u8]) {
