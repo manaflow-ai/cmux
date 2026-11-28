@@ -301,8 +301,10 @@ class ResolverGaps(unittest.TestCase):
                "steps": [{"run": "sign", "env": {"K": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}]}
         failures: list[str] = []
         self.keychain.check_job("matrix-fixture.yml sign", job, failures)
-        self.assertIn("matrix-fixture.yml sign: holds a signing secret and reads vars.LINUX_RUNNER other than as the "
-                      "expression's last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`", failures)
+        # LINUX_RUNNER no longer resolves to an ephemeral label once the pickers are frozen, so the guard names the
+        # read as a shared-runner pick; either refusal names the leg.
+        self.assertTrue(any(f.startswith("matrix-fixture.yml sign: holds a signing secret")
+                            and "vars.LINUX_RUNNER" in f for f in failures), failures)
 
     def _control_doc(self, matrix: str, producer: dict | None = None) -> dict:
         doc = copy.deepcopy(self.routing.DOC)

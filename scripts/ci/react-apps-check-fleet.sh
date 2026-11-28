@@ -34,7 +34,7 @@ fi
 printf '{}\n' > "$out/manifest.json"
 export CI_WEBVIEWS_PR_BASE="${CI_PR_BASE_REF:-}" CMUX_WEB_TEST_DURATIONS="$out/manifest.json"
 if ! picked="$(CMUX_WEB_TEST_JOBS=8 CMUX_WEB_TEST_DEV_JOBS=4 CMUX_WEB_TEST_SHARD_HEAD_START=1:120 \
-  bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count 8 \
+  bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count 12 \
   --direct-out "$out/direct.json" --summary "$out/pick.md" --class-out "$out/class")"; then
   echo "::error title=react-apps-check::the shard pick failed here, so this head ran no react-apps-check; re-run the job, or add the full-ci label"
   exit 1
@@ -60,7 +60,16 @@ lane() {
 }
 ok() { [ "$(cat "$out/logs/$1.status" 2> /dev/null)" = 0 ]; }
 
-build() { ./scripts/build-webviews-app.sh --check --skip-typecheck && ./scripts/cmux-next/build-web-bundles.sh --force; }
+build() {
+  # The shared bundle already ran vp build, HTML generation and output normalization. Keep the
+  # source checks that its --skip-checks mode omits; typecheck is a separate routed step.
+  ./scripts/check-webviews-bun-version.sh && (cd webviews && bun run verify:tanstack-router) || return
+  if [ -n "${CMUX_WEB_BUNDLES_FROM:-}" ]; then
+    ./scripts/cmux-next/build-web-bundles.sh --from "$CMUX_WEB_BUNDLES_FROM"
+  else
+    ./scripts/cmux-next/build-web-bundles.sh --force
+  fi
+}
 engines() {
   local try
   # Another web-browser step's Chrome install can hold apt's lock: one more try a little later.
