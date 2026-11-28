@@ -84,9 +84,17 @@ WORK_SKEW_S = 300
 AGENT_LINE = re.compile(r"\s*Agent-Session:", re.I)
 AID = re.compile(r"\baid-[0-9a-f]{20}\b")
 KEY_FILE = "agent-link.key"
-# A session whose own check-in ended its work (cmux#64488's mark_ended sets it from the fleet heartbeats) holds no
-# area by its commits; unset here, so this filter is a no-op until that reader lands.
+# A session whose own check-in ended its work holds no area by its commits (mark_ended sets it from the fleet
+# heartbeats). 2026-11-28: a lane named sidebar-bench-chiefs-61230 (a CI-routing PR, no sidebar code) checked in
+# `dropped` at 01:15Z and stayed listed idle, and was sent two sidebar pushes. The check-in outcome (tools/checkin.py:
+# `checkin done|dropped`) reaches every host in the fleet heartbeats (session_heartbeat.fleet's cache); a session whose
+# newest check-in deciding its work is done or dropped, with no in-progress or blocked one after it, gets ENDED_KEY.
+# An owns= tag or a named cell still holds: those were set by hand. No cache (a host without the heartbeat read): no filter.
 ENDED_KEY = "checkinEnded"
+ENDED_OUTCOMES = {"done", "dropped"}
+WORKING_STATES = {"in_progress", "in-progress", "blocked"}
+BEATS_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_HEARTBEATS")
+                  or Path.home() / ".cache" / "agent-heartbeat" / "fleet.json")
 COORDINATOR = "coordinator"
 
 
@@ -401,6 +409,46 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None,
     return None, f"{gone}; no live lead or coordinator"
 
 
+
+def read_beats(path: Path | None = None) -> list[dict]:
+    """The fleet heartbeat records the leo-workspace heartbeat read cached on this host, or [] (none, unreadable)."""
+    try:
+        doc = json.loads((path or BEATS_FILE).read_text())
+    except (OSError, ValueError):
+        return []
+    beats = doc.get("beats") if isinstance(doc, dict) else None
+    return [b for b in beats or [] if isinstance(b, dict)]
+
+
+def ended_sessions(beats: list[dict]) -> set[str]:
+    """The keys (acpmux session id, HOST/NAME) of sessions whose work is over by their own check-in: the newest
+    record that decides (an outcome, or an in-progress or blocked state) says done or dropped."""
+    newest: dict[str, tuple[float, bool]] = {}
+    for b in beats:
+        c = b.get("checkin") if isinstance(b.get("checkin"), dict) else {}
+        outcome, state = c.get("outcome"), str(c.get("state") or "").casefold()
+        if outcome not in ENDED_OUTCOMES and state not in WORKING_STATES:
+            continue
+        ended = outcome in ENDED_OUTCOMES and state not in WORKING_STATES
+        at = float(c.get("outcome_at") or c.get("at") or b.get("at") or 0)
+        keys = [c.get("acpmux_session")]
+        name, host = c.get("name") or b.get("name"), b.get("host")
+        if name and host:
+            keys.append(f"{host}/{name}")
+        for k in (k for k in keys if k):
+            if k not in newest or at >= newest[k][0]:
+                newest[k] = (at, ended)
+    return {k for k, (_, ended) in newest.items() if ended}
+
+
+def mark_ended(rows: list[dict], beats: list[dict]) -> list[dict]:
+    """ROWS, each whose session ended by its check-in (ended_sessions) carrying ENDED_KEY."""
+    ended = ended_sessions(beats)
+    if not ended:
+        return rows
+    return [{**r, ENDED_KEY: True} if (r.get("sessionId") in ended or _name(r) in ended) else r for r in rows]
+
+
 def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, str | None]:
     """(acpmux's session records, None) or (None, why not): every host's, closed ones included (successor chains)."""
     if os.environ.get("CI") or not shutil.which("acpmux"):
@@ -417,7 +465,7 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     if not isinstance(rows, list):
         return None, None
     rows = [r for r in rows if isinstance(r, dict)]
-    merged = merge_tagged(rows, _tagged(TAG_KEYS, timeout))
+    merged = mark_ended(merge_tagged(rows, _tagged(TAG_KEYS, timeout)), read_beats())
     _cache_write(merged)
     return merged, None
 

@@ -46,6 +46,41 @@ ROLE = "committed in the area last (1970-01-01)"
 
 
 class Holder(unittest.TestCase):
+    def test_a_lane_whose_check_in_dropped_its_work_never_holds_the_role(self):
+        # 2026-11-28: sidebar-bench-chiefs-61230 (a CI-routing PR, no sidebar code) checked in dropped at 01:15Z, stayed
+        # listed idle, and `lanes *sidebar*` sent it two sidebar pushes. Its later idle check-in (no outcome) does not
+        # revive it; an in-progress one does. Even with commits in the area, an ended lane holds nothing.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        def beat(host, name, sid, at, state, outcome=None):
+            return {"host": host, "name": name, "at": at,
+                    "checkin": {"acpmux_session": sid, "name": name, "at": at, "state": state, "outcome": outcome}}
+        beats = [beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 10, "idle", "dropped"),
+                 beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 20, "idle")]
+        self.assertEqual(live.ended_sessions(beats), {"s-bench", "f14/sidebar-bench-chiefs-61230"})
+        rows = [row("f14/sidebar-bench-chiefs-61230", sid="s-bench", updated=99), row("g3/sidebar-owner", updated=2),
+                row("c/coord", owns="coordinator")]
+        marked = live.mark_ended(rows, beats)
+        self.assertTrue(marked[0].get(live.ENDED_KEY))
+        self.assertEqual(live.holder(cell, marked, "", worked=ANY)[0], "g3/sidebar-owner")
+        self.assertEqual(live.holder(cell, [marked[0], marked[2]], "", worked=ANY)[0], "c/coord")
+        revived = beats + [beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 30, "in_progress")]
+        self.assertEqual(live.ended_sessions(revived), set())
+        self.assertIs(live.mark_ended(rows, []), rows)
+        # an owns= tag set by hand still holds it
+        tagged = live.mark_ended([row("f14/sidebar-bench-chiefs-61230", sid="s-bench", owns="PL-sidebar")], beats)
+        self.assertEqual(live.holder("PL-sidebar, else lanes *sidebar*", tagged, "", worked=ANY)[0],
+                         "f14/sidebar-bench-chiefs-61230")
+
+    def test_the_heartbeat_reader_takes_only_records_and_unreachable_is_not_live(self):
+        self.assertFalse(live.is_live(row("h/x", "unreachable")))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(live.read_beats(Path(d) / "none.json"), [])
+            f = Path(d) / "fleet.json"
+            f.write_text(json.dumps({"beats": [{"host": "h", "name": "n"}, 3]}))
+            self.assertEqual(live.read_beats(f), [{"host": "h", "name": "n"}])
+            f.write_text("[1, 2]")
+            self.assertEqual(live.read_beats(f), [])
+
     def test_the_cell_of_2026_11_22_names_a_workstream_and_a_session(self):
         self.assertEqual(live.cell_names(CELL), (["PL-acpmux"], ["cmux-4f"]))
         self.assertEqual(live.cell_names("a590 (sidebar-owner agent)"), ([], []))
