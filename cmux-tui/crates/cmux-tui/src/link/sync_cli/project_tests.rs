@@ -487,3 +487,42 @@ fn an_empty_or_non_git_folder_is_projected_not_skipped() {
     assert!(listed.manifest.resolve("notes.txt").is_some());
     assert!(!listed.manifest.encode().unwrap().is_empty());
 }
+
+#[test]
+fn moves_project_by_default_and_env_zero_turns_them_off() {
+    const CHILD: &str = "CMUX_PROJECTED_MOVES_TEST_CHILD";
+    if let Some(want) = std::env::var_os(CHILD) {
+        assert_eq!(moves_enabled(), want == "on");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    for (moves, want) in [(None, "on"), (Some("0"), "off"), (Some("1"), "on")] {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .arg("moves_project_by_default_and_env_zero_turns_them_off")
+            .env_remove(ENV)
+            .env_remove(MOVES_ENV)
+            .env("CMUX_TUI_STATE_DIR", state.path())
+            .env(CHILD, want);
+        if let Some(moves) = moves {
+            child.env(MOVES_ENV, moves);
+        }
+        assert!(child.status().unwrap().success(), "{moves:?} should be {want}");
+    }
+}
+
+#[test]
+fn a_failed_or_unserved_projection_is_a_fallback_and_off_or_small_is_not() {
+    assert_eq!(outcome(Ok(Ok(json!({"ok": true})))), Ok(json!({"ok": true})));
+    assert_eq!(outcome(Ok(Err(NotProjected::Off))), Err(None));
+    assert_eq!(outcome(Ok(Err(NotProjected::Small))), Err(None));
+    let unserved = outcome(Ok(Err(NotProjected::Unserved))).unwrap_err().unwrap();
+    assert_eq!(unserved.code, "projection.unserved");
+    let failed = outcome(Err(anyhow::anyhow!("mount timed out\nsecond line").context("dial")))
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(failed.code, "projection.failed");
+    assert!(failed.why.starts_with("dial: mount timed out"), "{}", failed.why);
+    assert!(!failed.why.contains("second line"), "only the first line: {}", failed.why);
+    assert_eq!(failed.json()["code"], json!("projection.failed"));
+}

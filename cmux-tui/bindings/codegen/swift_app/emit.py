@@ -5,11 +5,19 @@ optional, enum values and result shapes. bindings.json owns only what the schema
 side: the Swift type name, the typed id (`PaneID`, `SplitID`) an `Id` field carries, the Swift type a schema
 object is bound to, the order of the init's parameters, how the app reads a result, and doc comments. A type
 the bindings do not cover (an `Id` field with no Swift id type, an object or enum neither bound nor generated,
-a union, a non-empty result with no response binding, a required field gated by a capability) is refused with
-a BindingError, so a schema change cannot quietly produce a Swift type nobody chose. An optional field the
-schema gates by a capability is generated with a doc line naming it; the caller leaves it nil for a daemon
-that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
+a union other than a read type's untagged union of objects, a non-empty result with no response binding, a
+required field gated by a capability) is refused with a BindingError, so a schema change cannot quietly
+produce a Swift type nobody chose. An optional field the schema gates by a capability is generated with a doc
+line naming it; the caller leaves it nil for a daemon that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
 identifiers: they become the output paths.
+
+The Swift binding may name an exact schema capability in allow_unadvertised_capability for a legacy
+request that the app already sent to daemons without that advertisement.
+
+Request `extra` properties live only in Swift. The optional `initializer` binding names Swift properties
+whose arguments must be explicit, properties assigned after initialization, and external argument labels.
+An enum field can encode a Boolean as a single schema case with `{"when_true": "case"}`.
+A string constrained to decimal uint64 can bind to Swift UInt64 with `encode: "decimal_uint64"`.
 
 Wire rules (the same JSON the hand-written types sent):
 - every field has an explicit coding key that is its wire name;
@@ -19,21 +27,34 @@ Wire rules (the same JSON the hand-written types sent):
 - `encode: if_true` on an optional boolean whose schema default is false makes a plain `Bool`, false by
   default, encoded (as `true`) only when true: a daemon without the field's capability sees the request it
   always saw;
+- `encode: decimal` on an optional string the schema formats as a `decimal uint64` makes a `UInt64?`,
+  sent as its decimal string when set: the caller cannot send a string that is not one;
+- `with: FIELD` on an optional field sends it only when FIELD (another field of the request, an `if_true`
+  flag or an Optional) is true or set: a value meaningless alone stays off the wire, as the hand-written
+  types left it;
 - `workspace_ref: true` folds the schema's optional `workspace` (handle) and `key` fields into one
   `workspace: WorkspaceRef` the caller must give, encoded flat as the one of the two it names
   (`WorkspaceRefFields`); `"workspace"` in `order` places it, else it comes after the fields, before
   `mutation`;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
+- a request field's `clamp` ({minimum, maximum, constant?}) clamps an integer in the init only, against a
+  `public static let` constant of the maximum when `constant` names one, else the literal maximum; the
+  property stays a plain `var`, so a value assigned after init is sent as assigned. A nil Optional stays nil.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
-(`type`) or a command's result (`result`). A reference to a generated schema object resolves to its Swift
+(`type`) or a command's result (`result`). A `type` may also be an untagged union whose variants are all
+objects (the tree's `Pane`: a live pane or `{id, dead: true}`): it reads as one struct with every variant's
+fields, and a field that is not required in every variant is optional. A field that two variants type
+differently is refused; a literal reads as its scalar (`true` as `Bool`). A reference to a generated schema object resolves to its Swift
 name. The binding may set `conformances` (default Decodable, Sendable, Equatable), `order`, `init: false`,
 `omit` (schema fields the app does not read; never a required one of a type it encodes), `extra` (app-only
 properties with a type and default, not on the wire) and per field the request keys plus `default` (a
 Swift expression: the field decodes leniently, missing means the default), `optional: true`, `lenient: true`
 (a value of the wrong shape reads as missing, so a newer daemon's value never fails the parent), `when` (a
 Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
-own key the fallback; the preferred key is omitted from the struct). Encoding is always synthesized; decoding is synthesized unless a
+own key the fallback; the preferred key is omitted from the struct), `decode` (a Swift expression that is the
+whole read, over `container` and this field's coding key, for a wire shape the schema states only in a
+constraint, such as a `decimal uint64` string; it needs a default or an optional field). Encoding is always synthesized; decoding is synthesized unless a
 property uses one of these read options.
 """
 
@@ -81,23 +102,33 @@ _KEYWORDS = frozenset({
     "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch", "where", "while", "as", "catch",
     "false", "is", "nil", "self", "Self", "super", "throw", "throws", "true", "try", "Any", "Type",
 })
-_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "families"})
+_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "families"})
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
-    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref",
+    "allow_unadvertised_capability", "initializer", "extra", "workspace_ref",
+    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
-_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
+_INIT_KEYS = frozenset({"post_init", "explicit", "labels"})
+_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update", "with"})
+# A request field may also clamp its value in the init (`clamp`): see _clamp.
+_REQUEST_FIELD_KEYS = _FIELD_KEYS | {"clamp"}
+_CLAMP_KEYS = frozenset({"minimum", "maximum", "constant"})
+_INTEGERS = frozenset({"Int", "Int32", "Int64", "UInt16", "UInt32", "UInt64"})
 _ENCODE_MODES = {"always": True, "if_present": False}
+WHEN_TRUE = "when_true"
 IF_TRUE = "if_true"
+_FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
+_FLATTEN_KEYS = frozenset({"type", "doc", "default", "optional"})
+DECIMAL = "decimal"
+_DECIMAL_FORMAT = {"format": "decimal uint64"}
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 WORKSPACE_REF = "workspace"
 _WORKSPACE_REF_WIRE = ("workspace", "key")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
+_READ_FIELD_KEYS = (_FIELD_KEYS - {"encode_when"}) | {"default", "optional", "lenient", "when", "prefer", "decode"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -222,14 +253,29 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
-    # Encoded only when true (`encode: if_true`): a plain Bool, false by default.
+    # Clamped in the init only (`clamp`): (minimum, maximum, the static constant naming the maximum or None).
+    clamp: tuple[int, int, str | None] | None = None
+    # The whole read as a Swift expression (`decode`), for a wire shape the schema states only in a constraint.
+    decode: str | None = None
+    # An optional boolean encoded only when true (the daemon default is false): `encode: when_true`, or
+    # `encode: if_true` (if_true marks it so a `with` field can gate on it), or an enum case (`true_value`).
+    when_true: bool = False
+    true_value: str = "true"
     if_true: bool = False
-    # Encoded flat, not under its own key: the encoder expression's encode(to:) writes the wire fields.
-    spread: str | None = None
+    decimal_uint64: bool = False
+    # A UInt64 sent as its decimal string (`encode: decimal`).
+    decimal: bool = False
+    # Encode this field only when a preceding request property is enabled.
+    encode_when: str | None = None
+    # Encoded only when this Swift condition on another field holds (`with`).
+    condition: str | None = None
+    # A flattened value encoded into the request object.
+    flat: str | None = None
 
     @property
     def custom_read(self) -> bool:
-        return self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+        return (self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+                or self.decode is not None)
 
     @property
     def declared_type(self) -> str:
@@ -237,22 +283,70 @@ class _Field:
             return f"FieldUpdate<{self.swift_type}>"
         return self.swift_type + ("?" if self.optional else "")
 
-    def parameter(self) -> str:
+    def parameter(self, *, explicit: bool = False, label: str | None = None) -> str:
         default = self.default
         if default is None:
             default = ".unchanged" if self.update else "nil" if self.optional else None
-        return f"{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
+        name = self.name if label is None else f"{_escaped(label)} {self.name}"
+        return f"{name}: {self.declared_type}" + ("" if explicit or default is None else f" = {default}")
+
+    @property
+    def keyed(self) -> bool:
+        return self.on_wire and not self.mutation and self.flat is None
+
+    def init_line(self) -> str:
+        if self.clamp is None:
+            return f"        self.{self.name} = {self.name}"
+        minimum, maximum, constant = self.clamp
+        bound = maximum if constant is None else f"Self.{constant}"
+        if self.optional:
+            return f"        self.{self.name} = {self.name}.map {{ min(max($0, {minimum}), {bound}) }}"
+        return f"        self.{self.name} = min(max({self.name}, {minimum}), {bound})"
 
     def encode_line(self) -> str:
-        if self.spread is not None:
-            return f"        try {self.spread}.encode(to: encoder)"
-        if self.if_true:
-            return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
+        if self.mutation:
+            return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
+        if self.flat is not None:
+            statement = self.flat.replace("{value}", self.name)
+            return f"        if let {self.name} {{ {statement} }}" if self.optional else f"        {statement}"
+        if self.when_true:
+            return f"        if {self.name} {{ try container.encode({self.true_value}, forKey: .{_bare(self.name)}) }}"
+        if self.decimal_uint64:
+            return f"        if let {self.name} {{ try container.encode(String({self.name}), forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
-        return f"        try container.{method}({self.name}, forKey: .{_bare(self.name)})"
+        line = f"try container.{method}({self.name}, forKey: .{_bare(self.name)})"
+        if self.decimal:
+            line = f"try container.encodeIfPresent({self.name}.map(String.init), forKey: .{_bare(self.name)})"
+        if self.encode_when is not None:
+            return f"        if {self.encode_when} {{ {line} }}"
+        if self.condition is not None:
+            return f"        if {self.condition} {{ {line} }}"
+        return f"        {line}"
 
     def coding_key(self) -> str:
         return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
+
+
+def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, int, str | None] | None:
+    """A request field's `clamp`: the init stores min(max(value, minimum), Self.constant), the constant a
+    `public static let` of the maximum; without `constant` the init uses the literal maximum and the type
+    gains no static property (what a request with a literal bound and no public constant had). Only the init clamps: the property stays a plain `var`, so a value
+    assigned after init is sent as assigned (what the hand-written requests did)."""
+    if spec is None:
+        return None
+    spec = _check_keys(f"{where}.clamp", spec, _CLAMP_KEYS)
+    minimum, maximum, constant = spec.get("minimum"), spec.get("maximum"), spec.get("constant")
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in (minimum, maximum)):
+        raise BindingError(f"{where}.clamp: minimum and maximum are integers")
+    if minimum > maximum:
+        raise BindingError(f"{where}.clamp: minimum is above maximum")
+    if constant is not None and (
+        not isinstance(constant, str) or not _IDENTIFIER.fullmatch(constant) or constant in _KEYWORDS
+    ):
+        raise BindingError(f"{where}.clamp: constant is the Swift name of the maximum, like maxLimit")
+    if update or swift_type not in _INTEGERS:
+        raise BindingError(f"{where}.clamp: only an integer field (not an update) is clamped")
+    return minimum, maximum, constant
 
 
 class _Renderer:
@@ -262,6 +356,18 @@ class _Renderer:
         self.ids: Mapping[str, str] = bindings.get("ids", {})
         self.bound: Mapping[str, str] = bindings.get("types", {})
         self.families: Mapping[str, Any] = bindings.get("families", {})
+        self.flatten: dict[str, tuple[list[str], str]] = {}
+        for name, spec in bindings.get("flatten", {}).items():
+            if name == "$comment":
+                continue
+            spec = _check_keys(f"flatten.{name}", spec, _FLATTEN_TYPE_KEYS)
+            wire, statement = spec.get("wire"), spec.get("encode")
+            if (not isinstance(wire, list) or not wire or not all(isinstance(item, str) and item for item in wire)
+                    or len(set(wire)) != len(wire)):
+                raise BindingError(f"flatten.{name}: wire lists the distinct wire names the type writes")
+            if not isinstance(statement, str) or "{value}" not in statement:
+                raise BindingError(f"flatten.{name}: encode is a Swift statement that writes {{value}}")
+            self.flatten[name] = (list(wire), statement)
         self.enums: dict[str, tuple[str, Mapping[str, Any]]] = {}
         for family, spec in sorted(self.families.items()):
             if not _IDENTIFIER.fullmatch(family):
@@ -309,6 +415,13 @@ class _Renderer:
             return name
         if kind == "ref":
             return self._ref(expr["name"], where=where, wire=wire, nested=nested)
+        if kind == "literal":
+            value = expr["value"]
+            if isinstance(value, bool):
+                return "Bool"
+            if isinstance(value, str):
+                return "String"
+            raise BindingError(f"{where}: no Swift type for the literal {value!r}; bind the field's type")
         raise BindingError(f"{where}: the Swift emitter does not support a {kind} here; bind the field's type")
 
     def _ref(self, name: str, *, where: str, wire: str, nested: list[_Enum]) -> str:
@@ -352,18 +465,23 @@ class _Renderer:
             key=lambda wire: (schema_fields[wire]["presence"] != "required", wire),
         )
         result = []
+        sent_with: dict[str, str] = {}
         for wire in [*order, *rest]:
             spec = schema_fields[wire]
             override = _check_keys(
-                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
+                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _REQUEST_FIELD_KEYS
             )
+            encode_when = override.get("encode_when")
             swift_type = override.get("type") or self.swift_type(
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
             required = spec["presence"] == "required"
-            if_true = False
+            if_true = decimal = False
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
             optional = not required or (spec["nullable"] and swift_type != JSON_VALUE)
+            decimal_uint64 = False
+            when_true = False
+            true_value = "true"
             if read:
                 default = override.get("default")
                 if default is not None:
@@ -381,26 +499,76 @@ class _Renderer:
                         raise BindingError(f"{where}.{wire}: optional is true or false, and not with update")
                     optional = override["optional"]
                 always = required
-                if_true = override.get("encode") == IF_TRUE
-                if if_true:
-                    if (spec["type"] != {"kind": "scalar", "name": "boolean"} or required or update
-                            or spec.get("default") is not False or "optional" in override or "type" in override
-                            or override.get("default", "false") != "false"):
+                mode = override.get("encode")
+                when_true = mode in (WHEN_TRUE, IF_TRUE)
+                if isinstance(mode, Mapping):
+                    enum = self.ir.types.get(spec["type"].get("name"))
+                    case = mode.get("when_true")
+                    if (set(mode) != {WHEN_TRUE} or required or update or "optional" in override or "type" in override
+                            or spec["type"]["kind"] != "ref" or not enum or enum["kind"] != "enum"
+                            or not isinstance(case, str) or case not in enum["values"]):
+                        raise BindingError(f"{where}.{wire}: when_true needs a case of the optional schema enum")
+                    true_value = f"{swift_type}.{swift_name(case)}"
+                    when_true = True
+                    swift_type, optional, always = "Bool", False, True
+                elif mode == "decimal_uint64":
+                    if (required or not optional or update or "type" in override or "optional" in override
+                            or spec["type"] != {"kind": "scalar", "name": "string"}
+                            or {"format": "decimal uint64"} not in spec.get("constraints", ())):
+                        raise BindingError(f"{where}.{wire}: decimal_uint64 requires an optional decimal uint64 string")
+                    swift_type, decimal_uint64 = "UInt64", True
+                elif when_true:
+                    boolean_field = (not required and spec["type"] == {"kind": "scalar", "name": "boolean"}
+                                     and not update and "optional" not in override)
+                    if mode == IF_TRUE and (not boolean_field or spec.get("default") is not False
+                                            or "type" in override or override.get("default", "false") != "false"):
                         raise BindingError(
                             f"{where}.{wire}: encode if_true is for an optional boolean whose schema default is false"
                         )
-                    optional, always, swift_type = False, False, "Bool"
+                    if not boolean_field or override.get("type", "Bool") != "Bool":
+                        raise BindingError(f"{where}.{wire}: encode when_true is only for an optional boolean")
+                    if_true = mode == IF_TRUE
+                    swift_type, optional, always = "Bool", False, True
+                elif mode == DECIMAL:
+                    decimal = True
+                    if (spec["type"] != {"kind": "scalar", "name": "string"} or required or update
+                            or _DECIMAL_FORMAT not in spec.get("constraints", ()) or "type" in override
+                            or "optional" in override or "default" in override):
+                        raise BindingError(
+                            f"{where}.{wire}: encode decimal is for an optional string the schema formats as a"
+                            " decimal uint64"
+                        )
+                    swift_type = "UInt64"
                 elif "encode" in override:
-                    if override["encode"] not in _ENCODE_MODES or update:
-                        raise BindingError(f"{where}.{wire}: encode is always or if_present, and not with update")
+                    if not isinstance(mode, str) or mode not in _ENCODE_MODES or update:
+                        raise BindingError(
+                            f"{where}.{wire}: encode is always, if_present or when_true, and not with update"
+                        )
                     always = _ENCODE_MODES[override["encode"]]
-                if not optional and not always and not if_true:
+                if not optional and not always:
                     raise BindingError(f"{where}.{wire}: a field that is not Optional is always encoded")
-                default = override.get("default")
+                default = override.get("default", "false" if when_true else None)
                 if default is not None and (not isinstance(default, str) or not default):
                     raise BindingError(f"{where}.{wire}: default is a Swift expression")
+                if encode_when is not None and (not isinstance(encode_when, str) or not encode_when.strip()):
+                    raise BindingError(f"{where}.{wire}: encode_when is a non-empty Swift condition")
+                if encode_when is not None and (required or when_true or decimal_uint64 or update):
+                    raise BindingError(
+                        f"{where}.{wire}: encode_when needs an optional field without when_true or update or decimal_uint64"
+                    )
                 if if_true:
                     default = "false"
+                if "with" in override:
+                    other = override["with"]
+                    if (not isinstance(other, str) or other == wire or other not in schema_fields
+                            or not optional or update or always):
+                        raise BindingError(
+                            f"{where}.{wire}: with names another field of the request, on an optional field"
+                            " sent only when set"
+                        )
+                    sent_with[wire] = other
+            if read and "with" in override:
+                raise BindingError(f"{where}.{wire}: with is for a request field")
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability") and read:
@@ -411,10 +579,8 @@ class _Renderer:
                         f"{where}.{wire}: a required field gated by {spec['capability']} has no Swift shape"
                     )
                 since = f" (protocol {spec['since']})" if spec.get("since") is not None else ""
-                unset = "false" if if_true else "nil"
-                doc.append(
-                    f"Needs `{spec['capability']}`{since}; leave it {unset} for a daemon that does not serve it."
-                )
+                absent = "false" if when_true else "nil"
+                doc.append(f"Needs `{spec['capability']}`{since}; leave it {absent} for a daemon that does not serve it.")
             result.append(_Field(
                 wire=wire,
                 name=_escaped(override["name"]) if "name" in override else swift_name(wire),
@@ -426,17 +592,43 @@ class _Renderer:
                 lenient=bool(override.get("lenient")),
                 when=override.get("when"),
                 prefer=override.get("prefer"),
+                decode=override.get("decode"),
                 update=update,
+                when_true=when_true, true_value=true_value, decimal_uint64=decimal_uint64,
+                encode_when=encode_when if not read else None,
+                clamp=None if read else _clamp(f"{where}.{wire}", override.get("clamp"), swift_type, update),
                 if_true=if_true,
+                decimal=decimal,
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:
                 raise BindingError(f"{where}.{wire}: lenient needs an optional field or a default")
             if made.when is not None and not made.optional:
                 raise BindingError(f"{where}.{wire}: when needs an optional field (a false condition reads nil)")
+            if made.decode is not None and (
+                not isinstance(made.decode, str) or not made.decode
+                or made.lenient or made.prefer is not None or made.when is not None
+                or (not made.optional and made.default is None)
+            ):
+                raise BindingError(
+                    f"{where}.{wire}: decode is a Swift expression on a field with a default or an Optional, and"
+                    " not with lenient, prefer or when"
+                )
         names = [_bare(item.name) for item in result]
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two fields become the same Swift name")
+        by_wire = {item.wire: item for item in result}
+        for wire, other in sent_with.items():
+            target, gate = by_wire[wire], by_wire[other]
+            if gate.if_true:
+                target.condition = gate.name
+            elif gate.optional and not gate.update and gate.condition is None:
+                target.condition = f"{gate.name} != nil"
+            else:
+                raise BindingError(
+                    f"{where}.{wire}: with names {other!r}, which is neither an if_true flag nor an Optional"
+                )
+            target.doc.append(f"Sent only with `{_bare(gate.name)}`.")
         return result
 
     # Files ------------------------------------------------------------------------------------------------
@@ -471,6 +663,54 @@ class _Renderer:
                 add(family, name, self.read_type(f"{family}.objects.{name}", name, binding))
         return dict(sorted(files.items()))
 
+    @staticmethod
+    def extra_fields(where: str, extra: Mapping[str, Any], occupied: set[str]) -> dict[str, _Field]:
+        if not isinstance(extra, Mapping):
+            raise BindingError(f"{where}.extra must be an object")
+        fields = {}
+        for key, spec in extra.items():
+            if not _IDENTIFIER.fullmatch(key):
+                raise BindingError(f"{where}.extra: {key!r} is not a Swift property name")
+            spec = _check_keys(f"{where}.extra.{key}", spec, _EXTRA_KEYS)
+            if key in occupied:
+                raise BindingError(f"{where}.extra.{key}: the schema has this field; bind it in fields")
+            if not all(isinstance(spec.get(k), str) and spec[k].strip() for k in ("type", "default")):
+                raise BindingError(f"{where}.extra.{key}: an app-only property needs its type and default")
+            fields[key] = _Field(
+                wire=key, name=_escaped(key), swift_type=spec["type"], optional=False, always_encoded=False,
+                doc=list(spec.get("doc", ())), default=spec["default"], on_wire=False,
+            )
+        return fields
+
+    @staticmethod
+    def request_initializer(command: str, fields: Sequence[_Field], options: Mapping[str, Any]) -> list[str]:
+        init = _check_keys(f"{command}.initializer", options, _INIT_KEYS)
+        post_init = init.get("post_init", [])
+        optional = {_bare(item.name) for item in fields if item.optional and not item.update}
+        if (not isinstance(post_init, list) or not all(isinstance(n, str) and n in optional for n in post_init)
+                or len(set(post_init)) != len(post_init)):
+            raise BindingError(f"{command}.initializer.post_init must list distinct optional properties")
+        if any(item.clamp is not None and _bare(item.name) in post_init for item in fields):
+            raise BindingError(f"{command}.initializer.post_init: a clamped field is clamped by the init, so it stays a parameter")
+        parameters = [item for item in fields if _bare(item.name) not in post_init]
+        names = {_bare(item.name) for item in parameters}
+        explicit = init.get("explicit", [])
+        labels = init.get("labels", {})
+        if (not isinstance(explicit, list) or not all(isinstance(n, str) and n in names for n in explicit)
+                or len(set(explicit)) != len(explicit)):
+            raise BindingError(f"{command}.initializer.explicit must list distinct parameter names")
+        if (not isinstance(labels, Mapping) or set(labels) - names
+                or not all(isinstance(v, str) and _IDENTIFIER.fullmatch(v) for v in labels.values())):
+            raise BindingError(f"{command}.initializer.labels must map parameter names to Swift argument labels")
+        if len({labels.get(name, name) for name in names}) != len(names):
+            raise BindingError(f"{command}.initializer.labels: two parameters use the same label")
+        args = [item.parameter(explicit=_bare(item.name) in explicit, label=labels.get(_bare(item.name)))
+                for item in parameters]
+        out = ["", f"    public init({', '.join(args)}) {{"]
+        out += [item.init_line() for item in parameters]
+        out.append("    }")
+        return out
+
     def request(self, command: str, binding: Mapping[str, Any]) -> list[str]:
         try:
             schema = self.ir.command(command)
@@ -484,46 +724,105 @@ class _Renderer:
             raise BindingError(f"{command}: protocol must be one of {', '.join(PROTOCOLS)}")
         nested: list[_Enum] = []
         schema_fields, order = request["fields"], list(binding.get("order", ()))
+        omit = binding.get("omit", ())
+        if not isinstance(omit, (list, tuple)) or any(not isinstance(wire, str) or not wire for wire in omit):
+            raise BindingError(f"{command}.omit: a list of non-empty wire names is required")
+        if len(set(omit)) != len(omit):
+            raise BindingError(f"{command}.omit: a wire field is listed twice")
+        for wire in omit:
+            if wire not in schema_fields:
+                raise BindingError(f"{command}.omit names {wire!r}, which the schema does not have")
+            if schema_fields[wire]["presence"] == "required":
+                raise BindingError(f"{command}.omit names {wire!r}, which the schema requires")
+        if set(omit) & set(order):
+            raise BindingError(f"{command}.omit cannot remove a field named in order")
+        omitted = set(omit)
+        schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in omit}
         mutation = binding.get("mutation", False)
         if mutation not in (True, False):
             raise BindingError(f"{command}: mutation is true or false")
+        synthetic: dict[str, _Field] = {}
         if mutation:
+            if omitted & set(_MUTATION_WIRE):
+                raise BindingError(f"{command}.omit cannot remove a field written by mutation")
             if not {"origin", "mutation_id"} <= set(schema_fields):
                 raise BindingError(f"{command}: mutation needs the schema's origin and mutation_id fields")
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _MUTATION_WIRE}
+        flatten = binding.get("flatten", {})
+        if not isinstance(flatten, Mapping):
+            raise BindingError(f"{command}: flatten maps a Swift property name to its binding")
+        if len(set(order)) != len(order):
+            raise BindingError(f"{command}: the order names a field twice")
+        claimed_flatten_wires = set(_MUTATION_WIRE) if mutation else set()
         workspace_ref = binding.get("workspace_ref", False)
-        if workspace_ref not in (True, False):
+        if not isinstance(workspace_ref, bool):
             raise BindingError(f"{command}: workspace_ref is true or false")
         if workspace_ref:
-            for wire in _WORKSPACE_REF_WIRE:
-                spec = schema_fields.get(wire)
-                if spec is None or spec["presence"] == "required":
-                    raise BindingError(f"{command}: workspace_ref needs the schema's optional workspace and key fields")
+            if omitted.intersection(_WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}.omit cannot remove a field written by workspace_ref")
+            if any(wire not in schema_fields or schema_fields[wire]["presence"] == "required"
+                   for wire in _WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}: workspace_ref needs the schema's optional workspace and key fields")
             if any(wire in binding.get("fields", {}) for wire in _WORKSPACE_REF_WIRE):
                 raise BindingError(f"{command}: workspace_ref owns the workspace and key fields; bind neither")
+            if WORKSPACE_REF in flatten:
+                raise BindingError(f"{command}: a flattened field is already named {WORKSPACE_REF}")
+            claimed_flatten_wires.update(_WORKSPACE_REF_WIRE)
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _WORKSPACE_REF_WIRE}
-        # Spread fields leave the schema's fields and come back at their place in `order` (else last).
-        spreads: list[tuple[str, _Field]] = []
-        if workspace_ref:
-            spreads.append((WORKSPACE_REF, _Field(
-                wire=WORKSPACE_REF, name=WORKSPACE_REF, swift_type="WorkspaceRef", optional=False,
-                always_encoded=True, doc=[], spread=f"WorkspaceRefFields(ref: {WORKSPACE_REF})",
-            )))
+            synthetic[WORKSPACE_REF] = _Field(
+                wire=WORKSPACE_REF, name=WORKSPACE_REF, swift_type="WorkspaceRef", optional=False, always_encoded=True,
+                doc=[], flat="try WorkspaceRefFields(ref: {value}).encode(to: encoder)",
+            )
+        for name, spec in flatten.items():
+            if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
+                raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")
+            spec = _check_keys(f"{command}.flatten.{name}", spec, _FLATTEN_KEYS)
+            if spec.get("type") not in self.flatten:
+                raise BindingError(f"{command}.flatten.{name}: type must be one the top-level flatten registry names")
+            wires, statement = self.flatten[spec["type"]]
+            if omitted & set(wires):
+                overlap = sorted(omitted & set(wires))
+                raise BindingError(
+                    f"{command}.omit cannot remove a field written by flattened value: {', '.join(overlap)}"
+                )
+            overlap = sorted(claimed_flatten_wires & set(wires))
+            if overlap:
+                raise BindingError(
+                    f"{command}.flatten.{name}: wire fields overlap another flattened value: {', '.join(overlap)}"
+                )
+            taken = [wire for wire in wires if wire in schema_fields]
+            if not taken:
+                raise BindingError(f"{command}.flatten.{name}: the schema has none of {spec['type']}'s wire names")
+            if any(schema_fields[wire]["presence"] == "required" for wire in taken):
+                raise BindingError(f"{command}.flatten.{name}: a flattened field must be optional in the schema")
+            claimed_flatten_wires.update(wires)
+            schema_fields = {wire: item for wire, item in schema_fields.items() if wire not in taken}
+            optional = spec.get("optional", False)
+            default = spec.get("default")
+            if optional not in (True, False) or (default is not None and (not isinstance(default, str) or not default)):
+                raise BindingError(f"{command}.flatten.{name}: optional is true or false, default a Swift expression")
+            synthetic[name] = _Field(
+                wire=name, name=_escaped(name), swift_type=spec["type"], optional=optional, always_encoded=False,
+                doc=list(spec.get("doc") or [f"Sent flat: {', '.join(f'`{wire}`' for wire in taken)}."]),
+                default=default, flat=statement,
+            )
         if mutation:
-            spreads.append((MUTATION, _Field(
+            synthetic[MUTATION] = _Field(
                 wire=MUTATION, name=MUTATION, swift_type="MutationIdentity", optional=True, always_encoded=False,
                 doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
-                mutation=True, spread=f"MutationFields(identity: {MUTATION})",
-            )))
-        places = {token: order.index(token) for token, _ in spreads if token in order}
-        order = [item for item in order if item not in places]
-        fields = self.fields(command, schema_fields, binding.get("fields", {}), order, nested)
-        for token, spread in spreads:
-            if token in (_bare(item.name) for item in fields):
-                raise BindingError(f"{command}: a field is already named {token}")
-        for token, spread in sorted(spreads, key=lambda pair: places.get(pair[0], len(order) + len(spreads))):
-            fields.insert(min(places.get(token, len(fields)), len(fields)), spread)
-        keyed = [item for item in fields if item.spread is None]
+                mutation=True,
+            )
+        occupied = set(request["fields"]) | set(synthetic) | claimed_flatten_wires
+        synthetic.update(self.extra_fields(command, binding.get("extra", {}), occupied))
+        schema_order = [wire for wire in order if wire not in synthetic]
+        generated = self.fields(command, schema_fields, binding.get("fields", {}), schema_order, nested)
+        if set(synthetic) & {_bare(item.name) for item in generated}:
+            raise BindingError(f"{command}: a field already has the name of a flattened or mutation property")
+        ordered, rest = iter(generated[:len(schema_order)]), generated[len(schema_order):]
+        fields = [synthetic[wire] if wire in synthetic else next(ordered) for wire in order]
+        fields += rest + [item for name, item in synthetic.items() if name not in order and not item.mutation]
+        fields += [item for name, item in synthetic.items() if name not in order and item.mutation]
+        keyed = [item for item in fields if item.keyed]
         response = self.response_binding(command, schema["result"], binding)
 
         name = binding["name"]
@@ -532,8 +831,18 @@ class _Renderer:
         if response not in (GENERATE, HAND_WRITTEN):
             out.append(f"    public typealias Response = {response}")
         out.append(f"    public static let command = {json.dumps(command)}")
-        if schema.get("capability"):
-            out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
+        capability = schema.get("capability")
+        if "allow_unadvertised_capability" in binding:
+            if not capability or binding["allow_unadvertised_capability"] != capability:
+                raise BindingError(f"{command}: allow_unadvertised_capability must name the command's schema capability")
+        elif capability:
+            out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
+        constants = [item for item in fields if item.clamp is not None and item.clamp[2] is not None]
+        if len({item.clamp[2] for item in constants}) != len(constants):
+            raise BindingError(f"{command}: two clamped fields name the same constant")
+        for item in constants:
+            typed = "" if item.swift_type == "Int" else f": {item.swift_type}"
+            out.append(f"    public static let {item.clamp[2]}{typed} = {item.clamp[1]}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if fields:
@@ -541,9 +850,7 @@ class _Renderer:
         for item in fields:
             out += _doc(item.doc, "    ")
             out.append(f"    public var {item.name}: {item.declared_type}")
-        out += ["", f"    public init({', '.join(item.parameter() for item in fields)}) {{"]
-        out += [f"        self.{item.name} = {item.name}" for item in fields]
-        out.append("    }")
+        out += self.request_initializer(command, fields, binding.get("initializer", {}))
         if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
             out += [f"        {item.coding_key()}" for item in keyed]
@@ -552,7 +859,8 @@ class _Renderer:
             out += ["", "    public func encode(to encoder: any Encoder) throws {"]
             if keyed:
                 out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
-            out += [item.encode_line() for item in [*keyed, *(item for item in fields if item.spread is not None)]]
+            flat = [item for item in fields if item.flat is not None]
+            out += [item.encode_line() for item in [*keyed, *flat, *(item for item in fields if item.mutation)]]
             out.append("    }")
         if response == GENERATE:
             out += ["", *self.response(command, schema["result"], binding)]
@@ -573,6 +881,34 @@ class _Renderer:
         if expr["kind"] == "ref":
             expr = self.ir.types.get(expr["name"], {"kind": "missing"})
         return expr if expr["kind"] == "object" else None
+
+    def _union_object(self, where: str, name: str, union: Mapping[str, Any]) -> Mapping[str, Any]:
+        """An untagged union of objects as one object: every variant's fields, in variant order."""
+        variants = []
+        for variant in union["variants"]:
+            target = self._object(variant)
+            if target is None:
+                raise BindingError(f"{where}: {name} reads as one struct only when every variant is an object")
+            variants.append(target)
+        fields: dict[str, dict[str, Any]] = {}
+        for target in variants:
+            for wire, spec in target["fields"].items():
+                seen = fields.get(wire)
+                if seen is None:
+                    fields[wire] = dict(spec)
+                    continue
+                if _plain(seen["type"]) != _plain(spec["type"]):
+                    raise BindingError(f"{where}: {name}'s variants type {wire!r} differently")
+                if spec["presence"] != "required":
+                    seen["presence"] = "optional"
+                seen["nullable"] = seen["nullable"] or spec["nullable"]
+                for key in ("description", "capability", "since"):
+                    if key not in seen and key in spec:
+                        seen[key] = spec[key]
+        for wire, spec in fields.items():
+            if any(wire not in target["fields"] for target in variants):
+                spec["presence"] = "optional"
+        return {"kind": "object", "fields": fields}
 
     def _is_empty_object(self, expr: Mapping[str, Any]) -> bool:
         target = self._object(expr)
@@ -611,6 +947,8 @@ class _Renderer:
         if "type" in binding:
             target = self.ir.types.get(binding["type"])
             source = binding["type"]
+            if target is not None and target["kind"] == "untagged_union":
+                target = self._union_object(where, binding["type"], target)
             if target is None or target["kind"] != "object":
                 raise BindingError(f"{where}: the schema has no object type {binding['type']}")
         else:
@@ -636,16 +974,7 @@ class _Renderer:
         nested: list[_Enum] = []
         fields = self.fields(source, schema_fields, binding.get("fields", {}), wire_order, nested, read=True)
         by_key: dict[str, _Field] = {item.wire: item for item in fields}
-        for key, spec in extra.items():
-            spec = _check_keys(f"{where}.extra.{key}", spec, _EXTRA_KEYS)
-            if key in schema_fields:
-                raise BindingError(f"{where}.extra.{key}: the schema has this field; bind it in fields")
-            if "type" not in spec or "default" not in spec:
-                raise BindingError(f"{where}.extra.{key}: an app-only property needs its type and default")
-            by_key[key] = _Field(
-                wire=key, name=_escaped(key), swift_type=spec["type"], optional=False, always_encoded=False,
-                doc=list(spec.get("doc", ())), default=spec["default"], on_wire=False,
-            )
+        by_key.update(self.extra_fields(where, extra, set(schema_fields)))
         ordered = [by_key[key] for key in order] + [item for key, item in by_key.items() if key not in order]
         names = [_bare(item.name) for item in ordered]
         if len(set(names)) != len(names):
@@ -695,6 +1024,8 @@ def _read_expression(item: _Field) -> str:
     if not item.on_wire:
         return str(item.default)
     key = f".{_bare(item.name)}"
+    if item.decode is not None:
+        return item.decode
     if not item.optional and item.default is None and item.prefer is None:
         return f"try container.decode({item.swift_type}.self, forKey: {key})"
     keys = ([f".{_bare(swift_name(item.prefer))}"] if item.prefer is not None else []) + [key]

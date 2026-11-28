@@ -34,7 +34,7 @@
 //! `$ACPMUX_HOME/run-vm.jsonl` (where it ran, fork and first-output times, files back, exit,
 //! the fallback's cause), which is what the RFD's thresholds are re-measured from.
 
-use super::command_shadow::{Predicted, workload_shape};
+use super::command_shadow::{Predicted, Shape, workload_shape};
 use super::sub_fork::{self, ForkGuard, Machines};
 use super::sub_fork_run::{ForkLink, Frame, Job};
 use super::sub_fork_wire::B64;
@@ -186,33 +186,83 @@ pub struct Sizing {
     pub mem_gib: f64,
     /// How many of this repository's past runs predicted it; 0 is the class default.
     pub runs: usize,
+    /// The project whose published memory minimum set the size, when it was above the prediction.
+    pub floor: Option<&'static str>,
 }
 
 /// The run VM's size for what the rows file predicts, when it is above the smallest.
 pub fn sizing(predicted: &Predicted) -> Option<Sizing> {
-    let need = workload_shape(predicted.need?);
+    sizing_floored(predicted, None)
+}
+
+/// [`sizing`] with a known-heavy project's published memory minimum as a floor
+/// (`heavy_precheck::memory_floor`): RFD 0133's "run on a build machine" button, taken without
+/// asking (RFD 0144 piece 8). The floor alone sizes a command with no history.
+pub fn sizing_floored(
+    predicted: &Predicted,
+    floor: Option<(crate::heavy_precheck::Project, u64)>,
+) -> Option<Sizing> {
+    let floor_gib = floor.map(|(_, bytes)| bytes as f64 / (1u64 << 30) as f64);
+    let need = match (predicted.need.map(workload_shape), floor_gib) {
+        (Some(need), Some(f)) => Shape { vcpu: need.vcpu, mem_gib: need.mem_gib.max(f) },
+        (Some(need), None) => need,
+        (None, Some(f)) => Shape { vcpu: 1.0, mem_gib: f },
+        (None, None) => return None,
+    };
+    let floored =
+        floor_gib.is_some_and(|f| predicted.need.map(workload_shape).is_none_or(|n| f > n.mem_gib));
     let (size, vcpu, mem_gib) = LADDER
         .iter()
         .find(|(_, vcpu, mem)| *vcpu >= need.vcpu && *mem >= need.mem_gib)
         .or(LADDER.last())
         .copied()?;
+    let floor = floor.filter(|_| floored).map(|(p, _)| p.name());
     (Some(size) != LADDER.first().map(|(s, _, _)| *s)).then_some(Sizing {
         size,
         vcpu,
         mem_gib,
         runs: predicted.runs,
+        floor,
     })
 }
 
-/// The notice row for a sized run VM: what it starts at and why, in place of an ask.
+/// The router's verdict note when the command ran on a run VM (`fork_or_here`, on stderr).
+pub const NOTE_RAN_THERE: &str = "[run-vm] ran on a run VM";
+/// The router's verdict note when the command ran here, then the cause.
+pub const NOTE_RAN_HERE: &str = "[run-vm] ran here: ";
+/// What the start note says between the class and the target: it asks, the verdict says where.
+const NOTE_ASKING: &str = ": asking for a ";
+
+/// Whether `line` is one of the router's own notes on stderr (the start note and the verdict):
+/// not the command's output. The conformance suite drops exactly these (`exec_conformance.rs`),
+/// so the notes and the filter are written from the same constants and cannot drift. Lines the
+/// router writes into the output itself (a run VM failing mid-command, a patch that did not
+/// apply) are not notes.
+pub fn is_note(line: &str) -> bool {
+    line.starts_with(NOTE_RAN_THERE)
+        || line.starts_with(NOTE_RAN_HERE)
+        || (line.starts_with("[run-vm] ") && line.contains(NOTE_ASKING))
+}
+
+/// The start note: what the router asks for, before it knows. It never says the command runs
+/// on a run VM: the fork can still fail (a 404, no room), and then [`NOTE_RAN_HERE`] follows.
+pub fn start_notice(class: &str, sizing: Option<&Sizing>) -> String {
+    match sizing {
+        Some(s) => sizing_notice(class, s),
+        None => format!("[run-vm] {class}{NOTE_ASKING}fork of this machine"),
+    }
+}
+
+/// The notice row for a sized run VM: what it asks for and why, in place of an ask.
 pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
-    let from = match sizing.runs {
-        0 => "the usual need of the class".to_owned(),
-        1 => "its last run here".to_owned(),
-        n => format!("its last {n} runs here"),
+    let from = match (sizing.floor, sizing.runs) {
+        (Some(project), _) => format!("{project}'s published memory minimum"),
+        (None, 0) => "the usual need of the class".to_owned(),
+        (None, 1) => "its last run here".to_owned(),
+        (None, n) => format!("its last {n} runs here"),
     };
     format!(
-        "[run-vm] {class}: running on a {} vCPU, {} GiB run VM, sized from {from}",
+        "[run-vm] {class}{NOTE_ASKING}{} vCPU, {} GiB run VM, sized from {from}",
         sizing.vcpu, sizing.mem_gib
     )
 }
@@ -420,7 +470,27 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     if force == Force::Local {
         write_forced_here(command, "hook");
     }
+    if super::auto_cloud_on()
+        && let Some(row) = here_notice(command)
+    {
+        eprintln!("{row}");
+    }
     run_here(command).await
+}
+
+/// The notice row for a known-heavy command that runs here on a machine too small for it (RFD
+/// 0133's warning as RFD 0144's notice: no question, it runs). A cloud machine grows as it works.
+fn here_notice(command: &str) -> Option<String> {
+    use crate::heavy_precheck::{Place, Shape, notice, precheck};
+    let cwd = std::env::current_dir().ok()?;
+    let cwd_text = cwd.to_string_lossy();
+    // A string match first: most commands are not known-heavy, and they read nothing.
+    if !crate::heavy_precheck::is_known_heavy(command, Some(&cwd_text)) {
+        return None;
+    }
+    let shape = Shape::here(&cwd)?;
+    let warning = precheck(command, &shape, &Place { cwd: Some(&cwd_text), checkout_bytes: None })?;
+    Some(notice(&warning, sub_fork::this_machine().is_some()))
 }
 
 /// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
@@ -434,7 +504,7 @@ pub async fn fork_or_here(
     via: &'static str,
 ) -> anyhow::Result<Option<i32>> {
     let _ = (machine, class, command, via);
-    eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+    eprintln!("{NOTE_RAN_HERE}Cloud forks need a unix build of acpmux");
     Ok(None)
 }
 
@@ -450,7 +520,7 @@ pub async fn fork_or_here(
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
-            eprintln!("[run-vm] ran here: {e}");
+            eprintln!("{NOTE_RAN_HERE}{e}");
             return Ok(None);
         }
     };
@@ -460,17 +530,17 @@ pub async fn fork_or_here(
     let sized = super::auto_cloud_on()
         .then(|| {
             let repo = cwd.to_string_lossy();
-            sizing(&super::command_sampler::predict_from_file(
-                &super::command_sampler::file_path(),
-                &repo,
-                command,
-            ))
+            sizing_floored(
+                &super::command_sampler::predict_from_file(
+                    &super::command_sampler::file_path(),
+                    &repo,
+                    command,
+                ),
+                crate::heavy_precheck::memory_floor(command, Some(&repo)),
+            )
         })
         .flatten();
-    match &sized {
-        Some(s) => eprintln!("{}", sizing_notice(class, s)),
-        None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
-    }
+    eprintln!("{}", start_notice(class, sized.as_ref()));
     let (mut stdout, mut stderr) = (tokio::io::stdout(), tokio::io::stderr());
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(u8, Vec<u8>)>();
     let mut push = move |fd: u8, data: &[u8]| {
@@ -502,7 +572,7 @@ pub async fn fork_or_here(
             row.via = Some(via);
             write_row(&row);
             eprintln!(
-                "[run-vm] ran on a run VM: exit {exit}, {} file(s) back, {} s",
+                "{NOTE_RAN_THERE}: exit {exit}, {} file(s) back, {} s",
                 row.files.unwrap_or(0),
                 row.wall_ms.unwrap_or(0) / 1000
             );
@@ -510,7 +580,7 @@ pub async fn fork_or_here(
         }
         Ran::Here { mut row } => {
             row.via = Some(via);
-            eprintln!("[run-vm] ran here: {}", row.cause.as_deref().unwrap_or("no run VM"));
+            eprintln!("{NOTE_RAN_HERE}{}", row.cause.as_deref().unwrap_or("no run VM"));
             write_row(&row);
             Ok(None)
         }

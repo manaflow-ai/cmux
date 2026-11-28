@@ -1,7 +1,9 @@
 use cmux_remote_protocol::{LaneToken, RelaySocketAttachment};
 
 use super::*;
-use crate::abuse::{CircuitLedger, MAX_CIRCUITS_PER_SLOT};
+use crate::abuse::{
+    CapacityRefusal, CircuitLedger, MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW, MAX_CIRCUITS_PER_SLOT,
+};
 use crate::attachment::InlineState;
 
 const OPEN: u16 = 1;
@@ -144,7 +146,6 @@ fn inline_circuits_share_the_ledgers_total_limit() {
 
 #[test]
 fn inline_and_classic_allocations_share_one_rate_limit() {
-    use crate::abuse::MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW;
     let mut window = InlineWindow::default();
     let mut ledger = CircuitLedger::default();
     let classic = MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW / 2;
@@ -179,7 +180,66 @@ fn live_inline_circuits_count_open_client_sides_once() {
         (CLOSING, inline_side(RelayRole::Client, "b", 1)),
         (OPEN, standby(T, T / 1_000 + 120)),
     ];
-    assert_eq!(live_inline_circuits(sockets), 1);
+    assert_eq!(live_inline_circuits(sockets, 0), 1);
+}
+
+#[test]
+fn live_inline_circuits_skip_circuits_past_their_pair_deadline() {
+    let mut stale_client = inline_side(RelayRole::Client, "stale", 1);
+    let mut stale_daemon = inline_side(RelayRole::Daemon, "stale", 1);
+    stale_client.idle_deadline_ms = 100;
+    stale_daemon.idle_deadline_ms = 200;
+    // Forwarding refreshed only the daemon side: the circuit lives on the later deadline.
+    let mut live_client = inline_side(RelayRole::Client, "live", 1);
+    let mut live_daemon = inline_side(RelayRole::Daemon, "live", 1);
+    live_client.idle_deadline_ms = 100;
+    live_daemon.idle_deadline_ms = 10_000;
+    let sockets =
+        [(OPEN, stale_client), (OPEN, stale_daemon), (OPEN, live_client), (OPEN, live_daemon)];
+    assert_eq!(live_inline_circuits(sockets.clone(), 150), 2);
+    assert_eq!(
+        live_inline_circuits(sockets, 500),
+        1,
+        "a circuit past its deadline holds no capacity"
+    );
+}
+
+#[test]
+fn capacity_refusals_name_the_limit_and_counts() {
+    let mut ledger = CircuitLedger::default();
+    assert!(ledger.reserve_beside("a".into(), 1_000, 100, None, InlineLoad::default()));
+    let full = InlineLoad { live: MAX_CIRCUITS_PER_SLOT - 1, allocations_in_window: 0 };
+    let refusal = ledger.inline_refusal(100, full).expect("full slot refuses");
+    assert_eq!(
+        refusal,
+        CapacityRefusal::Live { ledger: 1, pending: 1, inline: MAX_CIRCUITS_PER_SLOT - 1 }
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "slot live circuit limit reached: 1 leased (1 unjoined, 0 active) + {} inline of {}",
+            MAX_CIRCUITS_PER_SLOT - 1,
+            MAX_CIRCUITS_PER_SLOT
+        )
+    );
+    assert_eq!(
+        ledger.try_reserve_beside("b".into(), 1_000, 100, None, full),
+        Err(CapacityRefusal::Live { ledger: 1, pending: 1, inline: MAX_CIRCUITS_PER_SLOT - 1 })
+    );
+    // The ledger's one allocation plus the rest of the window (follows the limit #64017 raised).
+    let rest = MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW - 1;
+    let burst = InlineLoad { live: 0, allocations_in_window: rest };
+    assert_eq!(
+        ledger.inline_refusal(100, burst),
+        Some(CapacityRefusal::Rate { ledger: 1, inline: rest })
+    );
+    let under = InlineLoad { live: 0, allocations_in_window: rest - 1 };
+    assert!(ledger.inline_refusal(100, under).is_none(), "one under the window limit admits");
+    assert!(ledger.inline_refusal(100, InlineLoad::default()).is_none());
+    assert_eq!(
+        ledger.try_reserve_beside("c".into(), 100, 100, None, InlineLoad::default()),
+        Err(CapacityRefusal::Expired)
+    );
 }
 
 #[test]
