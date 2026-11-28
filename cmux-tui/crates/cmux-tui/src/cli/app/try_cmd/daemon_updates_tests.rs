@@ -19,7 +19,13 @@ fn payload(committed_at: u64, daemon_from: &[&str]) -> ChannelPayload {
         live_from: vec![TIP.to_owned()],
         daemon_from: daemon_from.iter().map(|s| (*s).to_owned()).collect(),
         tree_key: None,
+        revoked: Vec::new(),
+        rollout: cmux_rollout::Rollout::FULL,
     }
+}
+
+fn seat<'a>(app: Option<&'a str>, applied: Option<u64>, attempted: Option<u64>) -> Seat<'a> {
+    Seat { app_commit: app, applied, attempted, ..Seat::default() }
 }
 
 struct Inputs {
@@ -145,11 +151,11 @@ fn policy_environment_build_and_session_turn_it_off() {
 fn takes_a_newer_pointer_whose_daemon_from_lists_the_app() {
     let p = payload(200, &[TIP, APP]);
     assert_eq!(
-        look(&p, Some(&APP[..9]), None, None),
+        look(&p, seat(Some(&APP[..9]), None, None)),
         Look::Take { commit: TIP.to_owned(), committed_at: 200 }
     );
     assert_eq!(
-        look(&p, Some(APP), Some(100), Some(150)),
+        look(&p, seat(Some(APP), Some(100), Some(150))),
         Look::Take { commit: TIP.to_owned(), committed_at: 200 }
     );
 }
@@ -158,24 +164,26 @@ fn takes_a_newer_pointer_whose_daemon_from_lists_the_app() {
 fn never_takes_an_app_outside_daemon_from_or_with_no_commit() {
     let p = payload(200, &[TIP]);
     assert!(
-        matches!(look(&p, Some(APP), None, None), Look::Nothing(why) if why.contains("needs a new app"))
+        matches!(look(&p, seat(Some(APP), None, None)), Look::Nothing(why) if why.contains("needs a new app"))
     );
-    assert!(matches!(look(&p, None, None, None), Look::Nothing(why) if why.contains("CMUXCommit")));
+    assert!(
+        matches!(look(&p, seat(None, None, None)), Look::Nothing(why) if why.contains("CMUXCommit"))
+    );
     // A pointer from before daemon_from falls back to live_from.
     let mut old = payload(200, &[]);
     old.live_from = vec![TIP.to_owned(), APP.to_owned()];
-    assert!(matches!(look(&old, Some(APP), None, None), Look::Take { .. }));
+    assert!(matches!(look(&old, seat(Some(APP), None, None)), Look::Take { .. }));
 }
 
 #[test]
 fn an_applied_or_attempted_pointer_is_never_taken_again() {
     let p = payload(200, &[TIP, APP]);
-    assert!(matches!(look(&p, Some(APP), Some(200), None), Look::Nothing(_)));
-    assert!(matches!(look(&p, Some(APP), Some(300), None), Look::Nothing(_)));
+    assert!(matches!(look(&p, seat(Some(APP), Some(200), None)), Look::Nothing(_)));
+    assert!(matches!(look(&p, seat(Some(APP), Some(300), None)), Look::Nothing(_)));
     // A rolled-back or failed attempt holds that commit; the next newer one goes.
-    assert!(matches!(look(&p, Some(APP), Some(100), Some(200)), Look::Nothing(_)));
+    assert!(matches!(look(&p, seat(Some(APP), Some(100), Some(200))), Look::Nothing(_)));
     let next = payload(201, &[TIP, APP]);
-    assert!(matches!(look(&next, Some(APP), Some(100), Some(200)), Look::Take { .. }));
+    assert!(matches!(look(&next, seat(Some(APP), Some(100), Some(200))), Look::Take { .. }));
 }
 
 #[test]
@@ -233,4 +241,79 @@ fn looks_every_15_to_19_seconds() {
             "{wait:?}"
         );
     }
+}
+
+/// A host whose bucket for TIP is `want` below 100, by trying ids.
+fn host_in(range: std::ops::Range<u8>) -> String {
+    (0..10_000)
+        .map(|i| fingerprint(&format!("uuid-{i}")))
+        .find(|h| range.contains(&cmux_rollout::bucket(h, TIP)))
+        .expect("some host lands in the range")
+}
+
+#[test]
+fn a_staged_pointer_waits_outside_its_share_and_goes_once_the_share_covers_it() {
+    let host = host_in(30..40);
+    let mut p = payload(200, &[TIP, APP]);
+    let at = |p: &ChannelPayload, host: Option<&str>| {
+        look(p, Seat { host, ..seat(Some(APP), Some(100), None) })
+    };
+    // No rollout field: every Mac, a Mac with no id too.
+    assert!(matches!(at(&p, Some(&host)), Look::Take { .. }));
+    assert!(matches!(at(&p, None), Look::Take { .. }));
+    p.rollout = cmux_rollout::Rollout { pct: 10 };
+    assert!(
+        matches!(at(&p, Some(&host)), Look::Nothing(why) if why.contains("staged rollout at 10%"))
+    );
+    // A Mac with no host UUID waits for 100%.
+    assert!(matches!(at(&p, None), Look::Nothing(why) if why.contains("no id")));
+    p.rollout = cmux_rollout::Rollout { pct: 50 };
+    assert!(matches!(at(&p, Some(&host)), Look::Take { .. }));
+    assert!(matches!(at(&p, None), Look::Nothing(_)));
+    p.rollout = cmux_rollout::Rollout { pct: 100 };
+    assert!(matches!(at(&p, None), Look::Take { .. }));
+}
+
+#[test]
+fn a_daemon_on_a_revoked_commit_takes_the_pointer_at_any_share() {
+    let host = host_in(90..100);
+    let applied = "3333333333333333333333333333333333333333";
+    let mut p = payload(200, &[TIP, APP]);
+    p.rollout = cmux_rollout::Rollout { pct: 1 };
+    let on = Seat {
+        applied_commit: Some(applied),
+        host: Some(&host),
+        ..seat(Some(APP), Some(100), None)
+    };
+    assert!(matches!(look(&p, on), Look::Nothing(_)));
+    p.revoked = vec![applied.to_owned()];
+    assert!(matches!(look(&p, on), Look::Take { .. }));
+    // With no apply, the app's own (short) commit is what runs.
+    p.revoked = vec![APP.to_owned()];
+    let app_only = Seat { host: Some(&host), ..seat(Some(&APP[..9]), None, None) };
+    assert!(matches!(look(&p, app_only), Look::Take { .. }));
+    // Revoked never re-takes an applied or attempted pointer.
+    let done = Seat { host: Some(&host), ..seat(Some(APP), Some(200), None) };
+    assert!(matches!(look(&p, done), Look::Nothing(_)));
+}
+
+#[test]
+fn the_bucket_key_is_acpmuxs_host_fingerprint() {
+    // acpmux `host_fingerprint::of("abc")`: SHA-256 of the domain, then the raw id.
+    use sha2::{Digest, Sha256};
+    let want: String = Sha256::digest(b"acpmux machine credential host v1\0abc")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(fingerprint("abc"), want);
+}
+
+#[test]
+fn the_applied_commit_reads_from_channel_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store { root: dir.path().to_path_buf() };
+    assert_eq!(applied_commit(&store), None);
+    std::fs::write(dir.path().join("channel.json"), r#"{"committed_at":1,"commit":"abc"}"#)
+        .unwrap();
+    assert_eq!(applied_commit(&store).as_deref(), Some("abc"));
 }
