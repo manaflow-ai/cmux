@@ -246,6 +246,12 @@ let uiLayerPreviewProducts: [Product] = [
     // The UI shell's HomeEngine host (Prototypes/UiLayerHost cmux-ui-home --shoot) draws HomeEngine's playgrounds
     // from an incremental build of HomeEngine and what it needs, without the app composition root.
     .library(name: "CmuxNextUiHomeModules", targets: ["CmuxNextHomeEngine"]),
+    // The UI shell's view-module hosts (cmux-ui-layout, -browser, -agentpane, -screen --shoot): one product per
+    // module, so a push to one rebuilds only that module, what it needs and its small host.
+    .library(name: "CmuxNextUiLayoutModules", targets: ["CmuxNextLayout"]),
+    .library(name: "CmuxNextUiBrowserModules", targets: ["CmuxNextBrowser"]),
+    .library(name: "CmuxNextUiAgentPaneModules", targets: ["CmuxNextAgentPane"]),
+    .library(name: "CmuxNextUiScreenModules", targets: ["CmuxNextMacScreen"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.

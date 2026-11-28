@@ -64,8 +64,25 @@ class PlanTests(unittest.TestCase):
         for target in w.HEAVY_HOST_SOURCES:
             self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target).is_dir(), target)
 
+    def test_the_view_modules_shoot_their_own_hosts_scenes(self):
+        # Goal auto-ui-preview-under-60s: the biggest needs-an-app-build misses since 13Z, each its own host.
+        src = "Packages/macOS/CmuxNext/Sources/"
+        for path, scene in [
+            (src + "CmuxNextAgentPane/AgentPaneModel.swift", "agentpane-native"),
+            (src + "CmuxNextAgentPane/AgentPaneActAsMeCard.swift", "agentpane-native"),
+            (src + "CmuxNextMacScreen/MacScreenHub.swift", "mac-screen-home"),
+            (src + "CmuxNextBrowser/CEF/CEFTab.swift", "browser-chrome"),
+            (src + "CmuxNextLayout/Geometry/LayoutGeometry.swift", "layout-columns"),
+            ("Prototypes/UiLayerHost/Sources/UiScreenHost/UiScreenHostMain.swift", "mac-screen-home"),
+        ]:
+            p = w.plan([path])
+            self.assertEqual((p["swift"], p["needs_build"]), ([scene], []), path)
+        both = w.plan([src + "CmuxNextLayout/A.swift", src + "CmuxNextBrowser/B.swift"])
+        self.assertEqual(both["swift"], ["browser-chrome", "layout-columns"])
+        self.assertEqual({w.HEAVY_SCENES[s] for s in both["swift"]}, {"cmux-ui-browser", "cmux-ui-layout"})
+
     def test_swift_outside_the_shell_needs_a_build(self):
-        f = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift"
+        f = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
         self.assertEqual(w.plan([f])["needs_build"], [f])
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Package.swift"])["needs_build"],
                          ["Packages/macOS/CmuxNext/Package.swift"])
@@ -238,7 +255,7 @@ class LookTests(unittest.TestCase):
     def test_a_needs_build_change_says_so_and_builds_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
-            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
+            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
@@ -568,7 +585,7 @@ class SpeedTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
             jobs = w.queue.Queue()
             web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
-            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]),
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]),
                        seq=43)
             tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
             _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
@@ -586,7 +603,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
-                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
             self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
             self.assertIn("needs an app build", receipt["error"])

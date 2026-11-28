@@ -14,6 +14,10 @@ let package = Package(
         // A heavy module's scene host, built only when a push touches its module (ui-preview-worker.py
         // HEAVY_SCENES), so a leaf change never waits on it.
         .executable(name: "cmux-ui-home", targets: ["UiHomeHost"]),
+        .executable(name: "cmux-ui-layout", targets: ["UiLayoutHost"]),
+        .executable(name: "cmux-ui-browser", targets: ["UiBrowserHost"]),
+        .executable(name: "cmux-ui-agentpane", targets: ["UiAgentPaneHost"]),
+        .executable(name: "cmux-ui-screen", targets: ["UiScreenHost"]),
     ],
     dependencies: [
         .package(path: "../../Packages/macOS/CmuxNext"),
@@ -38,6 +42,38 @@ let package = Package(
                 "UiShellShootKit",
             ],
             path: "Sources/UiHomeHost"
+        ),
+        .executableTarget(
+            name: "UiLayoutHost",
+            dependencies: [
+                .product(name: "CmuxNextUiLayoutModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiLayoutHost"
+        ),
+        .executableTarget(
+            name: "UiBrowserHost",
+            dependencies: [
+                .product(name: "CmuxNextUiBrowserModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiBrowserHost"
+        ),
+        .executableTarget(
+            name: "UiAgentPaneHost",
+            dependencies: [
+                .product(name: "CmuxNextUiAgentPaneModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiAgentPaneHost"
+        ),
+        .executableTarget(
+            name: "UiScreenHost",
+            dependencies: [
+                .product(name: "CmuxNextUiScreenModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiScreenHost"
         ),
         .executableTarget(name: "UiLayerSourceWatcher", path: "Sources/UiLayerSourceWatcher"),
         .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost", "UiShellShootKit"]),

@@ -41,7 +41,8 @@ What stays warm under --state:
   swift/         a worktree of it holding Prototypes/UiLayerHost's `.build` (the UI shell, cmux-ui-layer): a changed
                  file in a shell module is an incremental `swift build` (5.8 s in the ui-shell ceiling run), never
                  the app. The same warm `.build` holds the heavy modules' scene hosts (HEAVY_SCENES: cmux-ui-home
-                 for CmuxNextHomeEngine), each built only for a push to its module
+                 for CmuxNextHomeEngine, cmux-ui-agentpane, -screen, -browser and -layout for the view modules),
+                 each built only for a push to its module
   web/           a worktree of it with webviews' node_modules and the live gallery (`bun run gallery:dev`, vite with
                  hot reload) running over it: a checkout of another commit is picked up by the dev server's watcher,
                  so a web look is a checkout plus a headless shot (ui-preview-shoot.mjs), no gallery build
@@ -111,13 +112,26 @@ SHELL_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
 # The heavy modules' scenes, by the UiLayerHost product that draws them. Each host links one heavy module (and what it
 # needs), so a push to it is that module's incremental build plus the host's link, on the warm .build the leaf shell
 # shares (ui-preview-heavy-rebuild.sh, one-module rebuilds: a per-module build 7.0 s median for AgentPane, the app
-# library 31.2 s), and a leaf push never builds them. AgentPane draws in WKWebView: its looks are the web gallery's.
+# library 31.2 s), and a leaf push never builds them. AgentPane's chat is a web page (the web gallery's looks); its
+# scene draws the pane's native parts (Session Info, the act-as-me card). Each view module's scene is a DEBUG enum in
+# the module (LayoutUiScene, BrowserUiScene, AgentPaneUiScene, MacScreenUiScene), so any file in it, logic or view,
+# gets a before and after of the module's real views.
 # CmuxNextApp has no public view to draw, and a scene hook there grows the App (the arch ratchet's app_lines row):
 # it stays needs_build until a playground of its own moves out to a domain package.
 HEAVY_SCENES = {
     "chief-teleport": "cmux-ui-home",  # CmuxNextHomeEngine: ChiefTeleportPlayground
+    "agentpane-native": "cmux-ui-agentpane",  # CmuxNextAgentPane: AgentPaneUiScene
+    "mac-screen-home": "cmux-ui-screen",  # CmuxNextMacScreen: MacScreenUiScene
+    "browser-chrome": "cmux-ui-browser",  # CmuxNextBrowser: BrowserUiScene
+    "layout-columns": "cmux-ui-layout",  # CmuxNextLayout: LayoutUiScene
 }
-HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",)}
+HEAVY_HOST_SOURCES = {
+    "UiHomeHost": ("chief-teleport",),
+    "UiAgentPaneHost": ("agentpane-native",),
+    "UiScreenHost": ("mac-screen-home",),
+    "UiBrowserHost": ("browser-chrome",),
+    "UiLayoutHost": ("layout-columns",),
+}
 ALL_SWIFT_SCENES = SHELL_SCENES + tuple(HEAVY_SCENES)
 SWIFT_SCENES = {
     "CmuxNextTabs": ("tabs",),
@@ -126,9 +140,13 @@ SWIFT_SCENES = {
     "CmuxNextDesignTokens": SHELL_SCENES,
     "CmuxNextIcons": SHELL_SCENES,
     "CmuxNextHomeEngine": ("chief-teleport",),
+    "CmuxNextAgentPane": ("agentpane-native",),
+    "CmuxNextMacScreen": ("mac-screen-home",),
+    "CmuxNextBrowser": ("browser-chrome",),
+    "CmuxNextLayout": ("layout-columns",),
 }
 # A host that links CmuxNext's CmuxGhosttyKit binary target needs the prebuilt GhosttyKit.xcframework at the tree's
-# root (HomeEngine's closure does not).
+# root (HomeEngine's, AgentPane's, MacScreen's, Browser's and Layout's closures do not).
 GHOSTTY_PRODUCTS: set[str] = set()
 GHOSTTY_STAMP = ".ui-preview-ghostty-sha"
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
