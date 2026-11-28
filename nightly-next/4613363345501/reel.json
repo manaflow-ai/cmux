@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "build": "4613363345501",
+  "notes": "notes/4613363345501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 64272,
+      "title": "cmux-vm: name why a limits call failed, and repeat one that is safe to repeat",
+      "author": "quota-goblin-9012[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64194,
+      "title": "prepush-gate: a push of only backup/* refs skips the code-quality layers",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64265,
+      "title": "macos link stubs: lock-scan reads every locked crate's own framework externs",
+      "author": "cmux-app[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64263,
+      "title": "web tests: regenerate the NEXT docs, async child processes in three vm-image tests, devbox digests after the bashrc change",
+      "author": "cmux-agents-lanes[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64257,
+      "title": "screen-share-vs-pair-launch: a worker list it cannot read is exit 7, not a missing Mac",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64227,
+      "title": "acpmux: read the platform's TLS roots once per process, not at every wss connect",
+      "author": "quota-goblin-9016[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64245,
+      "title": "ci: fleet-client jobs run on the gateway runner, not the cmux-linux pool (no route to the controller)",
+      "author": "quota-goblin-9000[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64266,
+      "title": "ci: cmux-tui retry waits out a rate-limit 403 and prints the body",
+      "author": "quota-goblin-9005[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63719,
+      "title": "Picker: Cloud's effort chip memory kept apart from This Mac's",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/63719/hv-427c03f801ce-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 64169,
+      "title": "ci: a feat-cmux-next PR touching workflows runs the runner-policy guards",
+      "author": "quota-goblin-9000[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 60171,
+      "title": "Move to Cloud: the done toast's words in look C, decided in Rust (RFD 0066 piece 1, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 61701,
+      "title": "Mac Screen: rd_hub step B, stateless hub rules from Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64250,
+      "title": "nightly Finish: sentry dSYMs and delta downloads wait through the rate limit; the reel's OCR gets its time",
+      "author": "quota-goblin-9001[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63699,
+      "title": "cmux-mobile-link: the moved-peer tests name hop (lib tests compile again)",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64264,
+      "title": "ios review gate: a READY_TO_SUBMIT subscription waits for the next version",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    }
+  ]
+}
