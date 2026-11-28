@@ -347,8 +347,19 @@ async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
     assert!(s.turn().is_none(), "the end took the turn");
     assert!(hub.work_coming(&s.id), "the queued prompt's turn is still coming");
+    // The final queued prompt next leaves the queue before publishing its turn. Hold it
+    // there: transfer_cli's moved queue sometimes reported ready before its last prompt ran.
+    let (starting_tx, starting) = tokio::sync::oneshot::channel();
+    let (start, start_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((starting_tx, start_rx));
     let _ = release.send(());
     let _ = tokio::time::timeout(WAIT, first).await.unwrap().unwrap();
+    tokio::time::timeout(WAIT, starting).await.unwrap().unwrap();
+    assert!(s.queue().is_empty(), "the last queued prompt was dequeued");
+    assert!(s.turn().is_none(), "the dequeued prompt has not published its turn");
+    assert!(s.turn_claimed(), "the dequeued prompt owns the next turn");
+    assert!(hub.work_coming(&s.id), "dequeue must not make the session ready early");
+    let _ = start.send(());
     let done = tokio::time::timeout(WAIT, second).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert!(!hub.work_coming(&s.id), "nothing more comes once it ran");

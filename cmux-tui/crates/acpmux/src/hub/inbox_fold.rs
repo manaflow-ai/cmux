@@ -342,9 +342,11 @@ impl Hub {
         thread: &str,
         journal_fallback: bool,
     ) -> Vec<Value> {
-        let Some(dir) = self.inbox_archive_dir(session) else { return Vec::new() };
-        if !journal_fallback || archive_threads(&dir).1.contains(thread) {
-            return archived_thread(&dir, thread);
+        let dir = self.inbox_archive_dir(session);
+        if !journal_fallback
+            || dir.as_ref().is_some_and(|dir| archive_threads(dir).1.contains(thread))
+        {
+            return dir.as_ref().map(|dir| archived_thread(dir, thread)).unwrap_or_default();
         }
         let mut found: Vec<Value> = Vec::new();
         let scan = self.scan_for_rebuild(session, &["inbox"], &mut |record| {
@@ -368,8 +370,18 @@ impl Hub {
         if scan.is_err() {
             return Vec::new();
         }
-        let _ = append_archive(&dir, &found);
-        let _ = mark_scanned(&dir, thread);
-        archived_thread(&dir, thread)
+        if let Some(dir) = dir {
+            let _ = append_archive(&dir, &found);
+            let _ = mark_scanned(&dir, thread);
+            return archived_thread(&dir, thread);
+        }
+        // Memory stores have a journal too, even though there is no archive file to cache it.
+        for line in &mut found {
+            if let Some(map) = line.as_object_mut() {
+                map.remove("thread");
+            }
+        }
+        found.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
+        found
     }
 }

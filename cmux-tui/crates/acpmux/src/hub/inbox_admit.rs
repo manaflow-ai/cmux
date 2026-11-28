@@ -459,7 +459,8 @@ impl Hub {
 
     /// Whether a turn is still coming for session `id` with nothing more sent: a prompt queued
     /// behind its turn that is not held aside (between a turn's end and the next one's start no
-    /// turn runs), a message this daemon's outbox has not delivered to it yet, or its inbox's
+    /// turn runs), a prompt that claimed its turn but has not published it yet, a message this
+    /// daemon's outbox has not delivered to it yet, or its inbox's
     /// ([`turn_coming`]). A wait for its turn's end does not answer with the idle state from
     /// before (`server/wait.rs`).
     pub(crate) fn work_coming(&self, id: &str) -> bool {
@@ -468,7 +469,10 @@ impl Hub {
             return false;
         }
         if session.meta().status != SessionStatus::Closed
-            && super::super::queue::queue_waits(&session)
+            // Read the claim after the queue: `queue_turn` claims before `take_queued`
+            // removes the prompt. Otherwise the final queued prompt can leave neither a
+            // queue entry nor a published turn for a wait to see.
+            && (super::super::queue::queue_waits(&session) || session.turn_claimed())
         {
             return true;
         }
