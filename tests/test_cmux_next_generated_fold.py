@@ -282,7 +282,8 @@ class GeneratedFoldTest(unittest.TestCase):
             ctx["needs"]["daemon-test"] = {"result": "success" if runs["daemon-test"] else "skipped"}
             verdict = truthy(Expr(self.verdict["if"], ctx).value())
             # The generated-files job's condition before generated_host: its shared prerequisites.
-            gen_routed = (generated == "true" and web == "success" and current == "true"
+            # A pull request skips push-head-preflight and counts as current.
+            gen_routed = (generated == "true" and web == "success" and (current == "true" or event == "pull_request")
                           and not (event == "pull_request" and fork and not labels))
             with self.subTest(event=event, ref=ref, generated=generated, swift=swift, targets=targets, daemon=daemon,
                               tree=tree, marker=marker, web=web, current=current, fork=fork, labels=labels, host=host):
