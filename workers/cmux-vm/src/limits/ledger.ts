@@ -16,7 +16,7 @@ import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
 import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
-import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
+import { admitAgentSlot, bindAgentCreation, describeAgentSlots, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -135,6 +135,12 @@ export const creationNeverSent = async (storage: LedgerStorage, key: string): Pr
 };
 /** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
 export const readIdempotencyRecord = readRecord;
+/** A held create's idempotency state, as an agent key's cap refusal names it: its phase and its dispatch receipt. */
+export const describeCreationState = async (storage: LedgerStorage, key: string): Promise<string> => {
+  const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+  if (p === undefined) return "no record";
+  return p.phase === "creating" || p.phase === "cancelled" ? `${p.phase}, dispatch ${p.dispatch?.state ?? "none"}` : p.phase;
+};
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -216,6 +222,7 @@ export class TenantLedger {
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
   admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent, heldBoundMs); }
+  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>> { return describeAgentSlots(this.storage, agent, ownedVmIds, nowMs, describeCreationState); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }

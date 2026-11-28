@@ -2977,8 +2977,11 @@ struct WorkspaceTabAccessory: View {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
             case .terminal where source.showsChatFace(tab, in: workspace):
-                // A View Only chat takes no prompt: no key bar over it (the terminal face has it).
-                EmptyView()
+                // The regular chat's composer; its prompts are typed into the terminal
+                // (`terminalChatStore`). No key bar over the chat (the terminal face has it).
+                if let store = source.terminalChatStore(tab, in: workspace) {
+                    AgentChatBottomStack(store: store, surface: source.surface("\(tab.id)#chat"))
+                }
             case .terminal:
                 let context = context
                 source.terminal.accessory(for: tab, in: workspace, context: TerminalTabContext(
@@ -3089,7 +3092,7 @@ struct WorkspaceTabCard: View {
                 AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
                              page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
                              bottomInset: WorkspaceTabPage.bottomInset(surface: surface),
-                             snapshot: source.snapshotEntry(tab.id))
+                             snapshot: source.snapshotEntry(tab.id), macScreen: source.macCardEntry(tab.id)?.screen)
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:

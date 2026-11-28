@@ -21,7 +21,16 @@ name: gallery visual evidence (advisory)
 # verdict, "justified: <why>" or "unjustified", under one summary line ("N of M
 # differing states have no Visual-change line: is each wanted?"), so a review sees
 # which differences nobody explained (Leo, ask-6d611b71a0: "be warning against
-# things that differ from expectation without justification"). It warns only.
+# things that differ from expectation without justification"). The receipt itself warns only.
+#
+# The `cmux/visual-baseline` commit status is the check that gates (scripts/ci/visual_baseline.py; a commit
+# status, so this workflow's "(advisory)" name does not hide it from autoland). The measure job runs
+# cmux-shotdiff, with the base branch's code, on every changed base/head pair; the comment job fails the status
+# when a pair fails cmux-shotdiff's defaults (or, on a state the PR did not set out to change, its worst 32x32
+# tile is below SSIM 0.9) and no Visual-change line covers that state. No receipt, no pair, or a broken run is
+# success "not judged": a missing screenshot never blocks a UI PR (Leo, 2026-10-31). Leo, 2026-11-27: "i think
+# even y'all didnt even look at sceenshots for those do we have that kinda loop?". The seeded regression that
+# must fail it is in shotdiff.yml.
 #
 # A direct push to feat-cmux-next skips every pull request check, so it gets the
 # same receipt right after it lands: before is the tip the push replaced
@@ -98,6 +107,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      statuses: write
     steps:
       - name: Checkout the status scripts from the base branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -107,8 +117,21 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            scripts/ci/visual_baseline.py
             .gitmodules
           sparse-checkout-cone-mode: false
+      # Pending until the comment job judges this head, so nothing lands it mid-capture.
+      - name: Hold the baseline check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f scripts/ci/visual_baseline.py || exit 0  # a base before the baseline check
+          python3 scripts/ci/visual_baseline.py post --repo "$REPOSITORY" --sha "$HEAD_SHA" --state pending \
+            --description "Rendering the gallery before/after for this head" --target-url "$RUN_URL"
       - name: Mark the gallery section stale
         env:
           GH_TOKEN: ${{ github.token }}
@@ -469,10 +492,78 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+  # The baseline check's numbers: cmux-shotdiff on each changed base/head pair of the receipt. Base-branch code
+  # only; the images are data. Read-only token; the comment job judges and posts.
+  measure:
+    needs: capture
+    if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    continue-on-error: true
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout cmux-shotdiff and the judge from the base branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+            /cmux-tui/
+            /.github/actions/
+      - name: Download the receipt
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: gallery-advisory-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/receipt
+      - name: Count changed pairs
+        id: pairs
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          review="$RUNNER_TEMP/receipt/gallery-review.json"
+          n=0
+          if [ -f scripts/ci/visual_baseline.py ] && [ -f "$review" ] \
+            && jq -e --arg sha "$HEAD_SHA" '.head_sha == $sha' "$review" >/dev/null; then
+            n=$(jq '[.images[] | select(.status == "changed")] | length' "$review")
+          fi
+          echo "changed=$n" >> "$GITHUB_OUTPUT"
+          echo "Changed base/head pairs to measure: $n"
+      - name: Set up pinned Rust
+        if: ${{ steps.pairs.outputs.changed != '0' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Measure each pair against its baseline
+        if: ${{ steps.pairs.outputs.changed != '0' }}
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          mkdir -p "$RUNNER_TEMP/baseline"
+          python3 ../scripts/ci/visual_baseline.py measure --review "$RUNNER_TEMP/receipt/gallery-review.json" \
+            --root "$RUNNER_TEMP/receipt" --shotdiff "$PWD/target/release/cmux-shotdiff" \
+            --out "$RUNNER_TEMP/baseline/visual-baseline.json"
+          jq -r '.images[] | "\(.state) (\(.theme)): \(if .error then .error elif .passed then "pass" else (.reasons | join("; ")) end), tile \(.tile_ssim)"' \
+            "$RUNNER_TEMP/baseline/visual-baseline.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the measurements
+        if: ${{ steps.pairs.outputs.changed != '0' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-baseline-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/baseline
+          if-no-files-found: ignore
+          retention-days: 3
+
   # The PR status comment's `gallery` section, from the artifact's data only:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).
+  # Then the `cmux/visual-baseline` status from the measure job's numbers and the PR body.
   comment:
-    needs: capture
+    needs: [capture, measure]
     # Not on a cancelled run: a newer push cancelled it, and its mark-stale
     # line must stand until the newer capture lands.
     if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -482,6 +573,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      statuses: write
     steps:
       - name: Checkout the status scripts from the base branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -491,6 +583,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            scripts/ci/visual_baseline.py
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
@@ -499,6 +592,12 @@ jobs:
         with:
           name: gallery-advisory-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/receipt
+      - name: Download the measurements
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: visual-baseline-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/baseline
       - name: Update the PR's gallery section
         env:
           GH_TOKEN: ${{ github.token }}
@@ -541,3 +640,20 @@ jobs:
             } > "$RUNNER_TEMP/gallery.md"
             python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section gallery --body-file "$RUNNER_TEMP/gallery.md"
           fi
+      # Fails only on a measured difference no Visual-change line explains; anything not judged is success.
+      - name: Post the baseline check
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f scripts/ci/visual_baseline.py || exit 0  # a base before the baseline check
+          python3 scripts/ci/visual_baseline.py judge --review "$RUNNER_TEMP/receipt/gallery-review.json" \
+            --metrics "$RUNNER_TEMP/baseline/visual-baseline.json" --head-sha "$HEAD_SHA" \
+            --out "$RUNNER_TEMP/visual-baseline-verdict.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci/visual_baseline.py post --repo "$REPOSITORY" --sha "$HEAD_SHA" \
+            --verdict "$RUNNER_TEMP/visual-baseline-verdict.json" --target-url "$RUN_URL"

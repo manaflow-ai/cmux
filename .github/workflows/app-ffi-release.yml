@@ -69,6 +69,7 @@ on:
       - "cmux-tui/crates/cmux-cloud-start-core/**"
       - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-browser-rules/**"
+      - "cmux-tui/crates/cmux-app-workspace-creation/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-config/**"
       - "cmux-tui/crates/cmux-home-rules/**"
@@ -114,6 +115,7 @@ on:
       - "cmux-tui/crates/cmux-window-rules/**"
       - "cmux-tui/crates/cmux-message-preview/**"
       - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-phone-core/**"
       - "cmux-tui/crates/cmux-share-approval/**"
       - "cmux-tui/crates/cmux-vnc/**"
       # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
