@@ -672,6 +672,33 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      # checkout's `git clean -ffdx` empties cmux-tui/target, so every run compiled acpmux
+      # (15-23 min) and the unpublished tree's cmux-tui client set (21-30 min) cold: run
+      # 46112145542 stopped at the client step's 30 min bound. On an owned Mac (a persistent
+      # /Users/*/actions-runner-* slot) both Cargo targets live outside the workspace, one per
+      # runner slot (one job at a time, one checkout path: no stale cross-checkout
+      # fingerprints), and Cargo rebuilds only what changed since that slot's last proof.
+      # Not keyed on Cargo.lock: it changes 30-50 times a day, so such a key misses daily.
+      # A slot's targets past 40 GiB start over. Ephemeral runners keep the in-tree default.
+      - name: Keep the Rust targets across proofs on this runner slot
+        timeout-minutes: 5
+        if: env.CMUX_PROOF_BUILD != 'published' && startsWith(github.workspace, '/Users/') && contains(github.workspace, '/actions-runner-')
+        run: |
+          set -euo pipefail
+          root="/Users/Shared/cmux-build-fleet/ci/cloud-chat-proof-rust/$RUNNER_NAME"
+          mkdir -p "$root"
+          kib="$(du -sk "$root" | awk '{print $1}')"
+          echo "rust targets for $RUNNER_NAME: $((kib / 1048576)) GiB at $root"
+          if (( kib > 40 * 1048576 )); then
+            echo "::notice::$root is past 40 GiB: starting this slot's Rust targets over"
+            find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          fi
+          {
+            echo "CMUX_TUI_CLIENT_TARGET_DIR=$root/cmux-tui-client"
+            echo "CMUX_NEXT_ACPMUX_TARGET_DIR=$root/acpmux"
+            echo "CMUX_NEXT_ACPMUX_CACHE=$root/acpmux-hosted"
+          } >> "$GITHUB_ENV"
+
       # Before the acpmux build: its libghostty-vt (ghostty-vt-sys) runs `zig build`
       # in ghostty-next. As nightly.yml's "Install compilation dependencies": the
       # classic ghostty Zig (CMUX_ZIG, PATH) and ghostty-next's own as CMUX_VT_ZIG.
