@@ -21,3 +21,19 @@ test("every variable set on :host inherits on the copy's host, unlayered and las
 test("a sheet with no :host rule gets no :host rule", () => {
   expect(snapshotCss(":root{--a:1px}.x{color:red}")).not.toContain(":host");
 });
+
+// The copy shows its last frame (chatSnapshot/paint.ts STILL), so a root flag's motion timings never
+// apply there: the motion flags' timings were most of pane-copy.css (agent-pane-styles budget).
+test("a root rule's motion timings are left out; its frame-picking animation and !important stay", () => {
+  const css = `html[data-cmux-motion=off] .a{transition:none}
+html[data-agent-motion=on] .b{transition:opacity .2s;opacity:0}
+html[data-agent-motion=on] .c{animation:rise .2s both;animation-duration:.3s;animation-delay:1s}
+html[data-x] .d{transition:none!important}`;
+  const out = snapshotCss(css).replace(/\s+/g, "");
+  expect(out).not.toContain(".a");
+  expect(out).toMatch(/\.b\{opacity:0\}/);
+  expect(out).toContain("animation:rise");
+  expect(out).not.toContain("animation-duration");
+  expect(out).not.toContain("animation-delay");
+  expect(out).toMatch(/\.d\{transition:none!important\}/);
+});

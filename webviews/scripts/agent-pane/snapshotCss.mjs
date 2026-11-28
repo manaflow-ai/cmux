@@ -7,6 +7,10 @@
 // host is in the live page's <body>, so the live root's and body's variables (the same theme and look,
 // shared.ts `fitsDocument`) inherit into the copy. A selector with `:focus` is left out too: the copy is
 // inert and never holds focus (the focus-ring gate adds a root selector to every `:focus-visible`).
+// A motion timing (`transition*`, `animation-duration`, `-delay`, `-iteration-count`, `-timing-function`)
+// is left out as well: the copy shows its last frame, under paint.ts `STILL` (`transition:none` and 0 s
+// animations, !important), so none of them ever applies there. The root motion flags
+// (`data-cmux-motion`, `data-agent-motion`) were most of this sheet, nearly all of it timings.
 // build-agent-pane-web.sh writes it beside the page's
 // sheet as `pane-copy.css`, minified (tens of KB, where a whole rewritten copy of the sheet was 1.9 MB).
 //
@@ -30,6 +34,13 @@ function namesStandIn(selector) {
 
 /** Whether `selector` names the shadow host (`:host`, `:host(...)`, alone or in a list's member). */
 const namesHost = (selector) => /(^|[\s,>+~(]):host(?![-\w])/.test(selector);
+
+/** A declaration paint.ts `STILL` overrides in the copy (transition:none, animation-duration, -delay and
+ * -iteration-count, all !important), or that only times a motion it runs in 0 s: it never applies there.
+ * An !important one is kept: a layered !important outranks the unlayered STILL. The `animation`
+ * shorthand stays, as its name and fill mode still pick the frame the copy shows. */
+const STILL_TIMING = /^(-webkit-)?(transition(-[a-z-]+)?|animation-(duration|delay|iteration-count|timing-function))$/i;
+const isStillTiming = (decl) => STILL_TIMING.test(decl.prop) && !decl.important;
 
 /** The rules of `css` whose selectors name the page's roots, only those selectors, rewritten for the
  * copy's shadow tree, each inside clones of its at-rule ancestors; keyframes are left out. Then, unlayered
@@ -65,6 +76,9 @@ export function snapshotCss(css) {
     const copy = rule.clone({ selectors });
     // Every selector names a stand-in itself (no combinator): its variables inherit from the live page.
     if (selectors.every(namesStandIn)) copy.walkDecls(/^--/, (decl) => decl.remove());
+    copy.walkDecls((decl) => {
+      if (decl.parent === copy && isStillTiming(decl)) decl.remove();
+    });
     if (!copy.nodes?.length) return;
     let into = out;
     for (const atRule of ancestors) {
