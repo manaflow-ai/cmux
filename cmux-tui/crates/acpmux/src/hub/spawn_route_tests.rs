@@ -714,22 +714,26 @@ async fn adopted_chatgpt_without_a_launch_snapshot_uses_the_accounts_expiry() {
 }
 
 #[tokio::test]
-async fn a_local_claude_chat_cannot_switch_to_a_cloud_token() {
+/// cmux#59852: a Claude setup token serves chats on this Mac too, so a local chat switches to it and a new
+/// chat starts on it.
+async fn a_local_claude_chat_can_switch_to_a_setup_token() {
     let root = tempfile::tempdir().unwrap();
     let (hub, _) = fixture_for(root.path(), "claude", "direct-subscription", "ordinary");
     let (dir, _) = routes::places(&*hub.config.read().await);
-    let id = routes::add_claude_token(dir.as_deref(), "keychain:fixture/token", None).unwrap().id;
+    // A file reference, so the restart onto it resolves on any test host (a Keychain item would not).
+    let token = root.path().join("setup-token");
+    std::fs::write(&token, "sk-ant-oat01-fixture\n").unwrap();
+    crate::router_socket::owner_only(&token);
+    let reference = format!("file:{}", token.display());
+    let id = routes::add_claude_token(dir.as_deref(), &reference, None).unwrap().id;
     let req = || NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() };
     let session = hub.new_session(req()).await.unwrap();
-    let before = hub.child_for(&session).await.unwrap().generation;
 
-    let error = hub.set_chat_route(&session, Some(id.clone()), false).await.unwrap_err();
-    assert_eq!(error.data.unwrap()["reason"], "route.unavailable");
-    assert!(routes::bindings(root.path()).chats.get(&session.id).is_none());
-    assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+    hub.set_chat_route(&session, Some(id.clone()), false).await.unwrap();
+    assert_eq!(routes::bindings(root.path()).chats.get(&session.id), Some(&id));
 
     let start = hub.new_session(NewRequest { route: Some(id.into()), ..req() }).await;
-    assert_eq!(start.err().unwrap().data.unwrap()["reason"], "route.unavailable");
+    assert!(start.is_ok(), "a new chat starts on the setup token");
     hub.shutdown_all().await;
 }
 
