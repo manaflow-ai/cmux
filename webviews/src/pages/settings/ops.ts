@@ -1319,6 +1319,8 @@ export type VaultState = {
   /** The last read's failure (the daemon's message and `error_code`). */
   error?: string;
   code?: string;
+  /** Only the grants read failed: the entries still show, the grants list says it couldn't load. */
+  grantsCode?: string;
 };
 /** One vault write; the person's own click or key only. `set` carries the value once. */
 export type VaultRun =

@@ -31,7 +31,8 @@ struct SettingsVaultTests {
         })
         let state = try object(await vault.state())
         #expect(state["entries"]?.arrayValue?.count == 1)
-        #expect(state["code"] == .string("http_503"))
+        #expect(state["grantsCode"] == .string("http_503"))
+        #expect(state["error"] == nil) // the entries read is fine
     }
 
     @Test func runPassesWritesAndTheRefusalCode() async throws {

@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-28",
+  "row": "app_lines",
+  "allow": 17,
+  "why": "Settings > Environment (RFD 0222 (c)1, hq#37585): the vault-env request and SettingsVault (state/run shaping, refusal codes, capability gate) live in CmuxNextDaemon with their tests; the App keeps only adapters over App-only types: PageFactory's platform origin (cloud.configuration), signed-in install token (cloud.auth, installIdentity) and local daemon connection (machines.local), and SettingsPageProvider's two op routes with the person's-gesture gate on writes.",
+  "author": "lane/rfd0222-vault-env-card (claude opus 5.5)",
+  "owner": "lane/rfd0222-vault-env-card",
+  "receipt": "Review (router-review claude-opus-5-5): SHIP at 4d2fdea1498d8f539feb7090a0c27c824df1dbd3",
+  "expiry": "2026-12-28"
+}
