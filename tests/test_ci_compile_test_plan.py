@@ -27,6 +27,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from textwrap import dedent
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -212,8 +213,12 @@ exit 1
 # The plan comes from FAKE_PLAN (";" between packages), and one package's
 # submodule setup fails when it is FAKE_BROKEN_SETUP.
 FAKE_PLAN = r"""import os, sys
+from pathlib import Path
+
+changed = Path(sys.argv[sys.argv.index("--changed-files") + 1])
 with open(os.environ["FAKE_SEEN"], "a") as seen:
     seen.write("plan " + " ".join(sys.argv[1:]) + "\n")
+    seen.write(changed.read_text())
 for line in os.environ.get("FAKE_PLAN", "").split(";"):
     if line.strip():
         print(line.strip())
@@ -266,13 +271,13 @@ class CompileTestsPhaseTests(unittest.TestCase):
         self.seen = self.tmp / "seen"
 
     def lane(self, plan: str, bad: str = "", refused: str = "", broken: str = "",
-             extra: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+             extra: tuple[str, ...] = (), base: str | None = None) -> subprocess.CompletedProcess:
         self.seen.write_text("")
         env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
         env.update(PATH=f"{self.bin}:{env['PATH']}", DEVELOPER_DIR=str(self.dev), RUNNER_TEMP=str(self.tmp),
                    FAKE_SEEN=str(self.seen), FAKE_PLAN=plan, FAKE_BAD=bad, FAKE_REFUSED=refused,
                    FAKE_BROKEN_SETUP=broken)
-        return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "compile-tests", self.base, *extra],
+        return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "compile-tests", base or self.base, *extra],
                               cwd=self.repo, env=env, capture_output=True, text=True, timeout=120)
 
     def builds(self) -> list[str]:
@@ -304,6 +309,48 @@ class CompileTestsPhaseTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("nothing to compile", done.stdout)
         self.assertEqual(self.builds(), [])
+
+    def test_full_compile_plans_from_all_tracked_package_paths(self) -> None:
+        done = self.lane("Packages/macOS/Alpha;Packages/macOS/Beta", base="--all")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Packages/macOS/Beta/Package.swift", self.seen.read_text().splitlines())
+        self.assertEqual(len(self.builds()), 2, self.builds())
+
+    def test_batch_compile_plan_uses_the_callers_range_without_github(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
+        plan_step = workflow.split("        id: plan\n", 1)[1].split("\n  compile-fleet:", 1)[0]
+        script = dedent(plan_step.split("        run: |\n", 1)[1])
+        git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-C", str(self.repo)]
+        subprocess.run([*git, "commit", "--allow-empty", "-qm", "tip with no Swift changes"], check=True)
+        subprocess.run([*git, "remote", "add", "origin", "."], check=True)
+        head = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+        output = self.tmp / "outputs"
+        env = {**os.environ, "HEAD_SHA": head, "BATCH_SHA": head, "RUNNER_TEMP": str(self.tmp),
+               "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(self.tmp / "summary"),
+               "FAKE_SEEN": str(self.seen)}
+        cases = (
+            (self.base, self.base, "Packages/macOS/Alpha/A.swift"),
+            ("--all", "--all", "Packages/macOS/Beta/Package.swift"),
+            ("", subprocess.check_output([*git, "rev-parse", "HEAD^1"], text=True).strip(), None),
+        )
+        for base, expected_base, expected_path in cases:
+            with self.subTest(base=base):
+                self.seen.write_text("")
+                output.write_text("")
+                env["FAKE_PLAN"] = "Packages/macOS/Alpha AlphaTests" if expected_path else ""
+                done = subprocess.run(
+                    ["bash", "-c", "gh() { echo unexpected GitHub read >&2; return 1; };\n" + script],
+                    cwd=self.repo, env={**env, "FORCED_BASE": base}, capture_output=True, text=True, timeout=15,
+                )
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertNotIn("unexpected GitHub read", done.stderr)
+                changed = (self.tmp / "changed.txt").read_text().splitlines()
+                if expected_path:
+                    self.assertIn(expected_path, changed)
+                else:
+                    self.assertEqual(changed, [])
+                needed = "true" if expected_path else "false"
+                self.assertEqual(output.read_text().splitlines(), [f"base={expected_base}", f"needed={needed}"])
 
     def test_a_target_that_does_not_compile_is_red(self) -> None:
         done = self.lane("Packages/macOS/Alpha AlphaTests BadTests;Packages/macOS/Beta", bad="BadTests")
@@ -363,6 +410,9 @@ class RetainedCompileCoverageTests(unittest.TestCase):
         suite = json.loads((ROOT / ".github" / "post-merge-batch.json").read_text())["suites"]["tip-test-compile"]
         self.assertEqual(suite["workflow"], "cmux-next-tip-test-compile.yml")
         self.assertIn("Packages/**", suite["paths"])
+        batch = (ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
+        job = batch.split("\n  tip-test-compile:\n", 1)[1].split("\n  fast-tier:", 1)[0]
+        self.assertIn("base: ${{ needs.plan.outputs.tip_compile_base || needs.plan.outputs.base }}", job)
 
 
 if __name__ == "__main__":

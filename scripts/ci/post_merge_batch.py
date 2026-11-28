@@ -48,6 +48,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +70,10 @@ RUNS_PAGE = 100
 # run 45919537854 called 25 of its 28 reds "a known red, no bisect" (cmuxterm-hq goals/base-batch-reverts-culprit.md).
 LOOKBACK_BATCHES = 24
 MAX_RUNS_PAGES = 8
+TIP_COMPILE_SUITE = "tip-test-compile"
+TIP_COMPILE_JOB = "tip-test-compile / tip test-compile (fleet, background)"
+TIP_COMPILE_PASS_STEP = "Confirm test targets compiled"
+TIP_COMPILE_LOOKBACK = 4
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
 # At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
@@ -734,7 +739,18 @@ def tick(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------- plan
 
 
-def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since, judged=lambda run_id: True, branch: str = "") -> dict:
+def tip_compile_passed(jobs: list[dict]) -> bool:
+    """A green wrapper can mean the fleet never ran. Only the pass step verifies the tip."""
+    return any(
+        job.get("name") == TIP_COMPILE_JOB and job.get("conclusion") == "success"
+        and any(step.get("name") == TIP_COMPILE_PASS_STEP and step.get("conclusion") == "success"
+                for step in job.get("steps") or [])
+        for job in jobs
+    )
+
+
+def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since, judged=lambda run_id: True,
+               branch: str = "", tip_verified=lambda run_id: False) -> dict:
     """The suites a batch run calls: every one the commits since the newest earlier batch run reach.
     Only a run whose judge succeeded counts: one whose plan died (drill run 44881749105, rate limit)
     tested nothing, and planning past it skipped the suites its commits reached. A hot swap out drill
@@ -745,10 +761,21 @@ def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since
     tested = next((r for r in earlier if judged(r["id"])), None)
     base = tested["head_sha"] if tested else ""
     files = files_since(base) if base else None
-    picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
+    tip_base = ""
+    tip_files = files
+    if TIP_COMPILE_SUITE in suites and (not branch or branch == "feat-cmux-next"):
+        verified = next((r for r in earlier[:TIP_COMPILE_LOOKBACK] if tip_verified(r["id"])), None)
+        tip_base = verified["head_sha"] if verified else "--all"
+        if tip_base != base:
+            tip_files = files_since(tip_base) if verified else None
+    picked = []
+    for key, suite in suites.items():
+        suite_files = tip_files if key == TIP_COMPILE_SUITE else files
+        if suite_files is None or suite.reached(suite_files):
+            picked.append(key)
     if branch.startswith(PIECES_DRILL) and "drill" in suites:
         picked = ["drill"]
-    return {"base": base, "suites": picked, "files": None if files is None else len(files)}
+    return {"base": base, "tip_compile_base": tip_base, "suites": picked, "files": None if files is None else len(files)}
 
 
 def write_outputs(path: str | None, values: dict[str, str]) -> None:
@@ -810,17 +837,23 @@ def cmd_plan(args: argparse.Namespace) -> int:
         reuse, why = reusable_run(args, suites)
         write_outputs(args.github_output, {"suites": " " if reuse else f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "",
                                            "base": args.good if SHA_RE.match(args.good or "") else "", "reuse": reuse,
+                                           "tip_compile_base": args.good if SHA_RE.match(args.good or "") else "",
                                            "states": getattr(args, "states", "") or ""})
         if reuse:
             summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}` reuses run {reuse}'s verdict ({why}); no suite runs.")
         else:
             summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
+    @lru_cache(maxsize=None)
+    def jobs_for(run_id: int) -> list[dict]:
+        return run_jobs(args.repo, run_id)
+
     def judged(run_id: int) -> bool:
-        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in jobs_for(run_id))
 
     try:
-        plan = plan_batch(args.sha, list_runs(args.repo, args.branch), suites, lambda base: changed_files(base, args.sha), judged, args.branch)
+        plan = plan_batch(args.sha, list_runs(args.repo, args.branch), suites, lambda base: changed_files(base, args.sha),
+                          judged, args.branch, lambda rid: tip_compile_passed(jobs_for(rid)))
     except RuntimeError as err:
         # Past the wait budget the runs are unreadable: run every suite rather than none, so the
         # tip is still tested; the next batch's judge compares against this run as usual.
@@ -829,10 +862,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         plan = plan_batch(args.sha, [], suites, lambda base: [], branch=args.branch)
     write_outputs(
         args.github_output,
-        {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"], "states": ""},
+        {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"],
+         "tip_compile_base": plan["tip_compile_base"], "states": ""},
     )
     covered = f"since `{plan['base'][:11]}` ({plan['files']} files changed)" if plan["base"] else "with no earlier batch run (every suite)"
     summary(args.summary, f"Batch on `{args.sha[:11]}` {covered}: {', '.join(plan['suites']) or 'no suite reached'}.")
+    if plan["tip_compile_base"] == "--all":
+        summary(args.summary, "No verified tip compile checkpoint was available. The fleet will compile all macOS package test targets.")
     return 0
 
 

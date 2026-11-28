@@ -48,7 +48,7 @@
 #             its own `swift test` process: `--arg=each:Sidebar` for the
 #             whole-Sidebar run, which as one `--filter Sidebar` process
 #             started about 250 GUI tests at once and stalled (2026-11-15).
-#   compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]
+#   compile-tests MERGE_BASE_SHA|--all [--skip-package=DIR ...]
 #             compile, without running, the test targets this commit's change
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
@@ -61,6 +61,7 @@
 #             compile", anything else when there is no verdict. The marker is
 #             printed as soon as a target fails, so a later package's setup
 #             failure (any exit) never hides an earlier compile failure.
+#             --all plans from every tracked path when the batch has no base.
 #             --skip-package=DIR leaves that package out of the plan
 #             (compile_test_plan.py --skip-package).
 #
@@ -113,16 +114,18 @@ case "${1:-}" in
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   compile-tests)
     phase="$1"
-    if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
-      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...] (the full sha of the change's merge base)" >&2; exit 2
+    compile_usage="usage: package-test-lane.sh compile-tests MERGE_BASE_SHA|--all [--skip-package=DIR ...]"
+    compile_base="${2:-}"
+    if [ "$compile_base" != --all ] && ! [[ "$compile_base" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "$compile_usage" >&2
+      exit 2
     fi
-    compile_base="$2"
     shift 2
     compile_skip=()
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --skip-package=?*) compile_skip+=(--skip-package "${1#--skip-package=}"); shift ;;
-        *) echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]: unknown argument $1" >&2; exit 2 ;;
+        *) echo "$compile_usage: unknown argument $1" >&2; exit 2 ;;
       esac
     done
     ;;
@@ -1235,20 +1238,25 @@ compile_one() {
 }
 
 run_compile_tests() {
-  # The merge base may be missing from a shallow step checkout: fetch that one commit.
-  if ! git cat-file -e "$compile_base^{commit}" 2>/dev/null; then
-    local depth=()
-    [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-    git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} \
-      "$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)" "$compile_base" \
-      || { echo "compile-tests: could not fetch the merge base $compile_base" >&2; exit 3; }
-  fi
   local changed="$work/compile-tests-changed.txt" plan="$work/compile-tests-plan.txt"
-  git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
-    || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
+  if [ "$compile_base" = --all ]; then
+    git ls-files > "$changed" || exit 3
+    echo "compile-tests: planning from all tracked paths"
+  else
+    # The merge base may be missing from a shallow step checkout: fetch that one commit.
+    if ! git cat-file -e "$compile_base^{commit}" 2>/dev/null; then
+      local depth=()
+      [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+      git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} \
+        "$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)" "$compile_base" \
+        || { echo "compile-tests: could not fetch the merge base $compile_base" >&2; exit 3; }
+    fi
+    git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
+      || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
+    echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
+  fi
   python3 scripts/ci/compile_test_plan.py --changed-files "$changed" ${compile_skip[@]+"${compile_skip[@]}"} > "$plan" \
     || { echo "compile-tests: compile_test_plan.py failed" >&2; exit 3; }
-  echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
   if [ ! -s "$plan" ]; then
     echo "compile-tests: the change reaches no test target; nothing to compile."
     return 0
