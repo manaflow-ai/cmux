@@ -197,6 +197,14 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+    def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
+        plan = {"layers": ["web"], "needs_build": True, "build": {"Swift": ["Packages/macOS/A/Sources/B/C.swift"]}}
+        self.assertEqual(u.suite_of(plan), "mac-flows")
+        self.assertIn(u.suite_of(plan), u.suites_for("app"))
+        self.assertEqual(u.suite_of({"layers": ["web", "rust"], "build": {"Swift": ["x.swift"]}}), "gui-flows")
+        self.assertEqual(u.suite_of({"layers": ["web"]}), "web-flows")
+
+
 class SwiftDrawsTest(unittest.TestCase):
     """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
     `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
@@ -306,7 +314,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        self.assertEqual(module.main(argv), 0)
+                        # proof_record's gate exits UNREAD so its job fails rerunnable (pr-router.yml); ui proof posts.
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())

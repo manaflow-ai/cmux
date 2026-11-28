@@ -748,6 +748,28 @@ keep_first() {
   printf '%s\n' "$file" >> "$results/retry-skipped"
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
 }
+# retry_unreached FIRST_RESULT: a retry CMUX_WEB_TEST_STOP_AT stopped (or never started) writes no verdict, and one that
+# never started no log either, so the file keeps its first run's verdict and log instead of losing both. Without it a
+# stopped retry dropped the first run's FAIL (the file read NOT RUN, its log never printed), and one that never started
+# had its missing log read under set -e, ending the whole run before its summary, results and durations (post-merge
+# batch 46058976708 shard 3: about 30 FAIL lines, then `cat: ...tool-group-scroll.test.ts.log: No such file`, exit 1).
+retry_unreached() {
+  if grep -qF -- " $file $log" "$results/summary"; then return 1; fi
+  echo "retry of $file stopped at CMUX_WEB_TEST_STOP_AT: keeping its first run's $1"
+  if [ -f "$log" ]; then
+    { cat "$log.first"; echo "--- retry stopped at CMUX_WEB_TEST_STOP_AT (no verdict) ---"; cat "$log"; } > "$log.both"
+    mv "$log.both" "$log"
+    rm -f "$log.first"
+  else
+    mv "$log.first" "$log"
+  fi
+  if [ -f "$results/not-run" ]; then
+    grep -vxF -- "$file" "$results/not-run" > "$results/not-run.kept" || true
+    mv "$results/not-run.kept" "$results/not-run"
+  fi
+  printf '%s\n' "$file" >> "$results/retry-skipped"
+  printf '%s %s %s\n' "$1" "$file" "$log" >> "$results/summary"
+}
 # CMUX_WEB_TEST_RETRY_POOL=W (0 or unset: off): before the alone retries, the red files due one run again W at a time
 # on the otherwise idle runner (the first pass ran 12 files at once). Each pooled retry then settles its file
 # (webviews_retry_pool.py): a pass is a retry pass; a FAIL naming exactly its first run's red tests stays red with no
@@ -885,7 +907,9 @@ while read -r result file log; do
       if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/timeout-retry-$timeout_retried"; fi
       bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
       if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-      if grep -qxF "PASS $file $log" "$results/summary"; then
+      if retry_unreached TIMEOUT; then
+        :
+      elif grep -qxF "PASS $file $log" "$results/summary"; then
         echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
         alone_fail_streak=0
       else
@@ -918,7 +942,9 @@ while read -r result file log; do
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
   CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-  if [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
+  if retry_unreached "$result"; then
+    :
+  elif [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
     # An incomplete retry is not a full-file timeout: keep the first run's actual named
     # failure. Otherwise an old base assertion would become a new file-level head red.
     echo "retry budget exhausted during $file; retaining its first failure"

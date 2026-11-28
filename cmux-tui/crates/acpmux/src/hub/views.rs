@@ -202,13 +202,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
     "stopReason",
     "errorText",
     "errorSource",
+    "errorCode",
     "detail",
     "errorKind",
     "recovery",
@@ -1213,6 +1214,11 @@ impl Hub {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
         v.set("pending", Value::Array(pending));
+        // A moved chat that runs here while its earlier history still arrives
+        // (`transfer_history.rs`): usable now, not yet fully here.
+        if let Some(following) = self.history_following(&session.id) {
+            v.set("historyFollowing", following);
+        }
         v
     }
 
@@ -1305,6 +1311,8 @@ impl Hub {
             "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
+            "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
             // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
             "evicted": evicted,
@@ -1413,6 +1421,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // How typing wakes of a paused peer's machine ended: sent with their lead, or a
+            // draft never sent (`compose_wake.rs`, RFD 0072's parallel start).
+            "composeWakes": crate::compose_wake::status(),
             // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
             // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
             "fleetHold": self.fleet_hold_shown(),
