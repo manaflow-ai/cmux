@@ -971,6 +971,7 @@ pub mod dock_model;
 pub mod drop_overlay_geometry;
 pub mod drop_rules;
 pub mod floating_panes;
+pub mod geometry;
 
 pub mod group_hover_summary;
 pub mod keep_awake;

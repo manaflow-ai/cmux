@@ -549,6 +549,7 @@ import {
   useEnvironmentCardOn,
   useFeatureTipsOn,
   useHeaderBreadcrumb,
+  useOwnHarnessUpdatesOnly,
   useSubagentOf,
   useTrayHandle,
   useTrayTucked,
@@ -2025,6 +2026,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (id: string) => catalog.find((entry) => entry.id === id)?.pickable !== false,
     [catalog],
   );
+  const ownHarnessUpdatesOnly = useOwnHarnessUpdatesOnly();
   const harnessUpdates = useHarnessUpdateList({
     rows: healthRows,
     offer: updateOffer,
@@ -2033,6 +2035,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     native: callNative,
     onUpdated: recheckHealth,
     offered: harnessOffered,
+    // A one-agent app's look (the Claude Code app profile) offers only the chat's own agent's update.
+    ownOnly: ownHarnessUpdatesOnly,
   });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
