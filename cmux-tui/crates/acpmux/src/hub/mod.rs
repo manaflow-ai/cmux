@@ -357,6 +357,7 @@ mod remote_cwd;
 mod remote_floor;
 mod remote_rows;
 pub(crate) mod remote_sandbox;
+mod remote_start_bound;
 mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
@@ -497,6 +498,7 @@ pub(crate) mod turn_cap;
 mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
+pub(crate) mod turn_frames_native;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
@@ -647,21 +649,9 @@ pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
 };
 pub use spawn::expand_env_value;
-/// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
-/// out or dead store would (`peer_snapshot/restore.rs`).
 #[cfg(debug_assertions)]
 #[doc(hidden)]
-pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
-    peer_snapshot::reads_fail(peer, n);
-}
-
-/// Debug builds only: each copy keeps at most `n` records from its next change on (0: the
-/// bound as built), as a turn past the bound would leave it (`peer_snapshot.rs` `bound`).
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn peer_snapshot_bound(n: usize) {
-    peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
-}
+pub use peer_snapshot::{peer_snapshot_bound, peer_snapshot_reads_fail};
 pub(crate) use crate::questions;
 pub(crate) use match_cap::cap_match;
 pub use match_cap::{MAX_MATCH_BYTES, validate_match};
@@ -1106,6 +1096,10 @@ pub struct Hub {
     pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
+    /// Whether the configured retry loop is disabled (`autoResumeDelaysMs: []`).
+    /// Kept as a snapshot so synchronous idle eligibility never observes a contended,
+    /// partially updated config lock.
+    pub(super) auto_resume_disabled: AtomicBool,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
@@ -1447,6 +1441,8 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// Tool calls whose wait is handed to the platform (`parked_wait.rs`).
+    pub parked: crate::parked_wait::Parked,
     /// Paused machines' replicas and write journals, when `writeJournal.enabled` (`paused_fs.rs`).
     pub(super) paused_fs: Option<Arc<crate::write_journal::paused::PausedFs>>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
@@ -1817,9 +1813,12 @@ impl Hub {
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let auto_resume_disabled =
+            config.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty);
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
+            auto_resume_disabled: AtomicBool::new(auto_resume_disabled),
             usage_limits,
             page_rule_sessions,
             wireguard,
@@ -1981,6 +1980,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            parked: crate::parked_wait::Parked::default(),
             paused_fs,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
@@ -2472,10 +2472,10 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
-        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        // Unstarted, an adopted chat goes by its saved `agentInfo`.
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
-        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
-        // policy change refuses it as while it moved (`queue::moving_error`).
+        // A chat that moved away stays frozen after a restart: prompts, queue, drafts and
+        // policy changes refuse as while it moved (`queue::moving_error`).
         let moving =
             meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
                 // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
@@ -2486,10 +2486,10 @@ impl Hub {
                     .filter(|record| record.auto)
                     .map(|_| AUTO_AWAY.to_owned())
             });
-        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        // Its creator may have its starts wait on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
-        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        // A fork not started at a restart starts as the first daemon would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
@@ -2499,10 +2499,10 @@ impl Hub {
             book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
-            spawn_lock: Mutex::new(()),
+            spawn_lock: Arc::new(Mutex::new(())),
             fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
-            harness_use: RwLock::new(()),
+            harness_use: Arc::new(RwLock::new(())),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: Default::default(),
             time_breakdown: StdMutex::new(Default::default()),
@@ -2587,6 +2587,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             respawn_when_quiet: AtomicBool::new(false),
+            respawn_required: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound: std::sync::OnceLock::new(),
@@ -2623,6 +2624,7 @@ impl Hub {
             stopped_agent: AtomicU64::new(0),
             stop_respawn: AtomicU64::new(0),
             taps: AtomicU64::new(0),
+            raw_line_tap: AtomicU64::new(0),
             muted_taps: AtomicU64::new(0),
             stop_hold: AtomicU64::new(0),
             turn_hold: AtomicU64::new(0),
