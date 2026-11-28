@@ -202,8 +202,8 @@ jobs:
           FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           # A busy display queue skipped every idle-priority run: 20 of 20 sampled frames jobs in the 25 h to
           # 2026-11-28 09:53Z read "skip: 43-108 exclusive steps queued", so nothing was ever measured. Then the
-          # job submits one detached step per WINDOW_H-hour window instead (the step key names the window, so a
-          # second push in it follows the same step): agent priority, due by the window's end, and the display
+          # job submits one detached step per WINDOW_H-hour window instead. The key reserves the window for the
+          # first accepted commit; different commits or arguments are refused, not measured by that step. The display
           # Mac posts its verdict as check run REPORT_CHECK on the measured commit (cmux-ci run --report-check
           # --detach, report_check.go), so no runner waits. At most 24/WINDOW_H steps a day. 0 turns it off.
           WINDOW_H: ${{ vars.CI_TAB_SWITCH_WINDOW_H || '6' }}
@@ -276,6 +276,10 @@ jobs:
                 echo detached > "$RUNNER_TEMP/tab-switch/step-exit"
                 echo "::notice title=Tab switch::the queue is busy (${admit#skip: }); window $window's step: ${line#cmux-ci: }"
                 exit 0
+              fi
+              admit="skip: detached submission was not confirmed for window $window; see detach.log"
+              if grep -q 'step_key already names a different step' "$dlog"; then
+                admit="skip: window $window is reserved for a different commit or arguments; this request was not measured"
               fi
             fi
             echo "${admit#skip: }" > "$RUNNER_TEMP/tab-switch/skipped"
@@ -383,14 +387,14 @@ jobs:
           step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
           if [[ "$step_exit" == detached ]]; then
             what="$(cat "$RUNNER_TEMP/tab-switch/detached" 2>/dev/null || echo "a detached step")"
-            printf '### %s: measured off this run\n\nThe display queue was busy, so this window'"'"'s one step waits its turn there: %s. Its verdict arrives as check run "%s".\n' \
+            printf '### %s: measurement queued, result pending\n\nThe display queue was busy, so this window'"'"'s one step waits its turn there: %s. Its verdict arrives as check run "%s"; submission alone is not a measurement result.\n' \
               "$title" "$what" "$REPORT_CHECK" >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice title=$title::measured off this run: $what"
+            echo "::notice title=$title::measurement queued, result pending: $what"
             exit 0
           fi
           if [[ "$step_exit" == skipped ]]; then
             why="$(cat "$RUNNER_TEMP/tab-switch/skipped" 2>/dev/null || echo "the display queue was busy")"
-            unmeasured "The display Macs could not start this step within the queue wait, so the frames job did not submit it: $why."
+            unmeasured "No measurement result is available for this request: $why."
           fi
           if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
             unmeasured "The harness could not measure on its worker (exit $step_exit, for example no Screen Recording grant): see the frames job."

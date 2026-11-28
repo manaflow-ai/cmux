@@ -229,6 +229,10 @@ fi
 echo "$*" >> "$FAKE_CLIENT_CALLS"
 [[ "$1" == run ]] || exit 1
 if [[ " $* " == *" --detach "* ]]; then
+  if [[ -n "${FAKE_CLIENT_ERROR:-}" ]]; then
+    echo "$FAKE_CLIENT_ERROR" >&2
+    exit 1
+  fi
   echo "cmux-ci: step 0123456789abcdef01234567 (exclusive, key k) detached; check run \"c\" on manaflow-ai/cmux@aaaaaaaaaaaa carries its verdict" >&2
   exit 0
 fi
@@ -242,7 +246,7 @@ class FramesAdmissionTests(unittest.TestCase):
     otherwise it ends in seconds (2026-11-17: 220 of 354 jobs waited out a 3600 s queue timeout behind 60 queued
     exclusive steps, holding a gateway token, and none returned a report)."""
 
-    def run_frames(self, status, detach=True, window_h="6", event="push"):
+    def run_frames(self, status, detach=True, window_h="6", event="push", error=""):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         client, calls = os.path.join(tmp, "cmux-ci"), os.path.join(tmp, "calls")
@@ -259,6 +263,7 @@ class FramesAdmissionTests(unittest.TestCase):
                "HEAD_SHA": "a" * 40, "BASE_SHA": "b" * 40, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUNDS": "3",
                "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz", "QUEUE_WAIT_S": "1200",
                "FAKE_CLIENT_DETACH": "1" if detach else "0", "WINDOW_H": window_h, "EVENT": event,
+               "FAKE_CLIENT_ERROR": error,
                "REPORT_CHECK": "cmux-next tab switch (measured, report-only)"}
         proc = subprocess.run(["bash", "-e", "-c", frames_script()], env=env, capture_output=True, text=True,
                               timeout=60)
@@ -308,6 +313,21 @@ class FramesAdmissionTests(unittest.TestCase):
         for kwargs in ({"detach": False}, {"window_h": "0"}):
             with self.subTest(**kwargs):
                 self.assert_deep_queue_skips(**kwargs)
+
+    def test_detached_submission_failures_remain_unmeasured(self):
+        for error, reason in (
+            ("HTTP 409: step_key already names a different step", "reserved for a different commit or arguments"),
+            ("HTTP 503: controller unavailable", "detached submission was not confirmed"),
+        ):
+            with self.subTest(error=error):
+                state, submitted, out, tmp = self.run_frames(self.hosts(queued=63, running=5), error=error)
+                self.assertEqual(state, "skipped")
+                self.assertEqual(len(submitted), 1)
+                self.assertIn(reason, out)
+                self.assertIn("not measured", out)
+                self.assertFalse(os.path.exists(os.path.join(tmp, "tab-switch", "detached")))
+                with open(os.path.join(tmp, "tab-switch", "skipped")) as handle:
+                    self.assertIn(reason, handle.read())
 
     def assert_deep_queue_skips(self, **kwargs):
         step_exit, submitted, out, tmp = self.run_frames(self.hosts(queued=63, running=5, online=20), **kwargs)
@@ -430,7 +450,9 @@ class VerdictTests(unittest.TestCase):
             with self.subTest(gate_mode=gate_mode):
                 code, text, out = self.run_verdict(gate_mode=gate_mode, frames="success", step_exit="detached")
                 self.assertEqual(code, 0, out + text)
-                self.assertIn("measured off this run", text)
+                self.assertIn("measurement queued, result pending", text)
+                self.assertIn("submission alone is not a measurement result", text)
+                self.assertNotIn("measured off this run", text)
                 self.assertIn("cmux-next tab switch (measured, report-only)", text)
                 self.assertNotIn("::error", out)
 
