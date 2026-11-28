@@ -9,14 +9,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -31,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -188,7 +188,8 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, statusDotMounts, dotSaysQueuePaused } from "./ComposerStatusDot";
+import { ComposerStatusFoot } from "./ComposerStatusDot";
+import { dotSaysQueuePaused, statusDotMounts } from "./composerStatusDotModel";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -644,7 +645,7 @@ const noStop = () => {};
 
 /// The chat's snapshot as a relayed composer reads it: its machine and connection, with no turn,
 /// queue, commands, prompt history, suggestion, usage or modes of the chat's.
-export function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const {
     sessionId: _session,
     stopping: _stopping,

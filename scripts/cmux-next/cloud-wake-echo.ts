@@ -54,6 +54,12 @@ export type WakeCycle = {
   offset_ms: number | null;
   offset_rtt_ms: number | null;
   offset_pre_ms: number | null;
+  /** Round trip of the pre-pause offset's min-RTT sample. */
+  offset_pre_rtt_ms?: number | null;
+  /** The offset's error (half the min-RTT round trip of the samples used): every mark is +- this on the runner clock. */
+  offset_err_ms?: number | null;
+  /** Runner-clock ms from wake_at to when the runner read the probe's result: no guest mark can be after it. */
+  read_ms?: number | null;
   /** Runner-clock ms from wake_at to each guest mark. */
   marks_ms: Partial<Record<"resumed" | "net_up" | "dns" | "pty_attach" | "input" | "echo" | "echo_any", number>>;
   phases: Partial<Record<Phase, number>>;
@@ -93,12 +99,41 @@ export function earlyResume(resumed: number | undefined, rttMs: number | null | 
   return resumed < -bound ? `the probe's gap ended ${-resumed} ms before wake_at, past the clock offset's ${bound} ms error: not this wake` : "";
 }
 
+/**
+ * Whether a cycle's marks can be a sample at all (artifact 15276659944, run 46158958288 cycle #2: ok with restore
+ * -1282 ms and total -1262 ms, and it counted toward the p50/p95 and the wake-on-intent arms). A mark before wake_at
+ * inside the offset's error (earlyResume names the ones past it) cannot be told apart from the offset's error, so the
+ * wake's length is unknown there: the cycle fails as "timing invalid", in the denominator, its raw signed values kept.
+ * The same goes for guest marks out of their own order (one clock, no offset between them), a mark after the runner
+ * already read the result, and pre-pause and post-wake offsets that disagree past both errors (the clock moved).
+ */
+export function timingInvalid(m: WakeCycle["marks_ms"], errMs: number | null | undefined, readMs?: number | null, offsets?: { pre: number | null; preErr: number | null; post: number; postErr: number }): string {
+  const e = typeof errMs === "number" && Number.isFinite(errMs) ? Math.round(errMs) : null;
+  const bad: string[] = [];
+  if (offsets && offsets.pre !== null && offsets.preErr !== null && Math.abs(offsets.post - offsets.pre) > offsets.preErr + offsets.postErr) {
+    bad.push(`the guest clock moved ${Math.round(offsets.post - offsets.pre)} ms between the pre-pause and post-wake offsets, past their ${Math.round(offsets.preErr + offsets.postErr)} ms error`);
+  }
+  for (const k of ["resumed", "net_up", "pty_attach", "input", "echo"] as const) {
+    const v = m[k];
+    if (typeof v === "number" && v < 0) bad.push(`${k} ${Math.round(v)} ms before wake_at${e === null ? "" : `, inside the offset's ${e} ms error`}`);
+  }
+  const order: [keyof WakeCycle["marks_ms"], keyof WakeCycle["marks_ms"]][] = [["resumed", "net_up"], ["resumed", "pty_attach"], ["pty_attach", "input"], ["input", "echo"], ["pty_attach", "echo"]];
+  for (const [a, b] of order) {
+    const x = m[a], y = m[b];
+    if (typeof x === "number" && typeof y === "number" && y < x) bad.push(`${b} ${Math.round(y - x)} ms before ${a} on the guest's own clock`);
+  }
+  if (typeof readMs === "number" && typeof m.echo === "number" && m.echo > readMs + (e ?? 0)) bad.push(`echo at ${Math.round(m.echo)} ms, after the runner read the result at ${Math.round(readMs)} ms`);
+  return bad.length ? `timing invalid: ${bad.join("; ")}` : "";
+}
+
 /** A failed cycle's cause, so failures group by it: a lost terminal is the daemon's (product), the rest the run's. */
 export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
-  if (/before wake_at\b.*not this wake/.test(e)) return "probe fired before the wake (harness)";
+  if (/the pause did not hold/.test(e)) return "pause did not hold (machine)";
+  if (/before wake_at\b.*not this wake/.test(e)) return "guest ran before the start (machine or clock)";
+  if (/^timing invalid: /.test(e)) return "timing invalid (clock)";
   if (/no probe result|clock offset|^exec: |vm_unavailable/.test(e)) return "guest unreachable";
   if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
   if (/guest probe/.test(e)) return "guest probe";
@@ -106,7 +141,82 @@ export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   return "other";
 }
 
-export function summarize(cycles: WakeCycle[]) {
+/**
+ * Causes that say the cycle measured no wake at all (the guest never stopped for the hold, or ran again before the
+ * start), not that waking is broken: they do not count toward the failure streak, which stops a run whose wakes fail.
+ * Run 46176743563 stopped after 3 of 50 cycles on two pauses that did not hold and one early run, so it measured
+ * nothing; a run of them still stops at `IDLE_STREAK` in a row.
+ */
+export const NO_WAKE_CAUSES = new Set(["pause did not hold (machine)", "guest ran before the start (machine or clock)"]);
+export const IDLE_STREAK = 8;
+
+/** Whether the run stops after these cycles: `streakMax` counting failures in a row, or IDLE_STREAK of any failure. */
+export function streakStop(cycles: Pick<WakeCycle, "ok" | "error" | "guest">[], streakMax: number): string {
+  let counting = 0;
+  let any = 0;
+  for (let k = cycles.length - 1; k >= 0 && !cycles[k]!.ok; k--) {
+    any++;
+    if (!NO_WAKE_CAUSES.has(causeOf(cycles[k]!))) counting++;
+  }
+  // counting failures in a row, skipping no-wake ones between them
+  if (counting >= streakMax) return `${streakMax} failed cycles in a row`;
+  if (any >= IDLE_STREAK) return `${any} cycles in a row measured no wake`;
+  return "";
+}
+
+/**
+ * The guest's tick gaps since the arm (gaps.log lines, guest wall ms): did the guest stop for the hold? A pause that
+ * held shows one gap of at least `minGapMs` after `armedAt`. Run 46176743563 cycle #0: the machine read paused in
+ * 7.07 s, yet the guest's only gap after the arm was 1112 ms, ending about 5 s before the start, and no result came:
+ * the guest ran through the hold, so there was no wake to time. Returns the failure, or "" when a held gap is there
+ * or the log cannot say (unread).
+ */
+const signed = (ms: number) => `${ms >= 0 ? "+" : ""}${Math.round(ms)}`;
+
+export function pauseHeld(gapsLog: string, armedAt: number | null, minGapMs: number, at?: { offset: number; wakeAt: number }): string {
+  if (armedAt === null) return "";
+  const gaps: { resumed_wall: number; wall_gap: number }[] = [];
+  for (const line of gapsLog.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const g = JSON.parse(line.trim());
+      if (typeof g.resumed_wall === "number" && typeof g.wall_gap === "number" && g.resumed_wall > armedAt) gaps.push(g);
+    } catch { /* a torn line */ }
+  }
+  if (gaps.some((g) => g.wall_gap >= minGapMs)) return "";
+  const top = gaps.reduce<(typeof gaps)[number] | null>((a, g) => (a && a.wall_gap >= g.wall_gap ? a : g), null);
+  const longest = top ? Math.round(top.wall_gap) : 0;
+  // Where the longest gap sat against the start, runner clock: late to stop (ends after wake_at) or woke early (before).
+  const where = top && at
+    ? `, stopped ${signed(top.resumed_wall - top.wall_gap - at.offset - at.wakeAt)} and resumed ${signed(top.resumed_wall - at.offset - at.wakeAt)} ms from wake_at`
+    : "";
+  return gaps.length
+    ? `the pause did not hold: since the arm the guest's longest tick gap was ${longest} ms (${gaps.length} gaps)${where}, under the hold's ${minGapMs} ms`
+    : `the pause did not hold: the guest ticked through the hold with no gap over 1 s since the arm`;
+}
+
+/** The ask's bar (lane-10, 11-28): "a slept 2 vCPU/4 GiB Cloud machine resumes to an echoed keystroke, p95 <= 1.0 s". */
+export const ACCEPT_P95_MS = 1000;
+const OVER = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Wake-to-first-echo p95 over every cycle asked, not just the ones that echoed: a failed, invalid or never-run cycle
+ * is over the bar (Infinity), so a run with more than 5% of its cycles failed cannot meet it, and n is the asked
+ * count. `err_ms` is the largest offset error among the valid samples: the p95 is +- that.
+ */
+export function acceptance(cycles: WakeCycle[], asked: number | null, targetMs = ACCEPT_P95_MS) {
+  const n = Math.max(asked ?? cycles.length, cycles.length);
+  const totals = cycles.filter((c) => c.ok && typeof c.phases.total === "number").map((c) => c.phases.total!);
+  // A finite stand-in for "over the bar": percentile's sort cannot order two Infinities (Infinity - Infinity is NaN).
+  const xs = [...totals, ...Array(n - totals.length).fill(OVER)];
+  const raw = xs.length ? percentile(xs, 95) : null;
+  const p95 = raw === OVER ? Number.POSITIVE_INFINITY : raw;
+  const errs = cycles.filter((c) => c.ok && typeof c.offset_err_ms === "number").map((c) => c.offset_err_ms!);
+  const err = errs.length ? Math.max(...errs) : null;
+  return { asked: n, valid: totals.length, p95, err_ms: err, target_ms: targetMs, met: p95 !== null && Number.isFinite(p95) && p95 <= targetMs };
+}
+
+export function summarize(cycles: WakeCycle[], asked?: number | null) {
   const echoed = cycles.filter((c) => c.ok);
   const row = (p: Phase) => {
     const xs = echoed.map((c) => c.phases[p]).filter((x): x is number => typeof x === "number");
@@ -117,7 +227,7 @@ export function summarize(cycles: WakeCycle[]) {
   const biggest = parts.length ? parts.reduce((a, b) => ((b.p95 ?? 0) > (a.p95 ?? 0) ? b : a)).phase : null;
   const causes: Record<string, number> = {};
   for (const c of cycles) if (!c.ok) causes[causeOf(c)] = (causes[causeOf(c)] ?? 0) + 1;
-  return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes };
+  return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes, acceptance: acceptance(cycles, asked ?? null) };
 }
 
 /**
@@ -210,9 +320,18 @@ export function intentMarkdown(cycles: WakeCycle[], leadsMs: number[], targetMs 
   return `${lines.join("\n")}\n`;
 }
 
+/** The deployment the run measured (meta.deploy, read by the journey before and after the cycles), never an API version. */
+function deployLines(meta: Record<string, unknown>): string[] {
+  const d = meta.deploy as Record<string, { commit: string | null; commit_unavailable: string | null } | undefined> | undefined;
+  if (!d) return ["Serving deploy: not read."];
+  const one = (k: string) => (d[k]?.commit ? d[k]!.commit!.slice(0, 12) : `unread (${d[k]?.commit_unavailable ?? "not read"})`);
+  return [`Serving deploy: platform ${one("platform_before")} before, ${one("platform_after")} after; API ${one("api_before")}. Daemon ${String(meta.daemon_before ?? "?")} at running, ${String(meta.daemon_after ?? "?")} at the end.`];
+}
+
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
-  const s = summarize(cycles);
   const asked = typeof meta.asked === "number" ? meta.asked : null;
+  const s = summarize(cycles, asked);
+  const a = s.acceptance;
   const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
   const lines = [
     `Machine ${meta.machine ?? "?"}, size ${JSON.stringify(meta.size ?? "?")}. ${s.cycles}${asked !== null && asked !== s.cycles ? ` of ${asked} asked` : ""} cycles: ${s.echoed} echoed, ${s.failed} failed (counted apart). Seconds, runner clock; percentiles over the ${s.echoed} that echoed.`,
@@ -220,6 +339,9 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "| phase | n | p50 | p95 | max |",
     "|---|---|---|---|---|",
     ...s.rows.map((r) => `| ${r.phase === "total" ? "**wake-to-first-echo**" : r.phase} | ${r.n} | ${f(r.p50)} | ${f(r.p95)} | ${f(r.max)} |`),
+    "",
+    `Acceptance (p95 <= ${f(a.target_ms)} s over all ${a.asked} asked; failed or invalid cycles count over it): p95 ${a.p95 === null ? "-" : Number.isFinite(a.p95) ? `${f(a.p95)} s +- ${f(a.err_ms)} s` : "over the bar (failures past 5%)"}, ${a.valid} valid of ${a.asked}: **${a.met ? "met" : "not met"}**.`,
+    ...deployLines(meta),
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
@@ -410,14 +532,20 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
   const streakMax = d.failStreak ?? 3;
   for (let i = 0; i < n; i++) {
     if (d.deadlineAt && Date.now() > d.deadlineAt - 150_000) { d.log(`wake-echo: deadline near, stopping after ${i} cycles`); d.onStop?.(`deadline near after ${i} of ${n} cycles`); break; }
-    const c: WakeCycle = { i, ok: false, error: "", at: new Date().toISOString(), paused_ms: null, answered_ms: null, first_exec_ms: null, offset_ms: null, offset_rtt_ms: null, offset_pre_ms: null, marks_ms: {}, phases: {}, warnings: [], guest: null, state_json: false, state_wake: null };
+    const c: WakeCycle = { i, ok: false, error: "", at: new Date().toISOString(), paused_ms: null, answered_ms: null, first_exec_ms: null, offset_ms: null, offset_rtt_ms: null, offset_pre_ms: null, offset_pre_rtt_ms: null, offset_err_ms: null, read_ms: null, marks_ms: {}, phases: {}, warnings: [], guest: null, state_json: false, state_wake: null };
     cycles.push(c);
     try {
       // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
       await ensureRunning(d, sleep);
-      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
+      const minGap = Math.max(0, d.holdMs - 500);
+      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${minGap}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}; echo "@@armed_at $(date +%s%3N)"`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
-      c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
+      const armedAtRaw = Number(/@@armed_at (\d+)/.exec(arm.stdout)?.[1]);
+      const armedAt = Number.isFinite(armedAtRaw) && armedAtRaw > 0 ? armedAtRaw : null;
+      // Before the pause, with the guest idle: more samples here lower the min round trip the error comes from.
+      const pre = await clockOffset(d.exec, 4);
+      c.offset_pre_ms = pre?.offset ?? null;
+      c.offset_pre_rtt_ms = pre?.rtt ?? null;
       const pause = await d.pause();
       if (typeof pause === "number") c.paused_ms = pause;
       else {
@@ -432,23 +560,40 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
       let out = "";
+      let heldChecked = false;
       for (;;) {
         const r = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo; echo "@@done"`, 20_000).catch(() => null);
         if (r && c.first_exec_ms === null) c.first_exec_ms = Date.now() - wakeAt;
-        if (r && r.stdout.includes("{")) { out = r.stdout; break; }
+        if (r && r.stdout.includes("{")) { out = r.stdout; c.read_ms = Date.now() - wakeAt; break; }
+        // The guest answers but no result yet: once it has run 15 s (a 50 ms tick logs any gap at once), a log with
+        // no held gap since the arm means the guest never stopped, and waiting out the 150 s finds nothing more.
+        if (r && !heldChecked && c.first_exec_ms !== null && Date.now() - wakeAt > c.first_exec_ms + 15_000) {
+          heldChecked = true;
+          const gl = await d.exec(`${d.guest}tail -n 50 ${WAKE_DIR}/gaps.log 2>/dev/null; echo "@@gaps"`, 20_000).catch(() => null);
+          const again = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo`, 20_000).catch(() => null);
+          if (again && again.stdout.includes("{")) { out = again.stdout; c.read_ms = Date.now() - wakeAt; break; }
+          const held = gl && gl.stdout.includes("@@gaps") ? pauseHeld(gl.stdout, armedAt, minGap, c.offset_pre_ms === null ? undefined : { offset: c.offset_pre_ms, wakeAt }) : "";
+          if (held) throw new Error(`${held} (machine read paused in ${c.paused_ms ?? "?"} ms, start answered in ${c.answered_ms} ms)`);
+        }
         if (Date.now() > end) break;
         await sleep(1000);
       }
       if (!out) {
-        const tail = await d.exec(`${d.guest}tail -n 5 ${WAKE_DIR}/probe.log ${WAKE_DIR}/gaps.log 2>&1`, 20_000).catch(() => null);
-        throw new Error(`no probe result 150 s after wake_at (exec first answered ${c.first_exec_ms ?? "never"} ms); probe/gap logs: ${short(tail?.stdout ?? "unread")}`);
+        // The newest lines first: run 46176743563 showed only the oldest gap, cut at 300 chars.
+        const tail = await d.exec(`${d.guest}tail -n 3 ${WAKE_DIR}/gaps.log 2>&1 | tac; tail -n 3 ${WAKE_DIR}/probe.log 2>&1`, 20_000).catch(() => null);
+        throw new Error(`no probe result 150 s after wake_at (exec first answered ${c.first_exec_ms ?? "never"} ms); newest gaps, then probe log: ${short(tail?.stdout ?? "unread")}`);
       }
       const g: GuestMarks = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
       c.guest = g;
-      const off = await clockOffset(d.exec, 4);
-      if (!off) throw new Error("clock offset: no exec answered");
+      const post = await clockOffset(d.exec, 4);
+      if (!post) throw new Error("clock offset: no exec answered");
+      c.offset_rtt_ms = post.rtt;
+      // The guest's wall clock runs straight through a pause (artifact 15276659944: wall_gap == mono_gap in every gap),
+      // so the pre-pause samples map post-wake marks too: the one with the smaller round trip is used, and a pair that
+      // disagrees past both errors fails the cycle (timingInvalid).
+      const off = pre && pre.rtt < post.rtt ? pre : post;
       c.offset_ms = Math.round(off.offset);
-      c.offset_rtt_ms = off.rtt;
+      c.offset_err_ms = Math.round(off.rtt / 2);
       if (c.offset_pre_ms !== null && Math.abs(c.offset_pre_ms - off.offset) > 100) c.warnings.push(`guest clock moved ${Math.round(off.offset - c.offset_pre_ms)} ms between pre-pause and post-wake offsets`);
       const rel = (x: number | undefined) => (x === undefined ? undefined : Math.round(x - off.offset - wakeAt));
       const mm = c.marks_ms;
@@ -468,6 +613,8 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
         c.state_wake = sj?.wake ?? null;
       } catch { c.state_json = false; }
       if (early) throw new Error(early);
+      const invalid = timingInvalid(mm, c.offset_err_ms, c.read_ms, { pre: pre?.offset ?? null, preErr: pre ? pre.rtt / 2 : null, post: post.offset, postErr: post.rtt / 2 });
+      if (invalid) throw new Error(invalid);
       if (g.error) throw new Error(`guest probe: ${g.error}`);
       if (g.echo_at === undefined) throw new Error("the probe marked no echo");
       c.ok = true;
@@ -481,7 +628,8 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
     }
     d.log(`wake-echo #${i}: ${c.ok ? "ok" : "FAIL"} ${JSON.stringify(c.phases)}${c.warnings.length ? ` warnings ${c.warnings.join("; ")}` : ""}`);
     d.onCycle(cycles);
-    if (cycles.length >= streakMax && cycles.slice(-streakMax).every((x) => !x.ok)) { d.log(`wake-echo: ${streakMax} failed cycles in a row, stopping`); d.onStop?.(`${streakMax} failed cycles in a row after ${cycles.length} of ${n}`); break; }
+    const stop = streakStop(cycles, streakMax);
+    if (stop) { d.log(`wake-echo: ${stop}, stopping`); d.onStop?.(`${stop} after ${cycles.length} of ${n}`); break; }
   }
   return cycles;
 }
