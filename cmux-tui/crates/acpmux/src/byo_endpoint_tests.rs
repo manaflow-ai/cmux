@@ -2135,3 +2135,21 @@ async fn byo_endpoint_preflight_checks_typed_models_before_the_profile_is_saved(
     assert_eq!(headers.lock().unwrap().len(), 2);
     assert_eq!(draft.models, ["served-b"]);
 }
+
+/// The Cloudflare gateway check sends the person's key only in `cf-aig-authorization`, to the
+/// gateway they typed, never in the URL or the body. tests/egress_seeded.json names this test for
+/// `acpmux::byo_endpoint::check_cloudflare`.
+#[tokio::test]
+async fn seeded_cloudflare_key_rides_only_in_the_gateway_auth_header() {
+    cmux_egress::capture::install().unwrap();
+    let key = "SEEDcloudflareGatewayKey-6d2a";
+    let base = "https://gateway.seeded-person.example.org/v1/acct/gw/compat";
+    let _ = super::check_cloudflare(base, "workers-ai/@cf/meta/llama", key).await;
+    assert_eq!(
+        cmux_egress::capture::leaks(key),
+        vec![
+            "gateway.seeded-person.example.org POST /v1/acct/gw/compat/chat/completions: header cf-aig-authorization"
+                .to_owned()
+        ]
+    );
+}
