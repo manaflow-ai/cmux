@@ -46,9 +46,19 @@ public actor LiveEngine {
         self.redraw = redraw
     }
     #else
+    /// Which patches load: `.any` in the Simulator, the app's own team on a device.
+    private let deviceSigner: LiveCodeDeviceSigner
+
     /// The iOS Simulator's live code build is a Debug build: it loads any patch, ad hoc included.
     public init(folder: LiveFolder, redraw: @escaping @Sendable (Int) -> Void) {
+        self.init(folder: folder, deviceSigner: .any, redraw: redraw)
+    }
+
+    /// A cmux Dev app on a device: only a patch signed by its own team, not ad hoc, loads
+    /// (DevicePatchSignature.swift; `LiveCodeDeviceSigner.running()` reads the team).
+    public init(folder: LiveFolder, deviceSigner: LiveCodeDeviceSigner, redraw: @escaping @Sendable (Int) -> Void) {
         self.folder = folder
+        self.deviceSigner = deviceSigner
         self.redraw = redraw
     }
     #endif
@@ -76,6 +86,12 @@ public actor LiveEngine {
             say("this app (team \(team)) runs without library validation (\(why)): every patch is refused")
         case .team?, nil:
             break
+        }
+        #else
+        switch deviceSigner {
+        case .any: break
+        case .team(let team): say("only patches signed by team \(team), not ad hoc, load")
+        case .refuseAll(let why): say("\(why): every patch is refused")
         }
         #endif
         writeStatus()
@@ -108,6 +124,8 @@ public actor LiveEngine {
             if let signer {
                 try PatchSignature.check(copy.path, app: signer)
             }
+            #else
+            try DevicePatchSignature.check(copy.path, signer: deviceSigner)
             #endif
             let handle = try Interposer.load(copy.path)
             let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current)
@@ -178,7 +196,7 @@ public actor LiveEngine {
         case .noTeam?, nil: false
         }
         #else
-        false
+        deviceSigner != .any
         #endif
     }
 }

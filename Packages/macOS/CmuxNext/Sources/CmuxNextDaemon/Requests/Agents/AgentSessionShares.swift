@@ -146,8 +146,8 @@ public struct AgentSessionShareKickRequest: DaemonRequest {
 
 /// `agent-session-share-invite`: the cmux account `account` (an email or `@handle`) may join the share
 /// after signing in, as `role` (`view` watches, `talk` sends held messages, `drive` sends and cancels
-/// without owner approval; the daemon's default is `talk`). The same role again changes nothing;
-/// another role is refused (`share.invited`).
+/// without owner approval; the daemon's default is `talk`). Drive is for this named account only.
+/// The same role again changes nothing; another role changes the invite's role in place.
 public struct AgentSessionShareInviteRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "agent-session-share-invite"
@@ -198,6 +198,39 @@ public struct AgentSessionShareInviteChatRequest: DaemonRequest {
 public struct AgentSessionShareUninviteRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "agent-session-share-uninvite"
+
+    public var shareId: String
+    public var account: String
+
+    public init(shareId: String, account: String) {
+        self.shareId = shareId
+        self.account = account
+    }
+}
+
+/// `agent-session-share-request-approve`: the account's pending access request on the share goes, and
+/// the account is invited as `role` (`view`, the daemon's default, unless the owner picks `talk`).
+/// `share.unknown` when the account has no pending request there.
+public struct AgentSessionShareRequestApproveRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "agent-session-share-request-approve"
+
+    public var shareId: String
+    public var account: String
+    public var role: String?
+
+    public init(shareId: String, account: String, role: String? = nil) {
+        self.shareId = shareId
+        self.account = account
+        self.role = role
+    }
+}
+
+/// `agent-session-share-request-decline`: the account's request on the share is declined; it is not
+/// told and cannot ask again.
+public struct AgentSessionShareRequestDeclineRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "agent-session-share-request-decline"
 
     public var shareId: String
     public var account: String
@@ -271,13 +304,18 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var invitees: [AgentSessionShareInvitee]
     /// The link's role (`view` or `talk`); nil from a daemon older than link roles.
     public var role: String?
+<<<<<<< HEAD
     public var teamId: String?
+=======
+    /// The accounts asking for access, pending only; empty from a daemon older than requests.
+    public var requests: [AgentSessionShareAccessRequest]
+>>>>>>> origin/feat-cmux-next
 
     public var id: String { shareId }
     public var isLive: Bool { state == "active" || state == "provisioning" }
 
     enum CodingKeys: String, CodingKey {
-        case state, session, surface, room, guests, invitees, role
+        case state, session, surface, room, guests, invitees, role, requests
         case shareId = "share_id"
         case createdAt = "created_at"
         case createId = "create_id"
@@ -290,7 +328,12 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
 
     public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
                 expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
+<<<<<<< HEAD
                 guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = [], role: String? = nil, teamId: String? = nil) {
+=======
+                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = [], role: String? = nil,
+                requests: [AgentSessionShareAccessRequest] = []) {
+>>>>>>> origin/feat-cmux-next
         self.shareId = shareId
         self.state = state
         self.session = session
@@ -306,6 +349,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         self.invitees = invitees
         self.teamId = teamId
         self.role = role
+        self.requests = requests
     }
 
     public init(from decoder: any Decoder) throws {
@@ -324,7 +368,38 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
         invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
         role = try c.decodeIfPresent(String.self, forKey: .role)
+<<<<<<< HEAD
         teamId = try c.decodeIfPresent(String.self, forKey: .teamId)
+=======
+        requests = try c.decodeIfPresent([AgentSessionShareAccessRequest].self, forKey: .requests) ?? []
+    }
+}
+
+/// A signed-in account that opened the share's link without access and asked in. `account` and
+/// `avatarUrl` are the room's attestation of its sign-in; `name` is its account's display name.
+public struct AgentSessionShareAccessRequest: Decodable, Sendable, Equatable, Identifiable {
+    public var account: String
+    public var name: String
+    public var avatarUrl: String?
+    public var requestedAt: UInt64
+    /// `pending` (list shows no declined one).
+    public var state: String
+
+    public var id: String { account }
+
+    enum CodingKeys: String, CodingKey {
+        case account, name, state
+        case avatarUrl = "avatar_url"
+        case requestedAt = "requested_at"
+    }
+
+    public init(account: String, name: String, avatarUrl: String? = nil, requestedAt: UInt64, state: String = "pending") {
+        self.account = account
+        self.name = name
+        self.avatarUrl = avatarUrl
+        self.requestedAt = requestedAt
+        self.state = state
+>>>>>>> origin/feat-cmux-next
     }
 }
 

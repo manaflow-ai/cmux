@@ -190,6 +190,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.composerFilled":
+            if let filled = params?["filled"] as? Bool {
+                self = .composerFilled(filled)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.commandAvailability":
             if let commands = params?["commands"] as? [String] {
                 self = .commandAvailability(commands)
@@ -467,14 +473,45 @@ extension AgentPaneRequest {
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
-            // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
-            // The picker's set up button sends no key; a key that is sent must be a start's.
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
+            // A start supplies its key. The picker's setup supplies only the action and family, with optional placement.
+            let machine = params?["machine"] as? String
             let key = params?["key"] as? String
             if key.map({ UUID(uuidString: $0) != nil }) ?? (params?["key"] == nil), let action = params?["action"] as? String,
-               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
-                self = .cloudSetUp(key: key, action: action, family: family)
+               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.isSetupFamily(family),
+               params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
+                self = .cloudSetUp(key: key, action: action, family: family, machine: machine, environment: environment)
             } else { self = .unsupported(method) }
-        case "cloud.setupState": self = .cloudSetupState
+        case "cloud.setup.state":
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
+            let machine = (params?["machine"] as? String).flatMap { CloudSetup.isConnectionID($0) ? $0 : nil }
+            self = .cloudSetupState(machine: machine, environment: environment)
+        case "cloud.connect":
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
+            // The picker lists catalog families even when the Cloud gateway cannot run them yet.
+            if let family = params?["family"] as? String, CloudSetup.isConnectionID(family) {
+                let machine = params?["machine"] as? String
+                if params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
+                    self = .cloudConnect(family: family, machine: machine, environment: environment)
+                } else {
+                    self = .unsupported(method)
+                }
+            } else {
+                self = .unsupported(method)
+            }
+        case "cloud.setupState": self = .cloudPickerSetupState
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
