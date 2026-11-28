@@ -708,7 +708,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1209,7 +1211,9 @@ jobs:
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
