@@ -70,6 +70,10 @@ pub(super) struct Begun {
     pub(super) history_after: Option<u64>,
     /// When the source answered the begin: the freeze runs from `frozenMs` before it.
     pub(super) begun_at: std::time::Instant,
+    /// What each begin [`begin_move_live`] asked again after answered, in order
+    /// (`tool_in_flight`, `compacting`): the move receipt names them, so a turn that ended while
+    /// the move waited reads apart from one the move lost.
+    pub(super) waits: Vec<&'static str>,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
@@ -160,11 +164,13 @@ pub(super) async fn begin_move_live(
     let mut staged = staged;
     let until = std::time::Instant::now() + wait;
     let mut said = false;
+    let mut waits = Vec::new();
     loop {
         let late = std::time::Instant::now() >= until;
         match begin_with(src, id, watch.clone(), (late, !late, false), staged, None).await {
             Err(e) if staged.is_some() && refused_as(&e, "transfer.diverged") => staged = None,
             Err(e) if !late && waits_for_turn(&e) => {
+                waits.push(wait_reason(&e));
                 if !said {
                     eprintln!(
                         "acpmux: {id}: its turn runs a tool call; the move takes the turn along once \
@@ -175,8 +181,17 @@ pub(super) async fn begin_move_live(
                 }
                 tokio::time::sleep(TOOL_POLL).await;
             }
-            other => return other,
+            other => return other.map(|begun| Begun { waits, ..begun }),
         }
+    }
+}
+
+/// Which wait [`waits_for_turn`] read in `e`, as the move receipt names it.
+fn wait_reason(e: &anyhow::Error) -> &'static str {
+    if format!("{e:#}").contains(&format!("transfer.{}", crate::hub::TOOL_IN_FLIGHT)) {
+        "tool_in_flight"
+    } else {
+        "compacting"
     }
 }
 
@@ -230,7 +245,16 @@ async fn begin_with(
     let staged = staged.filter(|_| begin.get("prefix").is_some());
     let stage_id = staged.map(|s| s.stage_id.clone());
     let history_after = staged.filter(|s| s.history_later).map(|s| s.after_seq);
-    Ok(Begun { begin, transfer_id, epoch, stage_id, as_harness: None, history_after, begun_at })
+    Ok(Begun {
+        begin,
+        transfer_id,
+        epoch,
+        stage_id,
+        as_harness: None,
+        history_after,
+        begun_at,
+        waits: Vec::new(),
+    })
 }
 
 /// Gives the chat back on the source: the move did not happen.

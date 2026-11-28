@@ -329,6 +329,8 @@ struct Timing {
     answer_ms: u64,
     /// The begin cut a running turn whose continuation moved with the chat (`continues`).
     carried: bool,
+    /// What each begin that was asked again answered (`Begun::waits`).
+    waits: Vec<&'static str>,
     target: Value,
 }
 
@@ -342,7 +344,16 @@ impl Timing {
             "commitMs": commit_ms,
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
             "carriedRunningTurn": self.carried,
+            "beginWaits": self.waits.len(),
         });
+        if !self.waits.is_empty() {
+            let mut answers = serde_json::Map::new();
+            for reason in &self.waits {
+                let n = answers.get(*reason).and_then(Value::as_u64).unwrap_or(0);
+                answers.insert((*reason).to_owned(), json!(n + 1));
+            }
+            value.set("beginWaitAnswers", Value::Object(answers));
+        }
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
             for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "listedMs", "via"] {
                 if let Some(value) = target.get(key) {
@@ -472,6 +483,7 @@ impl Moving<'_> {
                         sent_ms,
                         answer_ms,
                         carried,
+                        waits: begun.waits.clone(),
                         target: target_timings,
                     },
                 ))
@@ -548,10 +560,20 @@ mod tests {
             sent_ms: 30,
             answer_ms: 50,
             carried,
+            waits: if carried {
+                vec![]
+            } else {
+                vec!["tool_in_flight", "tool_in_flight", "compacting"]
+            },
             target: json!({"via": "circuit"}),
         };
         let carried = timing(true).value(80);
         assert_eq!(carried["carriedRunningTurn"], true);
+        assert_eq!(carried["beginWaits"], 0);
+        assert!(carried.get("beginWaitAnswers").is_none());
+        let waited = timing(false).value(80);
+        assert_eq!(waited["beginWaits"], 3);
+        assert_eq!(waited["beginWaitAnswers"], json!({"tool_in_flight": 2, "compacting": 1}));
         assert_eq!(carried["freezeMs"], 70);
         assert_eq!(carried["via"], "circuit");
         assert_eq!(timing(false).value(80)["carriedRunningTurn"], false);
