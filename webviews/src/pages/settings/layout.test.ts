@@ -143,3 +143,18 @@ test("only page.css imports the page's sheets", () => {
   }
   expect([...new Set(importers)]).toEqual(["pages/settings/page.css"]);
 });
+
+// First-run findings N7 (2026-11-27): Agents > Saved Prompts, a key and value list, drew its name
+// field, text field and Add beside the title in a control column capped at 60% that cannot shrink,
+// so in a narrow pane the line ran off the card's left edge. A key and value list is a body under
+// its title, as wide as the row, and its fields shrink to fit.
+test("a key and value list sits under its title and its fields shrink to fit", () => {
+  const main = '.row[data-kind="string_map"] > .row-main';
+  expect(computed(main, "flex-direction", 380)).toBe("column");
+  expect(computed(main, "align-items", 380)).toBe("stretch");
+  expect(computed('.row[data-kind="string_map"] .row-control', "max-width", 380)).toBe("100%");
+  expect(computed(".string-map", "width", 380)).toBe("100%");
+  expect(computed(".string-map-item", "display", 380)).toBe("flex");
+  expect(computed(".string-map-item > .field", "min-width", 380)).toBe("0");
+  expect(computed(".string-map-item > [data-map-new-value]", "min-width", 380)).toBe("0");
+});
