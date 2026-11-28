@@ -44,6 +44,9 @@ struct CmuxMobileApp: App {
         MobileDuress.startIfRequested()
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
+        AnimationFrameBench.installIfRequested()
+        // Opt-in transition measurements for SwipeBackWholePageUITests.
+        WholePageProbe.startIfRequested()
         #endif
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
@@ -134,6 +137,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingDemo()
             } else if ShellScreenSharingLink.isRequested {
                 ShellScreenSharingLink()
+            } else if ShellScreenSharingRdLink.isRequested {
+                ShellScreenSharingRdLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalHistoryWindowDemoRoot.isRequested {

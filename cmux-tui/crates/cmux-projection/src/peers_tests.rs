@@ -1,7 +1,7 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 /// A network of fixed answers by URL, recording what was asked.
 struct Fake {
@@ -44,6 +44,166 @@ fn remote(tier: &'static str, base: &str) -> Remote {
 // `git hash-object` of "hello\n" and of "".
 const HELLO: &str = "ce013625030ba8dba906f756967f9e9ca394464a";
 const EMPTY: &str = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
+
+/// A real HTTP exchange with controlled framing, including dishonest/missing lengths. Bind
+/// before the client runs; join the single server thread so no listener survives the test.
+fn with_http_response<T>(response: &[u8], run: impl FnOnce(&str) -> T) -> T {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::scope(|scope| {
+        let server = scope.spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = BufReader::new(stream.try_clone().unwrap());
+            let mut headers_complete = false;
+            for _ in 0..64 {
+                let mut line = String::new();
+                assert!(request.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    headers_complete = true;
+                    break;
+                }
+            }
+            assert!(headers_complete);
+            // Rejecting an advertised oversize may close before the server finishes writing.
+            let _ = stream.write_all(response);
+        });
+        let result = run(&base);
+        server.join().unwrap();
+        result
+    })
+}
+
+fn http_with_limit(limit: usize) -> Http {
+    let mut http = Http::new().unwrap();
+    // Keep loopback fixtures independent of the fleet's proxy environment.
+    http.client = reqwest::blocking::Client::builder().no_proxy().build().unwrap();
+    http.body_limit = limit;
+    http
+}
+
+#[test]
+fn http_body_rejects_advertised_oversize() {
+    let http = http_with_limit(6);
+    assert_eq!(Http::new().unwrap().body_limit, MAX_HTTP_BODY_BYTES);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        // No allocation proportional to an advertised size, even if no body ever arrives.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551615\r\nConnection: close\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_rejects_streamed_oversize_without_returning_a_valid_prefix() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+        // Transfer-Encoding wins over the deliberately understated Content-Length.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_accepts_the_exact_limit_with_each_framing() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\n",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\nhe\r\n4\r\nllo\n\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Found(b"hello\n".to_vec()));
+        });
+    }
+    with_http_response(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", |base| {
+        assert_eq!(
+            http_with_limit(0).get(base, None, Duration::from_secs(2)),
+            Answer::Found(vec![])
+        );
+    });
+}
+
+#[test]
+fn http_body_incomplete_framing_is_never_returned_as_a_complete_blob() {
+    let http = http_with_limit(8);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_counts_across_multiple_read_buffers() {
+    let limit = 8192 + 6;
+    let http = http_with_limit(limit);
+    for length in [limit, limit + 1] {
+        let body = vec![b'x'; length];
+        let mut response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend_from_slice(&body);
+        with_http_response(&response, |base| {
+            let expected = if length == limit { Answer::Found(body) } else { Answer::Failed };
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), expected);
+        });
+    }
+}
+
+#[test]
+fn http_body_oversize_on_every_tier_leaves_the_full_blob_for_git() {
+    for tier in ["peer", "ssd", "r2"] {
+        let http = http_with_limit(5);
+        with_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n",
+            |base| {
+                let chain = Chain::new(vec![remote(tier, base)], Box::new(http));
+                let writes = AtomicUsize::new(0);
+                let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| {
+                    writes.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                });
+                assert_eq!(writes.load(Ordering::Relaxed), 0);
+                assert_eq!(rest, vec![HELLO.to_owned()]);
+                assert_eq!(filled, Filled::default());
+            },
+        );
+    }
+}
+
+#[test]
+fn http_body_understated_length_cannot_install_the_wrong_object() {
+    let http = http_with_limit(6);
+    let oid = blob_id(b"hello\nx", 40);
+    with_http_response(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\nx",
+        |base| {
+            let chain = Chain::new(vec![remote("peer", base)], Box::new(http));
+            let writes = AtomicUsize::new(0);
+            let (rest, filled) = chain.fill(std::slice::from_ref(&oid), &|_, _| {
+                writes.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            });
+            assert_eq!(writes.load(Ordering::Relaxed), 0);
+            assert_eq!(rest, vec![oid]);
+            assert_eq!(filled.peer, 0);
+            // The one-shot server may answer the batch ask instead of the GET, so the short body
+            // is either rejected or never read; neither installs it.
+            assert!(filled.rejected <= 1);
+        },
+    );
+}
 
 #[test]
 fn blob_ids_match_git() {
@@ -243,6 +403,23 @@ fn the_bucket_holds_its_rate() {
 }
 
 #[test]
+fn rate_limited_chunks_never_reserve_more_than_five_seconds() {
+    let start = Instant::now();
+    for rate in [1, 2, 10, 1_000, 100_000_000] {
+        let mut bucket = Bucket::new(rate, start);
+        let chunk = rate_chunk_size(rate);
+        let mut now = start;
+        for _ in 0..8 {
+            let wait = bucket.take(chunk as u64, now);
+            assert!(wait <= MAX_CHUNK_DELAY, "rate {rate} reserved {wait:?}");
+            now += wait;
+        }
+    }
+    assert_eq!(rate_chunk_size(1), 5);
+    assert_eq!(rate_chunk_size(100_000_000), MAX_CHUNK_BYTES);
+}
+
+#[test]
 fn verified_blobs_become_loose_objects_git_reads() {
     let dir = tempfile::tempdir().unwrap();
     let git_dir = dir.path().join("m.git");
@@ -266,6 +443,48 @@ fn verified_blobs_become_loose_objects_git_reads() {
 }
 
 #[test]
+fn concurrent_writers_install_one_complete_object_without_temp_collisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let git_dir = dir.path().join("m.git");
+    let init =
+        std::process::Command::new("git").args(["init", "-q", "--bare"]).arg(&git_dir).status();
+    if !init.is_ok_and(|status| status.success()) {
+        return; // no git on this host
+    }
+    let writers = 16;
+    let ready = Arc::new(Barrier::new(writers));
+    let git_dir = git_dir.as_path();
+    std::thread::scope(|scope| {
+        let mut joins = Vec::with_capacity(writers);
+        for _ in 0..writers {
+            let ready = ready.clone();
+            joins.push(scope.spawn(move || {
+                ready.wait();
+                write_loose(git_dir, HELLO, b"hello\n")
+            }));
+        }
+        for join in joins {
+            join.join().unwrap().unwrap();
+        }
+    });
+    let out = std::process::Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .args(["cat-file", "blob", HELLO])
+        .output()
+        .unwrap();
+    assert_eq!(out.stdout, b"hello\n");
+    let object_dir = git_dir.join("objects").join(&HELLO[..2]);
+    assert!(
+        std::fs::read_dir(object_dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("tmp_obj_"))
+    );
+}
+
+#[test]
 fn a_seed_serves_its_blobs_and_nothing_else() {
     let dir = tempfile::tempdir().unwrap();
     let git_dir = dir.path().join("m.git");
@@ -275,7 +494,6 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
         return;
     }
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
-    // Bound here and handed over, so the port is the seed's before the first request.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     std::thread::spawn(move || {
@@ -490,7 +708,7 @@ fn a_url_index_is_asked_once_a_minute() {
 
 /// Sets `file`'s modified time to `ago` before now.
 fn age_file(file: &Path, ago: Duration) {
-    let when = std::time::SystemTime::now() - ago;
+    let when = SystemTime::now() - ago;
     std::fs::File::options().write(true).open(file).unwrap().set_modified(when).unwrap();
 }
 

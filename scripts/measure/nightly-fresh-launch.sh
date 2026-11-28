@@ -22,6 +22,10 @@
 #                new copy's pre-main is made of (NFL-PREMAIN, NFL-PREMAIN-LOG and NFL-VERIFY lines)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
+# measure_quiet, before any checkout: a base commit may predate build-progress.sh. From the checkout this file is in
+# (launch-ready.sh sources a copy of it from its scratch folder inside the checkout). A new shell after checkout
+# uses the carrier's saved helper via NFL_BUILD_PROGRESS, as quit-gamut.sh's bounded builds do.
+source "${NFL_BUILD_PROGRESS:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/scripts/measure/build-progress.sh}" || exit 3
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
 main() {
@@ -78,15 +82,21 @@ build_dmg() {
   local out="$1" name="$2" config="$3" app configuration=(--release)
   [[ "$config" == bench ]] && configuration=(--config bench)
   [[ "$config" == debug ]] && configuration=(--config debug) # launch-ready.sh layout=movequit: DEBUG's debug.* commands
+  # Every phase before reload.sh is as quiet as the build (its output goes to the log), and a cold one (a submodule
+  # clone, an acpmux built on this host) ran past the controller's 45-minute silent limit before the first progress
+  # line (the font-smoothing A/B, step 606ea6ca, 2026-11-27, stopped with no "NFL acpmux base" line). measure_quiet
+  # ticks for each.
   for sub in ghostty ghostty-next; do
-    git submodule update --init --depth 1 "$sub" >>"$out/build-$name.log" 2>&1 || { echo "NFL submodule $sub failed" >&2; return 3; }
+    measure_quiet "NFL submodule $name $sub" "$out/build-$name.log" git submodule update --init --depth 1 "$sub" \
+      || { echo "NFL submodule $sub failed" >&2; return 3; }
   done
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
       export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
     fi
-    ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$name.log" 2>&1 || { echo "NFL GhosttyKit download failed" >&2; return 3; }
+    measure_quiet "NFL GhosttyKit $name" "$out/build-$name.log" ./scripts/download-prebuilt-ghosttykit.sh \
+      || { echo "NFL GhosttyKit download failed" >&2; return 3; }
   fi
   # acpmux before reload.sh, for this commit's tree: a fleet measurement Mac never runs Cargo, and an older commit's
   # reload.sh stops on a cache miss ("no cached acpmux for this checkout"). The copy taken before any checkout
@@ -99,7 +109,10 @@ build_dmg() {
     && arch=(CMUX_NEXT_ACPMUX_ARCHS="$([[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && echo arm64 || uname -m)")
   if [[ -z "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$resolve" ]]; then
     local bin
-    bin="$(env ${arch[@]+"${arch[@]}"} "$resolve" --repo "$PWD" 2>>"$out/build-$name.log")" \
+    # The path is resolve-acpmux.sh's stdout, kept in a file; its notes go to the log with measure_quiet's.
+    measure_quiet "NFL acpmux $name" "$out/build-$name.log" \
+      bash -c '"$@" >"$0"' "$out/acpmux-$name.path" env ${arch[@]+"${arch[@]}"} "$resolve" --repo "$PWD" \
+      && bin="$(cat "$out/acpmux-$name.path")" && [[ -n "$bin" ]] \
       || { echo "NFL acpmux for $name: none (build-$name.log)" >&2; return 3; }
     acpmux=(CMUX_NEXT_ACPMUX_BIN="$bin")
     echo "NFL acpmux $name $bin"
@@ -114,7 +127,8 @@ build_dmg() {
     cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
   fi
   local started=$SECONDS
-  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "nflab-$name" --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  measure_quiet "NFL build $name" "$out/build-$name.log" \
+    env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "nflab-$name" --no-global-cli-links "${configuration[@]}"
   [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

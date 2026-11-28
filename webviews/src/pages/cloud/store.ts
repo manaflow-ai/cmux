@@ -1212,7 +1212,11 @@ export class CloudStore {
     // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
     // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
     const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
-    this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+    // The first event of a burst draws at once; the rest of its frame only update the mirror, and the
+    // frame draws and keeps the list once for all of them (`eventFrame`).
+    const later = this.eventFrame !== undefined;
+    this.setMirror(applyEvent(this.state.machines, event), event.revision, patch, later);
+    if (!later) this.eventFrame = nextFrameOrSoon(() => this.flushEventFrame());
     if (archived) void this.readArchives(this.session);
     if (capChanged) void this.readPlanForCap();
   }
@@ -1261,7 +1265,32 @@ export class CloudStore {
     );
   }
 
-  private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
+  /**
+   * A burst of watch events (a spending-cap pause marks every running machine at once, one event each;
+   * a pool scale-up starts many) updates the mirror at each event but draws the page and writes the
+   * kept list once a frame, not once an event: before, N events were N renders and N writes of the
+   * whole list to storage (bench/cloud-event-burst.bench.ts). Set while the frame after a burst's
+   * first event is to come.
+   */
+  private eventFrame: (() => void) | undefined;
+  /** What the frame still owes: the listeners (a draw) and the kept list (a write). */
+  private owedDraw = false;
+  private owedKeep = false;
+
+  private flushEventFrame(): void {
+    this.eventFrame = undefined;
+    if (this.owedKeep) {
+      this.owedKeep = false;
+      this.keepList();
+    }
+    if (this.owedDraw) {
+      this.owedDraw = false;
+      for (const listener of this.listeners) listener();
+    }
+  }
+
+  /** `later`: an event inside a burst's frame; the frame draws and keeps the list (`eventFrame`). */
+  private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}, later = false): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
     // The machine Get just created stays selected until its first event reaches the mirror.
     const gone =
@@ -1269,17 +1298,24 @@ export class CloudStore {
       this.state.selection !== this.state.openWhenRunning &&
       !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
-    this.set({
-      machines,
-      revision,
-      pending,
-      rows: visibleRows(machines, pending),
-      ...(gone ? { selection: undefined, detail: undefined } : {}),
-      ...patch,
-    });
+    this.set(
+      {
+        machines,
+        revision,
+        pending,
+        rows: visibleRows(machines, pending),
+        ...(gone ? { selection: undefined, detail: undefined } : {}),
+        ...patch,
+      },
+      later,
+    );
     this.openIfRunning();
     this.createIfRoom();
-    this.keepList();
+    if (!later) this.keepList();
+    else {
+      this.ownerListed = true;
+      this.owedKeep = true;
+    }
   }
 
   /** Keeps the list the owner just gave for the next open's first frame (machineCache.ts). */
@@ -1433,7 +1469,8 @@ export class CloudStore {
     return this.options.newKey?.() ?? crypto.randomUUID();
   }
 
-  private set(patch: Partial<CloudState>): void {
+  /** `later`: the listeners hear of it at the event frame (`eventFrame`), not now. */
+  private set(patch: Partial<CloudState>, later = false): void {
     const wasDown = this.state.connection === "disconnected";
     this.state = { ...this.state, ...patch };
     // Any change into a lost link or a failed page read, from whichever read saw it, is read again
@@ -1452,6 +1489,11 @@ export class CloudStore {
     // A live page whose link dropped under a read or an action reads everything again on its own,
     // keeping what it shows (a first read that failed has its own `startLater`).
     if (!wasDown && this.state.connection === "disconnected" && this.started) this.reconnectLater();
+    if (later) {
+      this.owedDraw = true;
+      return;
+    }
+    this.owedDraw = false;
     for (const listener of this.listeners) listener();
   }
 
@@ -1584,4 +1626,25 @@ function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine):
     (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
     (before?.paused_by ?? null) !== (next.paused_by ?? null)
   );
+}
+
+/**
+ * Runs `run` once, at the next animation frame or after 50 ms, whichever comes first: a hidden page
+ * gets no frames (WebKit pauses them), and its events still settle. Returns its cancel.
+ */
+function nextFrameOrSoon(run: () => void): () => void {
+  let done = false;
+  const frame = globalThis.requestAnimationFrame?.(() => fire());
+  const timer = setTimeout(() => fire(), 50);
+  const cancel = () => {
+    done = true;
+    if (frame !== undefined) globalThis.cancelAnimationFrame?.(frame);
+    clearTimeout(timer);
+  };
+  function fire(): void {
+    if (done) return;
+    cancel();
+    run();
+  }
+  return cancel;
 }

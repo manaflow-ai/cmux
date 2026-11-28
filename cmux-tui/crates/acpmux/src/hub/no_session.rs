@@ -99,9 +99,11 @@ impl Hub {
     /// Peer `peer`'s link listed its whole list, applied just before (`PeerNotice::Listed`): a
     /// name it lacks is no session there.
     pub(super) fn peer_listed(&self, peer: &str, generation: u64) {
-        if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
-            p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
-            p.note_rows_applied();
+        let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+        let current = p.note_rows_applied();
+        p.rows_ready.store(current, std::sync::atomic::Ordering::SeqCst);
+        if !current {
+            return;
         }
         // Messages waiting for a name this list has go now, not after the rest of their retry
         // delay (`server/outbox.rs` `deliver`).

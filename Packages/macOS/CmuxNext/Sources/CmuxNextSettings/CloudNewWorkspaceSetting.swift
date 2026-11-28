@@ -28,6 +28,17 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// Only an explicit opt-in shares this Mac's personal GitHub CLI login with a Cloud machine.
+    public func useMyGitHubLogin(personal: JSONValue, effective: JSONValue) -> Bool {
+        personal.value(at: Self.useMyGitHubLoginPath)?.boolValue == true
+            && effective.value(at: Self.useMyGitHubLoginPath)?.boolValue == true
+    }
+
+    @MainActor public static func useMyGitHubLogin(_ settings: SettingsController?) -> Bool {
+        guard let settings else { return false }
+        return Self().useMyGitHubLogin(personal: settings.fileRoot, effective: settings.snapshot.root)
+    }
+
     /// Whether a running Cloud chat takes Mac folders live (`cloud.addFolderLive`): Sources' Add
     /// Folder and an agent's access-request cards in every Cloud chat. A missing or non-boolean
     /// value is on (Leo, 2026-11-25: "it doesnt work if it's not \"on by default\"").

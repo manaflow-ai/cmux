@@ -200,10 +200,26 @@ fn filesystem(
 ) -> anyhow::Result<(Fs, Arc<OnceLock<Notifier>>)> {
     overlay.keep_atime(options.read_only || !options.disk_atime);
     let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
+    // A file the Mac re-listed (RFD 0007, hard case 7): its cached attributes and pages go, on a
+    // thread of their own, after the read that found the change was answered (the kernel waits
+    // for a page a read still holds; a worker that waited there could hold up that read).
+    let (invalidate, invalidations) = channel::<u64>();
+    {
+        let notifier = notifier.clone();
+        std::thread::Builder::new().name("projection-invalidate".into()).spawn(move || {
+            while let Ok(ino) = invalidations.recv() {
+                if let Some(notifier) = notifier.get() {
+                    // ENOENT: the kernel holds nothing of it, which is fine.
+                    let _ = notifier.inval_inode(ino, 0, 0);
+                }
+            }
+        })?;
+    }
     let fs = Fs {
         overlay,
         jobs: pool("projection-io", WORKERS)?,
         local_jobs: pool("projection-local", 4)?,
+        invalidate,
         listings: HashMap::new(),
         versions: Arc::new(Mutex::new(HashMap::new())),
         notifier: notifier.clone(),
@@ -362,6 +378,8 @@ struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
     local_jobs: Sender<Job>,
+    /// Inodes the Mac re-listed, whose cached attributes and pages the kernel is told to drop.
+    invalidate: Sender<u64>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
     listings: HashMap<u64, Arc<[Listed]>>,
@@ -462,7 +480,14 @@ impl Fs {
         self.touch();
         let overlay = self.overlay.clone();
         let pool = if local { &self.local_jobs } else { &self.jobs };
-        let _ = pool.send(Box::new(move || job(&overlay)));
+        let invalidate = self.invalidate.clone();
+        // After the job (which replies), what it re-listed is queued for the kernel.
+        let _ = pool.send(Box::new(move || {
+            job(&overlay);
+            for ino in overlay.take_restated() {
+                let _ = invalidate.send(ino);
+            }
+        }));
     }
 }
 
@@ -700,7 +725,7 @@ impl Filesystem for Fs {
         };
         // A link of a lower file copies it up (a fetch): off the session loop.
         self.run_on(self.overlay.is_upper(ino), move |overlay| {
-            entry(reply, overlay.link(ino, newparent, &newname))
+            entry(reply, overlay.link(ino, newparent, &newname));
         });
     }
 
@@ -708,8 +733,19 @@ impl Filesystem for Fs {
         let (versions, notifier) = (self.versions.clone(), self.notifier.clone());
         // A write open copies a lower file up (a fetch): off the session loop.
         self.run_on(self.overlay.is_upper(ino), move |overlay| {
+            // Opening a lower file not on the machine yet is a fault (RFD 0007, hard case 7): a
+            // file the Mac changed is re-listed now, so its version below is the new one and the
+            // opener's `fstat` (git sizes its index that way, then maps it) sees its size now.
+            if flags & libc::O_ACCMODE != libc::O_WRONLY
+                && overlay.open_lower(ino)
+                && let Some(notifier) = notifier.get()
+            {
+                let _ = notifier.inval_inode(ino, -1, 0);
+            }
             match overlay.open_handle(ino, flags) {
-                Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
+                Ok(handle) => {
+                    reply.opened(handle, open_flags(overlay, &versions, &notifier, ino));
+                }
                 Err(errno) => reply.error(errno),
             }
         });

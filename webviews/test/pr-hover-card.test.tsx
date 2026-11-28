@@ -89,10 +89,9 @@ function expectFullCard(card: HTMLElement | null) {
   const text = card!.textContent ?? "";
   expect(text).toContain(TITLE);
   expect(text).toContain("manaflow-ai/leo-workspace#634");
-  // The glyph follows the PR state and the status row names it for quick scanning.
+  // The glyph follows the PR state with an accessible label (no redundant visible state word).
   expect(card!.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Draft");
-  expect(card!.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Draft");
-  expect(shownText(card!)).toContain("Draft");
+  expect(card!.querySelector(".acpmux-pr-card__state")).toBeNull();
   expect(text).toContain("teamleaderleo");
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
@@ -100,13 +99,6 @@ function expectFullCard(card: HTMLElement | null) {
   // In words, as CI checks (Leo 2026-11-07: "The check mark, the X mark, whatever. What does that mean?").
   expect(card!.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
   expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
-}
-
-/** The card's text as it shows: no svg titles and no screen-reader-only words. */
-function shownText(element: Element): string {
-  const copy = element.cloneNode(true) as Element;
-  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
-  return copy.textContent ?? "";
 }
 
 test("a pull request chip in a reply opens the same card", async () => {

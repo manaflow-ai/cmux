@@ -303,6 +303,8 @@ pub struct Machine {
     /// The team that owns the machine (the cmux-next record's `team`); nil on a classic record.
     #[serde(default)]
     pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_id: Option<String>,
     #[serde(default)]
     pub address: Option<Address>,
     #[serde(default)]
@@ -398,6 +400,7 @@ impl Machine {
             created_at: None,
             created_by: None,
             team: None,
+            environment_id: None,
             address: None,
             size: None,
             declared_capabilities: None,
@@ -624,6 +627,8 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.serves_desktop = fields.get("desktop").and_then(Value::as_bool).unwrap_or(false);
     machine.created_by = json::text(fields.get("creator"));
     machine.team = json::text(fields.get("team"));
+    machine.environment_id = json::text(first(fields, &["environment_id", "environmentId"]))
+        .or_else(|| json::text(value.pointer("/environment/id")));
     // The contract's `created_at` (epoch ms); the classic `createdAt` is never in this record.
     machine.created_at = fields.get("created_at").and_then(Value::as_f64);
     // When a machine left paused is deleted (cmux-platform `evict_at`, epoch ms); null or absent

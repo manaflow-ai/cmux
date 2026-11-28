@@ -95,7 +95,7 @@ fn request(command: SessionCmd) -> Result<Value> {
         SessionCmd::Resume { session, mesh, .. } if mesh.mesh => {
             ("resume", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
         }
-        SessionCmd::Stop { session, purge, mesh, condition, close } if mesh.mesh => {
+        SessionCmd::Stop { session, purge, mesh, condition, close, .. } if mesh.mesh => {
             if purge {
                 bail!("mesh stop keeps the stored session; --purge is unsupported");
             }
