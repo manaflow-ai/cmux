@@ -182,6 +182,7 @@ key = "cmux.acpmux.harnessProfiles.v1"
 
 [[storage_key]]
 key = "cmux.acpmux.jumpUpIdle"
+retired = "the old Jump up kept a per-chat idle place and mark here (scroll hints for its arrow); the arrow now reads the durable per-person seen cursor acpmux keeps (SessionMeta.read_through), so losing the hints costs no work"
 
 [[storage_key]]
 key = "cmux.acpmux.lastChips"
