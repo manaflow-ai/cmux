@@ -271,13 +271,16 @@ fn the_page_sends_only_allowed_acpmux_meta() {
     let allowed = &policy().known_params["session/prompt"].acpmux;
     let extra: Vec<_> = prompt.difference(allowed).collect();
     assert!(extra.is_empty(), "session/prompt _meta.acpmux keys the hosts refuse: {extra:?}");
-    let start =
-        direct.find("export function newSessionParams(").expect("newSessionParams in direct.ts");
-    let body = &direct[start..];
+    // newSessionParams moved to direct/hostConfig.ts with the host config's other builders.
+    let host = read(&dir, "direct/hostConfig.ts");
+    let start = host
+        .find("export function newSessionParams(")
+        .expect("newSessionParams in direct/hostConfig.ts");
+    let body = &host[start..];
     let body = &body[..body.find("\n}").unwrap()];
     let mut new = BTreeSet::new();
     for (at, _) in body.match_indices("acpmux: {") {
-        new.extend(literal_keys(&dir, &direct, braced(body, at + "acpmux: ".len())));
+        new.extend(literal_keys(&dir, &host, braced(body, at + "acpmux: ".len())));
     }
     assert_eq!(new, policy().known_params["session/new"].acpmux, "session/new _meta.acpmux keys");
 }
@@ -369,10 +372,12 @@ fn trust_cases() -> serde_json::Value {
 #[test]
 fn trust_refusal_reasons_are_the_daemons() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
-    let start =
-        direct.find("export function isTrustRefusal(").expect("isTrustRefusal in direct.ts");
-    let body = &direct[start..];
+    // isTrustRefusal moved to direct/refusals.ts with the page's other refusal readers.
+    let refusals = read(&dir, "direct/refusals.ts");
+    let start = refusals
+        .find("export function isTrustRefusal(")
+        .expect("isTrustRefusal in direct/refusals.ts");
+    let body = &refusals[start..];
     let body = &body[..body.find("\n}").unwrap()];
     let page: BTreeSet<String> = quoted_after(body, "reason ===").into_iter().collect();
     let want: BTreeSet<String> = trust_cases()["page_reasons"]

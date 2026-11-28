@@ -81,6 +81,10 @@ const OPAQUE_OK = new Map<string, string>(
 
 /// Methods the page names that go to the native host in mock mode only, never through the relay.
 const NOT_RELAYED = new Set(["file.search"]);
+// `_meta.acpmux` keys the page sends only on its own socket, never through the app's relay:
+// `compression` goes out only when `frameCompression` holds, an `acpmux-websocket` transport to a
+// machine across a network (cmux#50153); the app's relay is the `acpmux-bridge` transport.
+const SOCKET_ONLY_ACPMUX: Record<string, Set<string>> = { initialize: new Set(["compression"]) };
 
 function sources(dir: string): string[] {
   const out: string[] = [];
@@ -243,7 +247,8 @@ test("every key the page sends a relay method is one the relay takes", () => {
         if (!metaKeyTaken(site.method, key)) refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
       }
       for (const key of site.acpmux)
-        if (!rule.acpmux.has(key)) refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
+        if (!rule.acpmux.has(key) && !SOCKET_ONLY_ACPMUX[site.method]?.has(key))
+          refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
     }
   }
   expect(refused).toEqual([]);
