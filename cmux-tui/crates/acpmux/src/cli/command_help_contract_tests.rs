@@ -12,7 +12,7 @@ const REMOTE_DOCS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/remote-agents-and-cloud.md"),
     ),
     ("acpmux README", include_str!("../../README.md")),
-    ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+    ("agents skill", include_str!("../../skills/agents/SKILL.md")),
     ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
     ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
     ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
@@ -275,11 +275,11 @@ fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
 
 /// The skills agents load teach the current names (`machine`, `machine pick`,
 /// `machine dedicated`, `--machine`), not the hidden aliases kept for old scripts. The
-/// acpmux skill's "Old spellings" bullet is the one place that names them.
+/// agents skill's "Old spellings" bullet is the one place that names them.
 #[test]
 fn agent_skills_use_current_command_names() {
     const SKILLS: &[&str] = &[
-        "acpmux skill",
+        "agents skill",
         "integrate-harness skill",
         "cmux-acpmux skill",
         "cmux skill",
