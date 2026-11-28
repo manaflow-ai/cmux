@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '23549432f98e661099b999fb4c19abaa105fb3b6cfe526d2661f84c40289a64c'
+IR_SHA256 = 'd72f1974dff32ce665bf1e3c3f911d264af4c18e6d40402fb10bceedd4e1c5a9'
 
 
 @dataclass(frozen=True)
@@ -2823,6 +2823,19 @@ COMMANDS = {
         {
             'counts': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'record-notification-delivery': CommandMetadata(
+        'record-notification-delivery',
+        'control',
+        12,
+        'notification-ack-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'desktop': CommandFieldMetadata(None, None),
+            'notification': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
         },
     ),
     'register-browser-provider': CommandMetadata(

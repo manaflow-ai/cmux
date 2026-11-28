@@ -34969,6 +34969,58 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "counts", true, "true")
 	})
+	t.Run("RecordNotificationDeliveryRequest.Reason", func(t *testing.T) {
+		var missing RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":\"value\",\"notification\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Reason.IsAbsent() {
+			t.Fatal("Reason did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "reason", false, "")
+		var nullValue RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":\"value\",\"notification\":1,\"reason\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Reason.IsNull() {
+			t.Fatal("Reason did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "reason", true, "null")
+		var presentValue RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":\"value\",\"notification\":1,\"reason\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Reason.Get(); !ok {
+			t.Fatal("Reason did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "reason", true, "\"value\"")
+	})
+	t.Run("RecordNotificationDeliveryOptions.Reason", func(t *testing.T) {
+		var missing RecordNotificationDeliveryOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Reason.IsAbsent() {
+			t.Fatal("Reason did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "reason", false, "")
+		var nullValue RecordNotificationDeliveryOptions
+		if err := json.Unmarshal([]byte("{\"reason\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Reason.IsNull() {
+			t.Fatal("Reason did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "reason", true, "null")
+		var presentValue RecordNotificationDeliveryOptions
+		if err := json.Unmarshal([]byte("{\"reason\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Reason.Get(); !ok {
+			t.Fatal("Reason did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "reason", true, "\"value\"")
+	})
 	t.Run("RegisterBrowserProviderRequest.BearerToken", func(t *testing.T) {
 		var missing RegisterBrowserProviderRequest
 		if err := json.Unmarshal([]byte("{\"authentication\":\"none\",\"endpoint\":\"value\",\"provider_id\":\"value\",\"targets\":[]}"), &missing); err != nil {
@@ -56548,6 +56600,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field surface decoded successfully")
 		}
 	})
+	t.Run("RecordNotificationDeliveryRequest.Desktop", func(t *testing.T) {
+		var decoded RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"notification\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field desktop decoded successfully")
+		}
+	})
+	t.Run("RecordNotificationDeliveryRequest.Notification", func(t *testing.T) {
+		var decoded RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field notification decoded successfully")
+		}
+	})
 	t.Run("RegisterBrowserProviderRequest.Authentication", func(t *testing.T) {
 		var decoded RegisterBrowserProviderRequest
 		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"provider_id\":\"value\",\"targets\":[]}"), &decoded); err == nil {
@@ -65767,6 +65831,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field surface accepted null")
 		}
 	})
+	t.Run("RecordNotificationDeliveryRequest.Desktop", func(t *testing.T) {
+		var decoded RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":null,\"notification\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field desktop accepted null")
+		}
+	})
+	t.Run("RecordNotificationDeliveryRequest.Notification", func(t *testing.T) {
+		var decoded RecordNotificationDeliveryRequest
+		if err := json.Unmarshal([]byte("{\"desktop\":\"value\",\"notification\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field notification accepted null")
+		}
+	})
 	t.Run("RegisterBrowserProviderRequest.Authentication", func(t *testing.T) {
 		var decoded RegisterBrowserProviderRequest
 		if err := json.Unmarshal([]byte("{\"authentication\":null,\"endpoint\":\"value\",\"provider_id\":\"value\",\"targets\":[]}"), &decoded); err == nil {
@@ -70541,12 +70617,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1986
-	generatedOptionalNullableFieldCount    = 1366
+	generatedFieldShapeCount               = 1988
+	generatedOptionalNullableFieldCount    = 1368
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 442
-	generatedRequiredFieldCount            = 1671
-	generatedRequiredNonnullableFieldCount = 1493
+	generatedRequiredFieldCount            = 1673
+	generatedRequiredNonnullableFieldCount = 1495
 	generatedConstrainedFieldCount         = 145
 	generatedEncodedConstrainedFieldCount  = 145
 )
