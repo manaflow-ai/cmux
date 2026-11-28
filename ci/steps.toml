@@ -3273,6 +3273,7 @@ inputs = [
   "cmux-tui/crates/acpmux/tests/hub_carrier_cases/*",
   "cmux-tui/crates/acpmux/tests/hub_integration/*",
   "cmux-tui/crates/acpmux/tests/lane_reports/*",
+  "cmux-tui/crates/acpmux/tests/peer_integration/*",
   "cmux-tui/crates/acpmux/tests/request_stack/*",
   "cmux-tui/crates/acpmux/tests/sim/*",
   "cmux-tui/crates/acpmux/tests/support/*",
