@@ -178,6 +178,10 @@ jobs:
           # worktree that shares it.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
+          # The fleet Macs keep this checkout across jobs but empty $RUNNER_TEMP, so an earlier job's worktree is
+          # still registered with its folder gone, and `worktree add` refuses the path (exit 128; runs 46184455907,
+          # 46184441265 on 11-28). prune drops only registrations whose folder is missing.
+          git worktree prune
           git -c "http.https://github.com/.extraheader=$auth" worktree add -q --detach "$RUNNER_TEMP/ios-verify-head" "$SHA"
       - uses: ./.github/actions/fleet-client
         if: ${{ steps.proved.outputs.go == 'true' }}
@@ -214,7 +218,9 @@ jobs:
             --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" || rc=$?
           # Exit 1 is a failing record, which is posted: the gate then says why. Anything else posted nothing.
           if [[ -s "$RUNNER_TEMP/ios-verify-record.json" ]]; then
-            python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print(f"### cmux ios verify #{r[\"pr\"]} at {r[\"head_sha\"][:12]}: {r[\"verdict\"]}")' \
+            # No backslash inside an f-string: the Macs' python3 is older than 3.12, where that is a SyntaxError
+            # (runs 46184439255, 46184226923 went red here after a record was written).
+            python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print("### cmux ios verify #%s at %s: %s" % (r["pr"], r["head_sha"][:12], r["verdict"]))' \
               "$RUNNER_TEMP/ios-verify-record.json" >> "$GITHUB_STEP_SUMMARY"
           fi
           [[ "$rc" -le 1 ]] || { echo "::error title=cmux ios verify (auto)::ios_verify.py exited $rc"; exit "$rc"; }
