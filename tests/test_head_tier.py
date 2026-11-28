@@ -933,6 +933,29 @@ class LandCarryTests(BranchRepo):
                             facts={**facts, "previous_landed": True}, now=self.now)
         self.assertTrue(head_tier.carried(decided), decided)
 
+    def test_a_landed_green_previous_head_carries_rather_than_none(self) -> None:
+        """Both the green-head rule and the carry rule fit a ready-to-land update-branch onto a landed head whose
+        every run passed: the carry wins, so cmux/land-tier stays success and land-judge pulses nothing (the green
+        rule's `none` left it pending, and the pulse's `labeled` event ran the affected tier anyway: #63966 03df0990)."""
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves again", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        facts = head_tier.head_facts(self.event(self.git("rev-parse", "HEAD")))
+        landing = self.landing(self.git("rev-parse", "HEAD"))
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": True, "previous_green": True}, now=self.now)
+        self.assertTrue(head_tier.carried(decided), decided)
+        # Not landed there: the green rule's none, as before.
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": False, "previous_green": True}, now=self.now)
+        self.assertEqual(decided[0], "none", decided)
+
     def test_an_unproved_previous_head_an_own_commit_full_ci_or_the_switch_keep_the_full_tier(self) -> None:
         for landed in (False, None):
             self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(landed),
@@ -2105,3 +2128,70 @@ class PostMergeTierTests(unittest.TestCase):
                     for want in needed:
                         self.assertIn(want, patterns, f"{path.name}: a sparse checkout in a head_tier.py tier job")
         self.assertGreater(checked, 0)
+
+
+class ReadSparesTests(unittest.TestCase):
+    """head_tier.read_with_spares: a spent job-token hour asks the spare read tokens instead of failing open."""
+
+    LIMITED = (403, b'{"message": "API rate limit exceeded for installation ID 1."}', {})
+
+    def _req(self) -> "head_tier.urllib.request.Request":
+        return head_tier.urllib.request.Request("https://api.github.com/repos/o/r/actions/runs",
+                                                headers={"Authorization": "Bearer job"})
+
+    def test_spent_hour_moves_to_the_next_spare(self) -> None:
+        seen: list[str] = []
+
+        def call(req):
+            seen.append(req.get_header("Authorization"))
+            return self.LIMITED if len(seen) < 3 else (200, b'{"ok": 1}', {})
+
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "job app pool1 pool2"}):
+            status, body, _ = head_tier.read_with_spares(self._req(), call)
+        self.assertEqual(status, 200)
+        # The request's own token is not asked twice; pool2 is never needed.
+        self.assertEqual(seen, ["Bearer job", "Bearer app", "Bearer pool1"])
+
+    def test_a_permission_refusal_or_success_asks_no_spare(self) -> None:
+        for answer in ((200, b"{}", {}), (403, b'{"message": "Resource not accessible by integration"}', {}),
+                       (404, b"{}", {})):
+            calls: list[int] = []
+
+            def call(req, answer=answer):
+                calls.append(1)
+                return answer
+
+            with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "app pool1"}):
+                self.assertEqual(head_tier.read_with_spares(self._req(), call), answer)
+            self.assertEqual(len(calls), 1)
+
+    def test_no_spares_keeps_the_rate_limited_answer(self) -> None:
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "  "}):
+            self.assertEqual(head_tier.read_with_spares(self._req(), lambda r: self.LIMITED), self.LIMITED)
+
+    def test_runs_at_reads_through_a_spent_job_token(self) -> None:
+        """The green and carry rules' previous-head runs read (run 46159124593's case): the job token is rate
+        limited, the App spare answers, so runs_at returns the runs rather than None (which kept the affected tier)."""
+        runs = {"total_count": 1, "workflow_runs": [{"id": 1, "path": "a.yml", "status": "completed",
+                                                      "conclusion": "success"}]}
+
+        def fake(req, seconds=None, **_):
+            if req.get_header("Authorization") == "Bearer job":
+                return self.LIMITED
+            return 200, json.dumps(runs).encode(), {}
+
+        import deadline_http
+        with mock.patch.dict(os.environ, {head_tier.READ_TOKENS_VAR: "app"}), \
+                mock.patch.object(deadline_http, "request", side_effect=fake):
+            got = head_tier.runs_at("o/r", "a" * 40, "job")
+        self.assertEqual(got, runs["workflow_runs"])
+        self.assertTrue(head_tier.green_previous(got))
+
+    def test_router_route_step_passes_the_spares(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        route = text.split("      - name: Route\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("CI_ROUTER_READ_TOKENS: ${{ steps.route-read-token.outputs.token }}", route)
+        mint = text.split("      - name: Mint the route read token\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("continue-on-error: true", mint)
+        self.assertIn("permission-actions: read", mint)
+        self.assertNotIn("write", mint)
