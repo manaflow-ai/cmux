@@ -73,21 +73,30 @@ def bg_finished(prompt: str) -> bool:
     return prompt.startswith("[notice from acpmux") and "Background command finished" in prompt[:120]
 
 
+def cutoff(session: dict, now_ms: int) -> int:
+    """--now-ms can shorten any captured interval, never extend its observation."""
+    observed = session.get("observedAt")
+    return min(now_ms, observed) if observed is not None else now_ms
+
+
 def gaps(sessions: list[dict], now_ms: int) -> list[dict]:
     """Every gap with what the daemon knew at its start."""
     out = []
     for s in sessions:
         t = s["turns"]
+        until = cutoff(s, now_ms)
         past: list[int] = []
         who: list[bool] = []
         for i, turn in enumerate(t):
             end = turn.get("endedAt")
-            if not end:
+            if not end or end > until or turn["startedAt"] > until:
                 continue
             nxt = t[i + 1] if i + 1 < len(t) else None
-            if nxt is None and (s.get("open") is not True or not s.get("observedAt")):
+            if nxt is None and (s.get("open") is not True or s.get("observedAt") is None):
                 continue  # old/closed traces prove no trailing idle interval
-            start = nxt["startedAt"] if nxt else min(now_ms, s["observedAt"])
+            if nxt is not None and nxt["startedAt"] > until:
+                nxt = None  # a future turn proves no wake/person event inside this capture
+            start = nxt["startedAt"] if nxt else until
             g = start - end
             if g < 0:
                 continue  # an overlapping (queued) turn: no idle time
@@ -113,11 +122,12 @@ def residents_at(gs: list[dict], sessions: list[dict], now_ms: int) -> dict:
         by.setdefault((g["host"], g["session"]), []).append(
             (g["at"], g["at"] + min(g["g"], 2 * MIN)))
     for s in sessions:
+        until = cutoff(s, now_ms)
         for turn in s["turns"]:
             end = turn.get("endedAt") or s.get("observedAt")
             if end:
                 by.setdefault((s["host"], s["id"]), []).append(
-                    (turn["startedAt"], min(end, now_ms)))
+                    (turn["startedAt"], min(end, until)))
     hosts = {}
     for (host, _), spans in by.items():
         merged = []
