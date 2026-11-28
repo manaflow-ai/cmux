@@ -1,6 +1,8 @@
 //! Harness rows for the relay cache (RFD 0142 R2 and R9): first content and resume after sleep
 //! while the Mac is asleep, before (today: the relay holds nothing, the phone waits for the Mac)
-//! and after (the relay's sealed snapshot and delta catch-up), idle and under duress.
+//! and after (the relay's sealed snapshot and delta catch-up), idle and under duress. Resume has a
+//! third arm, `sipped`: a background wake read half the deltas before the open. Cold open has a
+//! modeled arm, `cold-sipped`: a cold background launch kept every chat's snapshot before the open.
 //!
 //! Run: `scripts/measure/relay-cache-open.sh` (or `cargo test -p cmux-mobile-host --release --test
 //! relay_cache_rows -- --ignored --nocapture`). Prints one `RELAYCELL {json}` line per run and one
@@ -156,13 +158,13 @@ impl Rig {
         RelayCache::new(ApiClient::new(&base, "user:me"), PHONE, RelayCacheConfig { enabled: true })
     }
 
-    /// The Mac writes for [`SLEEP`] at `every` (coalesced per [`WINDOW`]), then flushes and puts a
-    /// fresh snapshot as it goes to sleep. Returns how many records it wrote.
-    async fn mac_writes_then_sleeps(&mut self, every: Duration) -> usize {
+    /// The Mac writes for `span` at `every` (coalesced per [`WINDOW`]) and flushes. Returns how
+    /// many records it wrote.
+    async fn mac_writes(&mut self, every: Duration, span: Duration) -> usize {
         let stream = stream_name(0);
         let start = Instant::now();
         let mut coalescer = Coalescer::new(WINDOW);
-        let count = (SLEEP.as_millis() / every.as_millis()) as usize;
+        let count = (span.as_millis() / every.as_millis()) as usize;
         for i in 0..count {
             let seq = self.measured.len() + 1;
             let line = record(seq, "assistant");
@@ -174,7 +176,19 @@ impl Rig {
         if let Some(batch) = coalescer.take() {
             self.publisher.publish_delta(&self.viewers, &stream, &batch).await;
         }
+        count
+    }
+
+    /// The Mac puts a fresh snapshot as it goes to sleep.
+    async fn mac_sleeps(&mut self) {
+        let stream = stream_name(0);
         self.publisher.publish_snapshot(&self.viewers, &stream, &open_page(&self.measured)).await;
+    }
+
+    /// The Mac writes for [`SLEEP`] at `every`, then sleeps. Returns how many records it wrote.
+    async fn mac_writes_then_sleeps(&mut self, every: Duration) -> usize {
+        let count = self.mac_writes(every, SLEEP).await;
+        self.mac_sleeps().await;
         count
     }
 }
@@ -346,10 +360,80 @@ async fn cold_open(load: &Load, arm: &str, n: usize) {
     }
 }
 
+/// `mac-asleep x cold-open`, arm `cold-sipped`: modeled, not what the app does today. iOS
+/// launched the app cold for a background refresh; that wake read every chat's whole snapshot
+/// (untimed: nobody waits on it) and kept it; the Mac wrote for another 30 s and slept; the person
+/// opens the app, which resumes every chat from what the wake kept (one catch-up, a snapshot for
+/// a surface the relay cut). Today `PushReplies.sipDeltasInBackground` skips a cold launch, because a
+/// headless coordinator keeps nothing it applies, so today's cold-launch row is the `after` arm.
+/// This arm measures what keeping it would buy.
+async fn cold_sipped(load: &Load, n: usize) {
+    let mut samples = Vec::new();
+    for run in 0..n {
+        let seed = 0x5eed_2000 + run as u64;
+        let mut rig = Rig::start(true, load, seed).await;
+        let source = rig.publisher.source_key();
+        let sipper = rig.phone();
+        let mut floors = Vec::new();
+        let mut sip_bytes = 0;
+        for i in 0..load.chats {
+            let mut floor = Floor::default();
+            let got = sipper
+                .cold_open(MAC, &source, &rig.phone_key, &stream_name(i), &mut floor)
+                .await
+                .expect("background cold sip");
+            sip_bytes += got.map(|g| g.bytes).unwrap_or_default();
+            floors.push((stream_name(i), floor));
+        }
+        let written = rig.mac_writes(load.every, SLEEP / 2).await;
+        rig.mac_sleeps().await;
+        let phone = rig.phone();
+        let began = Instant::now();
+        let resumed = phone
+            .resume_or_snapshot(MAC, &source, &rig.phone_key, &mut floors, MAX_BUDGET_BYTES)
+            .await
+            .expect("open after a cold sip");
+        let ms = began.elapsed().as_secs_f64() * 1000.0;
+        let newest = rig.measured.last().map(String::as_bytes).unwrap_or_default();
+        let shows_newest =
+            resumed.surfaces.iter().any(|s| s.applied.last().is_some_and(|o| o.plaintext.ends_with(newest)))
+                || resumed.snapshots.iter().any(|o| o.plaintext.ends_with(&[newest, b"]"].concat()));
+        assert!(shows_newest, "the open must reach the Mac's last record");
+        samples.push(ms);
+        let applied: usize = resumed.surfaces.iter().map(|s| s.applied.len()).sum();
+        cell(
+            "mac-asleep x cold-open",
+            "cold-sipped",
+            load.name,
+            run,
+            seed,
+            Some(ms),
+            json!({"records_missed": written, "deltas": applied, "bytes": resumed.bytes,
+                   "via": if resumed.snapshots.is_empty() { "catch-up" } else { "catch-up cut, snapshot" },
+                   "sipped_snapshots": load.chats, "sipped_bytes": sip_bytes}),
+        );
+    }
+    row(
+        "mac-asleep x cold-open",
+        "cold-sipped",
+        load.name,
+        n,
+        &mut samples,
+        "modeled: a cold background launch kept every chat's snapshot; the open catches up 30 s more, Mac asleep",
+    );
+}
+
 /// `lte x resume-after-sleep x relay`: the phone held the chat, slept 60 s while the Mac kept
 /// writing, then the Mac slept; the phone wakes and resumes.
-async fn resume(load: &Load, cache_on: bool, n: usize) {
-    let arm = if cache_on { "after" } else { "before" };
+///
+/// Arms: `before` (the relay holds nothing), `after` (the open reads every delta of the 60 s),
+/// `sipped` (the app's background wake, `BackgroundDeltaSip`, read the first 30 s of deltas while
+/// the app was closed, untimed: nobody waits on it; the open reads only the rest). Leo,
+/// 2026-11-24: "the syncing can arguably happen in the background too, so deltas can be sipped and
+/// maintained".
+async fn resume(load: &Load, arm: &str, n: usize) {
+    let cache_on = arm != "before";
+    let sipped = arm == "sipped";
     let mut samples = Vec::new();
     for run in 0..n {
         let seed = 0x5eed_1000 + run as u64;
@@ -358,7 +442,20 @@ async fn resume(load: &Load, cache_on: bool, n: usize) {
         // The phone's floor before it slept: it showed the chat at its open-page position.
         let mut floors = vec![(stream_name(0), Floor::at(rig.publisher.position(&stream_name(0))))];
         let held = rig.measured.len();
-        let written = rig.mac_writes_then_sleeps(load.every).await;
+        let (written, sip) = if sipped {
+            let first = rig.mac_writes(load.every, SLEEP / 2).await;
+            let sip = rig
+                .phone()
+                .resume_or_snapshot(MAC, &source, &rig.phone_key, &mut floors, MAX_BUDGET_BYTES)
+                .await
+                .expect("background sip");
+            let sip_deltas: usize = sip.surfaces.iter().map(|s| s.applied.len()).sum();
+            let rest = rig.mac_writes(load.every, SLEEP - SLEEP / 2).await;
+            rig.mac_sleeps().await;
+            (first + rest, Some((sip_deltas, sip.bytes)))
+        } else {
+            (rig.mac_writes_then_sleeps(load.every).await, None)
+        };
         let phone = rig.phone();
         let began = Instant::now();
         let got = phone.resume_or_snapshot(MAC, &source, &rig.phone_key, &mut floors, MAX_BUDGET_BYTES).await;
@@ -378,7 +475,8 @@ async fn resume(load: &Load, cache_on: bool, n: usize) {
                     Some(ms),
                     json!({"records_missed": written, "held": held, "deltas": applied,
                                   "via": if resumed.snapshots.is_empty() { "catch-up" } else { "catch-up cut, snapshot" },
-                                  "bytes": resumed.bytes}),
+                                  "bytes": resumed.bytes,
+                                  "sipped_deltas": sip.map(|s| s.0), "sipped_bytes": sip.map(|s| s.1)}),
                 )
             }
             Err(RelayCacheError::RelayOff(code)) => (
@@ -389,10 +487,10 @@ async fn resume(load: &Load, cache_on: bool, n: usize) {
         };
         cell("lte x resume-after-sleep x relay", arm, load.name, run, seed, ms, fields);
     }
-    let note = if cache_on {
-        "catch-up from the relay (cut surfaces take the newest snapshot), Mac asleep"
-    } else {
-        "today: the relay holds nothing; the new records wait for the Mac to wake"
+    let note = match arm {
+        "before" => "today: the relay holds nothing; the new records wait for the Mac to wake",
+        "after" => "catch-up from the relay (cut surfaces take the newest snapshot), Mac asleep",
+        _ => "a background wake sipped the first 30 s of deltas; the open catches up the rest, Mac asleep",
     };
     row("lte x resume-after-sleep x relay", arm, load.name, n, &mut samples, note);
 }
@@ -403,11 +501,12 @@ async fn relay_cache_rows() {
     let cold = runs("RELAYCACHE_COLD_RUNS", COLD_RUNS);
     let resumes = runs("RELAYCACHE_RESUME_RUNS", RESUME_RUNS);
     for load in [&IDLE, &DURESS] {
-        for cache_on in [false, true] {
-            resume(load, cache_on, resumes).await;
+        for arm in ["before", "after", "sipped"] {
+            resume(load, arm, resumes).await;
         }
         for arm in ["before", "after", "after-first-screen"] {
             cold_open(load, arm, cold).await;
         }
+        cold_sipped(load, cold).await;
     }
 }

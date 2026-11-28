@@ -66,6 +66,9 @@ final class MacCatchUps {
     func lacksService(_ macID: String) -> Bool { withoutService.contains(macID) }
     func markWithoutService(_ macID: String) { withoutService.insert(macID) }
 
+    /// The rounds running now, for a wake that must end only once they do.
+    var runningRounds: [Task<Void, Never>] { Array(running.values) }
+
     /// Runs `work` for the Mac unless one already runs.
     func run(_ macID: String, _ work: @escaping @MainActor () async -> Void) {
         guard running[macID] == nil else { return }
@@ -115,10 +118,26 @@ extension LiveCoordinator {
     /// request, so the chats and list are current before the person opens the app (Leo,
     /// 2026-11-24: "deltas can be sipped and maintained"). Off with the same setting.
     ///
-    /// No handler calls this yet: the app has no background-fetch or remote-notification
-    /// entry (`UIBackgroundModes` is `audio` only), and the FFI has no background request.
+    /// The app's background refresh (`BackgroundDeltaSip`, CmuxMobileShell) calls it through
+    /// `sipDeltasInBackground`.
     func catchUpInBackground(pushChat: String?) {
         catchUpServedMacs(.background(pushChat: pushChat))
+    }
+
+    /// Whether a background wake has anything to do: the Mac `catch-up` setting or the relay
+    /// delta catch-up setting is on. Both are off by default, and then no wake is asked for.
+    public static func backgroundSipEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        MacCatchUps.enabled(defaults) || RelayCatchUp.enabled(defaults)
+    }
+
+    /// One background sip: each Mac catches up as `catchUpInBackground` does (the relay's delta
+    /// log for a Mac with no link up), and this returns once every round has ended, so the
+    /// system's background task ends with it.
+    public func sipDeltasInBackground(pushChat: String?) async {
+        catchUpInBackground(pushChat: pushChat)
+        for round in catchUps.runningRounds {
+            await round.value
+        }
     }
 
     private func catchUpServedMacs(_ wake: CatchUpWake) {

@@ -209,6 +209,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // Background delta sip: the handler must be registered before launch ends.
+        BackgroundDeltaSip.register()
         // One notification per Chief reply: the Mac's push when this phone gets them, else the app's own alert.
         ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.

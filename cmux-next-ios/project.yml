@@ -394,7 +394,10 @@ targets:
         NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.
         NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device, and dictate messages. Dictation uses Apple's speech recognition on this device when it can, otherwise Apple's servers.
         # The Action Button Chief call keeps recording while the phone is locked.
-        UIBackgroundModes: [audio]
+        # `fetch`: the background delta sip (BackgroundDeltaSip, a BGAppRefreshTask), asked for
+        # only while a catch-up setting is on (both off by default).
+        UIBackgroundModes: [audio, fetch]
+        BGTaskSchedulerPermittedIdentifiers: [dev.cmux.mobile.delta-sip]
         NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.
         CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:

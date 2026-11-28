@@ -369,6 +369,23 @@ public final class PushReplies {
         }
     }
 
+    #if canImport(CmuxMobileLinkFFI)
+    /// A background refresh wake (`BackgroundDeltaSip`): RootView's coordinator, still in memory
+    /// while iOS keeps the app suspended, sips each Mac's deltas. True when it ran.
+    ///
+    /// A cold launch with no scene skips: a headless coordinator holds what it applies only in
+    /// memory and stops when the wake ends, while the sip moves the kept catch-up cursors, so the
+    /// next open would ask from past what it never showed.
+    func sipDeltasInBackground() async -> Bool {
+        guard let live, auth?.isSignedIn == true else {
+            log.info("delta sip: no live coordinator (a cold background launch); skipped")
+            return false
+        }
+        await live.sipDeltasInBackground(pushChat: nil)
+        return true
+    }
+    #endif
+
     /// A coordinator for a cold background launch: the account restored from
     /// the keychain, its teams, then its Macs.
     private func headless() async -> LiveCoordinator? {
