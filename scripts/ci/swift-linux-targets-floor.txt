@@ -2,4 +2,4 @@
 # It only goes up (scripts/ci/swift_linux_targets.py --write-list raises it); ci-guards fails below it.
 # 108 -> 104: #60065 deleted CmuxIrohTransport and CmuxIrxTransport (4 targets); no Linux target was dropped.
 # 104 -> 106: CmuxPushRegistration and its tests (B5 clean package).
-106
+108

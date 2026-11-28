@@ -1,4 +1,8 @@
+#if canImport(os)
 import os
+#else
+import Foundation
+#endif
 import CmuxNextCompat
 
 /// The one gate for this process's environment writes (setenv, unsetenv).
@@ -17,7 +21,9 @@ public final class ProcessEnvironmentGuard: Sendable {
     /// The guard of the real process environment.
     public static let process = ProcessEnvironmentGuard()
 
+    #if canImport(os)
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "environment")
+    #endif
 
     private let frozen = Atomic<Bool>(false)
     private let reported = Atomic<Bool>(false)
@@ -53,7 +59,11 @@ public final class ProcessEnvironmentGuard: Sendable {
         guard !isFrozen else {
             let message = "environment write after the freeze at \(site): libghostty holds a copy of environ"
             if !reported.exchange(true, ordering: .acquiringAndReleasing) {
+                #if canImport(os)
                 Self.logger.fault("\(message, privacy: .public)")
+                #else
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+                #endif
             }
             onViolation(message)
             return

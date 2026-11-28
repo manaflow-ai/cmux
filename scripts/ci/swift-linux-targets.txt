@@ -87,6 +87,8 @@ Packages/macOS/CmuxNext  CmuxNextFocus
 Packages/macOS/CmuxNext  CmuxNextFocusTests
 Packages/macOS/CmuxNext  CmuxNextHostPressure
 Packages/macOS/CmuxNext  CmuxNextHostPressureTests
+Packages/macOS/CmuxNext  CmuxNextProcessEnvironment
+Packages/macOS/CmuxNext  CmuxNextProcessEnvironmentTests
 Packages/macOS/CmuxNext  CmuxNextTerminalFind
 Packages/macOS/CmuxNext  CmuxNextTerminalGeometry
 Packages/macOS/CmuxNext  CmuxNextTerminalGeometryTests

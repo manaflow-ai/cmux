@@ -2380,6 +2380,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextProcessEnvironmentTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextProcessEnvironment",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
@@ -3198,6 +3206,8 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextFocusTests",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
+    "CmuxNextProcessEnvironment",
+    "CmuxNextProcessEnvironmentTests",
     "CmuxNextTerminalFind",
     "CmuxNextTerminalGeometry",
     "CmuxNextTerminalGeometryTests",
