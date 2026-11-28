@@ -24,7 +24,6 @@ pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
-pub use cmux_tui_util::retry;
 mod browser;
 pub mod browser_host;
 mod browser_host_history;

@@ -140,9 +140,7 @@ impl BrowserSurface {
             return Ok(None);
         }
         if state.reconfigure_failure.is_some_and(|failure| failure.geometry == geometry) {
-            anyhow::bail!(
-                "browser resize at this size failed; cmux is backing off before it tries the size again"
-            );
+            anyhow::bail!("browser resize is waiting to retry after a previous failure");
         }
         anyhow::bail!("browser resize was not accepted");
     }

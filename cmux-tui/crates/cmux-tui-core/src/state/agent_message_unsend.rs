@@ -116,19 +116,9 @@ pub(crate) fn targets(
     Ok((sender, targets))
 }
 
-/// How long an unsend asks acpmux again while it does not answer or a
-/// hand-over is still on its way (a request path: short; short in tests).
-#[cfg(not(test))]
-pub(crate) const UNSEND_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-#[cfg(test)]
-pub(crate) const UNSEND_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
-
-/// The `error` of a `failed` outcome: acpmux did not answer for `recipient`
-/// (it was asked again for [`UNSEND_WAIT`]).
+/// The `error` of a `failed` outcome: acpmux did not answer for `recipient`.
 pub(crate) fn unavailable(recipient: &str) -> Value {
-    let message = format!(
-        "acpmux did not answer for {recipient}, so the message could not be taken back; it may still run there"
-    );
+    let message = format!("acpmux did not answer for {recipient}; try again");
     json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
 }
 
@@ -136,7 +126,7 @@ pub(crate) fn unavailable(recipient: &str) -> Value {
 /// and acpmux holds no such prompt yet, so it may still take it and run it.
 pub(crate) fn in_flight(recipient: &str) -> Value {
     let message = format!(
-        "the hand-over to {recipient} was still on its way, so the message could not be taken back; it may still run there"
+        "acpmux does not hold it for {recipient} yet, but a hand-over may still reach it; try again"
     );
     json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
 }

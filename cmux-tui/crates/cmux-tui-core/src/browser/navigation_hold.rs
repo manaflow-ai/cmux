@@ -100,18 +100,7 @@ impl BrowserSurface {
             }
             let attached = self.session.lock().unwrap_or_else(PoisonError::into_inner).is_some();
             if !attached && !self.is_dead() {
-                // Attach loads the record's current URL fresh, so a reload
-                // asked for before it is already what attach does: done.
-                // A page that has not attached has no history to move in.
-                match command {
-                    BrowserCommand::Reload => return Ok(()),
-                    BrowserCommand::Back => anyhow::bail!(
-                        "browser has no back history entry: its page is still starting"
-                    ),
-                    _ => anyhow::bail!(
-                        "browser has no forward history entry: its page is still starting"
-                    ),
-                }
+                anyhow::bail!("browser is still starting; retry after it attaches");
             }
         }
         self.enqueue_control(command)

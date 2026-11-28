@@ -8,7 +8,7 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use engine::{Backend, Catalog, Failure, Repo, add, list, normalize};
+pub(crate) use engine::{Backend, Catalog, Failure, Repo, add, list};
 pub(crate) use runtime::handle;
 
 pub const OPERATIONS: &[&str] = &[
