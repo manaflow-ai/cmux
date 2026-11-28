@@ -13,6 +13,8 @@ whose private-store writer, hashing and typed projection this reuses. On top of 
   only when its parsed log line names that id in every identity field of that kind (ID_KEYS) and names it at
   least once: a missing, duplicate, non-string or conflicting identity drops the event, before counting. A URL or
   search term never proves ownership.
+- `team_of:vm_...` first reads that machine's own lines and then reads the one team they name (TEAM_OF); none or
+  several refuse. A machine read's header lists its lines' team tags (`teams`).
 - Needles are required and only refine the kept rows; the private header says only whether any row was kept.
 - A Worker console line keeps its fields only when its `msg` is exactly one of PLATFORM_MSGS, the constant msg
   literals of cmux-platform's src/server; ids print as `h:` plus a sha256 prefix.
@@ -55,6 +57,11 @@ SERVICES = ("cmux-platform-production", "cmux-platform-staging", "cmux-platform-
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
+# `team_of:vm_...` reads the team that the machine's own lines name. A team read needs the platform's team id, and the
+# id a caller holds can be another namespace's: run 46158958288 (staging, 2026-11-28 15:16Z) read team_968c... and
+# scanned 0 events (hq#37691) while vm_f53516...'s own lines named a different team (h:b32ab6f3bd99, hq#37638), so the
+# 1877 test_reaped lines of that window could not be tied to the machine's owner object.
+TEAM_OF = re.compile(r"^team_of:(vm_[A-Za-z0-9_-]{1,64})$")
 # The parsed fields that name a machine or a team on a cmux-platform log line (src/server writes `machine` and
 # `team` most, and machineId / vmId / teamId on some lines). Every one present must equal the id.
 ID_KEYS = {"vm": ("machine", "machineId", "machine_id", "vm", "vmId", "vm_id"),
@@ -110,6 +117,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.allotment.admit",
     "cloud.allotment.admit_failed",
     "cloud.approval.gate",
+    # cmux-platform#2614: each platform machine delete, its carrier site and the frames that asked (callers).
+    "cloud.carrier.delete",
     "cloud.approval.run",
     "cloud.billing.checkout",
     "cloud.bind.rpc",
@@ -362,6 +371,7 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    "mesh.hub.slow",
     "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
@@ -997,12 +1007,44 @@ def work_machine(j):
 VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued", "readMs", "startMs", "ownMs", "gateMs")
+               "admitQueued", "readMs", "startMs", "ownMs", "gateMs", "rateMs", "ownReadMs")
 # vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
 VM_START_ROUTES = ("start", "resume")
 VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
-VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined", "createCut")
 VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
+# vm_create's cause of a provider send (cmux#65221 live-http.ts CallTrail): what the provider answered the create POST
+# (sendStatus, an HTTP status or "none"; sendError, "timeout" or "network" when nothing answered; sendMs), and for a 202
+# its background polls. failStatus/failKind/createCut are set only when the send failed. Without them a 45 s createMs
+# could not say whether the provider held the POST, accepted it and never finished, or refused it (cmuxterm-hq#37692).
+VM_SEND_INTS = ("sendMs", "polls", "pollFails", "lastPollStatus")
+VM_SEND_ERRORS = ("timeout", "network")
+VM_FAIL_KINDS = ("capacity_overloaded",)
+
+
+def http_status_or_none(v):
+    """An HTTP status (100-599), or the word "none"; anything else is dropped."""
+    if v == "none":
+        return v
+    n = base.typed(INT, v)
+    return n if n is not None and 100 <= n <= 599 else None
+
+
+def vm_send(send):
+    """vm_create's send block with only its fixed keys and bounded values; None when nothing is left."""
+    if not isinstance(send, dict):
+        return None
+    out = {}
+    status = http_status_or_none(send.get("sendStatus"))
+    if status is not None:
+        out["sendStatus"] = status
+    if send.get("sendError") in VM_SEND_ERRORS:
+        out["sendError"] = send["sendError"]
+    for k in VM_SEND_INTS:
+        v = base.typed(INT, send.get(k))
+        if v is not None:
+            out[k] = v
+    return out or None
 
 
 def vm_event(j):
@@ -1028,6 +1070,14 @@ def vm_event(j):
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
+    send = vm_send(j.get("send"))
+    if send is not None:
+        out["send"] = send
+    fail_status = http_status_or_none(j.get("failStatus"))
+    if fail_status is not None:
+        out["failStatus"] = fail_status
+    if j.get("failKind") in VM_FAIL_KINDS:
+        out["failKind"] = j["failKind"]
     return out
 
 
@@ -1160,7 +1210,7 @@ def public_log(j):
         rev = image_rev(j.get("image"))
         if rev is not None:
             out["image_rev"] = rev
-    if msg == "cloud.rows.scan_large":
+    if msg in ("cloud.rows.scan_large", "cloud.carrier.delete"):
         callers = scan_callers(j.get("at"))
         if callers:
             out["callers"] = callers
@@ -1205,6 +1255,11 @@ VM_MSGS = frozenset({
 VM_LEVELS = frozenset({"DEBUG", "INFO", "WARN", "ERROR", "FATAL"})
 VM_OPERATION = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,47}$")
 VM_STATUS = re.compile(r"^[1-5][0-9]{2}$")
+# A store failure's `code` (workers/cmux-vm/src/db/sql.ts failureCode): a SQLSTATE such as 53300, a driver code such
+# as CONNECTION_CLOSED, or an error class name such as PostgresError; failureCode already lets nothing else through.
+# base.TOKEN wants a lowercase first letter, so it dropped every one of them (2026-11-28 21:02Z production store
+# failures read with no SQLSTATE).
+VM_STORE_CODE = re.compile(r"^(?:[0-9A-Z]{5}|[A-Z][A-Z0-9_]{1,39}|[A-Z][A-Za-z]{1,39}|unknown)$")
 LOGFMT_PAIR = re.compile(r'(?:^|\s)([A-Za-z][A-Za-z0-9_]{0,31})=("(?:[^"\\]|\\.)*"|[^\s"=]*)')
 # Fixed route words of cmux-vm's paths (workers/cmux-vm/openapi.json) that base.ROUTE_SEGMENTS lacks, so
 # `/v1/vms/*/pause` counts as that route and not as `/v1/vms/*/*`. Any other segment still prints hashed.
@@ -1258,6 +1313,8 @@ def vm_log(text):
     elif status is not None and VM_STATUS.match(status):
         out["status"] = int(status)
     code = base.typed(TOKEN, pairs.get("code"))
+    if code is None and isinstance(pairs.get("code"), str) and VM_STORE_CODE.match(pairs["code"]):
+        code = pairs["code"]
     if code is not None:
         out["code"] = code
     # Why a dependency call threw, as one of workers/cmux-vm/src/handlers/common.ts failureClass's fixed words.
@@ -1333,12 +1390,8 @@ def id_kind(ident):
     return m.group(1) if m else None
 
 
-def belongs_to(event, ident):
-    """True only when every parsed source names `ident` in each identity field of its kind, at least once."""
-    kind = id_kind(ident)
-    if kind is None:
-        return False
-    keys = ID_KEYS[kind]
+def identity_values(event, keys):
+    """Every value the event's parsed sources give for `keys`, or None when a source names an identity twice."""
     found = []
     for candidate in (event, base.dig(event, "$metadata", "message"), base.dig(event, "message"), base.dig(event, "source")):
         if isinstance(candidate, str):
@@ -1349,10 +1402,32 @@ def belongs_to(event, ident):
                 # text names no identity, as console_line skips it. Before this every production id read kept 0.
                 continue
             except ValueError:
-                return False
+                return None
         if isinstance(candidate, dict):
             found.extend(candidate[k] for k in keys if k in candidate)
+    return found
+
+
+def belongs_to(event, ident):
+    """True only when every parsed source names `ident` in each identity field of its kind, at least once."""
+    kind = id_kind(ident)
+    if kind is None:
+        return False
+    found = identity_values(event, ID_KEYS[kind])
     return bool(found) and all(isinstance(v, str) and v == ident for v in found)
+
+
+def machine_teams(events, machine):
+    """The team ids that `machine`'s own lines name, from events that belong to it; a line whose team fields disagree
+    or are not team ids names none."""
+    teams = set()
+    for e in events:
+        if not belongs_to(e, machine):
+            continue
+        found = identity_values(e, ID_KEYS["team"]) or []
+        if found and all(isinstance(v, str) and id_kind(v) == "team" for v in found) and len(set(found)) == 1:
+            teams.add(found[0])
+    return teams
 
 
 def publish(events, needles, ident):
@@ -1361,6 +1436,8 @@ def publish(events, needles, ident):
         raise ValueError("needles: at least one search term is required")
     scanned = len(events)
     events = [e for e in events if belongs_to(e, ident)]
+    # A machine read names its owner team only as tags, so a team read's id can be checked against it.
+    teams = sorted(base.tag(t) for t in machine_teams(events, ident)) if id_kind(ident) == "vm" else []
     counts = {}
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
@@ -1369,7 +1446,7 @@ def publish(events, needles, ident):
     # events_in_window: the ones this id owns.
     head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
             "kept_any": bool(rows),
-            "rows_cut": len(rows) > MAX_ROWS, **counts}
+            "rows_cut": len(rows) > MAX_ROWS, **({"teams": teams} if teams else {}), **counts}
     return head, rows[:MAX_ROWS]
 
 
@@ -1441,6 +1518,21 @@ def query(token, service, frm, to, offset=None, needle=None):
         sys.exit(f"telemetry query refused: HTTP {e.code}")
 
 
+def fetch(token, service, frm, to, needle):
+    """(events, complete): up to PAGES pages of the window's events for one query needle."""
+    events, offset, pages = [], None, 0
+    while pages < PAGES:
+        got = base.dig(query(token, service, frm, to, offset, needle=needle), "result", "events", "events") or []
+        events += got
+        pages += 1
+        if len(got) < 1000:
+            return events, True
+        offset = base.dig(got[-1], "$metadata", "id")
+        if not offset:
+            return events, True
+    return events, False
+
+
 def main():
     if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
         sys.exit("logs: only workflow_dispatch may query")
@@ -1462,11 +1554,13 @@ def main():
     if service not in SERVICES:
         sys.exit("service: one of " + ", ".join(SERVICES))
     ident = given(args.ident, "id")
-    kind = WINDOW if ident == WINDOW else id_kind(ident)
+    team_of = TEAM_OF.fullmatch(ident) if isinstance(ident, str) else None
+    resolve_from = team_of.group(1) if team_of else None
+    kind = WINDOW if ident == WINDOW else "team" if team_of else id_kind(ident)
     if service in VM_SERVICES and kind != WINDOW:
         sys.exit("id: cmux-vm's lines name no machine or team; read it with `window`")
     if kind is None:
-        sys.exit("id: an exact vm_ or team_ id, or `window`, is required")
+        sys.exit("id: an exact vm_ or team_ id, team_of:vm_..., or `window`, is required")
     needles = [n.strip() for n in given(args.needles, "needles").split(",") if n.strip()]
     if not needles:
         sys.exit("needles: at least one search term is required")
@@ -1480,23 +1574,19 @@ def main():
     to = frm + minutes * 60_000
     private_token = base.private_destination()
     token = sys.stdin.readline().strip()
-    events, offset, pages, complete = [], None, 0, False
-    while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset, needle=window_needle(needles) if kind == WINDOW else ident),
-                       "result", "events", "events") or []
-        events += got
-        pages += 1
-        if len(got) < 1000:
-            complete = True
-            break
-        offset = base.dig(got[-1], "$metadata", "id")
-        if not offset:
-            complete = True
-            break
+    resolved = {}
+    if resolve_from:
+        teams = machine_teams(fetch(token, service, frm, to, resolve_from)[0], resolve_from)
+        if len(teams) != 1:
+            # A count only: the public log never names an id.
+            sys.exit(f"id: the machine's own lines name {len(teams)} teams in this window, not one; read the vm itself")
+        ident = teams.pop()
+        resolved = {"team_of": base.tag(resolve_from)}
+    events, complete = fetch(token, service, frm, to, window_needle(needles) if kind == WINDOW else ident)
     head, rows = window_totals(events, needles) if kind == WINDOW else publish(events, needles, ident)
     pointer = base.private_upload(private_token, {
-        "service": service, "id_kind": kind, "id": WINDOW if kind == WINDOW else base.tag(ident), "window_utc": [args.frm, minutes],
-        "truncated": not complete, **head}, rows)
+        "service": service, "id_kind": kind, "id": WINDOW if kind == WINDOW else base.tag(ident), **resolved,
+        "window_utc": [args.frm, minutes], "truncated": not complete, **head}, rows)
     print(json.dumps({"row_count": len(rows), "pointer": pointer}))
     return 0
 

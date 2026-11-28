@@ -90,6 +90,10 @@
 #   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
 #                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
 #                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
+#   db-connections-production  the same for production (cmux-vm-production, feat-cmux-next only; 2026-11-28 its
+#                         database was full, 53300, for hours: migrate production and the ordering gate red, the
+#                         Worker's reads 503). dry_run=false first caps the production Hyperdrive pool (hyperdrive.sh
+#                         limit, 10) and restarts it, then ends the Worker role's backends idle over 2 min.
 #   db-connections-staging  who holds the staging database's connection slots (db-connections.ts; the
 #                         deploy gate's 53300 "remaining connection slots are reserved"): settings, backends
 #                         by role, application and state, and the staging Hyperdrive config's origin limit.
@@ -140,7 +144,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, tail-staging, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, tail-staging, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-connections-production, db-fault-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -152,7 +156,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging only, inspect and list; change nothing (false applies, deletes or ends idle connections)
+        description: migrate-staging, migrate-production, sweep-orphans-production, db-connections-staging and db-connections-production only, inspect and list; change nothing (false applies, deletes or ends idle connections)
         type: boolean
         default: true
       skip_rehearsal:
@@ -200,7 +204,7 @@ concurrency:
   # newer. Production deploys still never overlap: deploy-production, migrate-production and smoke-production
   # serialize through their own job-level groups.
   group: >-
-    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && '-image-roll' || '' }}
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && '-image-roll' || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -817,6 +821,9 @@ jobs:
     # journey step fails the job, which journey-production also requires to succeed.
     outputs:
       deployed: ${{ steps.deploy.outcome == 'success' && steps.smoke.outcome != 'failure' && 'success' || 'no' }}
+      # The Worker deploy step's own outcome ("" or skipped when a step before it failed, as the ordering gate's 53300
+      # did on 2026-11-28): image-roll-settle deploys such a roll again instead of rolling it back.
+      worker_deploy: ${{ steps.deploy.outcome }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -1105,6 +1112,8 @@ jobs:
       product: ${{ steps.product.outcome }}
       boot_image: ${{ steps.product.outputs.boot_image }}
       done_at: ${{ steps.product.outputs.done_at }}
+      # The gate's output, "" only when no step ran (a runner lost before its first step): settle deploys again then.
+      ran: ${{ steps.gate.outputs.enabled }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -1201,7 +1210,7 @@ jobs:
   # roll "), and after each production deploy of a rollback (subject "cmux-vm: image rollback ", or the
   # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
   #   roll      green (the product create booted the image) records it. A deploy that never ran (skipped: its
-  #             check failed first) dispatches deploy-production again with image_roll_redeploy, at most
+  #             check failed first; or failed before its Worker deploy step, as the ordering gate's 53300 did) dispatches deploy-production again with image_roll_redeploy, at most
   #             ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out) lands a rollback commit that takes the image out of both lists
   #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
   #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
@@ -1275,6 +1284,8 @@ jobs:
           DEPLOY: ${{ needs.deploy-production.result }}
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
+          SMOKE_RAN: ${{ needs.smoke-production.outputs.ran }}
+          WORKER_DEPLOY: ${{ needs.deploy-production.outputs.worker_deploy }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = push ]; then
@@ -1295,7 +1306,7 @@ jobs:
           git fetch -q --depth 1 origin "$GITHUB_SHA" || true
           git show "${GITHUB_SHA}:workers/cmux-vm/wrangler.jsonc" > "$RUNNER_TEMP/deployed-wrangler.jsonc"
           bun images/cmux-vm/auto-roll.ts settle --kind "$kind" --image "$image" --deploy "$DEPLOY" --product "$PRODUCT" \
-            --boot-image "$BOOT" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
+            --boot-image "$BOOT" --smoke-ran "$SMOKE_RAN" --worker-deploy "$WORKER_DEPLOY" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
           cat "$RUNNER_TEMP/settle.json"
           outcome="$(jq -r .outcome "$RUNNER_TEMP/settle.json")"
           { echo "outcome=$outcome"; echo "next=$(jq -r .nextAttempt "$RUNNER_TEMP/settle.json")"; } >> "$GITHUB_OUTPUT"
@@ -1449,7 +1460,7 @@ jobs:
         run: |
           set -euo pipefail
           redeploy=false; what="rollback is not verified yet"
-          if [ "$KIND" = roll ]; then redeploy=true what="roll's production deploy did not run"; fi
+          if [ "$KIND" = roll ]; then redeploy=true what="roll's production deploy or smoke did not run"; fi
           gh workflow run cmux-vm.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f action=deploy-production \
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT" -f image_roll_redeploy="$redeploy"
           echo "::warning title=Image ${KIND}::${IMAGE}'s ${what}; production deploy ${NEXT} dispatched"
@@ -1895,6 +1906,60 @@ jobs:
         run: |
           bash scripts/hyperdrive.sh limit cmux-vm-staging
           bash scripts/hyperdrive.sh restart cmux-vm-staging
+      - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ inputs.dry_run && 'report' || 'free' }}
+          # After the restart the old pool drains in minutes (2026-11-09), so free waits for a slot.
+          WAIT: ${{ inputs.dry_run && '0' || '300' }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bun db-connections.ts "$MODE" --url-env CMUX_VM_DATABASE_URL --wait-seconds "$WAIT"
+
+  db-connections-production:
+    name: production database connections
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-production') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    environment: cmux-vm-production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
+      - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
+        shell: bash
+        working-directory: .
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Production Hyperdrive config (origin connection limit)
+        continue-on-error: true
+        working-directory: workers/cmux-vm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/hyperdrive.sh show cmux-vm-production
+      - name: Cap and restart the production Hyperdrive pool (the Worker role's connections)
+        if: ${{ !inputs.dry_run }}
+        working-directory: workers/cmux-vm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          bash scripts/hyperdrive.sh limit cmux-vm-production
+          bash scripts/hyperdrive.sh restart cmux-vm-production
       - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
         working-directory: scripts/cmux-next/release
         env:

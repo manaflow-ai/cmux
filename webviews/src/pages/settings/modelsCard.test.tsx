@@ -292,7 +292,7 @@ test("a Kimi Code sign-in from another build directs cleanup to that build", asy
   });
   const rendered = await render(models);
   expect(status(rendered, "kimi-plan")?.textContent).toBe(
-    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
+    "Open the cmux build that saved this sign-in, disconnect it there, then connect it here again.",
   );
   await click(menuButton(rendered, "kimi-plan"));
   expect(menuItem("signInAgain")).toBeNull();
@@ -310,7 +310,7 @@ test("a Kimi Code approval that hits another build's keychain directs cleanup th
     }),
   );
   expect(panel()?.querySelector("[role=alert]")?.textContent).toBe(
-    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
+    "Open the cmux build that saved this sign-in, disconnect it there, then connect it here again.",
   );
   expect(action(panel()!, "connectChatGPTDevice")?.disabled).toBe(true);
 });
@@ -724,33 +724,34 @@ test("Escape closes an in-flight device dialog and cancels the attempt", async (
   expect(document.activeElement).toBe(add());
 });
 
-test("Continue with ChatGPT waits on the browser with Cancel, and Cancel stops it", async () => {
-  const rendered = await render(mockModels.macLogins);
-  await pick("chatgpt");
-  await click(action(panel()!, "connectChatGPT")!);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
-  expect(panel()?.querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
-    "Waiting for you to sign in to ChatGPT",
-  );
-  await click(action(panel()!, "cancelChatGPT")!);
-  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
-  expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();
-});
-
-test.each(["models", "cloud"])("ChatGPT browser sign-in can retry and saves one row in %s", async (section) => {
+test.each(["models", "cloud"])("ChatGPT signs in with a device code only, in %s", async (section) => {
+  // One way in: Connect gets a device code. No second "Sign in with ChatGPT" browser button beside it,
+  // even when an earlier browser sign-in left an error.
   const rendered = await render(
     { ...mockModels.empty, chatgpt: mockModels.chatgptError.chatgpt },
     `/settings/${section}`,
   );
   await pick("chatgpt");
   const dialog = panel()!;
-  expect(dialog.querySelector('[data-chatgpt="error"] [role="alert"]')?.textContent).toContain("didn't allow");
-  await click(action(dialog, "retryChatGPT")!);
-  expect(rendered.provider.modelRuns).toContainEqual({ action: "connectChatGPT" });
-  expect(action(dialog, "connectChatGPTDevice")).toBeNull();
+  expect(action(dialog, "connectChatGPT")).toBeNull();
+  expect(action(dialog, "retryChatGPT")).toBeNull();
+  expect(dialog.querySelector("[data-chatgpt]")).toBeNull();
+  await click(action(dialog, "connectChatGPTDevice")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", openBrowser: true }]);
   await act(async () => rendered.provider.setModels(mockModels.chatgptForCloud));
-  expect(panel()).toBeNull();
   expect(connectionIds(rendered).filter((id) => id === "chatgpt")).toEqual(["chatgpt"]);
+});
+
+test("a ChatGPT browser sign-in already running still shows its wait, and Cancel stops it", async () => {
+  const rendered = await render(mockModels.chatgptPending);
+  await pick("chatgpt");
+  expect(panel()?.querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
+    "Waiting for you to sign in to ChatGPT",
+  );
+  expect(action(panel()!, "connectChatGPTDevice")).toBeNull();
+  await click(action(panel()!, "cancelChatGPT")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
+  expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();
 });
 
 test.each([

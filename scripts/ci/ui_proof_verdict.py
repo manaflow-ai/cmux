@@ -18,6 +18,9 @@ The state, for a head:
 
   success  the head changes nothing a user sees: docs, copy (strings catalogs), tests, scripts, CI, Rust that
            renders nothing, iOS (cmux/ios-fast has it). Posted by the router at once, so a ruleset can require it
+  success  the title says it is a fix (`fix:`, `fix(area):`, "Fix ...") and it adds no new view: no look needed
+           (Leo, 2026-11-28: "you dont need to be waiting for screenshots in these cases if logically it shoul go as
+           you expect"). A failed record at the head still fails
   success  the body says `Visual: none (WHY)`: a refactor or logging change under a visual path with no output
            change. Counted as a bypass by `report`
   pending  visual, and no passing record of an accepted suite at this head whose screens were diffed against
@@ -107,6 +110,13 @@ SWIFT_VIEW = re.compile(r":\s*(?:some\s+)?(?:View|NSView|NSViewController|NSWind
                         r"\bvar body:\s*some View\b")
 DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M | re.I)
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
+# Leo, 2026-11-28 (ask c-601949839a): don't wait for screenshots when a fix logically does what you expect, and
+# don't hold a fix as "UI". A PR titled as a fix that adds no new view lands without a look; a failed look still fails.
+# An area before the fix counts too ("Update cards: fix ...", "Gallery health fix: ..."): cmux#60966 and #65178 are
+# fixes to an existing surface that the bare form held for a look.
+FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b"
+                       r"|^[^:\n]{1,60}:\s*(?:fix|hotfix|bugfix)(?:es|ed)?\b|^[^:\n]{1,60}\b(?:fix|hotfix|bugfix):", re.I)
+FIX_NO_LOOK = "Fix to an existing surface, no new UI: lands without a look (Leo 2026-11-28)"
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
 # A look that could not run is a failure with its reason, never a pending that waits for ever.
@@ -117,6 +127,13 @@ LOOK_WAIT = "Visual change, "
 # bounded by the controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go: submit 30 min, queue 3 h,
 # run 45 min). A pending older than this has no look coming: the controller never saw the request or never reported.
 STALE_HOURS = 6
+# When verdict()'s rules last changed (bump it with them). A pending posted before it was judged by older rules and
+# nothing re-judges an unchanged head: cmux#62573 ("Fix New Tab first-use refresh ...", no new view) sat pending
+# "Visual change, no look" from 16:01Z on 2026-11-28 though FIX_NO_LOOK (18:26Z) passes it, and the sweep would only
+# have turned it a look failure at 6 h. The sweep reruns such a gate once (rerun_gate_rest's AFTER skips a gate job
+# that completed after RULES_AT), REJUDGE_MAX per pass, newest-updated PRs first.
+RULES_AT = "2026-11-28T23:00:00Z"  # area-prefixed fix titles (FIX_TITLE)
+REJUDGE_MAX = 25
 
 
 def _match(path: str, patterns) -> bool:
@@ -187,7 +204,7 @@ def new_ui(added: list[str], read=None) -> list[str]:
 
 
 def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: list[str], pr: str | int = "N",
-            off: bool = False) -> tuple[str, str]:
+            off: bool = False, title: str = "") -> tuple[str, str]:
     """The (state, description) for a head. RECORDS: suite -> the newest trusted record at the head (proof_record.find)."""
     if off:
         return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
@@ -204,6 +221,8 @@ def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: lis
         failed = [x["name"] for x in got[0].get("runs", []) if x.get("result") in ("fail", "error")]
         return "failure", f"UI proof at this head failed: {', '.join(failed) or 'see the record'}"[:140]
     diffed = [r for r in passing if (r.get("visual") or {}).get("diffed")]
+    if not diffed and not added_ui and FIX_TITLE.search(title or ""):
+        return "success", FIX_NO_LOOK
     if not diffed:
         what = "no screens diffed against NIGHTLY" if passing else "no look at this head"
         return "pending", f"Visual change, {what}: hot-verify.py look --pr {pr} --record; {preview}"[:140]
@@ -332,8 +351,13 @@ def build_record(out: Path, *, repo: str, pr: int, head: str, suite: str | None 
         elif before is not None:
             cap["verdict"] = "new"
         captures.append(cap)
-    errors = receipt.get("errors") or []
-    looked = bool(shots) and (out / "after" / "light.png").is_file() and not errors
+    errors = list(receipt.get("errors") or [])
+    if not (out / "after" / "light.png").is_file():
+        # Name the file and the layout the gate reads: a fail with no note sends the reader into the CI log.
+        found = ", ".join(sorted(p.name for p in (out / "after").glob("*.png"))) or "none"
+        errors.insert(0, f"missing after/light.png (after/ has: {found}); expected layout: before/{{light,dark}}.png, "
+                         "after/{light,dark}.png, optional steps/*.png, video.mp4, receipt.json")
+    looked = bool(shots) and not errors
     runs = [{"name": "look", "result": "pass" if looked else "fail", "mode": ",".join(plan.get("layers") or []),
              "seconds": (receipt.get("phases") or {}).get("total"),
              **({"note": "; ".join(errors)[:300]} if errors else {})}]
@@ -392,20 +416,36 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
     body = {"state": state, "context": STATUS_CONTEXT, "description": description[:140],
             **({"target_url": target_url} if target_url else {})}
-    for attempt in range(3):
+    # A rate limit refuses before the call runs, so asking again cannot double the post (the rule of
+    # gh_http.request_through_rate_limit; this file is checked out alone and cannot import it): when every token in a
+    # round was rate limited, wait the limit out (a minute a round, ten minutes in all) instead of leaving the
+    # status pending, which a land then waits on for hours (cmux#60053's cmux/ios-fast).
+    limited_rounds = 0
+    attempt = 0
+    while attempt < 3 + limited_rounds and limited_rounds < 10:
+        limited = 0
         for token in tokens:
             try:
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
-            except Exception as e:  # noqa: BLE001 - the next token, then the next round
+            except urllib.error.HTTPError as e:
                 why = ""
-                if isinstance(e, urllib.error.HTTPError):  # the refusal's own words: "Forbidden" alone hid a spent hour
-                    try:
-                        why = " " + e.read().decode("utf-8", "replace")[:200]
-                    except Exception:  # noqa: BLE001
-                        pass
-                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e}){why}", file=sys.stderr)
-        time.sleep(5 * (attempt + 1))
+                try:  # the refusal's own words: "Forbidden" alone hid a spent hour
+                    why = " " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"{STATUS_CONTEXT}: post refused (HTTP {e.code}){why}", file=sys.stderr)
+                if e.code in (403, 429) and (e.headers.get("retry-after") or e.headers.get("x-ratelimit-remaining") == "0"
+                                             or e.code == 429):
+                    limited += 1
+            except Exception as e:  # noqa: BLE001 - the next token, then the next round
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+        if limited == len(tokens):
+            limited_rounds += 1
+            time.sleep(60)
+        else:
+            time.sleep(5 * (attempt + 1))
+        attempt += 1
     return False
 
 
@@ -631,7 +671,7 @@ def rerun_gate_rest(repo: str, sha: str, tokens: list[str], after: str = "") -> 
 
 
 def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = None, post=None,
-          answered=None, rerun=None) -> list[dict]:
+          answered=None, rerun=None, rules_at: str = RULES_AT) -> list[dict]:
     """Every open PR whose cmux/ui-proof waits on a look: a trusted record posted after the pending re-runs the gate
     (the look answered, the gate never read it); else a pending past HOURS turns the look failure. A look failure
     with a trusted record posted after it re-runs the gate too (answered_failures).
@@ -644,8 +684,16 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
     rerun = rerun or (lambda sha, after="": rerun_gate_rest(repo, sha, tokens, after))
     now = now or dt.datetime.now(dt.timezone.utc)
     prs = proof_record.with_tokens(lambda token: open_prs(repo, token), tokens)
-    out = []
+    out, rejudged = [], 0
     for s in stale_pending(prs, now, 0):
+        # Judged by older rules (RULES_AT): the gate judges it again first, once, before any look failure.
+        if rules_at and s["since"] < rules_at and rejudged < REJUDGE_MAX:
+            why = rerun(s["sha"], rules_at)
+            if why.startswith("reran"):
+                rejudged += 1
+                s["rerun"], s["rejudged"] = why, True
+                out.append(s)
+                continue
         try:
             at = answered(s["pr"], s["sha"])
         except Exception as e:  # noqa: BLE001 - an unread record is no record: the bound still holds
@@ -760,16 +808,17 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     need = "app" if files is None else affects(files, read=show_both)
     if not need:
         return verdict(need, "", {}, [], pr)
-    body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+    pull = api(f"repos/{repo}/pulls/{pr}", token) or {}
+    body, title = pull.get("body") or "", pull.get("title") or ""
     comments = proof_record.pr_comments(repo, pr, token)
     can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
     records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
-    state, desc = verdict(need, body, records, ui, pr)
+    state, desc = verdict(need, body, records, ui, pr, title=title)
     if state == "pending" and desc.startswith(NO_LOOK) and files:
         older, carried = carried_records(repo, sha, comments, suites_for(need), bots, can_write, files, token)
         if older:
-            c_state, c_desc = verdict(need, body, carried, ui, pr)
+            c_state, c_desc = verdict(need, body, carried, ui, pr, title=title)
             if c_state == "success":
                 return c_state, c_desc.replace("at this head", CARRIED.format(sha=older[:12]), 1)[:140]
     if state == "pending" and desc.startswith(NO_LOOK):
@@ -815,10 +864,11 @@ def rerun_gate(repo: str, sha: str) -> str:
         for run in (runs or {}).get("workflow_runs", []):
             for j in gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    subprocess.run(["gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo],
-                                   check=True, capture_output=True)
-                    return f"reran {GATE_JOB} (job {j['id']})"
-    except (OSError, subprocess.CalledProcessError, ValueError) as e:
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
+    except (OSError, ValueError) as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the record when it does"
 
@@ -933,7 +983,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"#{s['pr']} {s['sha'][:12]} pending since {s['since']}: "
                   + (f"record found, {s['rerun']}" if "rerun" in s else f"failure posted={s['posted']}"))
         failed = [s for s in stale if "posted" in s]
-        print(f"{STATUS_CONTEXT} sweep: {len(failed)} pending past {args.hours:g} h, {len(stale) - len(failed)} re-gated")
+        again = sum(1 for s in stale if s.get("rejudged"))
+        print(f"{STATUS_CONTEXT} sweep: {len(failed)} pending past {args.hours:g} h, {len(stale) - len(failed)} re-gated"
+              f" ({again} judged by rules older than {RULES_AT})")
         return 0 if all(s["posted"] for s in failed) else 1
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")

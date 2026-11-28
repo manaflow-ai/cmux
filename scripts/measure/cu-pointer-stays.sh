@@ -15,8 +15,8 @@
 #     --artifact artifacts/cu-pointer-stays.tgz [--arg=engine_ref=SHA] --timeout 3600
 #
 # engine_ref= builds the engine from another commit (base behaviour) with this ref's harness.
-# Output: lines "CPS <tool> <delivery> moved_pt=<max> landed=<bool>", and
-# artifacts/cu-pointer-stays.tgz with guest/results.jsonl, guest/cps.mov, a PNG per gesture,
+# Output: lines "CPS <tool> <delivery> moved_pt=<max> landed=<bool>" (moved_pt: farthest the pointer
+# got from where the park left it), and artifacts/cu-pointer-stays.tgz (pass exactly that --artifact) with guest/results.jsonl, guest/cps.mov, a PNG per gesture,
 # guest/target.log and build logs. Exit 1 when any gesture moved the pointer more than 1 pt,
 # 4 when the run could not measure, else 0.
 set -uo pipefail
@@ -177,6 +177,28 @@ tar -c -C "$b" cpsprobe cmux-rd guest.sh cps.py agent.plist -C "$ev" tcc-grant.s
 # Recording, Accessibility and event posting, in this throwaway SIP-off clone only.
 guest_n 'bash ~/cps/tcc-grant.sh /bin/bash ~/cps/cpsprobe ~/cps/cmux-rd' >"$out/grant.log" 2>&1 ||
   { cat "$out/grant.log"; finish "tcc-grant.sh failed in the guest (grant.log)"; exit 4; }
+# macOS 15+ asks again before a non-bundled process records the screen ("bash is requesting to
+# bypass the system private window picker"), past the TCC grant; that prompt covered the target and
+# left cps.mov empty. replayd reads its answers from ScreenCaptureApprovals.plist: pre-answer it for
+# the recorder's processes, in this throwaway guest only. macOS 26.5 still asked past this seed (step
+# 8b5c1c82), so cps.py also presses the alert's Allow through Accessibility before the movie and
+# saves what replayd stored (guest/capture-approvals.txt).
+guest_n '/usr/bin/python3 -I -c "
+import os, plistlib, datetime
+d = os.path.expanduser(\"~/Library/Group Containers/group.com.apple.replayd\")
+os.makedirs(d, exist_ok=True)
+p = os.path.join(d, \"ScreenCaptureApprovals.plist\")
+try:
+    a = plistlib.load(open(p, \"rb\"))
+except Exception:
+    a = {}
+t = datetime.datetime(2100, 1, 1)
+for k in (\"/bin/bash\", \"/usr/sbin/screencapture\", os.path.expanduser(\"~/cps/cpsprobe\"), \"/usr/bin/python3\"):
+    a[k] = t
+plistlib.dump(a, open(p, \"wb\"))
+print(\"approvals\", sorted(a))
+"; killall replayd 2>/dev/null; true' >>"$out/grant.log" 2>&1
+grep -h '^approvals' "$out/grant.log" | sed 's/^/CPS-STAGE /'
 guest_n 'sw_vers; csrutil status; /usr/bin/python3 -V; system_profiler SPDisplaysDataType | grep -E "Resolution|Retina"' >"$out/guest/facts.txt" 2>&1
 started=0
 for _ in $(seq 1 30); do
@@ -195,6 +217,10 @@ while (( $(date +%s) < deadline )); do
 done
 guest_n 'cd ~/cps/out && tar -c .' | tar -x -C "$out/guest" 2>/dev/null
 guest_status=$(guest_n 'cat ~/cps/status' 2>/dev/null)
+# The guest's display, park point and screencapture result go to the step log, so a run whose
+# artifact is lost still says what it measured against.
+grep -E 'Resolution|Retina' "$out/guest/facts.txt" 2>/dev/null | sed 's/^ */CPS-STAGE guest display: /'
+grep -h '^CPS-SETUP' "$out/guest/cps.stdout" 2>/dev/null
 [[ $finished == 1 ]] || { finish "guest.sh did not finish in the time left"; exit 4; }
 [[ -s "$out/guest/cps.txt" ]] || { tail -5 "$out/guest/results.jsonl" 2>/dev/null; finish "the guest measured nothing (status ${guest_status:-none}; guest/results.jsonl)"; exit 4; }
 finish

@@ -6,8 +6,13 @@
 //                               or "<unix s> button" when the button's action runs
 //   cpsprobe park X Y           warps the real pointer to X,Y (global points, top-left origin)
 //   cpsprobe pos                prints the real pointer as {"x":..,"y":..}
+//   cpsprobe screen             prints the main display's bounds in points as {"w":..,"h":..}
 //   cpsprobe sample X Y STOP    samples CGEventGetLocation(CGEventCreate(NULL)) every 10 ms until the
 //                               file STOP exists, then prints the farthest sample from X,Y as JSON
+//   cpsprobe allow-capture      finds macOS's "requesting to bypass the system private window picker"
+//                               alert in any running process and presses its Allow button through
+//                               Accessibility (AXPress: the pointer does not move); prints
+//                               {"pressed":true|false,"owner":"..."}
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 #include <math.h>
@@ -84,6 +89,28 @@ static void logline(NSString *s) {
 }
 @end
 
+static NSString *ax_str(AXUIElementRef el, CFStringRef attr) {
+  CFTypeRef v = NULL;
+  if (AXUIElementCopyAttributeValue(el, attr, &v) != kAXErrorSuccess || !v) return @"";
+  NSString *s = CFGetTypeID(v) == CFStringGetTypeID() ? [(__bridge NSString *)v copy] : @"";
+  CFRelease(v);
+  return s;
+}
+
+// Depth-first over an element's children: collects its text and its "Allow" button.
+static void ax_walk(AXUIElementRef el, int depth, NSMutableString *text, AXUIElementRef *allow) {
+  if (depth > 8) return;
+  NSString *role = ax_str(el, kAXRoleAttribute);
+  [text appendFormat:@" %@ %@", ax_str(el, kAXValueAttribute), ax_str(el, kAXTitleAttribute)];
+  if ([role isEqualToString:(__bridge NSString *)kAXButtonRole] && [ax_str(el, kAXTitleAttribute) isEqualToString:@"Allow"] && !*allow) {
+    *allow = (AXUIElementRef)CFRetain(el);
+  }
+  CFTypeRef kids = NULL;
+  if (AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &kids) != kAXErrorSuccess || !kids) return;
+  for (id k in (__bridge NSArray *)kids) ax_walk((__bridge AXUIElementRef)k, depth + 1, text, allow);
+  CFRelease(kids);
+}
+
 static CGPoint now_pos(void) {
   CGEventRef e = CGEventCreate(NULL);
   CGPoint p = CGEventGetLocation(e);
@@ -93,7 +120,7 @@ static CGPoint now_pos(void) {
 
 int main(int argc, const char **argv) {
   @autoreleasepool {
-    if (argc < 2) { fprintf(stderr, "usage: cpsprobe target LOG | park X Y | pos | sample X Y STOP\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: cpsprobe target LOG | park X Y | pos | screen | sample X Y STOP | allow-capture\n"); return 2; }
     NSString *cmd = @(argv[1]);
     if ([cmd isEqualToString:@"target"] && argc == 3) {
       logf_ = fopen(argv[2], "a");
@@ -113,6 +140,11 @@ int main(int argc, const char **argv) {
       CGPoint q = now_pos();
       printf("{\"warp_err\":%d,\"x\":%.2f,\"y\":%.2f}\n", err, q.x, q.y);
       return err == kCGErrorSuccess ? 0 : 1;
+    }
+    if ([cmd isEqualToString:@"screen"]) {
+      CGRect r = CGDisplayBounds(CGMainDisplayID());
+      printf("{\"w\":%.1f,\"h\":%.1f}\n", r.size.width, r.size.height);
+      return 0;
     }
     if ([cmd isEqualToString:@"pos"]) {
       CGPoint q = now_pos();
@@ -138,6 +170,35 @@ int main(int argc, const char **argv) {
       printf("{\"max_pt\":%.2f,\"max_at\":[%.1f,%.1f],\"samples\":%ld,\"samples_moved\":%ld,"
              "\"first\":[%.1f,%.1f],\"last\":[%.1f,%.1f]}\n",
              max, mx, my, n, moved, first.x, first.y, last.x, last.y);
+      return 0;
+    }
+    if ([cmd isEqualToString:@"allow-capture"]) {
+      for (NSRunningApplication *ra in [[NSWorkspace sharedWorkspace] runningApplications]) {
+        AXUIElementRef app = AXUIElementCreateApplication(ra.processIdentifier);
+        AXUIElementSetMessagingTimeout(app, 1.0);
+        CFTypeRef wins = NULL;
+        if (AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &wins) == kAXErrorSuccess && wins) {
+          for (id w in (__bridge NSArray *)wins) {
+            NSMutableString *text = [NSMutableString string];
+            AXUIElementRef allow = NULL;
+            ax_walk((__bridge AXUIElementRef)w, 0, text, &allow);
+            BOOL picker = [text rangeOfString:@"private window picker"].location != NSNotFound;
+            if (picker && allow) {
+              AXError err = AXUIElementPerformAction(allow, kAXPressAction);
+              CFRelease(allow);
+              CFRelease(wins);
+              CFRelease(app);
+              printf("{\"pressed\":%s,\"owner\":\"%s\",\"ax_err\":%d}\n", err == kAXErrorSuccess ? "true" : "false",
+                     (ra.localizedName ?: @"?").UTF8String, err);
+              return err == kAXErrorSuccess ? 0 : 1;
+            }
+            if (allow) CFRelease(allow);
+          }
+          CFRelease(wins);
+        }
+        CFRelease(app);
+      }
+      printf("{\"pressed\":false,\"owner\":\"\"}\n");
       return 0;
     }
     fprintf(stderr, "cpsprobe: unknown command\n");

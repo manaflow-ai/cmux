@@ -130,6 +130,10 @@ parser.add_argument("--workspaces", default="1,10,30")
 parser.add_argument("--transitions", default=",".join(TRANSITIONS))
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--quick", action="store_true", help="smoke: 1 and 4 splits, empty and browser, 1 workspace, 1 round")
+parser.add_argument("--baseline", default="",
+                    help="the before column of the per-PR table: split_scale_metrics.encode_baseline() of the newest "
+                         "nightly's numbers for these cells (cmux-next-split-table.yml); the report's row_table carries "
+                         "base_* beside each row and `baseline_sha` names the nightly. Empty: no before column")
 parser.add_argument("--scrollback", type=int, default=20000)
 parser.add_argument("--chat-turns", type=int, default=300)
 parser.add_argument("--strip-ms", type=float, default=900, help="how long each frame strip records after the input")
@@ -150,6 +154,9 @@ parser.add_argument("--gate", action="store_true", help="exit 1 when a move fail
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
                          "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
+parser.add_argument("--motion-kind", action="append", default=[], metavar="NAME=on|off",
+                    help="a DesignSettings switch set after launch through debug.motion kind, repeatable: an A/B of a "
+                         "default-off setting on one bench build (sideSlidePageHold=on); the report's motion_kind lists them")
 parser.add_argument("--diag-arm", action="append", default=[], metavar="NAME[@CELL[/T,T]]:ENV=VALUE[;ENV=VALUE]",
                     help="a diagnostic arm, repeatable: after the matrix, the app relaunches with these env vars (and once "
                          "with none, the `control` arm) and measures --diag-cell's --diag-transitions only. Its rows go "
@@ -169,6 +176,12 @@ for pair in opts.app_env:
     if not sep or not name.strip():
         parser.error(f"--app-env takes NAME=VALUE, not {pair!r}")
     APP_ENV[name.strip()] = value
+MOTION_KIND = {}
+for pair in opts.motion_kind:
+    name, sep, value = pair.partition("=")
+    if not sep or not name.strip() or value not in ("on", "off"):
+        parser.error(f"--motion-kind takes NAME=on or NAME=off, not {pair!r}")
+    MOTION_KIND[name.strip()] = value == "on"
 APP = os.path.realpath(opts.app.rstrip("/"))
 if opts.quick:
     opts.splits, opts.contents, opts.workspaces, opts.rounds = "1,4", "empty,browser", "1", 1
@@ -1044,9 +1057,11 @@ def finish(results):
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
     # The per-PR table: every cell x transition, first frame ms and blank frames, worst row first (report-only).
-    rows = ssm.row_table(results)
+    base = ssm.decode_baseline(opts.baseline)
+    rows = ssm.row_table(results, base=base)
     results["row_table"], results["row_table_ok"] = rows, ssm.row_table_ok(rows)
-    row_markdown = ssm.row_table_markdown(rows)
+    results["baseline_sha"] = (base or {}).get("sha")
+    row_markdown = ssm.row_table_markdown(rows, base_sha=results["baseline_sha"])
     print("SPLIT-ROW-TABLE-BEGIN\n" + row_markdown + "\nSPLIT-ROW-TABLE-END", flush=True)
     timeline = frame_timeline(results)
     if opts.json:
@@ -1094,6 +1109,13 @@ def start_app(run, results):
     if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
         results["errors"]["placement"] = problem
         raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
+    for name, on in MOTION_KIND.items():
+        run.rpc("debug.motion", {"action": "kind", "name": name, "value": on})
+    if MOTION_KIND:
+        results["motion_kind"] = {"set": dict(MOTION_KIND),
+                                  "read_back": {k: v for k, v in (run.rpc("debug.motion", {"action": "read"}) or {}).items()
+                                                if k in ("side_slide_page_hold", "split_snapshot_open")}}
+        say(f"split-scale: motion kinds {MOTION_KIND}")
     # Launch work ends before the first cell: the springs rest and the window's layers hold still.
     motion_ends(run, "the launch")
     if wait_stable(lambda: json.dumps(run.rpc("debug.layers"), sort_keys=True, default=str), "the window after launch",

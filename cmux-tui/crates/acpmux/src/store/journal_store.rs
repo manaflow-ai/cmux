@@ -917,6 +917,9 @@ impl Store for JournalStore {
         self.inner
             .fenced(id, || Store::scan_matching(&self.inner.local, id, after, may_match, visit))
     }
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_raw(&self.inner.local, id, after, visit))
+    }
     fn scan_strict(
         &self,
         id: &str,
@@ -1053,7 +1056,7 @@ impl Store for JournalStore {
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
         Store::adoption_checkpoint(&self.inner.local, id)
     }
-    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+    fn save_adoption_checkpoint(&self, id: &str, bytes: Vec<u8>) -> Result<()> {
         Store::save_adoption_checkpoint(&self.inner.local, id, bytes)
     }
     /// A checkpoint: every log written so far is synced and the journal before it retired.

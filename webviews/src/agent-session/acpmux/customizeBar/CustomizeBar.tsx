@@ -3,6 +3,7 @@ import { ChevronDown } from "../conversation/icons";
 import { useT, type StringKey } from "../i18n";
 import { Button } from "../../../ui/Button";
 import { profileName, type CustomizeBarState, type CustomizePart, type CustomizeVerb } from "./customizeBarModel";
+import { customizeBarShows } from "./customizeBarShows";
 import "./CustomizeBar.css";
 
 export type CustomizeBarLook = "strip" | "card" | "chip";
@@ -23,13 +24,6 @@ const PART_KEY: Record<CustomizePart, StringKey> = {
   styles: "customizeBar.part.styles",
   automations: "customizeBar.part.automations",
 };
-
-/** Whether the bar draws anything: a preview, or the outcome of the person's last click. */
-export function customizeBarShows(state: CustomizeBarState, outcome: CustomizeBarOutcome): boolean {
-  return (
-    state.kind === "preview" || outcome.kind === "applied" || outcome.kind === "saved" || outcome.kind === "failed"
-  );
-}
 
 /// A live customization's preview in the chat, with the CLI's own verbs as buttons: Apply keeps
 /// it, Discard drops it, Undo rolls back one applied generation, Save as profile names it

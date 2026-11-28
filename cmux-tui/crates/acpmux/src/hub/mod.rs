@@ -228,6 +228,7 @@ mod loop_goal;
 mod loop_goal_tests;
 pub mod mac_approvers;
 mod machine_info;
+mod match_cap;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 pub mod media_handles;
@@ -321,6 +322,8 @@ mod move_interrupts;
 pub(crate) mod plan_first;
 pub(crate) mod prefetch;
 pub mod presence;
+/// `presence.live` followed into the presence table (RFD 0141 Live opt-in, off by default).
+pub(crate) mod presence_setting;
 mod processes;
 mod profile_respawn;
 #[cfg(test)]
@@ -443,18 +446,20 @@ mod surge_triage;
 mod urgent_steer;
 // A task's spend burn-rate warnings during its turn.
 mod spend_burn;
-// Mask old tool output instead of summarizing it (harness magic).
+// Mask old tool output instead of summarizing it.
 pub(crate) mod surgery;
 mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
+mod taint;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod best_of_n;
+pub(crate) mod cache_rebuild;
 mod team_information;
 mod team_sent;
 mod team_settings;
@@ -673,36 +678,8 @@ pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
 
-/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
-/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
-pub const MAX_MATCH_BYTES: usize = 2 * 1024;
-
-/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
-/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
-/// bound.
-pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
-    match pattern {
-        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
-            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
-/// it was cut.
-pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
-    let Some(p) = pattern else { return false };
-    if p.len() <= MAX_MATCH_BYTES {
-        return false;
-    }
-    let mut end = MAX_MATCH_BYTES;
-    while !p.is_char_boundary(end) {
-        end -= 1;
-    }
-    p.truncate(end);
-    true
-}
+pub(crate) use match_cap::cap_match;
+pub use match_cap::{MAX_MATCH_BYTES, validate_match};
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -719,6 +696,7 @@ pub use web_token::WebToken;
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
+use crate::no_panic::LockExt as _;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{
@@ -1135,6 +1113,10 @@ pub struct Hub {
     pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
+    /// Whether the configured retry loop is disabled (`autoResumeDelaysMs: []`).
+    /// Kept as a snapshot so synchronous idle eligibility never observes a contended,
+    /// partially updated config lock.
+    pub(super) auto_resume_disabled: AtomicBool,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
@@ -1476,6 +1458,8 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// Tool calls whose wait is handed to the platform (`parked_wait.rs`).
+    pub parked: crate::parked_wait::Parked,
     /// Paused machines' replicas and write journals, when `writeJournal.enabled` (`paused_fs.rs`).
     pub(super) paused_fs: Option<Arc<crate::write_journal::paused::PausedFs>>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
@@ -1844,9 +1828,12 @@ impl Hub {
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let auto_resume_disabled =
+            config.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty);
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
+            auto_resume_disabled: AtomicBool::new(auto_resume_disabled),
             usage_limits,
             page_rule_sessions,
             wireguard,
@@ -2008,6 +1995,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            parked: crate::parked_wait::Parked::default(),
             paused_fs,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
@@ -2217,22 +2205,22 @@ impl Hub {
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.
     pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
-        *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
+        *self.trust_gate.lock_or_recover() = paths;
     }
 
     /// The gate's paths, while the gate is on.
     pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
-        self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.trust_gate.lock_or_recover().clone()
     }
 
     /// Where adopt looks for harness sessions by default.
     pub fn harness_homes(&self) -> crate::adopt::HarnessHomes {
-        self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.harness_homes.lock_or_recover().clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
+        *self.harness_homes.lock_or_recover() = homes;
     }
 
     /// How many outbox deliveries are not settled yet (`outbox.rs`).
@@ -2323,7 +2311,7 @@ impl Hub {
     ) -> Option<Arc<Session>> {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
-        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self.sessions.lock_or_recover();
         if sessions.contains_key(&meta.id) {
             return None;
         }
@@ -2364,7 +2352,7 @@ impl Hub {
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
-        *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        *session.log_load.lock_or_recover() = false;
         session.log_loaded.store(false, Ordering::SeqCst);
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
@@ -2525,10 +2513,10 @@ impl Hub {
             book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
-            spawn_lock: Mutex::new(()),
+            spawn_lock: Arc::new(Mutex::new(())),
             fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
-            harness_use: RwLock::new(()),
+            harness_use: Arc::new(RwLock::new(())),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: Default::default(),
             time_breakdown: StdMutex::new(Default::default()),
@@ -2613,6 +2601,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             respawn_when_quiet: AtomicBool::new(false),
+            respawn_required: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound: std::sync::OnceLock::new(),
@@ -2733,7 +2722,7 @@ impl Hub {
     /// Changes a session's metadata in place, with no record or save (tests outside the hub).
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
-        edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        edit(&mut session.meta.lock_or_recover());
         // A change no record carries, as any direct metadata write is (`list_order.rs`).
         self.events.row_changed(session);
     }
@@ -2742,7 +2731,7 @@ impl Hub {
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
-        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.sessions.lock_or_recover().insert(id, session.clone());
         self.update_live_session_index(&session);
         self.session_came(&session);
         session
@@ -2858,7 +2847,7 @@ impl Hub {
         let bare = !key.contains('/');
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
-            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let meta = s.meta.lock_or_recover();
             let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if meta.name == key || alias == Some(key) {
                 by_name.push(s.clone());
@@ -2954,10 +2943,10 @@ impl Hub {
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
         self.rehydrate_named(key);
         let bare = !key.contains('/');
-        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sessions = self.sessions.lock_or_recover();
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
-            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let meta = s.meta.lock_or_recover();
             let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if s.id.starts_with(key)
                 || meta.name.starts_with(key)
@@ -2982,11 +2971,11 @@ impl Hub {
             return None;
         }
         self.rehydrate_named(key);
-        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sessions = self.sessions.lock_or_recover();
         let (live, closed): (Vec<_>, Vec<_>) = sessions
             .values()
             .filter_map(|s| {
-                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let meta = s.meta.lock_or_recover();
                 crate::session_name::ends_with_segments(&meta.name, key)
                     .then(|| (s.clone(), meta.name.clone(), meta.status == SessionStatus::Closed))
             })
