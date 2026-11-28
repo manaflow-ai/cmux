@@ -250,20 +250,31 @@ async function streamedRows(count: number): Promise<AcpmuxRow[]> {
 async function mounted(rows: AcpmuxRow[]) {
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-  const shown = turnView(rows, new Set(), { working: true, now: 1_700_000_000_000 + rows.length * 10 });
+  // Since #50987 a running turn's calls draw under a closed "Working for", one live line; the reader who
+  // opened it sees every card, the case this bounds.
+  const expanded = new Set(["worked-user-1"]);
+  const shown = turnView(rows, expanded, { working: true, now: 1_700_000_000_000 + rows.length * 10 });
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   try {
     await act(async () =>
-      root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={new Set()} />),
+      root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={expanded} />),
     );
-    // The follow pass and the deferred warm rows settle over a few frames.
-    for (let frame = 0; frame < 6; frame += 1) await act(async () => void (await tick()));
+    // The follow pass and the deferred warm rows settle over a few frames; how many depends on the runner's
+    // load, so the count is read once the mounted elements hold still for a few frames.
     const doc = dom.window.document;
+    let frames = 0;
+    for (let still = 0, last = -1; frames < 200 && still < 6; frames += 1) {
+      await act(async () => void (await tick()));
+      const now = host.getElementsByTagName("*").length;
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
     const cards = (row: AcpmuxRow) =>
       (row.items ?? []).filter((item) => item.tool?.kind === "think" && item.tool.title === "Agent").length;
     return {
       rows: shown.length,
+      frames,
       mountedRows: doc.querySelectorAll(".acpmux-row").length,
       agentCards: doc.querySelectorAll(".cv-agentcall").length,
       elements: host.getElementsByTagName("*").length,
@@ -408,10 +419,22 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
   proto.getBoundingClientRect = function (this: HTMLElement) {
     const rect = (top: number, height: number) =>
       ({ x: 0, y: top, top, left: 0, right: 288, bottom: top + height, width: 288, height, toJSON() {} }) as DOMRect;
-    if (this === body) return rect(0, BODY);
+    // The body by its class, not its ref: the list's first layout pass measures its rows before React sets the
+    // ref of the body around it.
+    if (this.classList.contains("acpmux-summary-card__body")) return rect(0, BODY);
     const list = this.parentElement;
-    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list))
-      return rect(Array.prototype.indexOf.call(list.children, this) * ROW - body.scrollTop, ROW);
+    // A row sits under the rows and boxes before it (a box as tall as its height, none while hidden).
+    const scroller = list?.closest<HTMLElement>(".acpmux-summary-card__body");
+    if (scroller && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list")) {
+      const tall = (node: Element) => {
+        const style = (node as HTMLElement).style;
+        if (!node.hasAttribute("data-rows-rest")) return ROW;
+        return style.display === "none" ? 0 : Number.parseFloat(style.height) || 0;
+      };
+      let top = 0;
+      for (let at = this.previousElementSibling; at; at = at.previousElementSibling) top += tall(at);
+      return rect(top - scroller.scrollTop, tall(this));
+    }
     return laidOut.call(this);
   };
   const host = dom.window.document.getElementById("root")!;
@@ -430,17 +453,27 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
         );
         drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
         expect(host.querySelector(".acpmux-summary-more")).toBeNull();
-        const spacer = host.querySelector<HTMLElement>("[data-rows-rest]");
+        // Since #46128 a windowed list holds the rows left out in a box above its window and one under it,
+        // and lets go of the rows a scroll leaves.
+        const above = () => host.querySelector<HTMLElement>("[data-rows-rest]:first-child");
+        const under = () => host.querySelector<HTMLElement>('[data-rows-rest][data-rows-next="end"]');
         if (lines() < n) {
           // The rest's box is as tall as their rows, so the body's scroll takes its whole height at once.
-          expect(spacer?.style.height).toBe(`${(n - lines()) * ROW}px`);
-          // Scrolled to the end, the body draws its last subagent.
-          body!.scrollTop = n * ROW - BODY;
+          expect(under()?.style.height).toBe(`${(n - lines()) * ROW}px`);
+          // Scrolled to the end, the body draws its last subagent, over a box as tall as the rows above.
+          // jsdom keeps an element's scrollTop at 0, so the body's scroll is set as its own value.
+          Object.defineProperty(body!, "scrollTop", { configurable: true, value: n * ROW - BODY });
           await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
-          expect(await settle(() => lines() === n, 5_000)).toBe(true);
-          expect(host.querySelector("[data-rows-rest]")).toBeNull();
-        }
-        expect(host.textContent).toContain(`reviewer-${n - 1}`);
+          // The last row is mounted once the box under the window holds no rows (running subagents sort first,
+          // so the last row is the list's, not the last started).
+          const ended = await settle(() => under()?.style.display === "none", 2_000);
+          const boxes = [...host.querySelectorAll<HTMLElement>("[data-rows-rest]")].map(
+            (box) => `${box.dataset.rowsNext}:${box.style.height}:${box.style.display}`,
+          );
+          expect({ ended, lines: lines(), boxes }).toMatchObject({ ended: true });
+          expect(above()?.style.height).toBe(`${(n - lines()) * ROW}px`);
+          expect(lines()).toBeLessThanOrEqual(firstRowCount(1_024));
+        } else expect(host.textContent).toContain(`reviewer-${n - 1}`);
       } finally {
         await act(async () => root.unmount());
         body = null;

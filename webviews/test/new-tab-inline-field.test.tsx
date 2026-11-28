@@ -75,6 +75,9 @@ beforeAll(() => {
     ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
+  // The default has been the strip since #55723, and since #61287 the strip places nothing in the field;
+  // these tests are the inline field's (each resets to it after).
+  setComposerSettings({ attachmentView: "inline" });
 });
 
 afterEach(() => {
