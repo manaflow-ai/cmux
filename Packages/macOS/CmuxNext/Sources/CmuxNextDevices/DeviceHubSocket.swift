@@ -152,9 +152,12 @@ public final class DeviceHubSocket: Sendable {
     }
 
     /// A stopwatch on `clock`: the returned closure says how long since it was made.
-    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
-        let start = clock.now
-        return { start.duration(to: clock.now) }
+    private static func stopwatch(_ clock: any Clock<Duration>) -> @Sendable () -> Duration {
+        func open<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
+            let start = clock.now
+            return { start.duration(to: clock.now) }
+        }
+        return open(clock)
     }
 
     /// Connects and keeps connecting until the calling task is cancelled.
