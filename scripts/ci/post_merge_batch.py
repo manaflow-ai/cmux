@@ -86,6 +86,11 @@ CONFIRM_RUNS = 2
 # 2026-11-27 this counted red batch runs instead, so the six reds whose chains died on the judge's rate limit
 # (cmux#60709) were capped for good without one finished bisect.
 MAX_REBISECTS = 2
+# A red with no green batch run in the LOOKBACK_BATCHES reach had no bisect ever: stuck_reds needs a last green. Run
+# 45971503699 (11-27 09:xxZ) called eight reds "a known red, no bisect" (acpmux-sim-sweep, cmux-tui-sdks protocol
+# contract, CmuxMobileKit tests ...), red since a commit three days back (0e0818af, 11-24), past the reach. Only for such
+# a red, the judges read this many batch runs further back, older than the reach's oldest run, to find its last green.
+DEEP_LOOKBACK_BATCHES = 72
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -382,7 +387,7 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0) -> list[dict]:
+def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0, created_before: str = "") -> list[dict]:
     """This workflow's runs on branch, newest first: one page, or with batches, the runs older than run id before
     (all, when 0) back to and including the batches-th batch run among them, paging at most MAX_RUNS_PAGES pages.
     A batch run's judge and its probes' judges pass the same before and batches, so they read the same batch runs."""
@@ -390,6 +395,7 @@ def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 
     runs: list[dict] = []
     for page in range(1, (MAX_RUNS_PAGES if batches else 1) + 1):
         data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}"
+                   + (f"&created=%3C{created_before}" if created_before else "")
                    + (f"&page={page}" if page > 1 else ""))
         got = list((data or {}).get("workflow_runs") or [])
         runs += got
@@ -924,6 +930,39 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+def unreached_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> list[str]:
+    """The reds of verdicts that some earlier judged batch run in runs also had red and none had green: their last green
+    is past the reach, so stuck_reds cannot bisect them without deeper runs (DEEP_LOOKBACK_BATCHES)."""
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    out = []
+    for name in sorted(n for n, (_, c) in verdicts.items() if c == "failure"):
+        seen = set()
+        for run in earlier:
+            got = jobs_of(run["id"])
+            got, judged = got if isinstance(got, tuple) else (got, True)
+            before = got.get(name)
+            if before and before[1] in ("success", "failure") and (judged or before[1] == "success"):
+                seen.add(before[1])
+            if "success" in seen:
+                break
+        if seen == {"failure"}:
+            out.append(name)
+    return out
+
+
+def with_deeper_runs(repo: str, branch: str, sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> list[dict]:
+    """runs, plus DEEP_LOOKBACK_BATCHES batch runs older than its oldest when a red of verdicts has no green in it. The batch
+    judge and each probe's judge call it on the same runs and verdicts for the job, so both read the same deeper runs."""
+    if not runs or not unreached_reds(sha, verdicts, runs, jobs_of):
+        return runs
+    oldest = min((r.get("created_at") or "") for r in runs)
+    if not oldest:
+        return runs
+    have = {r.get("id") for r in runs}
+    deeper = list_runs(repo, branch, batches=DEEP_LOOKBACK_BATCHES, created_before=oldest)
+    return runs + [r for r in deeper if r.get("id") not in have and (r.get("created_at") or "") < oldest]
+
+
 def stuck_chain_start(good: str, bad: str) -> str:
     """The sha a stuck red's bisect over good..bad starts at (stuck_probe's): stuck_reds counts finished bisects by it,
     in the batch judge and in each probe's judge alike, so both agree on whether the bisect is capped."""
@@ -1357,7 +1396,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites, steps_of(args.run_id), steps_of)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start,
+        deep = with_deeper_runs(args.repo, args.branch, args.sha, verdicts, runs, jobs_of)
+        stuck = stuck_reds(args.sha, verdicts, deep, jobs_of, suites, chain_start=stuck_chain_start,
                            steps=steps_of(args.run_id), steps_of=steps_of)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
@@ -1423,7 +1463,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # The same chain_start as the batch judge: without it every judged probe of the job since its first red
             # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
             # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
-            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
+            deep = with_deeper_runs(args.repo, args.branch, origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, deep, jobs_of, suites,
                                                                                   chain_start=stuck_chain_start,
                                                                                   steps=steps_of(origin["id"]),
                                                                                   steps_of=steps_of)]
