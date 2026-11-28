@@ -106,9 +106,22 @@ const reported = (fields: Partial<Subagent> = {}, cause: Partial<AcpmuxBackgroun
   reply("report-turn", "Noted: one cause fixed, the Stop case left for its own PR.", 8.85),
 ];
 
-const openReport = async (ctx: PlayContext) => {
-  const head = { selector: ".cv-subagent-report__head" };
+const head = { selector: ".cv-subagent-report__head" };
+
+/// A finished subagent's end and its "Report from" line are the work of the turn they came after, so
+/// they fold into its closed "Worked for" (#53268; Leo, 2026-11-24: "we can indeed treat them as tool
+/// calls ... thereby we can have them be folded properly too"). The play opens that fold first; the
+/// run line inside it opens with it.
+const showReport = async (ctx: PlayContext) => {
+  if (!ctx.document.querySelector(head.selector)) {
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
+    await ctx.click({ selector: ".cv-worked" });
+  }
   await ctx.waitFor(() => ctx.document.querySelector(head.selector));
+};
+
+const openReport = async (ctx: PlayContext) => {
+  await showReport(ctx);
   await ctx.click(head);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-report__body") !== null);
 };
@@ -130,7 +143,10 @@ export default agentPaneEntry({
     "report-hover": {
       note: '"Report from …" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
       snapshot: chat(reported(), views(REPORT)),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-subagent-report__head .cv-subagent-report__sentence" }),
+      play: async (ctx) => {
+        await showReport(ctx);
+        await ctx.hover({ selector: "button.cv-subagent-report__head .cv-subagent-report__sentence" });
+      },
     },
     "report-open": {
       note: "Opened: the report in the reply's Markdown, then the agent's own reply to it.",
