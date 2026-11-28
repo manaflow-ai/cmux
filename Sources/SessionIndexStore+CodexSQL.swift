@@ -7,6 +7,10 @@ extension SessionIndexStore {
         let rolloutPath: String
         let cwd: String?
         let titleField: String
+        /// Codex's display name for the thread (`threads.name`), set by
+        /// auto-naming or a user rename. Newer Codex versions also mirror the
+        /// generated name into `session_index.jsonl` as `thread_name`.
+        let threadName: String
         let model: String?
         let gitBranch: String?
         let approvalMode: String?
@@ -56,10 +60,15 @@ extension SessionIndexStore {
         }
         defer { sqlite3_close(db) }
 
+        // `threads.name` is the user-visible Codex thread title (auto-generated
+        // or renamed). `threads.title` is the first user prompt, so preferring
+        // `name` keeps Vault rows aligned with the Codex sidebar. Older Codex
+        // schemas predate the column; omit it there and fall back to `title`.
+        let hasThreadNameColumn = codexThreadsHasNameColumn(db)
         var sql = """
             SELECT id, rollout_path, cwd, title, model, git_branch,
                    approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
+                   first_user_message, updated_at_ms\(hasThreadNameColumn ? ", name" : "")
             FROM threads
             WHERE archived = 0
             """
@@ -98,6 +107,7 @@ extension SessionIndexStore {
                 rolloutPath: sqliteText(stmt, 1) ?? "",
                 cwd: sqliteText(stmt, 2),
                 titleField: sqliteText(stmt, 3) ?? "",
+                threadName: hasThreadNameColumn ? (sqliteText(stmt, 11) ?? "") : "",
                 model: sqliteText(stmt, 4),
                 gitBranch: sqliteText(stmt, 5),
                 approvalMode: sqliteText(stmt, 6),
@@ -159,6 +169,17 @@ extension SessionIndexStore {
     }
     #endif
 
+    /// Returns whether this Codex `threads` table has the newer `name` column.
+    nonisolated private static func codexThreadsHasNameColumn(_ db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT name FROM threads LIMIT 0", -1, &stmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(stmt)
+            return false
+        }
+        sqlite3_finalize(stmt)
+        return true
+    }
+
     nonisolated private static func codexEntry(from record: CodexThreadRecord) -> SessionEntry {
         let sandboxMode = record.sandboxJSON
             .flatMap { $0.data(using: .utf8) }
@@ -166,7 +187,10 @@ extension SessionIndexStore {
             .flatMap { $0["type"] as? String }
 
         let displayTitle: String
-        if !record.titleField.isEmpty {
+        let threadName = record.threadName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !threadName.isEmpty {
+            displayTitle = threadName
+        } else if !record.titleField.isEmpty {
             displayTitle = record.titleField
         } else if let real = realCodexUserMessage(record.firstUserMessage) {
             displayTitle = real
@@ -203,6 +227,7 @@ extension SessionIndexStore {
         if fieldMatches(record.sessionId) { return true }
         if fieldMatches(record.rolloutPath) { return true }
         if fieldMatches(record.cwd) { return true }
+        if fieldMatches(record.threadName) { return true }
         if fieldMatches(record.titleField) { return true }
         if fieldMatches(record.firstUserMessage) { return true }
         if fieldMatches(record.gitBranch) { return true }
