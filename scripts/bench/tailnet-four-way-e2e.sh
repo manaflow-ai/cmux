@@ -49,7 +49,7 @@ else
 fi
 d() { "${DOCKER[@]}" "$@"; }
 
-OUT=${2:-/tmp/tfw-$RUN_ID}
+if [ -n "${2:-}" ]; then OUT=$2; else OUT=$(mktemp -d "${TMPDIR:-/tmp}/tfw-$RUN_ID.XXXXXX"); fi
 mkdir -p "$OUT"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cmux-four-way.XXXXXX")
 chmod 700 "$WORK"

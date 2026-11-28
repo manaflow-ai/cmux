@@ -166,6 +166,38 @@ ALLOWED = {
         "a path in the fuzz guest VM the run boots, where its account is the only one",
     ("scripts/fuzz/macos-matrix/fuzz.py", 'g.sh(f"cat /tmp/fuzz-unresp-{i}.txt")'):
         "a path in the fuzz guest VM the run boots, where its account is the only one",
+    ('scripts/ci/cmux-next-ios-sim.sh', '"${TMPDIR:-/tmp}/cmux-sim-display.$$."*'):
+        "removal of this run's own sim_display answer files at exit; nothing is written there",
+    ('scripts/ci/cmux-next-ios-sim.sh', 'cache="${TMPDIR:-/tmp}/cmux-sim-display.$$.$1"'):
+        "sim_display's answer, kept once known after its mktemp probe; under macOS's per-user TMPDIR (/var/folders, 0700), so no other account can claim the name",
+    ('scripts/cmux-next/bench_memory.py', 'f"/tmp/cmux-next-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"'):
+        "a Unix socket path, kept short (104 bytes); its uuid4 part makes it unguessable, and the app binds it fresh",
+    ('scripts/cmux-next/cloud-journey.ts', '`/tmp/cmux-seed-probe-${process.pid}-${run}`'):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-journey.ts', '`/tmp/cmux-exec-conformance-${process.pid}`'):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 1):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 2):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 3):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 4):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 5):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/cloud-scenarios.ts', '/tmp/${name}', 6):
+        "a path on the throwaway cloud machine this run created (exec runs it there as its one account), never on the runner",
+    ('scripts/cmux-next/restart-to-update-migration.py', 'f"/tmp/cmux-{channel}.sock"'):
+        "the channel app's own socket name (the app's naming), which this check compares against; it is never written here",
+    ('scripts/cmux-next/restart-to-update-migration.py', 'f"/tmp/cmux-{channel}-{sanitize(bundle_id[len(channel_id) + 1:])}.sock"'):
+        "a tagged channel app's own socket name (the app's naming), which this check compares against; it is never written here",
+    ('scripts/measure/screen-share-vs-pair.sh', '"/tmp/ssvp-rd-$(printf \'%s\' "$peer_token" | shasum -a 256 | cut -c1-12)"'):
+        "the rig root both Macs must agree on, named from this run's secret peer token, so no other account can guess it first",
+    ('scripts/measure/screen-stream-eval/stage-table.sh', '"/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c17-32)"'):
+        "the rig root both Macs must agree on, named from this run's secret token file, so no other account can guess it first",
+    ('scripts/measure/screen-stream-eval/targets/iphone-sim.sh', '"/tmp/iphsim.$(printf %s "$EVAL_STATE" | shasum | cut -c1-10)"'):
+        "made 0700 and used only when this account owns it and it is no symlink (the next line); a folder another account made first is refused",
 }
 
 
