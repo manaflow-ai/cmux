@@ -290,9 +290,9 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.close();
     });
 
-    // The pencil (its tooltip Edit) on a steer the agent has not read: acpmux takes it back, its
+    // The X (its tooltip Edit message) on a steer the agent has not read: acpmux takes it back, its
     // text comes back into the composer, and the edited text is what is sent.
-    test("the pencil on a waiting steer puts its text in the composer, and the edited text is what is sent", async () => {
+    test("the X on a waiting steer puts its text in the composer, and the edited text is what is sent", async () => {
       const page = await openChat("first", false, "Use the cache dir");
       const bubble = page.locator(".cv-user__bubble", { hasText: "Use the cache dir" });
       await bubble.waitFor();

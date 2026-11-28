@@ -268,6 +268,61 @@ test("where the chat opens side chats, the right-click menu's Open in side chat 
   expect(container.querySelector('[data-prompt-id="p-2"]')).toBeNull();
 });
 
+// The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
+// with. Open in side chat asks the row as it is at the pick, so an edit made meanwhile goes too.
+test("Open in side chat picked from a native menu after the prompt changed asks its new text", async () => {
+  const { installNativeMenu } = await import("../../ui/nativeMenu");
+  const container = installDom();
+  const asked: [string, string][] = [];
+  let answer: (reply: unknown) => void = () => {};
+  installNativeMenu(() => new Promise((resolve) => (answer = resolve)));
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={async () => true}
+        onRemove={async () => true}
+        onSideChat={async (id, prompt) => {
+          asked.push([id, prompt]);
+          return true;
+        }}
+      />,
+    );
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      draw(queue);
+    });
+    await openMenu(container, "p-2");
+    await act(async () => draw([queue[0]!, { ...queue[1]!, prompt: "second, edited" }]));
+    await act(async () => answer({ picked: "side-chat" }));
+    await settle();
+    expect(asked).toEqual([["p-2", "second, edited"]]);
+  } finally {
+    installNativeMenu(null);
+  }
+});
+
+// With no ⋯ button, the right-click menu is the only home of Open in side chat and Turn off
+// queueing: a row reached by the arrows opens it from the keyboard too.
+test("Shift-F10 on a focused row opens its menu", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
+  row.focus();
+  await act(async () => {
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
+  });
+  await settle();
+  expect([...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(itemLabel)).toEqual(
+    MENU_P1("composer.queueingOff"),
+  );
+});
+
 test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await render(

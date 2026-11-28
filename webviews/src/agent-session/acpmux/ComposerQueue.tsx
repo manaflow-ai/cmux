@@ -922,7 +922,24 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       event.preventDefault();
       event.stopPropagation();
     };
-    if (event.key === "Enter" && event.metaKey) {
+    if ((event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) && mine) {
+      // A row reached by the arrows opens its menu from the keyboard, as its text button does: the
+      // menu (ContextMenu.tsx) opens on a contextmenu from inside its host, at the text's corner.
+      done();
+      const text = event.currentTarget.querySelector<HTMLElement>(".acpmux-queued-text");
+      // The row's own window (a test's DOM has no global one).
+      const view = text?.ownerDocument.defaultView;
+      if (!text || !view) return;
+      const rect = text.getBoundingClientRect();
+      text.dispatchEvent(
+        new view.MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left,
+          clientY: rect.bottom,
+        }),
+      );
+    } else if (event.key === "Enter" && event.metaKey) {
       // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
       // composer otherwise.
       done();
@@ -968,19 +985,22 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     ),
     onSelect,
   });
-  const sideChatItem = (entry: QueuedEntry): ContextMenuItem[] => {
-    const side = sideChat?.(entry);
-    return side
+  // The menu (native or drawn) keeps its items while it is open: the pick asks the row as it is
+  // then, so a prompt edited meanwhile goes with its new text, or stays when it gained images.
+  const sideChatItem = (entry: QueuedEntry): ContextMenuItem[] =>
+    sideChat?.(entry)
       ? [
           {
             id: "side-chat",
             ariaLabel: t("composer.queueSideChat"),
             label: t("composer.queueSideChat"),
-            onSelect: side,
+            onSelect: () => {
+              const now = drawnRows.current.find((row) => row.id === entry.id);
+              if (now && !theirs(now)) sideChat?.(now)?.();
+            },
           },
         ]
       : [];
-  };
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
     theirs(entry)
       ? []
