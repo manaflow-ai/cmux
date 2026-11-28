@@ -22,6 +22,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1808,6 +1809,17 @@ class MacJobTest(unittest.TestCase):
         "Packages/macOS/CmuxNext/Package.swift",
         "scripts/cmux-next/fast-tier.py",
     )
+
+    def test_package_suite_commands_resolve_a_real_package(self) -> None:
+        for step in ci_steps.load().steps.values():
+            for line in step.run.splitlines():
+                if "package-test-lane.sh suite " not in line:
+                    continue
+                args = shlex.split(line)
+                package = args[args.index("suite") + 1]
+                with self.subTest(step=step.name, package=package):
+                    self.assertTrue((ROOT / package / "Package.swift").is_file(),
+                                    "suite takes a checkout-relative package directory, not a package name")
 
     def test_it_runs_on_an_owned_mac_and_a_fork_on_blacksmith(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())

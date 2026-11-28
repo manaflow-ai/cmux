@@ -4303,5 +4303,5 @@ inputs = [
 ]
 run = '''
 cd "${CMUX_MAC_ROOT:-$PWD}"
-bash scripts/ci/package-test-lane.sh suite CmuxVNCWebRTC HeadlessSyntheticScreenStreamTests
+bash scripts/ci/package-test-lane.sh suite Packages/Shared/CmuxVNCWebRTC HeadlessSyntheticScreenStreamTests
 '''
