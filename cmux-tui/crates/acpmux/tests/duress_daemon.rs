@@ -1686,6 +1686,29 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         {
             std::thread::sleep(Duration::from_millis(500));
         }
+        // macOS pages a hog out to swap as it fills (swapped pages are not "used"), so one hog
+        // sized at the start held 80% (Mac round 4c, run 46096844314): top it up, re-sized
+        // each time, until 88% or the rounds run out.
+        let mut top_ups = 0u64;
+        while top_ups < rfd0050::TOP_UPS
+            && stress_json.contains_key("ramHogMiB")
+            && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0)
+        {
+            let Some(bytes) = rfd0050::hog_bytes().filter(|b| *b >= 64 << 20) else { break };
+            match Stressor::spawn("rfd0050-ram-top-up", &rfd0050::hog_script(bytes), cap) {
+                Ok(s) => stressors.push(s),
+                Err(e) => {
+                    notes.push(format!("rfd0050 ram top-up: spawn failed: {e}"));
+                    break;
+                }
+            }
+            top_ups += 1;
+            let by = Instant::now() + Duration::from_secs(20);
+            while Instant::now() < by && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0) {
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+        stress_json.insert("ramHogTopUps".into(), json!(top_ups));
         stress_json.insert("memUsedPctAtClock".into(), json!(rfd0050::mem_used_pct()));
         rfd_cpu0 = rfd0050::cpu_jiffies();
     }
