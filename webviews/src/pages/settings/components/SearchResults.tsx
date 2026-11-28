@@ -2,6 +2,7 @@ import { memo, useMemo, useState, lazy, Suspense } from "react";
 import { categoryById, shownCategories, sidebarSections } from "../categories";
 import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
 import type { SettingsState } from "../store";
+import { Button } from "../../../ui/Button";
 import { Icon } from "../icons";
 import { CLOUD_MODELS_FOCUS, sectionHref } from "../router";
 import { filterRows, filterPages, modelSettingsMatches, filterPlaces, joinConsentPlaces } from "../search";
@@ -115,8 +116,8 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
             );
           })}
           {modelMatches.cloud && (
-            <button
-              type="button"
+            <Button
+              bare
               className="ask-cmux search-page"
               data-page-hit="cloudModels"
               onClick={() => router.history.push(sectionHref("cloud", CLOUD_MODELS_FOCUS))}
@@ -126,7 +127,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
                 <span className="ask-cmux-title">{t("settingsWindow.cloud.models.title")}</span>
                 <span className="ask-cmux-words">{text(categoryById("cloud").title)}</span>
               </span>
-            </button>
+            </Button>
           )}
         </div>
       )}
