@@ -56,7 +56,7 @@ LIVE_SOURCE = re.compile(r"\b(?:needs|matrix|inputs|steps|env)\.|vars\.(?!LINUX_
 # workflow file -> jobs that still read LINUX_RUNNER as their one size. Lower a count when a job
 # moves to fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
 SINGLE_SIZE: dict[str, int] = {
-    "actions-artifact-prune.yml": 0,
+    "storage-maintenance.yml": 0,
     "agent-brands.yml": 0,
     "app-ffi-release.yml": 0,
     "auto-resume-nightly-notarization.yml": 0,
@@ -127,12 +127,8 @@ SINGLE_SIZE: dict[str, int] = {
     "nightly-next-train.yml": 0,
     "nightly-next-verdict.yml": 0,
     "nightly-tag-permission-probe.yml": 0,
-    "pr-media-prune.yml": 0,
     "pr-red-checks-comment.yml": 0,
     "presence.yml": 0,
-    "r2-binaries-prune.yml": 0,
-    "r2-cache-prune.yml": 0,
-    "r2-storage-census.yml": 0,
     "relay-publish-npm.yml": 0,
     "release-rails.yml": 0,
     "release.yml": 0,

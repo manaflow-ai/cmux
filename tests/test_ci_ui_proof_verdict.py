@@ -74,7 +74,7 @@ class PathsTest(unittest.TestCase):
                      "Packages/macOS/Tests/CmuxNextTests/RowTests.swift", "Packages/macOS/Sources/X/Localizable.xcstrings",
                      "scripts/ci/pr_router.py", ".github/workflows/pr-router.yml", "cmux-tui/crates/x/src/lib.rs",
                      "cmux-next-ios/App/Root.swift", "Packages/iOS/Kit/Sources/A.swift", "webviews/bench/a.bench.ts",
-                     "release-notes/next/x.md", "Resources/Info.plist"):
+                     "release-notes/next/x.md", "Resources/Info.plist", "Packages/macOS/CmuxNext/app-ffi-pin.json"):
             with self.subTest(path=path):
                 self.assertEqual(u.affects([path]), "")
 
@@ -206,6 +206,12 @@ class SwiftDrawsTest(unittest.TestCase):
     def affects(self, text, base=None):
         texts = [text] + ([base] if base is not None else [])
         return u.affects([self.P], read=lambda p: texts)
+
+    def test_ffi_pin_roll_is_not_visual(self) -> None:
+        # The release bot's pin PR (cmux#60965): the pin JSON and a Package.swift that imports only PackageDescription.
+        files = {"Packages/macOS/CmuxNext/Package.swift": ["// swift-tools-version: 6.0\nimport PackageDescription\n"]}
+        self.assertEqual(u.affects(["Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"],
+                                   read=lambda p: files[p]), "")
 
     def test_stdlib_only_imports_are_not_visual(self) -> None:
         self.assertEqual(self.affects("import Foundation\nimport os\npublic struct A { nonisolated static let x = 1 }"), "")

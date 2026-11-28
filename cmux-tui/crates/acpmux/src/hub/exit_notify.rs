@@ -41,10 +41,61 @@ impl Hub {
         let (link_parent, prs) = link.map_or((None, vec![]), |(p, prs)| (Some(p), prs));
         let record = session.read_meta(|m| ExitRecord::new(m, close, prs));
         let first = link_parent.or_else(|| session.read_meta(parent_tag));
+        if crate::supervisor::enabled() {
+            self.supervisor_log(session, &record, first.as_deref());
+        }
         let Some(first) = first else { return };
         self.scope.spawn_until_cancelled("exit-record", async move {
             hub.exit_record_deliver(&record, &first).await;
         });
+    }
+
+    /// Logs what the supervisor would do about this exit (`supervisor.rs`) next to its record:
+    /// `mux/supervisor_decision` in the ended chat. Only a log; nothing acts on it yet. Its
+    /// earlier restarts are the decisions to restart it logged in the window; its tokens are the
+    /// newest `usage_update`'s `used`.
+    fn supervisor_log(&self, session: &Arc<Session>, record: &ExitRecord, parent: Option<&str>) {
+        use crate::supervisor::{self as sup, Intensity, Restart};
+        let limit = Intensity::default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let since = now.saturating_sub(limit.window_ms);
+        let (mut tokens, mut restarts) = (None::<u64>, Vec::new());
+        let wanted = [b"usage_update".as_slice(), sup::KIND.as_bytes()];
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|_, kind| !wanted.contains(&kind),
+            &mut |e: EventRecord| {
+                if e.at < since {
+                    return false;
+                }
+                if e.kind == "usage_update" && tokens.is_none() {
+                    tokens = e.msg.pointer("/params/update/used").and_then(Value::as_u64);
+                } else if e.kind == sup::KIND
+                    && e.msg.pointer("/decision/action").and_then(Value::as_str) == Some("restart")
+                {
+                    let t = e.msg.get("tokens").and_then(Value::as_u64).unwrap_or(0);
+                    restarts.push(Restart { at_ms: e.at, tokens: t });
+                }
+                true
+            },
+        );
+        let tokens = tokens.unwrap_or(0);
+        let decision = sup::decide(record, now, tokens, &restarts, limit, parent);
+        let restart = sup::restart_type(record);
+        tracing::info!(session = %record.session, name = %record.name,
+            class = record.class.as_str(), ?restart, ?decision, "supervisor decision (log only)");
+        self.append(
+            session,
+            "mux",
+            sup::KIND,
+            json!({"restart": restart, "decision": decision, "tokens": tokens,
+                   "restartsInWindow": restarts.len(), "limit": limit,
+                   "promptId": record.prompt_id()}),
+        );
     }
 
     /// The open session an exit record of `from` goes to, starting at the parent `first` names

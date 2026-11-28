@@ -3994,9 +3994,10 @@ LIMIT_WAIT_SLACK_S = 5
 
 
 def cmd_fetch_state(o):
-    # A result run (--wait-limit) carries the controller's result of a part that ran on the bench: doing nothing
-    # drops it and the next tick asks for the same part again (2026-11-14: the build of babcb18cd895 ran twice and
-    # both results met a spent limit). It waits for the limit's reset, once, and reads the state then.
+    # With --wait-limit (the workflow passes it on every tick) a spent limit is waited out, once, and the state read
+    # then: a result run that did nothing dropped its result (2026-11-14: the build of babcb18cd895 ran twice and both
+    # results met a spent limit), and a plain tick that did nothing met the same spent limit at the next tick
+    # (2026-11-27 12:20Z-13:27Z: five ticks in a row read no state).
     limit = getattr(o, "wait_limit", 0) or 0
     try:
         try:

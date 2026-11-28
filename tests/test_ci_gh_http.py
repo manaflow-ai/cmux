@@ -41,9 +41,10 @@ class RefusalWait(unittest.TestCase):
 
     def test_retry_after_and_reset_are_honored_and_capped(self):
         self.assertEqual(self.wait(403, retry_after="7"), 7.0)
-        self.assertEqual(self.wait(429, retry_after="600"), gh_http.MAX_WAIT_S)
+        self.assertEqual(self.wait(429, retry_after="600"), 600.0)
+        self.assertEqual(self.wait(429, retry_after="99999"), gh_http.RATE_MAX_WAIT_S)
         self.assertEqual(self.wait(403, x_ratelimit_remaining="0", x_ratelimit_reset="1020"), 21.0)
-        self.assertEqual(self.wait(403, x_ratelimit_remaining="0", x_ratelimit_reset="9000"), gh_http.MAX_WAIT_S)
+        self.assertEqual(self.wait(403, x_ratelimit_remaining="0", x_ratelimit_reset="9000"), gh_http.RATE_MAX_WAIT_S)
         self.assertEqual(self.wait(403, x_ratelimit_remaining="0", x_ratelimit_reset="10"), 1.0)
 
 
@@ -94,10 +95,37 @@ class Request(unittest.TestCase):
             self.run_with([answer(503)] * 10, raise_errors=True)
 
     def test_a_wait_past_the_budget_is_not_taken(self):
-        (status, _, _), calls, slept = self.run_with([answer(429, retry_after="60")] * 4, budget_s=100)
-        self.assertEqual(status, 429)
-        self.assertEqual(slept, [60.0])
+        (status, _, _), calls, slept = self.run_with([answer(503)] * 4, budget_s=10)
+        self.assertEqual(status, 503)
+        self.assertEqual(slept, [5.0])
         self.assertEqual(len(calls), 2)
+
+    def test_a_named_rate_limit_is_waited_out_past_the_tries(self):
+        # cmux run 46019347396: an installation limit gave up after 2 tries and 60 s. Here reset is 100 s out
+        # (now=1000): wait to it, beyond TRIES, and succeed.
+        limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1100")
+        (status, _, _), calls, slept = self.run_with([limited] * 6 + [answer(200)])
+        self.assertEqual(status, 200)
+        self.assertGreater(len(calls), gh_http.TRIES)
+        self.assertTrue(all(w == 101.0 for w in slept), slept)
+
+    def test_a_rate_limit_past_the_budget_gives_up_naming_when_it_ends(self):
+        limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1900")
+        lines = []
+        clock = [0.0]
+        with mock.patch.object(deadline_http, "request", lambda *a, **k: limited):
+            status, _, _ = gh_http.request(URL, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                                           clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append)
+        self.assertEqual(status, 403)
+        self.assertEqual(clock[0], 900.0)  # waited once; a second 900 s would pass RATE_BUDGET_S
+        self.assertTrue(any("rate-limited until" in line for line in lines), lines)
+
+    def test_limited_until_names_the_end(self):
+        _, _, parsed = answer(403, x_ratelimit_remaining="0", x_ratelimit_reset="3600")
+        self.assertEqual(gh_http.limited_until(parsed, 3000.0), "01:00Z")
+        self.assertIsNone(gh_http.limited_until(answer(403)[2], 3000.0))
 
     def test_network_errors_are_asked_again_then_raised(self):
         (status, _, _), calls, _ = self.run_with([urllib.error.URLError("reset"), TimeoutError(), answer(200)])

@@ -63,6 +63,7 @@ CHECKS = (
     "check:catalog-unused",
     "check:popup-hover-reveals",
     "check:surface-bypass",
+    "check:bundle-matrix",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -78,12 +79,14 @@ CHECK_CLASSES = {
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
     "check:surface-bypass": LINT,
+    "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
 }
 # Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
 NEW_CHECK_SCRIPTS = {
     "check:design-tokens": "scripts/check-design-tokens.ts",
     "check:ui-review": "scripts/check-ui-review.ts",
     "check:surface-bypass": "scripts/check-surface-bypass.ts",
+    "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -373,6 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         parser.error(f"not in CHECKS: {', '.join(unknown)}")
     checks = [c for c in CHECKS if (not args.only or c in args.only) and c not in args.skip]
+    if args.advisory_out is not None and "check:bundle-matrix" not in args.only:
+        # The nightly builds every bundle in its next step; the matrix is for the pull request and the push.
+        checks = [c for c in checks if c != "check:bundle-matrix"]
     repo = args.repo.resolve()
     webviews = repo / "webviews"
     if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:

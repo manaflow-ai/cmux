@@ -621,7 +621,7 @@ extension AgentTabStore {
             return tabs.openToolScoped?(tabs.tabKey(chat), kind, cwd) ?? false
         }
         tabs.runAttach = { [weak tabs] key, request in
-            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.daemonStopped }
+            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.timedOut }
             try await runAttachScoped(tabs.tabKey(key), request)
         }
         tabs.gitLink = { [weak tabs] key in tabs.flatMap { $0.gitLinkScoped?($0.tabKey(key)) } }

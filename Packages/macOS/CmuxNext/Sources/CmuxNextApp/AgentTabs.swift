@@ -680,15 +680,15 @@ final class AgentTabStore {
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional, machine: scoped.machine), machine: scoped.machine) } }
         model.onTryAnotherApproach = { [weak self] throughSeq, session in
-            guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
+            guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.timedOut }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
         }
         model.onCloudTurnRewind = { [weak self] request, session in
-            guard let self, let host = self.cloudTurnRewind else { throw AgentPaneHostError.daemonStopped }
+            guard let self, let host = self.cloudTurnRewind else { throw AgentPaneHostError.timedOut }
             return try await host.run(chat: self.resolve(provisional, machine: scoped.machine), session: session, request: request)
         }
         model.onCloudFolderAdd = { [weak self] session in
-            guard let self, let add = self.cloudFolderAdd else { throw AgentPaneHostError.daemonStopped }
+            guard let self, let add = self.cloudFolderAdd else { throw AgentPaneHostError.timedOut }
             return try await add(self.resolve(provisional, machine: scoped.machine), session)
         }
         unsentDrafts.wire(model, machine: { scoped.machine }) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
@@ -698,7 +698,7 @@ final class AgentTabStore {
             let key = resolve(provisional, machine: scoped.machine)
             (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(AgentTabKey(machine: scoped.machine, key: key)))?.open(key, request)
         }
-        model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.daemonStopped }; try await runAttachScoped(self.resolvedKey(scoped), request) }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.timedOut }; try await runAttachScoped(self.resolvedKey(scoped), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler($0.resolve(provisional, machine: scoped.machine), machine: scoped.machine)?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { let key = $0.resolvedKey(scoped); $0.newTabPages[key]?.handler.inputReady(key.key, token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in

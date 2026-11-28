@@ -788,6 +788,8 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_pool_tokens.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
@@ -813,6 +815,8 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_pool_tokens.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
@@ -1060,3 +1064,35 @@ jobs:
               ${uploaded[@]+"${uploaded[@]}"} ${gallery[@]+"${gallery[@]}"} ${event[@]+"${event[@]}"} > "$hv/comment.md"
             python3 scripts/cmux-next/hot-verify-ci.py post "$hv/comment.md" --pr "$PR" --head "$HEAD_SHA" \
               --repo "$GITHUB_REPOSITORY" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The look above is only pictures in a comment; cmux/ui-proof (pr-router.yml, scripts/ci/ui_proof_verdict.py)
+      # passes on a proof record at the head, and only `hot-verify.py look --record` run by hand posted one: on
+      # 2026-11-27 cmux#61956 sat pending with this workflow's look already done until a lane posted the record by
+      # hand. The record is built from the same out/ (after/ against the NIGHTLY's before/), posted as a pool app
+      # (quota-goblin-N[bot], which the gate trusts; github-actions[bot] it does not), and the gate job rerun.
+      - name: Post the proof record
+        if: ${{ steps.stage.outputs.needs_build == 'false' && inputs.kind != 'merge' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
+          GH_TOKEN: ${{ github.token }}
+          POST_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          OUT: ${{ steps.stage.outputs.out }}
+          EVENT_AT: ${{ inputs.event_at }}
+        run: |
+          set -uo pipefail
+          pushed=()
+          [[ "${EVENT_AT:-}" =~ ^[0-9]{9,11}$ ]] && pushed=(--pushed-at "$EVENT_AT")
+          # Exit 1 is a failing record, which is still posted: the gate then says why.
+          python3 scripts/ci/ui_proof_verdict.py record --out "$OUT" --pr "$PR" --repo "$GITHUB_REPOSITORY" \
+            --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null
+          [[ -s "$OUT/proof-record.md" ]] || { echo "::warning title=hot verify::no proof record was built"; exit 0; }
+          if [[ -z "${POST_TOKEN:-}" ]]; then
+            echo "::warning title=hot verify::no pool app token: a record from github-actions[bot] is not trusted by cmux/ui-proof; none posted"
+            exit 0
+          fi
+          GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
+          python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
+            "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"

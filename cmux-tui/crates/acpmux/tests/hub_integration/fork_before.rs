@@ -220,7 +220,8 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
         selections(parent.config_options.as_deref())
     );
     assert!(!child.session_env.contains_key("FORK_PARENT_ONLY"));
-    assert!(child.title.is_none());
+    assert_eq!(child.title.as_deref(), Some("parent title (fork)"));
+    assert_eq!(child.title_source.as_deref(), Some("inherited"));
     assert!(child.previous_agent_session_ids.is_empty());
     assert_eq!(hub.sessions().len(), 2);
     hub.shutdown_all().await;
@@ -229,6 +230,9 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &root.join("store")).unwrap());
     let mut c = connect(&hub).await;
     assert_eq!(c.request(FORK_OP, params).await.unwrap()["sessionId"], a["sessionId"]);
+    let reopened = hub.resolve(fid).unwrap().meta();
+    assert_eq!(reopened.title, child.title);
+    assert_eq!(reopened.title_source, child.title_source);
     refusal(&mut c, FORK_OP, boundary(&id, "second", "lost-reply"), "fork.request_conflict").await;
     assert_eq!(hub.sessions().len(), 2);
     hub.shutdown_all().await;

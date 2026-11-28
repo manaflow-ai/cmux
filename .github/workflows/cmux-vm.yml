@@ -193,7 +193,14 @@ on:
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+  # An image roll's push gets a group of its own too. GitHub keeps one pending run per group, so in the shared
+  # push group any later push (even one whose jobs all skip) replaced the roll's waiting run before it deployed:
+  # 8 of the last 20 roll runs were cancelled that way (46011028932, 46001379799, 45982382978, ...), and with
+  # them the settle's pin write. A newer roll still replaces an older waiting one, which is right: its image is
+  # newer. Production deploys still never overlap: deploy-production, migrate-production and smoke-production
+  # serialize through their own job-level groups.
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && '-image-roll' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

@@ -1166,7 +1166,8 @@ class CiWebLandTierTests(unittest.TestCase):
     def test_the_jobs_that_need_the_shards_skip_with_them(self) -> None:
         jobs = _job_ifs(self.TEXT)
         self.assertNotIn("always()", jobs["react-apps-base-check"])
-        self.assertNotIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", jobs["react-apps-base-check"])
         self.assertIn("needs.react-apps-check-shard.result != 'skipped'", jobs["webviews-test-durations"])
 
     def test_the_verdict_jobs_still_run_and_read_the_same_condition(self) -> None:
@@ -1407,7 +1408,7 @@ class RouterRerunPlanTests(unittest.TestCase):
 
     def test_caller_names_cover_every_callee(self) -> None:
         names = self.names()
-        self.assertEqual(names["pr-pipeline.yml"], "pr pipeline")
+        self.assertEqual(names["pr-pipeline.yml"], ["pr pipeline", "pr web pipeline"])
         self.assertEqual(set(names), set(pr_router.caller_jobs(pr_router.ENTRY.read_text())))
 
     def test_only_red_cancelled_short_or_absent_reruns(self) -> None:
@@ -1424,6 +1425,19 @@ class RouterRerunPlanTests(unittest.TestCase):
         self.assertEqual(carried, {"swift-linux-packages.yml"})
         self.assertEqual(rows, {"linux"})
         self.assertEqual(pr_router.rerun_plan(None, self.names(), ["linux"]), (set(), set()))
+
+    def test_split_pipeline_receipts_keep_a_red_browser_and_carry_green_linux(self) -> None:
+        jobs = [self.job("pr pipeline / linux"),
+                self.job("pr pipeline / web-browser", "skipped", 0),
+                self.job("pr web pipeline / linux", "skipped", 0),
+                self.job("pr web pipeline / web-browser", "failure")]
+        carried, rows = pr_router.rerun_plan(jobs, self.names(), ["linux", "web-browser"])
+        self.assertNotIn("pr-pipeline.yml", carried)
+        self.assertEqual(rows, {"linux"})
+        jobs[-1] = self.job("pr web pipeline / web-browser")
+        carried, rows = pr_router.rerun_plan(jobs, self.names(), ["linux", "web-browser"])
+        self.assertIn("pr-pipeline.yml", carried)
+        self.assertEqual(rows, {"linux", "web-browser"})
 
     def test_route_keeps_carried_callees_off(self) -> None:
         callees = pr_router.load_manifest()

@@ -125,6 +125,10 @@ type Props = NewTabCommandActions & {
   startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
+  /// What draws over the field: the clock (`tabs.newTabClock.*`) and an extension's slot
+  /// (`tabs.newTabApp`), in the same room the other New Tab looks give them (newtab/appSlot.css
+  /// `.nt-above-room`), never in the field's place.
+  above?: React.ReactNode;
   now?: number;
 };
 
@@ -162,6 +166,7 @@ export function NewTabPage({
   takeDraft,
   startFailure,
   onFieldEdit,
+  above,
 }: Props) {
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
@@ -637,6 +642,7 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
+      {above !== undefined && <div className="nt-above-room">{above}</div>}
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form

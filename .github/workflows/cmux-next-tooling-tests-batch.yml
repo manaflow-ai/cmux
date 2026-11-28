@@ -398,6 +398,11 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-app-crate-licenses ')) }}
         run: python3 tests/test_app_crate_licenses.py
 
+      - name: The bench coverage map lists every bench and risky path (docs/benches/coverage-map.md)
+        id: tt-bench-coverage-map
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-bench-coverage-map ')) }}
+        run: python3 -I tests/test_bench_coverage_map.py
+
       - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
         id: tt-objc-selectors-step
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-objc-selectors-step ')) }}

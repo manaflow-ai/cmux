@@ -171,6 +171,7 @@ import {
   sendsHeldForHost,
   untilHostAnswers,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";

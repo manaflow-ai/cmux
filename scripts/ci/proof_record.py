@@ -9,8 +9,8 @@ A record is a JSON object (version 1):
 
   kind "cmux-proof-record", version 1, suite (ios-flows | mac-flows | web-flows | gui-flows), repo, pr, head_sha
   (the commit the runs built, the PR's head when it was posted), base_ref, base_sha (the base commit under the head),
-  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, worker, args,
-  result, seconds}]), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
+  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, args, result,
+  seconds}]; no worker: PR text names no fleet host), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
   pr, step} or null), video, verdict ("pass" | "fail"), timing ({pushed_at, proof_at, push_to_proof_s}), tool.
 
 On the PR it is one comment whose first line is the marker `<!-- cmux-proof-record SUITE HEAD_SHA -->` and whose body
@@ -213,6 +213,11 @@ def read_error(error: Exception) -> str:
     return kind
 
 
+# Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post
+# the printed `error` for a build that passed, which no sanctioned path could refresh.
+UNREAD = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -233,13 +238,13 @@ def main(argv: list[str] | None = None) -> int:
     tokens = read_tokens()
     if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
-        return 0
+        return UNREAD
     try:
         comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
         record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
         print(f"error\tproof record not read ({read_error(e)}): see job log")
-        return 0
+        return UNREAD
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
     return 0

@@ -424,6 +424,23 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
+    // The stop signals are registered before the owner record below, and so before the ready
+    // line: a service manager may stop the daemon as soon as it starts (an update's restart that
+    // lands on the new daemon), and a signal that came before registration ended it by the
+    // default action, with no shutdown path and no end written, which the next start then counted
+    // as a death. Registered here, a stop in the startup waits for the shutdown below.
+    #[cfg(unix)]
+    let mut stop_signals = {
+        use tokio::signal::unix::{SignalKind, signal};
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
+    };
     // The owner record right after the lock, before the socket: a client that dials while this
     // start has not bound yet reads a live owner and waits for it (`connect_when_ready`), and the
     // previous owner's end is settled (a death counted) once.
@@ -1063,21 +1080,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
-    // The stop signals are registered before the ready line: a launcher may stop the daemon as soon
-    // as it reads the line, and a signal that came before registration would end the daemon by the
-    // default action (no shutdown path: the token, pid file and socket would stay).
-    #[cfg(unix)]
-    let mut stop_signals = {
-        use tokio::signal::unix::{SignalKind, signal};
-        let term = signal(SignalKind::terminate()).ok();
-        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
-        // own stream is registered: an action of ours alone would replace SIGTERM's default
-        // action, and a daemon whose stream failed would then never stop on SIGTERM.
-        if term.is_some() {
-            term_sender::record();
-        }
-        (term, signal(SignalKind::interrupt()).ok())
-    };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
     // A daemon whose cmux app is gone (`daemon/app_orphan.rs`); its bundle is

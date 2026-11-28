@@ -56,6 +56,17 @@ fn main() -> ExitCode {
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
+    if let [mode] = arguments.as_slice()
+        && let Some(source) = mode.strip_prefix("--plugin-stream=")
+    {
+        return match plugin_stream::serve(source) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-hook: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -213,17 +224,9 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     let session_id = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let registering =
         acpmux_register::start(&args.source, &args.native_event, session_id.as_deref());
-    // Read before the journal event redacts it; it travels beside the event, never inside it.
-    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
-    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
-        &args.source,
-        &args.native_event,
-        terminal.as_deref(),
-        native,
-    )?;
-    cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
-    let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event, live)?;
+    let delivery = plugin_stream::one_shot_identity(&args.source);
+    let (request_id, encoded) =
+        encode_native(&args.source, &args.native_event, terminal.as_deref(), native, delivery)?;
     // The handoff takes no more than the time left: past it the agent has
     // its answer, and the child delivers the event anyway.
     let handoff = handoff_wait(&args.source, &args.native_event)
@@ -542,6 +545,32 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
+#[path = "cmux-tui-hook/plugin_stream.rs"]
+mod plugin_stream;
+
+fn encode_native(
+    source: &str,
+    native_event: &str,
+    terminal: Option<&str>,
+    native: Value,
+    delivery: Option<(u64, String)>,
+) -> anyhow::Result<(String, Vec<u8>)> {
+    let live = cmux_tui_core::agent_hook_live_fields(source, native_event, &native);
+    let mut ingress =
+        cmux_tui_core::agent_hook_journal_ingress(source, native_event, terminal, native)?;
+    if let Some((time, key)) = delivery {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, time);
+        encode_identified_request(
+            serde_json::to_value(ingress)?,
+            live,
+            (format!("request_{key}"), format!("mutation_{key}")),
+        )
+    } else {
+        cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
+        encode_request(serde_json::to_value(ingress)?, live)
+    }
+}
+
 /// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
 /// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
 /// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
@@ -549,7 +578,14 @@ fn encode_request(
     event: Value,
     live: serde_json::Map<String, Value>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
-    let (request_id, idempotency_key) = random_identifiers()?;
+    encode_identified_request(event, live, random_identifiers()?)
+}
+
+fn encode_identified_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+    (request_id, idempotency_key): (String, String),
+) -> anyhow::Result<(String, Vec<u8>)> {
     let mut params = json!({"machine":"current","session":"current","event":event});
     if let Some(object) = params.as_object_mut() {
         object.extend(live);

@@ -220,6 +220,7 @@ jobs:
     if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
     uses: ./.github/workflows/swift-acpmux-protocol.yml
     with:
+      check: acpmux
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
     permissions:
@@ -254,6 +255,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
   tip-test-compile:
     needs: plan

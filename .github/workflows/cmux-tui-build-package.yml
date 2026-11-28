@@ -535,9 +535,12 @@ jobs:
         shell: bash
         env:
           CMUX_VITE_TRANSFORM_CACHE: ${{ steps.pane-compiler-cache.outputs.dir }}
+        # A content-named folder with fixed mtimes (scripts/ci/pane-content-dir.sh): an unchanged pane
+        # leaves acpmux fresh in the restored target instead of recompiling it every run.
         run: |
-          pane="$RUNNER_TEMP/acpmux-agent-pane"
-          scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
+          built="$RUNNER_TEMP/acpmux-agent-pane-build"
+          scripts/cmux-next/build-agent-pane-web.sh --out "$built"
+          pane="$(scripts/ci/pane-content-dir.sh "$built" "$RUNNER_TEMP")"
           echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
 
       - name: Save the pane's React Compiler cache

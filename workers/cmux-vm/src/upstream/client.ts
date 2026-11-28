@@ -101,6 +101,8 @@ export interface CreateVmSpec {
    * skipped only when `journal.minted`; the boot image read always. Absent: both reads come first.
    */
   readonly withoutReads?: boolean;
+  /** A create no one is waiting on (a spare): its provider create slot is taken behind everyone else's. */
+  readonly background?: boolean;
   /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
    * resizeMs (each only when that provider call was made), `recovered`, `imageVariant` for an approved image, and the

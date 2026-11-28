@@ -580,9 +580,22 @@ jobs:
           ARTIFACT: kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/kit_sim_fleet.sh wait
 
+      # Is there a pool to run them? With no runner on the Linux simsdk pool the controller says simsdk false and
+      # refuses the step, so the pack and its 813 MB upload (437 s before the Mac's swift test, run 45996304968) buy
+      # nothing: both are skipped and the simulator step below runs the tests here, as it always does in shadow.
+      # Fails open (no answer: pack as before). A Blacksmith Mac reaches no controller, so it packs as before.
+      - name: Does the simsdk pool have runners
+        id: sim-supply
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/kit_sim_fleet.sh supply
+
       - name: Build the iOS simulator tests for the pool
         id: sim-pack
-        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' }}
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' && steps.sim-supply.outputs.live != 'no' }}
         continue-on-error: true
         timeout-minutes: 20
         working-directory: cmux-next-ios/CmuxMobileKit
@@ -620,12 +633,15 @@ jobs:
           FLEET: ${{ steps.sim-fleet.outputs.products }}
           PACKED: ${{ steps.sim-pack.outcome }}
           UPLOADED: ${{ steps.sim-upload.outcome }}
+          SUPPLY: ${{ steps.sim-supply.outputs.live }}
           MAC: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           if [[ "$HIT" == true && -n "$FLEET" ]]; then
             { echo "ready=true"; echo "name=$FLEET"; } >> "$GITHUB_OUTPUT"; echo "the pool runs the build fleet's $FLEET"
           elif [[ "$UPLOADED" == success ]]; then
             { echo "ready=true"; echo "name=$MAC"; } >> "$GITHUB_OUTPUT"; echo "the pool runs this Mac's $MAC"
+          elif [[ "$SUPPLY" == no ]]; then
+            { echo "ready=false"; echo "reason=the Linux simsdk pool has no runners (controller capabilities simsdk=false); no pack, no upload"; } >> "$GITHUB_OUTPUT"
           elif [[ "$PACKED" != success ]]; then
             { echo "ready=false"; echo "reason=the simulator test build for the pool did not finish ($PACKED)"; } >> "$GITHUB_OUTPUT"
           else

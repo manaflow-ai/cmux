@@ -111,9 +111,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def step_key(step: dict, head: str, pr: int) -> str:
+    """The controller's idempotency key for STEP. It names the head and the shard: a key is bound to the first
+    step it named, so a key without the head answers a re-verify after a push (or a base merge) with HTTP 409
+    "step_key already names a different step", and two shards of one mode on one worker would share one."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}"
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
@@ -312,13 +320,20 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+def public_runs(runs: list[dict]) -> list[dict]:
+    """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
+    PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
+    worker, and the step id still leads to it. The worker stays in this run's stderr."""
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
              f" ({len(record['selection']['flows'])} flows, push to proof {t.get('push_to_proof_s')} s)", "",
-             "| run | worker | result | s |", "|---|---|---|---|"]
+             "| run | result | s |", "|---|---|---|"]
     for r in record["runs"]:
-        lines.append(f"| {r['name']} | {r.get('worker', '')} | {r['result']} | {r.get('seconds', '')} |")
+        lines.append(f"| {r['name']} | {r['result']} | {r.get('seconds', '')} |")
     changed = [c["name"] for c in record.get("captures", []) if c["verdict"] in ("changed", "new", "missing")]
     b = record.get("baseline")
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
@@ -386,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         "pr": int(view["number"]), "head_sha": head, "base_ref": view["baseRefName"], "base_sha": base_sha,
         "merged_base": merged,
         "selection": {k: selection[k] for k in ("flows", "kit", "ui", "swift", "scripts", "compile")},
-        "runs": [{k: v for k, v in r.items() if k != "tail"} for r in runs],
+        "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
         "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
@@ -396,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     for r in runs:
         if r["result"] in ("fail", "error"):
-            print(f"FAIL {r['name']}:\n{r.get('tail', '')}\n", file=sys.stderr)
+            print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = proof_record.render(record, summary_md(record))
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
