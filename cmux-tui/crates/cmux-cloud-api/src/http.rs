@@ -402,7 +402,16 @@ pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
 
 /// Worker and platform refusals: nested `{error: {...}}` or a flat error object.
 pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
+    worker_error_with_retry_after(status, body, None)
+}
+
+pub(crate) fn worker_error_with_retry_after(
+    status: u16,
+    body: Option<&Value>,
+    retry_after: Option<&str>,
+) -> Failure {
     let error = body.map(|b| b.get("error").filter(|e| e.is_object()).unwrap_or(b));
+    let facts = cmux_cloud_machine::refusals::Facts::read(body, retry_after);
     let text =
         |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
     Failure::Http {
@@ -411,8 +420,8 @@ pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
         message: text("message"),
         action: text("action"),
         trace_id: text("trace_id"),
-        retryable: error.and_then(|e| e.get("retryable")).and_then(Value::as_bool),
-        retry_after_s: error.and_then(|e| e.get("retryAfterSeconds")).and_then(Value::as_u64),
+        retryable: facts.retryable,
+        retry_after_s: facts.retry_after_s,
     }
 }
 
