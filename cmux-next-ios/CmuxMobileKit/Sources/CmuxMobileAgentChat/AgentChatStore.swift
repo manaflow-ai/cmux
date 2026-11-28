@@ -320,6 +320,18 @@ public final class AgentChatStore {
 
     public nonisolated static let untitledName = "New session"
 
+    /// The composer's placeholder for a started chat: "Reply to <the chat's title>", else
+    /// "Reply…". Only a title the agent or acpmux gave the chat (`sessionTitle`, from the
+    /// harness's `session_info_update` or acpmux's `AcpmuxSession.chatName`), never the tab's
+    /// title or the session's name, which are the first prompt until the chat is named: the
+    /// field read "Reply to Take over https://github.com/manaflow-…" (issue 51331).
+    public var replyPlaceholder: String { Self.replyPlaceholder(sessionTitle: sessionTitle) }
+
+    public nonisolated static func replyPlaceholder(sessionTitle: String?) -> String {
+        guard let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return "Reply…" }
+        return "Reply to \(title)"
+    }
+
     public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
         if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2196,7 +2208,7 @@ public final class AgentChatStore {
         case .usage(let used, let size):
             if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
-            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
+            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != sessionTitle { sessionTitle = title }
         }
     }
 
@@ -2269,14 +2281,21 @@ extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
     /// wanna see connecting to cosmic-gray... with the spinner").
     public var loadingText: String {
-        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        showsStarting ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// A start in progress: its first send still going, or a start whose Mac is reachable. A start
+    /// whose send is over while its Mac is unreachable loads like any chat, never "Starting <agent>…"
+    /// for good (live run 12: a task that never left the phone).
+    var showsStarting: Bool {
+        awaitsFirstPrompt || isStarting && !isOffline && summary.status != .disconnected
     }
 
     /// The loading state's words show. A start says so at once (the person just asked for
     /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
     /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
     /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
-    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+    public var loadingTextShows: Bool { showsStarting || quietStatus.isShown }
 
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {

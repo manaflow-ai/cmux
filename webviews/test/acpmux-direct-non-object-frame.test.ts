@@ -3,9 +3,11 @@
 // that is not JSON: nothing throws, and the reply that follows still settles its request.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { PERMISSION_GROUP_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/permissions/protocol"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
