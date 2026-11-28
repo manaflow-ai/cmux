@@ -797,9 +797,25 @@ fn failed_ask_recovery_rejects_chat_deletion_before_stopping_it() {
     }))
     .unwrap();
     let chat = hub.insert_test_session(meta);
+    let audit_entry = |at| {
+        json!({
+            "at": at, "sessionId": "chat", "kind": "approval",
+            "permissionId": format!("p-{at}"), "ask": "Run: ls",
+            "decision": {"kind": "allow"}, "answeredBy": {"person": true},
+        })
+    };
+    hub.audit.record_durable(audit_entry(1)).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let error = runtime.block_on(hub.kill(&chat, true)).unwrap_err();
     assert!(error.message.contains("Ask ledger unavailable"), "{error:?}");
+    // A rejected delete leaves both the existing audit and subsequent approvals intact.
+    // Purging the audit first would permanently fence this still-live chat.
+    hub.audit.record_durable(audit_entry(2)).unwrap();
+    let audit = hub.audit.all().unwrap();
+    assert_eq!(audit.len(), 2);
+    assert_eq!(audit[0]["at"], 1);
+    assert_eq!(audit[1]["at"], 2);
+    assert_eq!(crate::hub::audit_log::verify(&audit)["ok"], true);
     assert!(!chat.purged.load(Ordering::SeqCst));
     assert!(!chat.purging.load(Ordering::SeqCst));
     assert!(!chat.closing.load(Ordering::SeqCst));

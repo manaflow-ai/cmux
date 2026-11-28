@@ -104,14 +104,13 @@ impl Hub {
         } else {
             None
         };
-        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
-        // stopped or marked purged: an audit purge failure rejects the delete and its writer
-        // lifts the audit capture fence. The Ask ledger retains its fence on failure below.
+        // Both ledgers acknowledge deletion before the chat is stopped or marked purged.
+        // Ask deletion goes first: its failure must not leave a live chat behind an audit
+        // fence from a successful audit purge. The Ask fence stays on failure for a retry;
+        // a failed audit purge lifts its own fence (`audit_log.rs`).
         if purge {
-            self.audit_purge(&session.id).await?;
-            // Ask deletion also needs a durable acknowledgment before the chat is stopped.
-            // A failed/late write leaves its capture fence in place for a retry (`hub/asks`).
             self.asks.purge(&session.id).await.map_err(RpcError::internal)?;
+            self.audit_purge(&session.id).await?;
         }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
