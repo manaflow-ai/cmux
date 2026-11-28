@@ -206,3 +206,38 @@ test("every category and section symbol has its own icon", () => {
   const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });
+
+// Profiles (goal customize-app-profiles, settings surface): window.settingsLanding picks the page a bare
+// Settings open lands on, window.settingsLeadPages lifts pages into one untitled run above the rest.
+test("settingsLanding falls back to the default page for an unknown, empty or non-string value", async () => {
+  const { landingCategory } = await import("./categories");
+  expect(landingCategory("models", false)).toBe("models");
+  expect(landingCategory("", false)).toBe(defaultCategory);
+  expect(landingCategory("no-such-page", false)).toBe(defaultCategory);
+  expect(landingCategory(42, false)).toBe(defaultCategory);
+});
+
+test("settingsLeadPages moves its pages, in order, into one lead run and skips unknown ids and repeats", async () => {
+  const { shownSidebarSections, LEAD_SECTION_ID, leadPages } = await import("./categories");
+  const plain = shownSidebarSections(false);
+  const led = shownSidebarSections(false, leadPages(["appearance", "nope", "models", "appearance", 3]));
+  expect(led[0].section.id).toBe(LEAD_SECTION_ID);
+  expect(led[0].section.title).toBeNull();
+  expect(led[0].categories.map((c) => c.id)).toEqual(["appearance", "models"]);
+  const rest = led.slice(1).flatMap((s) => s.categories.map((c) => c.id));
+  expect(rest).not.toContain("appearance");
+  expect(rest).not.toContain("models");
+  expect([...rest, "appearance", "models"].sort()).toEqual(plain.flatMap((s) => s.categories.map((c) => c.id)).sort());
+  expect(shownSidebarSections(false, [])).toEqual(plain);
+});
+
+test("every app profile's Settings pages are pages this build shows", async () => {
+  const { isCategory } = await import("./categories");
+  for (const look of ["codex", "t3code", "claude-code"]) {
+    const text = readFileSync(`../examples/looks/${look}/profile/cmux-setup.json`, "utf8");
+    const landing = /"window\.settingsLanding":\s*"([^"]*)"/.exec(text)?.[1];
+    const lead = /"window\.settingsLeadPages":\s*\[([^\]]*)\]/.exec(text)?.[1] ?? "";
+    expect(landing && isCategory(landing)).toBe(true);
+    for (const id of [...lead.matchAll(/"([^"]+)"/g)].map((m) => m[1])) expect(isCategory(id)).toBe(true);
+  }
+});
