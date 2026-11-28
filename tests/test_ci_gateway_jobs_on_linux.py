@@ -48,6 +48,11 @@ GATEWAY_MAC = frozenset({
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
     "nightly-interaction-latency.yml#benches-fleet",
+    "rivals-nightly.yml#record-rivals-fleet",
+    # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.
+    "cmux-next-ios-gestures.yml#gestures",
+    "cmux-next-ios-try-ahead.yml#build-ahead",
+    "ios-review-gate.yml#gate-products-fleet",
 })
 
 MOVED = {
