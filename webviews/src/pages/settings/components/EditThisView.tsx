@@ -11,13 +11,7 @@ export const EDIT_THIS_VIEW_KEY = "labs.editThisView";
 /** The gallery's three looks; `chip` ships. */
 export type EditThisViewLook = "chip" | "icon" | "link";
 
-export function EditThisViewButton({
-  look = "chip",
-  onEdit,
-}: {
-  look?: EditThisViewLook;
-  onEdit: () => void;
-}) {
+export function EditThisViewButton({ look = "chip", onEdit }: { look?: EditThisViewLook; onEdit: () => void }) {
   const label = t("settingsPage.editThisView");
   return (
     <button

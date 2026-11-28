@@ -30,13 +30,16 @@ test("Edit this view opens the Customize chat naming the section, its source and
   const edit = button(page)!;
   expect(edit).not.toBeNull();
   expect(edit.textContent).toBe("Edit this view");
-  expect(page.container.querySelector('[data-section="updates"] .section-head .section-title')?.textContent).toBe("Updates");
+  expect(page.container.querySelector('[data-section="updates"] .section-head .section-title')?.textContent).toBe(
+    "Updates",
+  );
   await click(edit);
   expect(page.provider.actionsRun).toEqual([
     {
       action: "customize.open",
       args: {
-        draft: "/customize edit the Settings › Updates view (webviews/src/pages/settings, section updates; cmux live start, then Keep or Revert)",
+        draft:
+          "/customize edit the Settings › Updates view (webviews/src/pages/settings, section updates; cmux live start, then Keep or Revert)",
       },
     },
   ]);
