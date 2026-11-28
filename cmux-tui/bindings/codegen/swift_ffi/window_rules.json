@@ -6,7 +6,7 @@
   "types": {
     "tabs_place::TerminalReadFacts": {
       "swift": "TogglePlaceRules.TerminalReadFacts",
-      "init": false
+      "init": "at, total, rows"
     },
     "tabs_place::TerminalRead": {
       "swift": "TogglePlaceRules.TerminalRead",
@@ -18,7 +18,7 @@
     },
     "tabs_place::ChatReadFacts": {
       "swift": "TogglePlaceRules.ChatReadFacts",
-      "init": false
+      "init": "top, visible, total, atBottom, atLatest, rows"
     },
     "tabs_place::ChatRead": {
       "swift": "TogglePlaceRules.ChatRead",
@@ -34,9 +34,7 @@
     },
     "browser::PipFacts": {
       "swift": "WindowRules.PipFacts",
-      "omit": ["named_page", "card", "shown_video", "focused", "focused_video"],
-      "fields": {"named": {"type": "Bool, namedPage: Bool, card: Bool, shownVideo: Bool, focused: Bool, focusedVideo: Bool"}},
-      "init": false
+      "init": "named, namedPage, card, shownVideo, focused, focusedVideo"
     },
     "browser::PipPage": {
       "swift": "WindowRules.PipPage",
@@ -44,9 +42,7 @@
     },
     "browser::PipRowFacts": {
       "swift": "WindowRules.PipRowFacts",
-      "omit": ["target", "video", "floating"],
-      "fields": {"enabled": {"type": "Bool, target: String, video: Bool, floating: Bool"}},
-      "init": false
+      "init": "enabled, target, video, floating"
     },
     "browser::PipRow": {
       "swift": "WindowRules.PipRow",
@@ -63,14 +59,10 @@
     },
     "remote::ConnectFacts": {
       "swift": "WindowRules.ConnectFacts",
-      "omit": ["has_window", "offline", "needs_recovery", "failure_attempt", "current_attempt"],
-      "fields": {"loaded": {"type": "Bool, hasWindow: Bool, offline: Bool, needsRecovery: Bool, failureAttempt: UInt64?, currentAttempt: UInt64"}},
-      "init": false
+      "init": "loaded, hasWindow, offline, needsRecovery, failureAttempt, currentAttempt"
     },
     "remote::ConnectStep": {
       "swift": "WindowRules.ConnectStep",
-      "omit": ["end", "open_window", "recovery"],
-      "fields": {"show_workspace": {"type": "Bool, end: Bool, openWindow: Bool, recovery: Bool"}},
       "init": "showWorkspace"
     },
     "chat::DockedOpen": {
@@ -96,7 +88,7 @@
     },
     "chat::ChatWindow": {
       "swift": "WindowRules.ChatWindow",
-      "init": false
+      "init": "workspace, recency, focusWorkspace, focusedPane, remembered"
     },
     "chat::ChatDestination": {
       "swift": "WindowRules.ChatDestination",
@@ -109,12 +101,12 @@
     },
     "chat::ActionColumn": {
       "swift": "WindowRules.ActionColumn",
-      "init": false
+      "init": "width, panes, implicit, docked"
     },
     "chat::ColumnFacts": {
       "swift": "WindowRules.ColumnFacts",
       "fields": {"column": {"type": "ActionColumn"}},
-      "init": false
+      "init": "column, left, right, recent, focused, columnMove, handle"
     },
     "chat::ColumnUnavailable": {
       "swift": "WindowRules.ColumnUnavailable",
@@ -122,7 +114,7 @@
     },
     "chat::DockMoveFacts": {
       "swift": "WindowRules.DockMoveFacts",
-      "init": false
+      "init": "pane, paneTabs, columnPanes, shownOthers, hasTab, edgeDocks, tabColumnRespawn"
     },
     "chat::DockMove": {
       "swift": "WindowRules.DockMove",
@@ -193,7 +185,7 @@
     "closed::UndoState": {
       "swift": "WindowRules.UndoState",
       "fields": {"expected": {"type": "[Expected]"}},
-      "init": false
+      "init": "expected = []"
     },
     "closed::Announced": {
       "swift": "WindowRules.Announced",
@@ -216,19 +208,15 @@
     },
     "editors::Editor": {
       "swift": "WindowRules.Editor",
-      "init": false
+      "init": "id, name, bundleIds, symbol, remoteScheme = nil"
     },
     "files::DiffAsk": {
       "swift": "WindowRules.DiffAsk",
-      "omit": ["path", "pane_folder", "allows_view_change", "beside_caller"],
-      "fields": {"patch": {"type": "Bool, path: String?, paneFolder: String?, allowsViewChange: Bool, besideCaller: Bool"}},
-      "init": false
+      "init": "patch, path, paneFolder, allowsViewChange, besideCaller"
     },
     "files::EditorAction": {
       "swift": "WindowRules.EditorAction",
-      "omit": ["runs_editor_command"],
-      "fields": {"action": {"type": "String, runsEditorCommand: Bool"}},
-      "init": false
+      "init": "action, runsEditorCommand"
     },
     "files::EditorBinding": {
       "swift": "WindowRules.EditorBinding",
@@ -236,15 +224,11 @@
     },
     "files::VSCodeFacts": {
       "swift": "WindowRules.VSCodeFacts",
-      "omit": ["installed", "by_person", "terminal", "cwd"],
-      "fields": {"local": {"type": "Bool, installed: Bool, byPerson: Bool, terminal: Bool, cwd: String?"}},
-      "init": false
+      "init": "local, installed, byPerson, terminal, cwd"
     },
     "appearance::AppearanceAsk": {
       "swift": "WindowRules.AppearanceAsk",
-      "omit": ["property", "set"],
-      "fields": {"scope": {"type": "String?, property: String?, set: Bool"}},
-      "init": false
+      "init": "scope, property, set"
     },
     "appearance::KeymapToast": {
       "swift": "WindowRules.KeymapToast",
@@ -262,7 +246,7 @@
     },
     "launch::PendingHome": {
       "swift": "WindowRules.PendingHome",
-      "init": false
+      "init": "window, active, windowOpen, homeReady, moved, movedSinceRestore"
     },
     "launch::FreshFacts": {
       "swift": "WindowRules.FreshFacts",
