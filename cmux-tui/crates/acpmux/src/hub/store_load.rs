@@ -26,6 +26,8 @@ impl Hub {
             // goes now (`transfer_out.rs` `scratch_dir`), not at the next move.
             super::transfer_out::note_started();
             hub.sweep();
+            // And the seal scratch a relaunch cut short in chats' pack stores (`pack_trust.rs`).
+            hub.sweep_all_pack_work();
         })
         .await;
         if let Err(error) = result {
