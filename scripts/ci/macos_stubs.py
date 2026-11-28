@@ -217,11 +217,29 @@ def cmd_merge(stub_dir: Path, newer: Path) -> int:
 # system-configuration-sys SystemConfiguration from build.rs).
 SYS_CRATES = {
     "core-foundation-sys": "CoreFoundation",
+    # netwatch (iroh, #56513) links these two; neither framework had a stub, so every
+    # Linux link of the daemon failed "framework not found for -framework CoreWLAN".
+    "objc2-core-wlan": "CoreWLAN",
+    "objc2-security-foundation": "SecurityFoundation",
     "security-framework-sys": "Security",
     "system-configuration-sys": "SystemConfiguration",
 }
+# Every other objc2 binding crate the lock pins. A crate links its framework (`#[link(kind = "framework")]`)
+# whenever it is built, so a new one fails the Linux link unless its framework has a stub:
+# tests/test_ci_macos_stubs.py fails until a new crate is put in SYS_CRATES or here.
+OBJC2_STUBBED_FROM_BINARIES = {  # the framework's stub comes from our Mac binaries' imports
+    "objc2": "libobjc", "objc2-encode": "none", "objc2-app-kit": "AppKit",
+    "objc2-core-foundation": "CoreFoundation", "objc2-core-graphics": "CoreGraphics",
+    "objc2-foundation": "Foundation", "objc2-security": "Security",
+    "objc2-system-configuration": "SystemConfiguration",
+}
+OBJC2_NOT_IN_DAEMON_BUILD = {  # locked for a feature or target the daemon family does not build
+    "objc2-cloud-kit", "objc2-core-data", "objc2-core-image", "objc2-core-text",
+    "objc2-core-video", "objc2-io-surface", "objc2-quartz-core",
+}
+NEW_FRAMEWORK_INSTALL = "/System/Library/Frameworks/{0}.framework/Versions/A/{0}"
 SYS_CRATES_FILE = "sys-crates.txt"
-EXTERN_BLOCK = re.compile(r'extern\s+"C"\s*\{')
+EXTERN_BLOCK = re.compile(r'extern\s+"C(?:-unwind)?"\s*\{')
 EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
 LOCKED = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', re.M)
 
@@ -274,6 +292,9 @@ def cmd_sys_crates(stub_dir: Path, lock: Path, system: Path | None = None) -> in
         for name, versions in sorted(locked_versions(lock.read_text()).items()):
             framework = SYS_CRATES[name]
             path = stub_dir / f"{framework}.tbd"
+            if not path.exists():  # a framework no Mac binary imports yet: start its stub
+                path.write_text(render(NEW_FRAMEWORK_INSTALL.format(framework),
+                                       {"current": "1.0.0", "compat": "1.0.0", "symbols": set()}))
             install, held = read_stub(path)
             text = path.read_text()
             cur = re.search(r"^current-version:\s+(\S+)", text, re.M).group(1)

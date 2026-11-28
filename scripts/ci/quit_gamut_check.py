@@ -629,8 +629,9 @@ class Gamut:
         row["settled_ms"] = settled_at
         row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
-        row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
-                                                                       "launch_", "main_start", "connecting_"))}
+        # Every launch mark: a gap between two kept marks (reveal.sidebar to reveal.tabs) names its step only with the
+        # window.*, dfl.*, frame.* and main.* marks between them (startup-matrix, 2026-11-28).
+        row["marks"] = dict(marks)
         if self.app.process.poll() is not None:
             failures.append(f"the reopened app exited (status {self.app.process.poll()})")
             return row
