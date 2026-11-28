@@ -497,6 +497,9 @@ PY
     # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
     # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
     [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
+    # A driver that reads the copy's web pages through the accessibility tree (CuaDriver holds no grant that makes
+    # CEF build one): CMUX_NEXT_ACCESSIBILITY=1 in the driver's environment goes to the copy (AssistiveClientRequests).
+    [[ "${CMUX_NEXT_ACCESSIBILITY:-}" == 1 ]] && open_args+=(--env CMUX_NEXT_ACCESSIBILITY=1)
     if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
