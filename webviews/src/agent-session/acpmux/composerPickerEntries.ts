@@ -15,6 +15,9 @@ export function composerPickerEntries(
   listed = true,
 ): ModelPickerProps["catalog"] {
   const summary = snapshot.summary;
+  const authByHarness = new Map(
+    snapshot.catalog.flatMap((entry) => (entry.auth ? [[entry.id, entry.auth] as const] : [])),
+  );
   return pickerCatalog
     ? [
         ...pickerCatalog.harnesses
@@ -28,8 +31,10 @@ export function composerPickerEntries(
           .filter((entry) => !picksOwnModel(entry.family) || (entry.acpmuxHarness ?? entry.id) === summary?.harness)
           .map((entry) => ({
             id: entry.acpmuxHarness ?? entry.id,
+            ...(entry.endpoint ? { endpoint: true as const } : {}),
             name: entry.name,
             models: entry.models,
+            auth: authByHarness.get(entry.acpmuxHarness ?? entry.id),
             ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && (entry.acpmuxHarness !== null || !listed),
