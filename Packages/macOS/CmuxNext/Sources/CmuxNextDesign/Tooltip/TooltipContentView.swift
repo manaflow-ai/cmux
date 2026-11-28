@@ -64,7 +64,8 @@ final class TooltipContentView: NSView {
     }
 
     /// The first line of `value`, trimmed: a tooltip is one line, so a second never shows.
-    nonisolated static func firstLine(_ value: String) -> String {
+    static func firstLine(_ value: String) -> String {
+        // main-actor-ok: a tooltip's own string, a line or two of UI text.
         value.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
     }
 
