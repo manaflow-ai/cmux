@@ -135,7 +135,7 @@ async fn a_killed_app_reads_disconnected_and_a_stopped_one_does_not() {
     let row = hub.session_summary(&chat);
     assert_eq!(row["residency"]["resident"], false);
     assert_eq!(row["residency"]["busy"], false);
-    assert!(!crate::hub::residency::costs_for_cap(&chat, false));
+    assert!(!crate::hub::residency::costs_for_cap(&chat, chat.status(), false));
     let totals = hub.residency_status(&[chat.clone()]);
     assert_eq!(totals["resident"], 0);
     assert_eq!(totals["busy"], 0);
