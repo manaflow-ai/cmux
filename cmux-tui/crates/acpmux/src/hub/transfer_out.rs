@@ -113,13 +113,18 @@ pub(super) fn note_started() {
 /// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
 /// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
 /// predates this daemon.
-fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+pub(in crate::hub) fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    let before_start =
+        || STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started);
     if let Some(rest) = name.strip_prefix(SCRATCH) {
         let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
-        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+        if let Some(pid) = pid {
+            return pid != std::process::id() && !process_runs(pid);
+        }
+        // A chat pack's seal scratch named before pids, `work-<uuid>` (`pack_trust.rs`).
+        return rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()) && before_start();
     }
-    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
-        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p)) && before_start()
 }
 
 #[cfg(unix)]
@@ -319,6 +324,25 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+/// The close of a chat's copy here once its move committed: reason `moved to HOST/NAME` (`to` is
+/// the commit's `movedTo`; NAME the chat's, which a move keeps), outcome `moved`, never
+/// `unfinished`: the work runs on at HOST. Before this, every source copy of a moved chat read
+/// `daemon`/`unrecorded`/`unfinished`, so a tool that revives unfinished chats started it again
+/// on the machine it had left.
+pub(super) fn moved_close_why(to: &Value, name: &str) -> crate::close_why::CloseWhy {
+    let host = to
+        .get("host")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .unwrap_or("another daemon");
+    let name = Some(name.trim())
+        .filter(|n| !n.is_empty())
+        .or_else(|| to.get("sessionId").and_then(Value::as_str))
+        .unwrap_or("?");
+    crate::close_why::CloseWhy::by("daemon", &format!("moved to {host}/{name}")).outcome("moved")
+}
+
 #[path = "compaction_outline.rs"]
 pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
@@ -345,6 +369,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "auto_startup_tests.rs"]
 mod auto_startup_tests;
+#[cfg(test)]
+#[path = "move_out_unlist_tests.rs"]
+mod move_out_unlist_tests;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -525,6 +552,8 @@ impl Hub {
                 )
             }
             "preflight" => self.transfer_preflight(params).await,
+            // What a move of the chat would interrupt (RFD 0063 item 6, `move_interrupts.rs`).
+            "interrupts" => self.transfer_interrupts(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -623,6 +652,22 @@ impl Hub {
         // does again.
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
+        }
+        // An Auto chat changes machine only as a holder change in the Cloud store
+        // (`move_authority.rs`, RFD 0172): a bundle moved here would run it on another host
+        // while the store still names this machine its holder.
+        if let super::move_authority::Authority::Store { .. } = self.move_authority(session) {
+            let name = session.read_meta(|m| m.name.clone());
+            let to_cloud =
+                crate::chat_place::person_command(&name, crate::chat_place::Place::Cloud);
+            return Err(transfer_error(
+                "auto",
+                format!(
+                    "this is an Auto chat, so the Cloud store moves it, not a session move; \
+                     `{to_cloud}` sends it to the Cloud and `--on local` brings it home"
+                ),
+            )
+            .with_data(json!({"reason": "auto_chat"})));
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
@@ -1100,10 +1145,19 @@ impl Hub {
             moved.set("freeze", freeze);
         }
         self.append(session, "mux", "transferred", moved);
-        self.kill(session, false).await?;
+        // Its close says where it went, outcome `moved`: recorded `daemon`/`unrecorded`, a lane's
+        // old copy read `unfinished`, and lane-deaths restarted it on the machine it had left.
+        let why = moved_close_why(&to, &session.meta().name);
+        self.kill_why(session, false, why).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
+        // Unlisted from the hub's address book now, as the arriving side lists it before its
+        // pull answers (`transfer_pull.rs`). Else the hub keeps this closed copy's row until the
+        // next heartbeat (~30 s): a bare-id control for the chat then finds two rows
+        // (`mesh.ambiguous`), as a purge right after a move back home did. Not waited for: the
+        // commit ends the move's freeze, and a heartbeat waits up to its floor (2.5 s).
+        self.unlist_on_mesh_soon();
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 

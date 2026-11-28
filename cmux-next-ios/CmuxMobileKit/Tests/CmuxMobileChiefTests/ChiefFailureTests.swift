@@ -56,6 +56,25 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
         }
     }
 
+    /// Busy is what the Mac's `cmux-upstream-error` calls capacity or an account limit (ask-616b73f6bc).
+    @Test func busyReadsAsTheMacReadsIt() {
+        let cases: [(String, ChiefTurnFailure.Kind)] = [
+            // Before: a 503 with no capacity words read as unreachable, the gateway's call limit as other.
+            ("API Error: 503 Service Unavailable", .modelBusy),
+            ("502 the gateway is at its call limit; retry", .modelBusy),
+            ("HTTP 529 overloaded_error; retry-after: 30", .modelBusy),
+            ("Too Many Requests; retry-after 90", .modelBusy),
+            // Before: any "529" in the text was busy.
+            ("harness exited (job id 5290)", .other),
+            ("waited 2503s for the build", .other),
+            // Chief's own extras stay.
+            ("usage limit reached for this account", .modelBusy),
+        ]
+        for (detail, kind) in cases {
+            #expect(ChiefTurnFailure.kind(of: detail) == kind, "\(detail)")
+        }
+    }
+
     @Test func keepsTheReplyAndReadsEveryHeader() throws {
         let withReply = try #require(ChiefTurnFailure(text: "Let me check.\n\n(turn failed on claude (fallback for codex): fetch failed)"))
         #expect(withReply.reply == "Let me check.")

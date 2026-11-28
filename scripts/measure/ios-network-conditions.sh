@@ -88,7 +88,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" attach_rows="" attach_sends=""
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" attach_rows="" attach_sends="" leg=headless evidence=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -108,7 +108,9 @@ for kv in "$@"; do
     attach_bytes=*) attach_bytes="${kv#*=}" ;;
     attach_rows=*) attach_rows="${kv#*=}" ;;
     attach_sends=*) attach_sends="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, attach_rows=, attach_sends=)" >&2; exit 2 ;;
+    leg=*) leg="${kv#*=}" ;;
+    evidence=*) evidence="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, attach_rows=, attach_sends=, leg=, evidence=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
@@ -128,12 +130,55 @@ done
 [[ -z "$attach_rows" || "$attach_rows" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: attach_rows=idle,lte,duress" >&2; exit 2; }
 [[ -z "$attach_sends" || "$attach_sends" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: attach_sends is 1-999 (default 20)" >&2; exit 2; }
 [[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
+[[ "$leg" == headless || "$leg" == sim ]] || { echo "ios-network-conditions.sh: leg=headless or leg=sim" >&2; exit 2; }
+
+if [[ "$leg" == sim ]]; then
+  root="$(git rev-parse --show-toplevel)"
+  work="$root/.build/ios-network-conditions"
+  mkdir -p "$work"
+  if [[ -z "$evidence" ]]; then
+    command -v xcrun >/dev/null || {
+      echo "ios-network-conditions.sh: leg=sim needs a Mac with Xcode (a simulator worker) or evidence=PATH;" \
+        "from Linux run the fleet step in this script's header, then pass its evidence.zip" >&2; exit 2; }
+    (( n >= 1 && n <= 30 )) || { echo "ios-network-conditions.sh: leg=sim takes n=1-30 cold runs" >&2; exit 2; }
+    code=0
+    "$root/scripts/ci/cmux-next-ios-sim.sh" test ui=ReadFirstUITests,ReadFirstColdUITests "coldruns=$n" || code=$?
+    echo "NETCOND-STATUS sim read-first exit=$code"
+    evidence="$root/artifacts/ios-sim"
+  fi
+  python3 -I "$root/scripts/measure/ios-read-first-rows.py" "$evidence" >"$work/lines-sim.txt"
+  echo "NETCOND-MACHINE leg=sim evidence=$evidence rows=$(wc -l <"$work/lines-sim.txt" | tr -d ' ')"
+  sed 's/^after /NETCOND /' "$work/lines-sim.txt"
+  : >"$work/lines.txt"
+  cat "$work/lines-sim.txt" >>"$work/lines.txt"
+  python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt" \
+    --json "$work/report.json" --markdown "$work/report.md" --after "$(git rev-parse HEAD)"
+  sed 's/^/NETCOND-TABLE /' "$work/report.md"
+  exit "${code:-0}"
+fi
 
 export GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=120
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 # A bare runner (cmux-ci test): the pinned Rust and Zig and the native build tools, as
 # mobile-open-path.sh and infinite-items-linux.sh get them.
+# On a Mac, the Xcode this source pins for this host (select-ci-xcode.sh without xcode-select),
+# unless the worker already exported one: cargo links build scripts through xcrun and the
+# transcript surface runs swift. 2026-11-28 steps 95175ac5 and 373f159a on ultra1-guest
+# (Xcode_27.0 and Xcode_27.2 installed, xcode-select at the missing /Applications/Xcode.app)
+# failed linking every Rust build script: "xcrun: error: missing DEVELOPER_DIR path".
+if [[ "$(uname -s)" == Darwin ]]; then
+  if [[ -z "${DEVELOPER_DIR:-}" && -f scripts/select-ci-xcode.sh ]]; then
+    xcode_env="$(mktemp)"
+    CMUX_CI_SKIP_XCODE_SELECT=1 GITHUB_ENV="$xcode_env" /bin/bash scripts/select-ci-xcode.sh >/dev/null
+    DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -n 1)"
+    rm -f "$xcode_env"
+    [[ -n "$DEVELOPER_DIR" ]] || { echo "ios-network-conditions.sh: select-ci-xcode.sh chose no Xcode" >&2; exit 3; }
+    export DEVELOPER_DIR
+  fi
+  unset SDKROOT
+  echo "NETCOND-XCODE DEVELOPER_DIR=${DEVELOPER_DIR:-} $(xcodebuild -version 2>/dev/null | head -n 1)"
+fi
 export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -206,6 +251,11 @@ PY
   done
 }
 
+# libtest prints "test NAME ... " with no newline before a test's own output, so its first
+# NETCOND line arrives as "test NAME ... NETCOND {...}"; read that prefix off, or every test's
+# run 0 drops out (a 1x cell of 19 runs, which the record refuses as short).
+netcond_line='^\(test [^ ]* \.\.\. \)\{0,1\}NETCOND '
+
 # r1 LABEL TREE: R1 time to readable, the chat list from the phone's own store with the link cut
 # (cmux-mobile-core tests/read_first_r1.rs); its NETCOND lines labelled into lines.txt.
 r1() {
@@ -217,7 +267,7 @@ r1() {
     NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p cmux-mobile-core --test read_first_r1 -- \
       --ignored --nocapture --test-threads 1 >"$log" 2>&1) || code=$?
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label r1 exit=$code log=$log"
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label r1 /"; return 1; }
@@ -244,9 +294,9 @@ transcript() {
     (cd "$tree" && CMUX_TRANSCRIPT_R1_BENCH=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
       NETCOND_SEED_BASE="$seed" swift test "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --skip-build \
       --filter TranscriptReadFirstR1Bench 2>&1 | tee -a "$log" |
-      { sed -un "s/^NETCOND /NETCOND-LIVE $label /p" || true; }) || code=$?
+      { sed -un "s/$netcond_line/NETCOND-LIVE $label /p" || true; }) || code=$?
   fi
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label transcript exit=$code log=$log"
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label transcript /"; return 1; }
@@ -281,8 +331,8 @@ bench() {
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     # Live as they come, so a run cut at its deadline still shows how far it got.
-    { sed -un -e "s/^NETCOND /NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+    { sed -un -e "s/$netcond_line/NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-(ERROR|FIXTURE|SKIP)' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label $surface exit=$code log=$log"
   [[ "$surface" == chat && ( "$mode" == links || "$mode" == duress ) ]] && { r1 "$label" "$tree" || code=1; }

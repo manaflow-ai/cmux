@@ -50,6 +50,9 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         return sessions.contains { !$0.isEmpty && text.utf8Contains("\"\($0)\"") }
     }
 
+    /// The entries of the maps that end with a reply (tests and benches).
+    var awaitingCount: (awaiting: Int, handoffs: Int) { state.withLock { ($0.awaiting.count, $0.awaitingHandoff.count) } }
+
     /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
     public var isUnstarted: Bool { state.withLock { $0.sessions.isEmpty && $0.awaiting.isEmpty } }
 
@@ -146,18 +149,30 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     }
 
     /// A daemon frame: when it answers a starting request, its sessions are the pane's; when it
-    /// answers a handoff request, the pane learns the handoff's source.
+    /// answers a handoff request, the pane learns the handoff's source. An error reply ends the
+    /// wait too (RFD 0191 step 3), so `awaiting` and `awaitingHandoff` hold only requests in
+    /// flight. `sessions`, `handoffSources` and `ownedHandoffs` have no end event the pane reads
+    /// (a session or handoff stays the pane's for its life), so they are kept.
     public func observe(_ text: String) {
-        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.utf8Contains("\"result\""),
+        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }),
+              text.utf8Contains("\"result\"") || text.utf8Contains("\"error\""),
               let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
         observe(object)
     }
 
     /// The same for a parsed daemon frame (its id already the page's).
     public func observe(_ object: [String: Any]) {
-        guard object["method"] == nil, let result = object["result"] as? [String: Any],
-              let id = object["id"].flatMap(AcpmuxPaneMethods.rawID),
+        guard object["method"] == nil, let id = object["id"].flatMap(AcpmuxPaneMethods.rawID),
               state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }) else { return }
+        guard let result = object["result"] as? [String: Any] else {
+            // An error reply (or one without a result): the request ended with nothing to add.
+            guard object["error"] != nil || object["result"] != nil else { return }
+            state.withLock { state in
+                state.awaitingHandoff.removeValue(forKey: id)
+                state.awaiting.remove(id)
+            }
+            return
+        }
         let named = ["sessionId", "targetSessionId"].compactMap { result[$0] as? String }
         let handoff = result["handoffId"] as? String
         let source = (result["source"] as? [String: Any])?["sessionId"] as? String

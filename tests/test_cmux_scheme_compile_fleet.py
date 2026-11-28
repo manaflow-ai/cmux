@@ -49,7 +49,10 @@ class Workflow(unittest.TestCase):
         self.assertIs(checkout["with"]["persist-credentials"], False)
 
     def test_the_fleet_job_runs_where_the_mac_compile_does_minus_forks_and_dev_daily(self):
-        mac_if = self.mac["if"][len("${{ "):-len(" }}")]
+        # The Mac compile also waits on the web bundles it packs (#61532); the fleet compile reads no bundle.
+        web_bundles = "(needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && "
+        self.assertIn(web_bundles, self.mac["if"])
+        mac_if = self.mac["if"][len("${{ "):-len(" }}")].replace(web_bundles, "", 1)
         self.assertTrue(self.fleet["if"].endswith(mac_if + " }}"))
         for part in ("inputs.dev_daily != true", "(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'",
                      "github.repository_owner == 'manaflow-ai'",

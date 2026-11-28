@@ -134,6 +134,10 @@ pub(super) fn run(
     run_with_config(tcp, daemon, identity, peer, config::load)
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn run_with_config(
     tcp: TcpStream,
     mut daemon: super::serve::DaemonStream,
