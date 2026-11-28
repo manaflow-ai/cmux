@@ -190,7 +190,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, guess, long, open, children, head, rowId, text, join]);
+  }, [parts, guess, long, open, collapsed, children, head, rowId, text, join]);
   const shownParts = useMemo(
     () =>
       head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
