@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46173290720",
+  "recorded_at": "2026-11-28T18:23:06Z",
+  "reason": "image inputs changed in 46f0d56c7a1abe7babee8621345c1a25d6c4e373..aca40543c832473fd5442a442b96620cfbe92f80; cmux-tui 57afdccca272, the newest build published on HEAD (pinned c6cd14b59ba5; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "57afdccca272121326989e18ad8c7b641ea6a6e4",
+  "fixes": [
+    {
+      "sha": "aca40543c832473fd5442a442b96620cfbe92f80",
+      "mergedAt": "2026-11-28T17:58:13Z",
+      "subject": "web base reds: devbox awaiting-rebake digest follows #64653; cmux-rd lock names pendingRelease 0.2.10 (#63946) (#65143)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T18:23:06Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
