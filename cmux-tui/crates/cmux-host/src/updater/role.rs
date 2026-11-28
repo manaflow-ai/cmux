@@ -88,7 +88,11 @@ pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
 pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
     matches!(
         outcome,
-        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+        Outcome::Current(_)
+            | Outcome::Older
+            | Outcome::RolledBackBefore
+            | Outcome::Staged(_)
+            | Outcome::Failed(_)
     )
 }
 
@@ -940,6 +944,8 @@ pub enum Outcome {
     Current(String),
     Older,
     RolledBackBefore,
+    /// The channel's staged rollout does not cover this machine yet.
+    Staged(String),
     Busy(Vec<String>),
     /// The flip happened; this process is about to be restarted.
     Updating(String),
@@ -953,6 +959,7 @@ impl Outcome {
             Outcome::Current(commit) => format!("current ({commit})"),
             Outcome::Older => "the channel's build is older than the one applied here".to_owned(),
             Outcome::RolledBackBefore => "the channel's build was rolled back here".to_owned(),
+            Outcome::Staged(why) => why.clone(),
             Outcome::Busy(names) => format!("waiting for idle: {}", names.join(", ")),
             Outcome::Updating(commit) => format!("updating to {commit}"),
             Outcome::Failed(why) => format!("failed: {why}"),
@@ -967,6 +974,7 @@ impl Outcome {
             Outcome::Current(_) => "current",
             Outcome::Older => "older",
             Outcome::RolledBackBefore => "rolled-back-before",
+            Outcome::Staged(_) => "staged",
             Outcome::Busy(_) => "busy",
             Outcome::Updating(_) => "updating",
             Outcome::Failed(_) => "failed",
@@ -1099,6 +1107,7 @@ fn check_inner(
         Ok(Decision::Current) => return Outcome::Current(payload.commit),
         Ok(Decision::Older) => return Outcome::Older,
         Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Ok(Decision::Staged(why)) => return Outcome::Staged(why),
         Err(e) => return Outcome::Failed(e),
     };
     match busy_sessions(paths) {
@@ -1226,6 +1235,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         Ok(Decision::Current) => return Outcome::Current(payload.commit),
         Ok(Decision::Older) => return Outcome::Older,
         Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Ok(Decision::Staged(why)) => return Outcome::Staged(why),
         Err(e) => return Outcome::Failed(e),
     };
     if let Err(e) = stage(paths, &plan) {
@@ -1271,6 +1281,7 @@ pub fn install_pinned(paths: &Paths, file: &Path, commit: &str, committed_at: u6
         Ok(Decision::Current) => return Outcome::Current(pinned.commit),
         Ok(Decision::Older) => return Outcome::Older,
         Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Ok(Decision::Staged(why)) => return Outcome::Staged(why),
         Err(e) => return Outcome::Failed(e),
     };
     if !store::has_entry(paths, &pinned.sha256, CMUX_TUI)
