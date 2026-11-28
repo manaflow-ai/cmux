@@ -142,6 +142,15 @@ class TargetsOfTheMatches(unittest.TestCase):
         box.commit()
         self.assertEqual(run(box.root), ["-p", "t"])
 
+    def test_a_crate_with_its_own_workspace_is_not_named(self) -> None:
+        box = self.box
+        box.crate("own", "\n[workspace]\n")
+        box.write("cmux-tui/crates/own/src/lib.rs", "#[test] fn cmux_next_own() {}\n")
+        box.crate("a")
+        box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
+        box.commit()
+        self.assertEqual(run(box.root), ["-p", "a", "--test", "hits"])
+
     def test_a_match_outside_a_member_tests_the_workspace(self) -> None:
         self.box.write("cmux-tui/loose/x.rs", "#[test] fn cmux_next_x() {}\n")
         self.box.commit()
@@ -152,6 +161,7 @@ class ThisRepository(unittest.TestCase):
     def test_every_named_test_target_exists_in_a_named_member(self) -> None:
         args = run(ROOT)
         self.assertNotIn("--workspace", args)
+        self.assertNotIn("cmux-next-linux", pairs(args, "-p"))
         tests = pairs(args, "--test")
         self.assertTrue(tests, args)
         found = set()
