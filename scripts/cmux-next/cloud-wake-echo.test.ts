@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -186,4 +186,25 @@ test("restore splits into the start's answer and the wait after it; failed cycle
   const rows = restoreSplit([ok, cycle(1, false, {})]);
   expect(rows.find((r) => r.part === "after_answer")).toMatchObject({ n: 1, p50: 3339 });
   expect(rows.find((r) => r.part === "provider")).toMatchObject({ n: 0, p50: null });
+});
+
+test("a resume before wake_at is early only past the clock offset's error, half the round trip (run 46160527086)", () => {
+  // Cycle #0: -5582 ms at a 2184 ms round trip (start answered not_paused): the guest ran before the start.
+  expect(earlyResume(-5582, 2184)).toContain("not this wake");
+  expect(causeOf({ error: earlyResume(-5582, 2184), guest: null })).toBe("probe fired before the wake (harness)");
+  // Cycle #4: -1246 ms at 1937 ms: past the 969 ms error, so not an echo (the old fixed -2000 ms bound counted it).
+  expect(earlyResume(-1246, 1937)).toContain("969 ms error");
+  // Inside the error, or after wake_at: the offset's error, not an early resume.
+  expect(earlyResume(-300, 800)).toBe("");
+  expect(earlyResume(788, 796)).toBe("");
+  expect(earlyResume(undefined, 800)).toBe("");
+  // No round trip read: the old bound.
+  expect(earlyResume(-1999, null)).toBe("");
+  expect(earlyResume(-2001, null)).toContain("2000 ms error");
+});
+
+test("a restore under 0 (inside the offset's error) counts in no part of the split", () => {
+  const neg = { ...cycle(0, true, { resumed: -300, net_up: -200, pty_attach: -250, input: -250, echo: -247 }), answered_ms: 551 };
+  expect(restoreParts(neg)).toEqual({});
+  expect(restoreSplit([neg]).find((r) => r.part === "after_answer")).toMatchObject({ n: 0, p50: null });
 });
