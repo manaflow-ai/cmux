@@ -3,8 +3,9 @@
 use std::ffi::OsString;
 use std::net::TcpStream;
 use std::os::unix::fs::DirBuilderExt;
-use std::os::unix::process::CommandExt;
-use std::process::{Child, ExitCode};
+use std::process::ExitCode;
+
+use cmux_process::OwnedChild;
 use std::time::{Duration, Instant};
 
 use cmux_next_linux::{
@@ -43,8 +44,8 @@ fn run(options: cmux_next_linux::Options) -> std::io::Result<()> {
     }
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&options.home)?;
     let mut children = Children(Vec::new());
-    children.0.push(spawn(&plan.daemon)?);
-    children.0.push(spawn(&plan.pane)?);
+    children.0.push(start(&plan.daemon)?);
+    children.0.push(start(&plan.pane)?);
     wait_for_port(plan.daemon_port, &mut children, "acpmux daemon")?;
     wait_for_port(plan.pane_port, &mut children, "webviews dev server")?;
     open_window(&plan, children)
@@ -62,8 +63,8 @@ fn show(c: &Command) -> String {
     s
 }
 
-fn spawn(c: &Command) -> std::io::Result<Child> {
-    let mut cmd = std::process::Command::new(&c.program);
+fn start(c: &Command) -> std::io::Result<OwnedChild> {
+    let mut cmd = cmux_process::Command::new(&c.program);
     cmd.args(&c.args).current_dir(&c.cwd);
     for (k, v) in &c.env {
         cmd.env(k, v);
@@ -71,29 +72,14 @@ fn spawn(c: &Command) -> std::io::Result<Child> {
     for k in &c.env_remove {
         cmd.env_remove(k);
     }
-    // Its own process group, so closing the window stops `bun run dev` and the Vite it starts.
-    cmd.process_group(0);
-    cmd.spawn()
+    // Its own process group, tied to this process: closing the window (or this process dying,
+    // even by SIGKILL) ends the daemon, `bun run dev` and the Vite it starts, and nothing else.
+    cmd.spawn_owned()
         .map_err(|e| std::io::Error::new(e.kind(), format!("start {}: {e}", c.program.display())))
 }
 
-/// The processes this window started; stopped (their whole groups) when it goes away.
-struct Children(Vec<Child>);
-
-impl Drop for Children {
-    fn drop(&mut self) {
-        for child in &mut self.0 {
-            if let Ok(None) = child.try_wait() {
-                // The group id is the child's pid (process_group(0) above), so this reaches only
-                // what this window started.
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", "--", &format!("-{}", child.id())])
-                    .status();
-                let _ = child.wait();
-            }
-        }
-    }
-}
+/// The processes this window started; dropping it ends their groups (`OwnedChild`'s drop).
+struct Children(Vec<OwnedChild>);
 
 fn wait_for_port(port: u16, children: &mut Children, what: &str) -> std::io::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(90);
