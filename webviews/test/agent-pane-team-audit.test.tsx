@@ -6,8 +6,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { teamAudit } from "../src/agent-session/acpmux/teamAudit/teamAudit.experiment";
-import {
+import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { teamAudit } = await importWithDom(() => import("../src/agent-session/acpmux/teamAudit/teamAudit.experiment"));
+const {
   auditHasMachineTime,
   auditHasRows,
   auditRowLabel,
@@ -17,9 +20,8 @@ import {
   readTeamAuditSaved,
   TEAM_AUDIT_GROUPS,
   teamAuditParams,
-} from "../src/agent-session/acpmux/teamAudit/teamAuditModel";
-import { experimentById } from "../src/experiments/registry";
-import { settleReact } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/teamAudit/teamAuditModel"));
+const { experimentById } = await importWithDom(() => import("../src/experiments/registry"));
 
 const NOW = Date.UTC(2026, 10, 9, 15, 30);
 
