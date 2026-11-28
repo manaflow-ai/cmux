@@ -64,7 +64,7 @@ def load_baseline_renames():
 
 # A baseline allowance follows its file across a move: git's renames (`git diff -M`, across folders and crates)
 # plus the explicit seams in baseline_renames.MOVED_BASELINE_PATHS. A new path inherits only from its old path,
-# and only while the old path has no row of its own left.
+# and only while the old path has no row of its own left, or, split, what its row no longer holds.
 baseline_renames = load_baseline_renames()
 MOVED_BASELINE_PATHS = baseline_renames.MOVED_BASELINE_PATHS if baseline_renames else {}
 CLIPPY_CONF = "scripts/cmux-next/spawn-owner-clippy"
@@ -204,6 +204,9 @@ def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: s
         print(f"check-spawn-owner: {ref} has no {BASELINE}; the baseline is not judged against it")
         return 0
     status = 0
+    # A split (an explicit seam whose old path keeps a row) carries what the old path's base row no longer
+    # holds, shared by its new paths in order: the two files' rows together never pass the base's one row.
+    left = {old: base[old] - rows[old] for old in set(moved.values()) if old in base and old in rows}
     for path, count in sorted(rows.items()):
         base_count = base.get(path)
         moved_from = moved.get(path)
@@ -211,6 +214,11 @@ def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: s
             base_count = base[moved_from]
             print(f"check-spawn-owner: {BASELINE} carries {moved_from} -> {path} at {count} "
                   f"(base {ref}: {base_count})")
+        elif base_count is None and left.get(moved_from, 0) > 0:
+            base_count = min(count, left[moved_from])
+            left[moved_from] -= base_count
+            print(f"check-spawn-owner: {BASELINE} carries {base_count} of {moved_from}'s base row "
+                  f"{base[moved_from]} -> {path} (split; {moved_from} now {rows[moved_from]})")
         if count > (base_count or 0):
             status = 1
             print(f"check-spawn-owner: {BASELINE} raises {path} to {count} (base {ref}: {(base_count or 0)}). "
