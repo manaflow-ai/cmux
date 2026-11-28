@@ -2017,3 +2017,40 @@ class PostMergeTierTests(unittest.TestCase):
         for workflow in ("cmux-tui-spec.yml", "rust-workspaces.yml"):
             text = (ROOT / ".github" / "workflows" / workflow).read_text()
             self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}", text, workflow)
+
+    def test_a_sparse_tier_job_checks_out_the_post_merge_config(self) -> None:
+        # head_tier.py's post-merge rule reads these two files; a job that runs `head_tier.py tier` from a sparse
+        # checkout without them reads no config and plans `full` on every head (cmux-tui-spec.yml, 11-28: 39 PR
+        # runs, ~917 runner-min in 3.5 h, after #63989 turned the rule on).
+        needed = ("/.github/post-merge-checks.json", "/.github/post-merge-batch.json")
+        checked = 0
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            text = path.read_text()
+            if "head_tier.py tier" not in text or "jobs:" not in text:
+                continue
+            body = text.split("\njobs:\n", 1)[-1]
+            for job in re.split(r"\n(?=  [A-Za-z0-9_-]+:\n)", body):
+                if "head_tier.py tier" not in job:
+                    continue
+                lines = job.splitlines()
+                for i, line in enumerate(lines):
+                    m = re.match(r"^(\s*)sparse-checkout:\s*(.*)$", line)
+                    if not m:
+                        continue
+                    value = m.group(2).strip()
+                    if value.endswith("|"):
+                        indent = len(m.group(1))
+                        block = []
+                        for nxt in lines[i + 1:]:
+                            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                                break
+                            block.append(nxt.strip())
+                        patterns = [b for b in block if b]
+                    else:
+                        patterns = [value] if value else []
+                    if not patterns:
+                        continue
+                    checked += 1
+                    for want in needed:
+                        self.assertIn(want, patterns, f"{path.name}: a sparse checkout in a head_tier.py tier job")
+        self.assertGreater(checked, 0)
