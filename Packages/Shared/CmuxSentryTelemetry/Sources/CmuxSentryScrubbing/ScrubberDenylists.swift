@@ -115,6 +115,16 @@ public struct ScrubberDenylists: Sendable {
 
     // MARK: - Free-text value regexes
 
+    /// The literal gate's groups (``SentryRegexPattern/init(_:options:requires:)``). Every
+    /// alternative of the `<sensitive-key> = value` rules' marker contains one of
+    /// ``markerLiterals``: `access_token` and `token` hold `token`, the four `*key` forms `key`,
+    /// `session_id` `session`, `password` and `passwd` `passw`, `credentials` `credential`.
+    static let markerLiterals = ["token", "key", "session", "secret", "passw", "pwd", "credential", "cookie", "bearer", "auth"]
+    /// The `[:=]` of an assignment rule.
+    static let assignmentLiterals = [":", "="]
+    /// Any ASCII digit (`\d` on an ASCII text).
+    static let digitLiterals = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
     /// The ordered secret / token / key / PEM / financial value patterns applied
     /// to every free-text string, in priority order.
     ///
@@ -143,9 +153,9 @@ public struct ScrubberDenylists: Sendable {
         // --- cmux-original rules (kept verbatim; partly exceed relay) ---
         // Bearer <token>. Mirrors relay BEARER_TOKEN_REGEX
         // (relay-pii/src/regexes.rs:339) but keeps the `Bearer ` prefix legible.
-        SentryRegexPattern(#"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*"#),
+        SentryRegexPattern(#"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*"#, requires: [["bearer"]]),
         // Authorization: <scheme> <token>  (Basic / Digest / token / etc.)
-        SentryRegexPattern(#"(Authorization:\s*\w+\s+)\S+"#),
+        SentryRegexPattern(#"(Authorization:\s*\w+\s+)\S+"#, requires: [["authorization:"]]),
         // `<sensitive-key> = value` in raw query strings, env-style assignments,
         // or JSON ("key":"value"). The marker set is kept in sync with the
         // key-aware dictionary path (``SentryScrubber/isSensitiveKey(_:)``) so a
@@ -161,40 +171,57 @@ public struct ScrubberDenylists: Sendable {
         // MUST stop at `&`/`,`/`}` (`?token=X&page=2` has to keep `&page=2`),
         // but those same characters can legitimately appear INSIDE a quoted JSON
         // value (`"password":"a&b"`), where stopping early would leak the
-        // suffix. The quoted rule captures the opening value quote in its prefix
-        // group and consumes `[^"']*` (everything up to the closing quote); the
-        // unquoted rule keeps the delimiter-bounded `[^\s"'&,}]+`. It does not
-        // attempt to model escaped quotes inside a quoted value (a regex JSON
-        // parser); the structured dict-key layer plus the wholesale Data/user/
-        // cookie drops are the real boundary, this free-text pass is best-effort
+        // suffix. The quoted rules capture the opening value quote in their prefix
+        // group and consume up to the SAME quote, past backslash escapes: one rule
+        // per quote character, since `password="a'b"` must not end at the `'`
+        // (cmux#38555 review F1); the unquoted rule keeps the delimiter-bounded
+        // `[^\s"'&,}]+`. The structured dict-key layer plus the wholesale Data/
+        // user/cookie drops are the real boundary; this free-text pass is
         // defense-in-depth for raw event messages / stack lines / breadcrumbs.
-        // Quoted-value form: redact through the closing quote.
+        // Quoted-value forms: redact through the matching closing quote.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["'])[^"']*"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#,
+            requires: [markerLiterals, assignmentLiterals, ["\""]]
+        ),
+        SentryRegexPattern(
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#,
+            requires: [markerLiterals, assignmentLiterals, ["'"]]
         ),
         // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
         // session credential but is too short to embed in the marker set above
         // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
         // word boundary anchors it so only a standalone `sid` key is redacted.
         // Quoted-value form (same quote-context split as the marker rule above).
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["'])[^"']*"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#, requires: [["sid"], assignmentLiterals, ["\""]]),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#, requires: [["sid"], assignmentLiterals, ["'"]]),
         // Unquoted-value form of the marker rule: delimiter-bounded value.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#,
+            requires: [markerLiterals, assignmentLiterals]
         ),
         // Unquoted-value form of the bare `sid` alias.
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*)[^\s"'&,}]+"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*)[^\s"'&,}]+"#, requires: [["sid"], assignmentLiterals]),
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar
         // prefixes. No relay equivalent — cmux-specific add for dev secrets.
-        SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
+        SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#,
+                           requires: [["sk_", "sk-", "pk_", "pk-", "rk_", "rk-", "gh", "xox"]]),
+        // More provider tokens a developer's machine holds, by their fixed prefix: GitHub fine-grained PATs,
+        // GitLab PATs, npm tokens, Hugging Face tokens and Google API keys. No relay equivalent.
+        // Case-sensitive: the prefixes are fixed-case. `SeededSecretTests` seeds one of each.
+        SentryRegexPattern(
+            #"\b(?:github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_\-]{20,}|npm_[A-Za-z0-9]{36,}|hf_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_\-]{35,})"#,
+            options: [],
+            requires: [["github_pat_", "glpat-", "npm_", "hf_", "aiza"]]
+        ),
         // JSON Web Tokens: three base64url segments separated by dots. No relay
         // equivalent. Case-sensitive (`eyJ` header is fixed-case base64).
         SentryRegexPattern(
             #"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"#,
-            options: []
+            options: [],
+            requires: [["eyj"], ["."]]
         ),
         // AWS access key IDs. No relay equivalent. Case-sensitive (AKIA/ASIA + uppercase).
-        SentryRegexPattern(#"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"#, options: []),
+        SentryRegexPattern(#"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"#, options: [], requires: [["akia", "asia"]]),
 
         // --- relay @common value rules cmux was missing (ported, no group) ---
         // @pemkey — a PEM private/public key block. relay captures group 1 (the
@@ -204,22 +231,25 @@ public struct ScrubberDenylists: Sendable {
         // dotall flag (cmux's SentryRegexPattern sets only .caseInsensitive).
         // Ported from relay PEM_KEY_REGEX, relay-pii/src/regexes.rs:300-316.
         SentryRegexPattern(
-            #"-----BEGIN[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----[\s\S]+?-----END[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----"#
+            #"-----BEGIN[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----[\s\S]+?-----END[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----"#,
+            requires: [["-----begin"], ["key-----"]]
         ),
         // @creditcard — variable-length card number (Amex/Visa/Mastercard/
         // Discover prefixes), dashes/spaces allowed. Whole match redacted.
         // Ported from relay CREDITCARD_REGEX, relay-pii/src/regexes.rs:265-280.
         SentryRegexPattern(
             #"\b(?:3[47]\d|4\d{3}|5[1-5]\d\d|65\d\d|6011)(?:[-\s]?\d){12}\b"#,
-            options: []
+            options: [],
+            requires: [digitLiterals]
         ),
         // @iban — country-prefix IBAN. Whole match redacted.
         // Ported from relay IBAN_REGEX, relay-pii/src/regexes.rs:191-197.
         SentryRegexPattern(
-            #"\b(?:AT|AD|AE|AL|AZ|BA|BE|BG|BH|BR|BY|CH|CR|CY|CZ|DE|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE|GI|GL|GR|GT|HR|HU|IE|IL|IQ|IS|IT|JO|KW|KZ|LB|LC|LI|LT|LU|LV|LY|MC|MD|ME|MK|MR|MT|MU|NL|NO|PK|PL|PS|PT|QA|RO|RU|RS|SA|SC|SE|SI|SK|SM|ST|SV|TL|TN|TR|UA|VA|VG|XK|DZ|AO|BJ|BF|BI|CV|CM|CF|TD|KM|CG|CI|DJ|GQ|GA|GW|HN|IR|MG|ML|MA|MZ|NI|NE|SN|TG)\d{2}[A-Za-z0-9]{11,29}\b"#
+            #"\b(?:AT|AD|AE|AL|AZ|BA|BE|BG|BH|BR|BY|CH|CR|CY|CZ|DE|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE|GI|GL|GR|GT|HR|HU|IE|IL|IQ|IS|IT|JO|KW|KZ|LB|LC|LI|LT|LU|LV|LY|MC|MD|ME|MK|MR|MT|MU|NL|NO|PK|PL|PS|PT|QA|RO|RU|RS|SA|SC|SE|SI|SK|SM|ST|SV|TL|TN|TR|UA|VA|VG|XK|DZ|AO|BJ|BF|BI|CV|CM|CF|TD|KM|CG|CI|DJ|GQ|GA|GW|HN|IR|MG|ML|MA|MZ|NI|NE|SN|TG)\d{2}[A-Za-z0-9]{11,29}\b"#,
+            requires: [digitLiterals]
         ),
         // @usssn — US Social Security number `NNN-NN-NNNN`. Whole match redacted.
         // Ported from relay US_SSN_REGEX, relay-pii/src/regexes.rs:329-335.
-        SentryRegexPattern(#"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b"#, options: []),
+        SentryRegexPattern(#"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b"#, options: [], requires: [digitLiterals, ["-"]]),
     ]
 }

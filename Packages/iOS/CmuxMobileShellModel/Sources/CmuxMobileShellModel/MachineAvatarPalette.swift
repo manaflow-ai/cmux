@@ -27,7 +27,7 @@ public struct MachineAvatarPalette: Sendable {
         machineID: String?,
         fallbackID: String
     ) -> Int {
-        let source = (machineID?.isEmpty == false) ? machineID! : fallbackID
+        let source = machineID.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackID
         // djb2: spreads similar ids (UUID fragments, hostnames that share a
         // prefix) across distinct slots far better than a scalar sum, which
         // collides on anagram-like ids. `&*`/`&+` wrap intentionally; the

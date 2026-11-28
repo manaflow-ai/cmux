@@ -11,16 +11,15 @@ public struct MobileTaskAttachmentChunkPlan: Equatable, Sendable {
     /// Creates a validated chunk plan.
     ///
     /// - Parameters:
-    ///   - totalByteCount: Total raw bytes in the attachment.
-    ///   - chunkByteCount: Maximum raw bytes in one RPC chunk.
+    ///   - totalByteCount: Total raw bytes in the attachment (a negative count is 0).
+    ///   - chunkByteCount: Maximum raw bytes in one RPC chunk (one that is not
+    ///     positive is ``defaultChunkByteCount``).
     public init(
         totalByteCount: Int,
         chunkByteCount: Int = Self.defaultChunkByteCount
     ) {
-        precondition(totalByteCount >= 0)
-        precondition(chunkByteCount > 0)
-        self.totalByteCount = totalByteCount
-        self.chunkByteCount = chunkByteCount
+        self.totalByteCount = max(0, totalByteCount)
+        self.chunkByteCount = chunkByteCount > 0 ? chunkByteCount : Self.defaultChunkByteCount
     }
 
     /// Ordered byte ranges to send.

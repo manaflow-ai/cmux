@@ -1,0 +1,415 @@
+//! The Chief's tool contract: the tool list every engine offers (the host's
+//! MCP server, the Cloud Chief's pi tools), with the limits the schemas name,
+//! and each tool's replay flag for a durable engine (section 13, export 2).
+
+use serde_json::{Value, json};
+
+use crate::prompt::{
+    ASK_DESCRIPTION, AUTOMATION_DESCRIPTION, CHECK_INS_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, FOLLOW_UP_DESCRIPTION,
+    FOLLOW_UPS_DESCRIPTION, MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP,
+    MEMORY_READ_DESCRIPTION, MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION,
+    PEERS_DESCRIPTION, REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION,
+    REPLY_DESCRIPTION, SEND_DESCRIPTION, SEND_LATER_DESCRIPTION, SLEEP_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
+    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+};
+
+/// Shortest and longest Send Later delay of `send` (the owner's horizon is a
+/// little over a year).
+pub const SEND_DELAY_MIN_SECONDS: u64 = 60;
+pub const SEND_DELAY_MAX_SECONDS: u64 = 365 * 86_400;
+
+/// Shortest `sleep` (a turn costs more than a shorter wait saves).
+pub const SLEEP_MIN_SECONDS: u64 = 30;
+/// Longest `sleep`: a day.
+pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+/// A `watch` with no `timeout_seconds` fires as timed out after 30 min.
+pub const WATCH_DEFAULT_SECONDS: u64 = 1_800;
+/// Shortest `watch` timeout.
+pub const WATCH_MIN_SECONDS: u64 = 10;
+/// Longest `watch` timeout: a day.
+pub const WATCH_MAX_SECONDS: u64 = 86_400;
+/// How long a `watch` waits before it runs a command that exited without
+/// matching `until` again.
+pub const WATCH_POLL_SECONDS: u64 = 15;
+/// Most watches pending at once.
+pub const WATCHES_KEPT: usize = 8;
+
+/// Longest automation name (optchat-chief automations.rs).
+pub const AUTOMATION_NAME_MAX: usize = 80;
+/// Longest automation prompt.
+pub const AUTOMATION_PROMPT_MAX: usize = 4000;
+/// The `automation` tool's actions.
+pub const AUTOMATION_ACTIONS: [&str; 6] = ["add", "list", "pause", "resume", "delete", "run"];
+/// The events an automation can wait for.
+pub const AUTOMATION_EVENTS: [&str; 1] = ["agent_done"];
+
+/// The kinds of sign-in `escalate_auth` takes.
+pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
+
+/// The efforts `spawn` takes (acpmux maps them onto the harness's own).
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Built-in `spawn` place aliases; paired machine names are also accepted.
+/// `cloud:SIZE` also picks the VM size with one VM per subagent.
+pub const PLACES: [&str; 7] = [
+    "cloud",
+    "here",
+    "local",
+    "mac",
+    "cloud:small",
+    "cloud:medium",
+    "cloud:large",
+];
+
+/// The `control` tool's actions.
+pub const CONTROL_ACTIONS: [&str; 12] = [
+    "status",
+    "interrupt",
+    "answer",
+    "pause",
+    "resume",
+    "cancel",
+    "restart",
+    "priority",
+    "show",
+    "hide",
+    "cap",
+    "cloud",
+];
+
+/// The sizes `cmux cloud new-machine --size` takes.
+pub const SIZES: [&str; 4] = ["small", "medium", "large", "xlarge"];
+
+/// The most messages one `transcript` call returns.
+pub const TRANSCRIPT_MAX: u32 = 100;
+
+/// The most hits one `recall` returns.
+pub const RECALL_MAX: u64 = 30;
+
+/// The longest preference `remember` keeps, in characters.
+pub const REMEMBER_MAX: usize = 400;
+
+/// The `profile` tool's definition, shared with the docs.
+const TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/tool.json");
+
+/// The `chiefs` tool's definition.
+const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/chiefs-tool.json");
+
+/// The `profile` tool (name, description, input schema).
+pub fn profile_tool() -> Value {
+    let file: Value = serde_json::from_str(TOOL_FILE).unwrap_or_else(|_| json!({}));
+    file.get("tool")
+        .cloned()
+        .unwrap_or_else(|| json!({"name": "profile"}))
+}
+
+/// The `chiefs` tool (name, description, input schema).
+pub fn chiefs_tool() -> Value {
+    let file: Value = serde_json::from_str(CHIEFS_TOOL_FILE).unwrap_or_else(|_| json!({}));
+    file.get("tool")
+        .cloned()
+        .unwrap_or_else(|| json!({"name": "chiefs"}))
+}
+
+pub const MOVE_DESCRIPTION: &str = "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again. fork (to = cloud): copy yourself (memory, conversations, the person's profile) into a new Cloud Chief while you keep answering here; nothing here stops or moves. Use it first when the person wants to try the cloud without losing you; then talk to the fork with tell(id: \"chief:fork\") (its reply comes back as a note) and move for real only after it checks out. fork_status: the fork's record.";
+
+/// The move tool's schema.
+pub fn move_tool() -> Value {
+    json!({"name": "move", "description": MOVE_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback", "fork", "fork_status"]},
+        "to": {"type": "string", "minLength": 1},
+        "dry_run": {"type": "boolean"},
+        "without_transcripts": {"type": "boolean", "description": "Leave subagent transcripts behind (smaller move)."},
+        "remote_bin": {"type": "string", "minLength": 1, "description": "The target's optchat-chief, when it is not on its PATH and the target's OS differs from this one."},
+        "session_token_file": {"type": "string", "minLength": 1, "description": "cloud: the person's session token file (0600); never read it aloud."},
+        "name": {"type": "string", "minLength": 1, "description": "cloud: the hosted Chief's name (default Chief)."}},
+      "additionalProperties": false}})
+}
+
+/// The list for a Chief (or, with `subagent`, a subagent) whose grant
+/// `allows` a tool name: zoom and date always, then spawn, tell, profile and
+/// chiefs when granted, then react, reply and the Chief's own words. The
+/// order and the text never change, so the tool list stays byte-identical
+/// across turns (section 7.2).
+pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
+    let int = json!({"type": "integer", "minimum": 0});
+    let text = json!({"type": "string", "minLength": 1});
+    let mut list = vec![
+        json!({"name": "zoom", "description": format!("{ZOOM_DESCRIPTION}{ZOOM_AGENT_DESCRIPTION}"),
+         "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
+        json!({"name": "date", "description": DATE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
+        json!({"name": "recall", "description": RECALL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "minLength": 1, "description": "The words to find: names, numbers, rare words, or a question."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": RECALL_MAX, "description": "How many matches (default 8)."},
+            "all": {"type": "boolean", "description": "Also search tool calls and their results."}},
+          "required": ["query"], "additionalProperties": false}}),
+    ];
+    // A subagent asks its Chief to drive a sign-in, lists the other
+    // subagents and tells one (acp-chief-issues.md #11).
+    if subagent {
+        list.push(json!({"name": "escalate_auth", "description": ESCALATE_AUTH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "site": {"type": "string", "minLength": 1, "description": "The site's host name, for example npmjs.com."},
+            "url": {"type": "string", "minLength": 1, "description": "The http(s) page where the sign-in starts."},
+            "reason": {"type": "string", "minLength": 1, "description": "One line: what you need the sign-in for."},
+            "kind": {"type": "string", "enum": AUTH_KINDS, "description": "password, passkey, 2fa (a code or security key after the password) or oauth (a Sign in with ... page)."}},
+          "required": ["site", "url", "reason", "kind"], "additionalProperties": false}}));
+        list.push(json!({"name": "peers", "description": PEERS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
+        list.push(json!({"name": "tell", "description": PEER_TELL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+    }
+    if !subagent && allows("spawn") {
+        list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "user", "chief"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
+    }
+    if !subagent && allows("tell") {
+        list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}, "queue": {"type": "boolean", "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt."}}, "required": ["id", "message"], "additionalProperties": false}}));
+        list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": CONTROL_ACTIONS},
+            "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
+            "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
+            "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
+            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
+            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
+          "required": ["action"], "additionalProperties": false}}));
+    }
+    // A Cloud machine and its workspace for a task: on the spawn grant.
+    if !subagent && allows("spawn") {
+        list.push(json!({"name": "cloud_workspace", "description": CLOUD_WORKSPACE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "title": {"type": "string", "minLength": 1, "description": "The task in 2-5 words: the machine's name (lowercased, with dashes) and its sidebar group."},
+            "size": {"type": "string", "enum": SIZES, "description": "The machine's size; by default the app's. small for docs and edits, medium for builds and tests; large or xlarge only when asked."},
+            "machine": {"type": "string", "minLength": 1, "description": "An existing Cloud machine (machine:<id> from `cmux cloud list-machines`): open another workspace on it instead of making a machine."}},
+          "required": ["title"], "additionalProperties": false}}));
+    }
+    if !subagent && allows("profile") {
+        list.push(profile_tool());
+    }
+    if !subagent && allows("chiefs") {
+        list.push(chiefs_tool());
+    }
+    // Read-only, for the Chief and its subagents: never a grant to withhold.
+    list.push(
+        json!({"name": "version", "description": VERSION_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
+    );
+    // MCP servers in code mode (optchat-chief mcp_hub), for the Chief and its
+    // subagents: one fixed tool whatever servers are added.
+    list.push(json!({"name": "mcp", "description": MCP_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["add", "list", "remove", "signin", "search", "describe", "call", "run", "tasks", "task", "subscribe", "unsubscribe", "events", "resources", "read", "prompts", "prompt"]},
+        "target": {"type": "string", "minLength": 1, "description": "add: a known server name, an https URL, or the command that runs a local server."},
+        "name": {"type": "string", "minLength": 1, "description": "add: the server's name (default: from the target); prompt: the prompt."},
+        "server": {"type": "string", "minLength": 1},
+        "tool": {"type": "string", "minLength": 1},
+        "args": {"type": "object", "description": "call: the tool's arguments; prompt: the prompt's."},
+        "code": {"type": "string", "minLength": 1, "description": "run: TypeScript; top-level await; `return` a value or console.log; no imports."},
+        "query": {"type": "string"},
+        "task": {"type": "boolean", "description": "call: run off the turn as a task; you wake with its result."},
+        "id": {"type": "string", "minLength": 1, "description": "task: t<N>; unsubscribe: e<N> or all."},
+        "op": {"type": "string", "enum": ["status", "wait", "cancel"]},
+        "uri": {"type": "string", "minLength": 1},
+        "event": {"type": "string", "minLength": 1, "description": "subscribe: a notification method (notifications/message, notifications/tools/list_changed) or *."},
+        "note": {"type": "string", "description": "task, subscribe: what to do when you wake."},
+        "headers": {"type": "object", "description": "add: HTTP headers with a key (kept secret, never shown)."},
+        "env": {"type": "object", "description": "add: environment of a local server (kept secret)."},
+        "replace": {"type": "boolean"},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "wait_seconds": {"type": "integer", "minimum": 1}},
+      "required": ["action"], "additionalProperties": false}}));
+    // Moving itself to another machine (migrate.rs): the Chief's own home.
+    if !subagent {
+        list.push(move_tool());
+    }
+    // The Chief's own words in its conversation: never a grant to withhold.
+    if !subagent {
+        list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
+        list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
+        list.push(json!({"name": "send", "description": format!("{SEND_DESCRIPTION}{SEND_LATER_DESCRIPTION}"),
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The message, in Markdown."},
+            "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
+            "delay_seconds": {"type": "integer", "minimum": SEND_DELAY_MIN_SECONDS, "maximum": SEND_DELAY_MAX_SECONDS, "description": "Send Later: post it this many seconds from now (60 to one year), text and URLs only. The app sends it then, even if you are not running; the user sees it waiting."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "n": {"type": "integer", "minimum": 1, "maximum": TRANSCRIPT_MAX, "description": "How many messages, newest last (default 20)."},
+            "before": {"type": "integer", "minimum": 1, "description": "A message's #seq: only messages older than it (to page back)."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
+        list.push(json!({"name": "sleep", "description": SLEEP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "seconds": {"type": "integer", "minimum": 0, "maximum": SLEEP_MAX_SECONDS, "description": "30 to 86400 seconds until the wake; 0 clears every pending wake."},
+            "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
+            "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
+          "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "watch", "description": WATCH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "command": {"type": "string", "minLength": 1, "description": "A shell command (sh -c) the host runs on this machine, off your turn: a streaming one (tail -f, gh run watch) or a short check, run again every 15 s while `until` does not match."},
+            "until": {"type": "string", "minLength": 1, "description": "A regex on its output lines (stdout and stderr): the watch fires at the first match. Without it, the watch fires when the command exits."},
+            "timeout_seconds": {"type": "integer", "minimum": WATCH_MIN_SECONDS, "maximum": WATCH_MAX_SECONDS, "description": "The watch fires as timed out after this (default 1800, at most 86400)."},
+            "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
+            "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "automation", "description": AUTOMATION_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": AUTOMATION_ACTIONS, "description": "add: make one; list: see them all; pause, resume, delete, run (now): one by id."},
+            "id": {"type": "string", "minLength": 1, "description": "pause, resume, delete, run: the automation (au<N>)."},
+            "name": {"type": "string", "minLength": 1, "maxLength": AUTOMATION_NAME_MAX, "description": "add: a short name the person sees in Chief settings, e.g. \"Morning PR summary\"."},
+            "prompt": {"type": "string", "minLength": 1, "maxLength": AUTOMATION_PROMPT_MAX, "description": "add: the whole task you do at each fire, standing alone (you will not see this turn then)."},
+            "cron": {"type": "string", "minLength": 1, "description": "add, a schedule: five fields in this Mac's time zone (minute hour day-of-month month day-of-week), e.g. \"0 9 * * *\" every day at 9, \"0 9 * * 1-5\" weekdays; or @hourly, @daily, @weekly."},
+            "event": {"type": "string", "enum": AUTOMATION_EVENTS, "description": "add, an event instead of cron: agent_done (one of your subagents finished). Each event fires it once."},
+            "match": {"type": "string", "minLength": 1, "description": "agent_done: only subagents whose title has this text."}},
+          "additionalProperties": false}}));
+        let path = json!({"type": "string", "minLength": 1, "maxLength": 80, "description": MEMORY_PATH_HELP});
+        list.push(json!({"name": "memory_read", "description": MEMORY_READ_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_write", "description": MEMORY_WRITE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "path": path,
+            "description": {"type": "string", "maxLength": 300, "description": "One line for index.md: what the file is about (\"my machines\", \"renew the passport before Fri 2026-11-20\")."},
+            "body": {"type": "string", "minLength": 1, "description": "The file's whole text, in Markdown. Date facts (YYYY-MM-DD)."}},
+          "required": ["path", "description", "body"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_forget", "description": MEMORY_FORGET_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_up", "description": FOLLOW_UP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "at": {"type": "string", "maxLength": 40, "description": "Local YYYY-MM-DDTHH:MM, or ISO with an offset."},
+            "in": {"type": "string", "maxLength": 20, "description": "30m, 2h or 1d."},
+            "loop": {"type": "string", "maxLength": 80, "description": "loops/<task>.md it belongs to."},
+            "for_person": {"type": "boolean"}},
+          "required": ["note"], "additionalProperties": false}}));
+        list.push(json!({"name": "follow_ups", "description": FOLLOW_UPS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"cancel": {"type": "string", "maxLength": 40}}, "additionalProperties": false}}));
+        list.push(
+            json!({"name": "check_ins", "description": CHECK_INS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["auto", "mornings", "off"]},
+            "quiet": {"type": "string", "maxLength": 20},
+            "cost_limit_usd": {"type": "number", "minimum": 0}},
+          "additionalProperties": false}}),
+        );
+        list.push(json!({"name": "nothing", "description": NOTHING_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 300}}, "required": ["reason"], "additionalProperties": false}}));
+        list.push(json!({"name": "ask", "description": ASK_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"question": {"type": "string", "minLength": 1, "maxLength": 2000}}, "required": ["question"], "additionalProperties": false}}));
+        list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
+          "required": ["text"], "additionalProperties": false}}));
+    }
+    Value::Array(list)
+}
+
+/// Tools a durable engine must not run twice after a crash: each one starts
+/// something new each call (an agent, a wake, a Chief, a move) or changes a
+/// record. Every other tool only reads, or is deduped by its key.
+const ONCE: &[&str] = &[
+    "spawn",
+    "mcp",
+    "tell",
+    "control",
+    "sleep",
+    "watch",
+    "automation",
+    "profile",
+    "chiefs",
+    "move",
+    "escalate_auth",
+];
+
+/// Tools only a host on the person's machine can do: the Mac's app
+/// (`version`), moving the Chief's home (`move`), running a command off
+/// the turn (`watch`), the MCP hub with its servers and secrets (`mcp`)
+/// and the Mac's scheduled tasks (`automation`).
+const HOST_ONLY: &[&str] = &[
+    "version",
+    "move",
+    "watch",
+    "automation",
+    "mcp",
+    "recall",
+    "memory_read",
+    "memory_write",
+    "memory_forget",
+    "follow_up",
+    "follow_ups",
+    "check_ins",
+    "nothing",
+    "ask",
+];
+
+/// The engines that take specs; a cloud engine drops the host-only tools.
+const SPEC_ENGINES: &[(&str, bool)] = &[
+    ("pi-durable", true),
+    ("native", false),
+    ("claude", false),
+    ("codex", false),
+];
+
+/// The tool specs of `engine` for a Chief granted `grant_json`
+/// (`{tools?: [names]}`; without `tools`, every tool but profile and chiefs,
+/// as the host does for a Chief with no record): `[{name, description,
+/// json_schema, replay: "safe" | "once"}]`.
+pub fn specs(engine: &str, grant_json: &str) -> Result<Value, String> {
+    let cloud = SPEC_ENGINES
+        .iter()
+        .find(|(e, _)| *e == engine)
+        .map(|(_, cloud)| *cloud)
+        .ok_or_else(|| format!("engine: no engine {engine:?}"))?;
+    let grant: Value = serde_json::from_str(grant_json).map_err(|e| format!("grant: {e}"))?;
+    let granted: Option<Vec<String>> = grant.get("tools").and_then(Value::as_array).map(|a| {
+        a.iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    });
+    let allows = |tool: &str| match &granted {
+        _ if matches!(tool, "zoom" | "date" | "recall" | "version") => true,
+        None => !matches!(tool, "profile" | "chiefs"),
+        Some(set) => set.iter().any(|t| t == tool),
+    };
+    let list = tool_list(false, &allows);
+    let out: Vec<Value> = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| !(cloud && HOST_ONLY.contains(&t["name"].as_str().unwrap_or(""))))
+        .map(|t| {
+            let name = t["name"].as_str().unwrap_or("");
+            let mut description = t["description"].clone();
+            let mut schema = t["inputSchema"].clone();
+            // Send Later is the local conversation owner's
+            // (`conversation-scheduled-v1`); a cloud engine posts now only.
+            if cloud && name == "send" {
+                description = json!(SEND_DESCRIPTION);
+                if let Some(props) = schema["properties"].as_object_mut() {
+                    props.remove("delay_seconds");
+                }
+            }
+            json!({
+                "name": name,
+                "description": description,
+                "json_schema": schema,
+                "replay": if ONCE.contains(&name) { "once" } else { "safe" },
+            })
+        })
+        .collect();
+    Ok(Value::Array(out))
+}

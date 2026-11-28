@@ -1,0 +1,140 @@
+//! The next turn's harness, started before the turn (parity item 4): the
+//! brain hints acpmux's session pool (`_acpmux/prewarm`) with the exact
+//! shape of its next turn session when acpmux connects and after every
+//! turn. The next `session/new` of that shape takes the started harness,
+//! with its MCP servers up, instead of a cold start. Each turn still gets
+//! a fresh conversation: the view is its whole context.
+
+use super::{Brain, Engine};
+use crate::acpmux::Family;
+
+impl Brain {
+    /// The presets of a turn session on a harness of `family`: the cached
+    /// layout's preset (a Claude harness whose acpmux takes a preset system
+    /// prompt), and else the preset the session names (the family's own
+    /// when the turn left the default harness's family; None: the port's
+    /// turn preset).
+    /// [`Self::session_presets`] for a turn on `harness`: an open-source brain's own turn preset
+    /// (brain_home.rs), else its family's.
+    pub(super) fn harness_presets(
+        &self,
+        harness: &str,
+        family: Family,
+    ) -> (Option<String>, Option<String>) {
+        match self.settings.brains.get(harness) {
+            Some(brain) => (None, brain.preset.clone()),
+            None => self.session_presets(family),
+        }
+    }
+
+    pub(super) fn session_presets(&self, family: Family) -> (Option<String>, Option<String>) {
+        let cached = (matches!(self.settings.engine, Engine::Acpmux) && family == Family::Claude)
+            .then(|| self.settings.turn_preset.clone())
+            .flatten()
+            .filter(|preset| self.agents.system_prompt(preset));
+        let default_family = self.family_of(&self.settings.harness);
+        let plain = match family {
+            Family::Codex => self.settings.codex_preset.clone(),
+            Family::Claude if default_family != family => self.settings.turn_preset.clone(),
+            _ => None,
+        };
+        (cached, plain)
+    }
+
+    /// The engine the next turn takes (engine.json over the defaults), and
+    /// the harness engine.json named when acpmux does not have it (the
+    /// default harness runs instead).
+    pub(super) fn next_engine(
+        &self,
+    ) -> (
+        crate::engine::TurnEngine,
+        Option<String>,
+        crate::engine::EngineChoice,
+    ) {
+        let s = &self.settings;
+        let choice = s
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .unwrap_or_default();
+        let mut engine =
+            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if let Some(gateway) = &self.gateway {
+            gateway.refresh();
+            if let crate::gateway::GatewayRoute::Harness(harness) = gateway.route()
+                && (s.families.is_empty() || s.families.contains_key(&harness))
+            {
+                engine.harness = harness;
+                engine.model = None;
+                engine.effort = None;
+            }
+        }
+        let mut unknown = None;
+        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+            unknown = Some(std::mem::replace(&mut engine.harness, s.harness.clone()));
+        }
+        (engine, unknown, choice)
+    }
+
+    /// Hints the pool with the next turn session's harness profile (as the
+    /// harness gate admits it), preset and directory. A failure only costs
+    /// the next turn a cold start, so it is logged and nothing else.
+    pub(super) fn prewarm_next_turn(&mut self) {
+        // Only while idle: a pooled harness starting next to a turn's own
+        // session raced it (E18: two codex processes on one CODEX_HOME,
+        // "failed to initialize sqlite state runtime"), and a turn that
+        // starts at once does not take it anyway. Not before the conversation
+        // is read (the daemon is up), and not while a waking message waits:
+        // that message starts a turn first.
+        // A kept session takes the next turn: no new process.
+        if !matches!(self.settings.engine, Engine::Acpmux)
+            || self.kept.is_some()
+            || !self.agents_up
+            || self.phase != super::Phase::Idle
+            || self.daemon.is_none()
+            || self.queue.iter().any(super::Queued::wakes)
+        {
+            return;
+        }
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+        }) {
+            return;
+        }
+        let (mut engine, _, _) = self.next_engine();
+        // A brain that cannot run now is never started: the stand-in harness is (turns.rs).
+        let _ = self.brain_stand_in(&mut engine);
+        let (cached, plain) =
+            self.harness_presets(&engine.harness, self.family_of(&engine.harness));
+        if cached.is_some() {
+            // The pooled Claude Code reads its cache settings when it
+            // starts: the next turn's TTL, and whether that turn carries our
+            // marks (every turn input has them, spec 5a, unless Claude Code
+            // refused them lately).
+            let ttl = self.turn_cache_ttl();
+            let ours = !self.marker_refused.is_off() && !self.settings.keep_turn_session;
+            match crate::session_dir::set_session_cache(&self.settings.session_dir, ttl, ours) {
+                Ok(()) => {
+                    self.prewarm_ttl = Some(ttl);
+                    self.prewarm_ours = Some(ours);
+                }
+                Err(e) => (self.log)(&format!("updating the session's cache settings: {e}")),
+            }
+        }
+        let preset = cached.or(plain);
+        let hinted =
+            crate::harness_gate::admit_live(&*self.agents, &engine.harness).and_then(|admitted| {
+                self.agents.prewarm(
+                    &admitted.profile,
+                    preset.as_deref(),
+                    &self.settings.session_dir,
+                )
+            });
+        if let Err(e) = hinted {
+            (self.log)(&format!("prewarming the next turn's harness: {e}"));
+        }
+    }
+}

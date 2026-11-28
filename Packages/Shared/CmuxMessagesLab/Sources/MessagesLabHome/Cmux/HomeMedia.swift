@@ -11,11 +11,21 @@ import UniformTypeIdentifiers
 /// win (my sends: the prepared copy and poster); otherwise the bytes come
 /// from the store (`HomeStoreBinding.fetchAttachment`, lane 16's variants:
 /// `.thumbnail` for images, `.poster` for video, never the video itself).
-/// Nothing here changes layout: rows are sized from the part's pixel size
-/// before any picture arrives, and the picture is at least the bubble's
-/// pixel width so `Sizing` keeps that size.
+/// Rows are sized from the part's pixel size before any picture arrives, and
+/// the picture is at least the bubble's pixel width so `Sizing` keeps that
+/// size; a part without a pixel size (a video the Chief attached) takes its
+/// picture's once it arrives.
+///
+/// cmux (user 2026-11-16, "image/video previews lowkey kinda messy"): a video
+/// whose sender stored no poster (every video the Chief attaches) showed a
+/// blank gray box: its picture is now its first frame, read from the original
+/// when the owner has no poster (up to `frameSourceLimit` bytes). A load that
+/// fails (the owner not connected yet after a relaunch, a part not in the
+/// loaded window yet) tries again after `retryDelays` instead of leaving the
+/// bubble an empty gray box for the life of the process; a picture that
+/// cannot be had at all is `unavailable` (the row draws a file card).
 @MainActor
-final class HomeMedia: @unchecked Sendable {
+final class HomeMedia {
     typealias Fetch = @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     /// Where the pictures are written (one folder per process).
@@ -28,11 +38,23 @@ final class HomeMedia: @unchecked Sendable {
 
     private var ready: [String: String] = [:]
     private var jobs: [String: Task<Void, Never>] = [:]
+    /// Hashes whose picture cannot be had: every try failed (`unavailableAsset`).
     private var failed: Set<String> = []
+    /// The waits between tries of one picture (tests shorten them); one try more than waits.
+    var retryDelays: [Duration] = [.seconds(1), .seconds(3), .seconds(10), .seconds(30)]
+    /// The largest video read for its first frame when the owner has no poster (a bigger one keeps
+    /// the placeholder; its bytes load when it plays).
+    nonisolated static let frameSourceLimit = 128_000_000
+    /// The asset `asset(_:)` gives for a picture that cannot be had: the row draws the part as a
+    /// file card (`HomeMapping.attachment`), never an empty box.
+    nonisolated static let unavailableAsset = "cmux-home-media:unavailable"
     private var locals: [String: LocalAttachmentFiles] = [:]
 
     /// The `file:` asset of a hash's picture, nil until it is ready.
-    func asset(_ hash: String) -> String? { ready.value(for: hash) } // // crash program: dictionary read
+    func asset(_ hash: String) -> String? {
+        if failed.contains(hash) { return Self.unavailableAsset }
+        return ready.value(for: hash) // // crash program: dictionary read
+    }
 
     /// Local files of my own attachment (a draft or a send in flight).
     func useLocal(_ files: LocalAttachmentFiles, for hash: String) {
@@ -61,12 +83,24 @@ final class HomeMedia: @unchecked Sendable {
         guard local != nil || fetch != nil else { return }
         let maxPixel = Self.maxPixel(ref)
         let target = Self.directory.appendingPathComponent(hash.replacingOccurrences(of: "/", with: "_"))
+        let delays = retryDelays
         jobs[hash] = Task { [weak self] in
-            let file = await Self.load(ref, isVideo: kind == "video", local: local, fetch: fetch, maxPixel: maxPixel, to: target)
+            var file: URL?
+            // No wait before the first try, then each of `delays`.
+            for wait in [Duration.zero] + delays {
+                // Cancelled (never today: jobs are not cancelled) ends the tries.
+                if wait > .zero, (try? await Task.sleep(for: wait)) == nil { break }
+                file = await Self.load(ref, isVideo: kind == "video", local: local, fetch: fetch, maxPixel: maxPixel, to: target)
+                if file != nil { break }
+            }
             guard let self else { return }
             self.jobs[hash] = nil
-            guard let file else { self.failed.insert(hash); return }
-            self.ready.updateValue(file.absoluteString, forKey: hash) // // crash program: dictionary write
+            if let file {
+                self.ready.updateValue(file.absoluteString, forKey: hash) // // crash program: dictionary write
+            } else {
+                self.failed.insert(hash)
+            }
+            // Either way the rows showing it change: its picture, or a file card in place of the empty box.
             self.onReady(hash)
         }
     }
@@ -105,8 +139,17 @@ final class HomeMedia: @unchecked Sendable {
             if let image { return await write(image, to: target) }
         }
         guard let fetch else { return nil }
-        let url = isVideo ? try? await fetch(ref, .poster) : try? await fetch(ref, .thumbnail(maxPixel: maxPixel))
-        guard let url, let image = await decode(url, maxPixel: maxPixel) else { return nil }
+        if isVideo {
+            // The stored poster, else the first frame of the video itself (a sender that stores no
+            // poster, as the Chief: the bubble was a blank box with a play button).
+            if ref.poster != nil, let url = try? await fetch(ref, .poster), let image = await decode(url, maxPixel: maxPixel) {
+                return await write(image, to: target)
+            }
+            guard ref.byteCount <= frameSourceLimit, let movie = try? await fetch(ref, .original),
+                  let image = await videoFrame(movie, maxPixel: maxPixel) else { return nil }
+            return await write(image, to: target)
+        }
+        guard let url = try? await fetch(ref, .thumbnail(maxPixel: maxPixel)), let image = await decode(url, maxPixel: maxPixel) else { return nil }
         return await write(image, to: target)
     }
 
@@ -124,8 +167,10 @@ final class HomeMedia: @unchecked Sendable {
     }
 
     private nonisolated static func videoFrame(_ url: URL, maxPixel: Int) async -> CGImage? {
+        // The cache file may have no extension (a fetched original): the type comes from the bytes.
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
         generator.maximumSize = CGSize(width: maxPixel, height: maxPixel)
         return try? await generator.image(at: .zero).image
     }

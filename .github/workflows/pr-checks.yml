@@ -1,0 +1,417 @@
+name: PR checks
+
+# The feat-cmux-next pull request advisory checks, in one job on one runner: the review link, the Swift
+# logic report, the PR size check, the UI review advisory and the split-plan advisory. Each is a step of
+# the step table (ci/steps.toml, `job = "advisory"`, `blocks = false`, `class = "idle"`), run at once by
+# scripts/ci/ci_steps.py from the base commit's copy, never the pull request's code. None fails a pull
+# request: a failed or timed-out step is a warning annotation, and the job's name ends "(advisory)", which
+# landing tools read as never a pull request's own red. On a push it also runs the description lints (capture,
+# design spec, Performance table, cloud backend), which were pr-body-checks.yml's own job on every push (973 jobs
+# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a media-tour or
+# perf label, which this workflow does not take (a description edit re-lints at the next push). A docs-only push (the `paths:` below) gets no lints: none of them
+# judges a docs-only change.
+#
+# CI v2 step 6, "advisory steps leave the PR's machines" (cmuxterm-hq docs/design/ci-v2.md). They were six
+# jobs (base-only, link, swift-logic, size, ui-review, split) on every push: 24 h to 2026-11-21T12Z, 10,498
+# jobs and 9,754 runner-minutes, 7,132 of them split-plan's `git fetch --unshallow origin` of every branch,
+# which now fetches only the base and head commits' recent history. Leo, 2026-11-21: "we need to absolutely
+# get that f***ing CI V2, that Borg design up and running everywhere. Like as much as possible, as fast as
+# possible, as efficiently as possible".
+#
+# Every old job's conditions hold, now in the "Pick the steps" step: drafts run only split-plan (the rest
+# run when the pull request is marked ready); CI_QUOTA_HOLD=1 pauses the steps that spend the GITHUB_TOKEN
+# budget (link, Swift logic, PR size, UI review; tests/test_ci_quota_hold_gate.py); a fork pull request gets
+# no status comment lines (its token cannot write them); a description edit runs only PR size (a `Size:`
+# line moved) and UI review (its section or `Verdict:` line moved).
+#
+# Base-only updates: a push that only merged feat-cmux-next into the branch runs PR size alone; the other
+# answers stay the previous head's. On 2026-10-26, 19:30-19:55Z, 33 such updates started 523 runs, 214 of
+# them advisory, and every run spends from the one GITHUB_TOKEN budget. PR size runs on every push, a
+# base-only one included: it costs one API call, and a previous head's green run from before it could fail
+# (or that a later Size: edit changed) must not answer for it.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "docs/network-requirements.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
+
+# The base-only step reads the previous head's run by this title, which names the pull
+# request (two pull requests can share a head commit): an `edited` run
+# (PR size or UI review alone), a held one (CI_QUOTA_HOLD) or a draft's does not
+# answer for that head's other checks.
+run-name: "#${{ github.event.pull_request.number }} ${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
+
+permissions: {}
+
+# A push supersedes the previous push's run, which then reads as cancelled, so
+# a base-only push after it runs every check rather than keep answers that never
+# finished. A description edit that adds, changes or removes a `Size:` line or the
+# UI review section (all that PR size and UI review read) has its own group and never
+# cancels a push's run. Any other edit (a title, a base, the rest of the description)
+# starts no runner and takes a group of its own, so it cancels neither
+# (tests/test_ci_edit_events_start_no_runner.py).
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && ((github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:'))) || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push' }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  advisory:
+    name: PR checks (advisory)
+    # Every push-group event (each must answer for every check, since it can cancel another's run), and a
+    # description edit only when it added, changed or removed a `Size:` line, the UI review section or its
+    # `Verdict:` line (all PR size and UI review read) on a pull request that is not a draft, outside a
+    # CI_QUOTA_HOLD: any other edit starts no runner (tests/test_ci_edit_events_start_no_runner.py).
+    if: ${{ contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) || github.event.action == 'edited' && github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:') || contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    # It holds a pull-requests write token (the status comment lines), so a one-job VM only: a fork pull request
+    # Blacksmith, any other run the CI_TRUSTED_RUNNER selector (as the old ui-review and swift-logic jobs), never
+    # RUNNER_POOLS (its x64 pools lead with persistent machines). Not cmux-gcp-pr-control-jit-x64: on 2026-11-21 that
+    # label queued 1,860 jobs and this job waited on it 10+ min (cmux-next.yml's control jobs left it the same day).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Whether this push only merged the base, so the previous head's answers still hold. Any doubt
+      # (another event, a force push, a failed fetch or read, a conflict resolved by hand, a previous run
+      # that did not finish) answers false and every check runs. contents: read is all it needs: the
+      # repository is public, so the one run read below needs no Actions scope; a refused read answers false.
+      - name: Compare the new head with the previous one
+        id: decide
+        if: github.event.action == 'synchronize'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR: ${{ github.event.pull_request.number }}
+          REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -uo pipefail
+          decide() {
+            echo "base_only=$1" >> "$GITHUB_OUTPUT"
+            echo "$2" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          [ "$ACTION" = synchronize ] || decide false "A $ACTION event, not a push: every check runs."
+          case "$BEFORE" in ""|0000000000000000000000000000000000000000) decide false "No previous head: every check runs.";; esac
+          repo="$RUNNER_TEMP/base-only"
+          git init -q "$repo"
+          git -C "$repo" remote add origin "$REMOTE"
+          # Commits and trees only, back far enough to find where the previous head
+          # last met the base; the merge and the diffs below fetch only the blobs they read.
+          timeout 150 git -C "$repo" fetch -q --no-tags --filter=blob:none --shallow-since="4 days ago" origin \
+            "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
+            || decide false "Could not fetch the head and $BASE_REF: every check runs."
+          [ "$(git -C "$repo" rev-parse refs/remotes/pr/head)" = "$AFTER" ] || decide false "The branch moved past $AFTER: every check runs."
+          # The new head's parents: the previous head, then a commit on the base.
+          read -r first second extra <<<"$(git -C "$repo" rev-list --parents -n 1 "$AFTER" | cut -d' ' -f2-)"
+          if [ "${first:-}" != "$BEFORE" ] || [ -z "${second:-}" ] || [ -n "${extra:-}" ]; then
+            decide false "The head is not a merge onto the previous head: every check runs."
+          fi
+          git -C "$repo" merge-base --is-ancestor "$second" refs/remotes/origin/base \
+            || decide false "The merged commit is not on $BASE_REF: every check runs."
+          bases="$(git -C "$repo" merge-base --all "$BEFORE" "$second" 2>/dev/null || true)"
+          if [ -z "$bases" ] || [ "$(wc -l <<<"$bases")" -ne 1 ]; then
+            decide false "No single point where the previous head met $BASE_REF: every check runs."
+          fi
+          # That merge base is the real one only if the fetched history is whole above it:
+          # a commit whose parents the shallow fetch cut, reachable from either side but
+          # not from the merge base, could hide a newer common ancestor.
+          # The whole list is written out first, so a failed rev-list answers false.
+          git -C "$repo" rev-list "$BEFORE" "$second" --not "$bases" > "$RUNNER_TEMP/base-only.above" \
+            || decide false "Could not list the history above where the previous head met $BASE_REF: every check runs."
+          if [ -f "$repo/.git/shallow" ] && grep -qFxf "$repo/.git/shallow" "$RUNNER_TEMP/base-only.above"; then
+            decide false "The fetched history is cut above where the previous head met $BASE_REF: every check runs."
+          fi
+          # The new head is exactly the clean merge of the base into the previous head:
+          # nothing resolved or edited by hand.
+          merged="$(timeout 120 git -C "$repo" merge-tree --write-tree --no-messages "$BEFORE" "$second")" \
+            || decide false "Merging $BASE_REF into the previous head does not merge cleanly: every check runs."
+          [ "$merged" = "$(git -C "$repo" rev-parse "$AFTER^{tree}")" ] \
+            || decide false "The head is not the clean merge of $BASE_REF into the previous head: every check runs."
+          # And the pull request's own change is the same: no context, line numbers or blob
+          # ids, so a base that moved under unchanged hunks keeps it equal.
+          change() {
+            timeout 120 git -C "$repo" -c diff.renames=false diff -U0 --binary --no-color --no-ext-diff "$1" "$2" \
+              > "$RUNNER_TEMP/base-only.diff" || return 1
+            grep -vE '^(index |@@)' "$RUNNER_TEMP/base-only.diff" | sha256sum | cut -d' ' -f1
+          }
+          old="$(change "$bases" "$BEFORE")" || decide false "Could not diff the previous head: every check runs."
+          new="$(change "$second" "$AFTER")" || decide false "Could not diff the new head: every check runs."
+          [ "$old" = "$new" ] || decide false "The merge changed the pull request's own diff: every check runs."
+          # The previous head's answers exist: this pull request's newest push run at that
+          # head (not a description edit, a held run or a draft's; another pull request at
+          # the same commit does not count) finished green. One read, only for a base-only head.
+          case "$PR" in ""|*[!0-9]*) decide false "No pull request number: every check runs.";; esac
+          # gh's --jq takes no --arg: the number (digits only, checked above) goes in by substitution.
+          filter='[.workflow_runs[] | select(.display_title | startswith("#@PR@ "))
+                  | select(.display_title | test("^#[0-9]+ (opened|synchronize|reopened|ready_for_review):"))]
+                  | sort_by(.run_number) | last | if . == null then "none" else "\(.status)/\(.conclusion)" end'
+          previous="$(gh api "repos/$REPOSITORY/actions/workflows/pr-checks.yml/runs?head_sha=$BEFORE&event=pull_request&per_page=30" \
+            --jq "${filter//@PR@/$PR}")" \
+            || decide false "Could not read the previous head's run: every check runs."
+          [ "$previous" = "completed/success" ] \
+            || decide false "The previous head's run did not finish green ($previous): every check runs."
+          echo "::notice title=Base-only update::$AFTER only merged $BASE_REF; the advisory checks keep the previous head's answers."
+          decide true "$AFTER is the clean merge of $BASE_REF ($second) into $BEFORE, whose checks finished: the advisory checks are skipped."
+
+      # The steps this event runs, from the old jobs' conditions. Each is a word of the `steps` output, which
+      # the run step passes to ci_steps.py --only. tests/test_pr_checks_base_only.py runs this script on
+      # every combination.
+      - name: Pick the steps
+        id: pick
+        env:
+          ACTION: ${{ github.event.action }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HOLD: ${{ vars.CI_QUOTA_HOLD }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          BASE_ONLY: ${{ steps.decide.outputs.base_only }}
+          SIZE_EDIT: ${{ github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:')) && 'true' || 'false' }}
+          UI_EDIT: ${{ github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')) && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          picked=()
+          case "$ACTION" in
+            opened|synchronize|reopened|ready_for_review)
+              if [ "$BASE_ONLY" = true ]; then
+                # The previous head's answers hold for all but PR size.
+                picked=(pr-size)
+              else
+                picked=(review-link swift-logic pr-size ui-review split-plan)
+              fi
+              ;;
+            edited)
+              # Only what the edit moved; split-plan and the status lines read no description.
+              [ "$SIZE_EDIT" != true ] || picked+=(pr-size)
+              [ "$UI_EDIT" != true ] || picked+=(ui-review)
+              ;;
+          esac
+          keep=()
+          for step in "${picked[@]}"; do
+            case "$step" in
+              # A draft runs only split-plan; the rest run when it is marked ready (ready_for_review).
+              review-link|swift-logic|pr-size|ui-review) [ "$DRAFT" != true ] || continue ;;
+            esac
+            case "$step" in
+              # CI_QUOTA_HOLD=1 keeps the GITHUB_TOKEN budget for the nightly; the next push runs them.
+              review-link|swift-logic|pr-size|ui-review) [ "$HOLD" != 1 ] || continue ;;
+            esac
+            case "$step" in
+              # A fork pull request's token cannot write the status comment.
+              review-link|swift-logic) [ "$FORK" != true ] || continue ;;
+            esac
+            keep+=("$step")
+          done
+          # The description lints (pr-body-checks.yml's, until CI v2 step 6's second cut) on every push: on a
+          # draft, a base-only update, a fork and under CI_QUOTA_HOLD too, as they ran there (each reads the
+          # files API only when git could not list the paths). pr-body-checks.yml keeps the edits and labels.
+          case "$ACTION" in
+            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend) ;;
+          esac
+          echo "steps=${keep[*]}" >> "$GITHUB_OUTPUT"
+          echo "Steps for this ${ACTION} event: ${keep[*]:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Every script a step runs, the step table and its runner, from the base commit: a pull request never
+      # grades itself with its own copy. A step whose script the base lacks prints a notice and passes.
+      - name: Check out the advisory steps from the base
+        id: checkout
+        if: steps.pick.outputs.steps != ''
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            ci/steps.toml
+            scripts/ci/ci_steps.py
+            scripts/ci/pr_status.py
+            scripts/ci/pr_size.py
+            scripts/ci/pr_size_exclusions.json
+            scripts/ci/ui_review_advisory.py
+            scripts/cmux-next/check-pr-split.py
+            scripts/cmux-next/arch_counts.py
+            scripts/cmux-next/swift-logic-lines.py
+            scripts/cmux-next/swift-logic-delta.py
+            scripts/cmux-next/swift-logic-pr-status.py
+            scripts/ci/pr_capture_check.py
+            scripts/cmux-next/media/path_map.py
+            scripts/ci/pr_design_spec_check.py
+            .github/design-surfaces.json
+            scripts/ci/pr_perf_section_check.py
+            scripts/ci/pr_cloud_backend_check.py
+            .github/cloud-backend-paths.json
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      # The paths the description lints read, from the event's merge commit and its first parent (the base),
+      # in a scratch repository: trees only, no blobs, read as data and never run. Only the merge of this head
+      # counts. Each list is its own step with its own `listed` output, so one that fails costs only the steps
+      # that read it: capture and perf then read the files API, design spec and cloud backend skip.
+      # paths.txt: a rename as both paths; status.txt: each path with its status; tree.txt and
+      # design-surfaces.json: the merged tree and its surface map; capture-paths.txt: renames under the new name.
+      - name: List the changed paths
+        id: paths
+        if: contains(format(' {0} ', steps.pick.outputs.steps), ' design-spec ')
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          URL: ${{ github.server_url }}/${{ github.repository }}.git
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          git init -q "$repo"
+          git -C "$repo" remote add origin "$URL"
+          timeout 90 git -C "$repo" fetch --no-tags --no-recurse-submodules --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git -C "$repo" rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git -C "$repo" diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          git -C "$repo" diff --name-status --no-renames "$MERGE_SHA^1" "$MERGE_SHA" > "$RUNNER_TEMP/status.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: List the merged tree and its surface map
+        id: tree
+        if: steps.paths.outputs.listed == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          git -C "$repo" ls-tree -r --name-only "$MERGE_SHA" > "$RUNNER_TEMP/tree.txt"
+          git -C "$repo" show "$MERGE_SHA:.github/design-surfaces.json" > "$RUNNER_TEMP/design-surfaces.json" || true
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      # Last, since rename detection may fetch blobs.
+      - name: List the changed paths with renames
+        id: renames
+        if: steps.paths.outputs.listed == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          timeout 90 git -C "$repo" diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/capture-paths.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Restore this pull request's Swift facts cache
+        if: contains(format(' {0} ', steps.pick.outputs.steps), ' swift-logic ') && steps.checkout.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/swift-logic/objects.git/cmux-arch-counts
+          key: swift-logic-facts-${{ hashFiles('scripts/cmux-next/arch_counts.py', 'scripts/cmux-next/swift-logic-lines.py') }}-pr${{ github.event.pull_request.number }}
+          restore-keys: swift-logic-facts-${{ hashFiles('scripts/cmux-next/arch_counts.py', 'scripts/cmux-next/swift-logic-lines.py') }}-
+
+      # The picked steps of the step table, at once. Each one's failure or timeout is a warning annotation and
+      # the runner exits 0; the step is continue-on-error as well, for a runner that cannot start.
+      - name: Run the advisory steps
+        if: steps.pick.outputs.steps != ''
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+          URL: ${{ github.server_url }}/${{ github.repository }}.git
+          PR: ${{ github.event.pull_request.number }}
+          ACTION: ${{ github.event.action }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          MERGE_SHA: ${{ github.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+          PATHS_LISTED: ${{ steps.paths.outputs.listed }}
+          TREE_LISTED: ${{ steps.tree.outputs.listed }}
+          CAPTURE_LISTED: ${{ steps.renames.outputs.listed }}
+          FEED_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          PICKED: ${{ steps.pick.outputs.steps }}
+        run: |
+          set -euo pipefail
+          if [ "$CHECKOUT" != success ]; then
+            echo "::warning title=PR checks::could not check out the base's advisory steps; nothing measured"
+            exit 0
+          fi
+          if [ ! -f scripts/ci/ci_steps.py ] || [ ! -f ci/steps.toml ] || ! grep -q -- '--only' scripts/ci/ci_steps.py; then
+            # The pull request that moves these checks into the step table: its base has no table, or one
+            # whose runner cannot pick steps.
+            echo "::notice::The base branch has no step table with these steps yet; nothing to check."
+            exit 0
+          fi
+          python3 scripts/ci/ci_steps.py run --job advisory --only "$PICKED"

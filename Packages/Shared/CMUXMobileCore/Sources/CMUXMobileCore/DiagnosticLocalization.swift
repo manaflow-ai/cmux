@@ -4,60 +4,6 @@ import Foundation
 struct DiagnosticLocalization: Sendable {
     private final class BundleFinder {}
 
-    #if canImport(Darwin)
-    typealias DefaultValue = String.LocalizationValue
-    #else
-    /// swift-corelibs-foundation has no `String.LocalizationValue`. This keeps
-    /// its one behavior the English defaults rely on: an interpolated integer
-    /// is formatted for the resolving locale ("11,235 bytes", not "11235").
-    struct DefaultValue: ExpressibleByStringInterpolation, Sendable {
-        enum Segment: Sendable {
-            case text(String)
-            case integer(Int64)
-        }
-
-        struct StringInterpolation: StringInterpolationProtocol {
-            var segments: [Segment] = []
-
-            init(literalCapacity _: Int, interpolationCount _: Int) {}
-
-            mutating func appendLiteral(_ literal: String) {
-                segments.append(.text(literal))
-            }
-
-            mutating func appendInterpolation<T: BinaryInteger>(_ value: T) {
-                segments.append(.integer(Int64(clamping: value)))
-            }
-
-            mutating func appendInterpolation<T>(_ value: T) {
-                segments.append(.text("\(value)"))
-            }
-        }
-
-        let segments: [Segment]
-
-        init(stringLiteral value: String) {
-            segments = [.text(value)]
-        }
-
-        init(stringInterpolation: StringInterpolation) {
-            segments = stringInterpolation.segments
-        }
-
-        func resolved(locale: Locale) -> String {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.locale = locale
-            return segments.map { segment in
-                switch segment {
-                case let .text(text): text
-                case let .integer(value): formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-                }
-            }.joined()
-        }
-    }
-    #endif
-
     let locale: Locale
     private let bundle: Bundle
 
@@ -68,20 +14,14 @@ struct DiagnosticLocalization: Sendable {
 
     func string(
         _ key: StaticString,
-        defaultValue: DiagnosticLocalization.DefaultValue
+        defaultValue: String.LocalizationValue
     ) -> String {
-        #if canImport(Darwin)
         String(
             localized: key,
             defaultValue: defaultValue,
             bundle: bundle,
             locale: locale
         )
-        #else
-        // SwiftPM compiles .xcstrings catalogs only on Apple platforms, so
-        // Linux has no translations to look up: the English default is it.
-        defaultValue.resolved(locale: locale)
-        #endif
     }
 
     private static func bundle(for locale: Locale) -> Bundle {
@@ -110,12 +50,21 @@ struct DiagnosticLocalization: Sendable {
     /// whose package resources have moved. Keep the lookup optional so
     /// diagnostics fall back to their supplied English defaults instead of
     /// turning startup telemetry into a process-wide fatal error.
+    ///
+    /// The roots are the ones the synthesized accessor searches: the app's
+    /// resources, the bundle that holds this module (a framework), the app
+    /// bundle itself, and the directory that contains this module's bundle.
+    /// Under `swift test` the resource bundle sits beside the `.xctest`
+    /// bundle, so without that last root every localized string fell back to
+    /// English there.
     private static let packageResourceBundle: Bundle? = {
         let bundleName = "CMUXMobileCore_CMUXMobileCore"
+        let moduleBundle = Bundle(for: BundleFinder.self)
         let resourceRoots = [
             Bundle.main.resourceURL,
-            Bundle(for: BundleFinder.self).resourceURL,
+            moduleBundle.resourceURL,
             Bundle.main.bundleURL,
+            moduleBundle.bundleURL.deletingLastPathComponent(),
         ]
         for root in resourceRoots {
             guard let root else { continue }

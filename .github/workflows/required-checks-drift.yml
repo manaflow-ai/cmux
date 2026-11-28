@@ -41,10 +41,10 @@ on:
 permissions:
   contents: read
 
-# A pull request's newer push cancels its older run; scheduled and main runs are never cut short
-# (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: required-checks-drift-${{ github.ref }}
+  # A newer push to a pull request supersedes its run; scheduled and push runs
+  # on main still finish, since a red one there is the signal.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -54,9 +54,7 @@ env:
 jobs:
   reconcile:
     name: Reconcile required checks with GitHub
-    # The cmux-bot mint below holds an App key, so no variable may move this job to a reused machine
-    # (RUNNER_POOLS could): LINUX_RUNNER moves it only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Check out the reconciliation
@@ -64,29 +62,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # This job's reads spend the cmux-bot App's own budget, not the repository's GITHUB_TOKEN pool
-      # (1,000 requests an hour shared by every workflow; run 43989794349 failed on "API rate limit
-      # exceeded for installation"). github.token stays the fallback: for a failed mint, a
-      # refused read, and every write (hq docs/compendium/ci-quotas.md, cmux#35264).
-      # A same-repository pull request mints too: its run already holds this repository's secrets,
-      # and on github.token alone it went red on that rate limit (job 138835881733, PR #51718). A fork
-      # pull request holds no secret and stays on github.token.
-      - name: Mint the cmux-bot token for this job's reads
-        id: read-token
-        if: vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-checks: read
-          permission-contents: read
-          permission-pull-requests: read
-
       - name: Reconcile the required status checks on main
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
-          GH_FALLBACK_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: python3 scripts/ci/required_status_checks.py

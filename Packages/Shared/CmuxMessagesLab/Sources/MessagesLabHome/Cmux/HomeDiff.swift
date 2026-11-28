@@ -22,9 +22,17 @@ import Foundation
 /// - anything MessagesLab has no action for (a removed message, content that
 ///   changed in place, a bulk refetch): `rebuild`, the whole window without
 ///   animation, keeping the scroll position.
+/// - a new message that sorts before a row the projection already shows (the
+///   owner committed it before my pending send, or a posted reply that is not
+///   the newest row): the reducer only appends, so this is a `rebuild` in the
+///   store's order (plans/cmux-next/home-chat-pipeline-DESIGN.md, B1 and B2).
+///   The projection never shows an order the store does not have.
 struct HomeDiff: Equatable {
     var actions: [Action] = []
     var rebuild = false
+    /// Where the running replies' posted messages go among `actions` (their streams'
+    /// `.streamEnd(replacedBy:)` are dispatched there, in transcript order).
+    var handOffAt: Int?
 
     static func == (a: HomeDiff, b: HomeDiff) -> Bool {
         a.rebuild == b.rebuild && a.actions.map(describe) == b.actions.map(describe)
@@ -36,20 +44,23 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil }) -> HomeDiff {
+                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil },
+                     handOff: Set<IdempotencyKey> = [], opening: Bool = false) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
+        // The first page of a chat whose view opened before it came (a chat picked in the list) shows at
+        // once at its newest message, as Messages does: as receives its rows slid up into place, which
+        // reads as the chat scrolling to the bottom (the user, 2026-11-03). That holds for messages that
+        // arrive while the page is read too (`opening`). My own sends still fly in.
+        if old.isEmpty || opening, new.contains(where: { oldIndex[$0.key] == nil && aliases[$0.key] == nil }) {
+            d.rebuild = true; return d
+        }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
         let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
-        // cmux-classic: runs of tool calls (ChiefRows.roles): a run's first message shows them all.
-        let roles = ChiefRows.roles(new), oldRoles = ChiefRows.roles(old)
-        func role(_ i: TranscriptItem) -> ChiefRows.ToolRole { roles.value(for: i.key) ?? .other } // // crash program: dictionary read
-        func msg(_ i: TranscriptItem) -> Message {
-            HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots, role: role(i))
-        }
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
         var head = 0
@@ -58,28 +69,81 @@ struct HomeDiff: Equatable {
         if !page.isEmpty { d.actions.append(.prependPage(page.map(msg))) }
 
         let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
-        if added.count > bulk { d.rebuild = true; return d }
+        if added.count > bulk || added.contains(where: \.isReadOnly) { d.rebuild = true; return d }
+        // The order the projection will have after these actions: the page, the rows it shows, my
+        // sends flying in it (appended at the press), then each `.receive` appended in turn, with the
+        // posted replies of running streams all where the first of them is (`handOffAt`). Any other
+        // order than the store's is a rebuild.
+        if !orderHolds(old: old, new: new, head: head, aliases: aliases, handOff: handOff) { d.rebuild = true; return d }
+
+        // A reply's thread place is a function of the reply, the messages it names and their authors'
+        // kinds: when none of those changed it is the same, and its root needs no mapping.
+        let samePeople = oldSummary?.participants == newSummary?.participants
+        let oldByMessage = byMessage(old), newByMessage = byMessage(new)
+        func samePlace(_ was: TranscriptItem, _ item: TranscriptItem) -> Bool {
+            guard samePeople, was == item else { return false }
+            return [item.threadRoot, item.replyTo?.message].allSatisfy { named in
+                named.map { oldByMessage.value(for: $0) == newByMessage.value(for: $0) } ?? true
+            }
+        }
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
-                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
-                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
-                let shown = Shown(oldRole: oldRoles.value(for: was.key) ?? .other, newRole: role(item), media: media, links: links) // // crash program: dictionary read
-                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), shown: shown,
-                              into: &d) else {
+                // A shown reply whose thread or parent changed (its root or parent paged in or out, or was retracted): MessagesLab has no action for it.
+                guard samePlace(was, item)
+                    || (HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots)
+                        && HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots)) else { d.rebuild = true; return d }
+                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
             } else if aliases[item.key] != nil {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
+                // Reply to Selection: the flying bubble has the quote's text; the stored reply adds its style.
+                if item.parts.contains(where: { if case let .text(t, _) = $0 { return ReplyQuote.split(t) != nil } else { return false } }) {
+                    d.actions.append(.cmuxSetParts(id(item), msg(item).parts))
+                }
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
-            } else {
+            } else if !handOff.contains(item.key) {
                 d.actions.append(.receive(msg(item)))
+            } else if d.handOffAt == nil {
+                d.handOffAt = d.actions.count // the running replies' streams take them in place (ProjectionCore.streams)
             }
         }
         d.keepNewestStatus()
         return d
+    }
+
+    /// The items by their owner message id (the last one wins, as `HomeMapping.roots(in:)` indexes them).
+    private static func byMessage(_ items: [TranscriptItem]) -> [MessageID: TranscriptItem] {
+        var out: [MessageID: TranscriptItem] = [:]
+        for item in items { if let mid = item.messageID { out.updateValue(item, forKey: mid) } }
+        return out
+    }
+
+    /// True when appending the new rows (`.receive`, the streams' hand-offs) leaves the projection in `new`'s order.
+    private static func orderHolds(old: [TranscriptItem], new: [TranscriptItem], head: Int,
+                                   aliases: [IdempotencyKey: ID], handOff: Set<IdempotencyKey>) -> Bool {
+        let shownKeys = Set(old.map(\.key))
+        var projected = new.prefix(head).filter { !shownKeys.contains($0.key) && aliases[$0.key] == nil }.map(\.key)
+        projected += old.map(\.key)
+        // My sends that fly in the projection but were not in the last snapshot: after it, in the order I made them.
+        projected += new.filter { !shownKeys.contains($0.key) && aliases[$0.key] != nil }.map(\.key)
+        var handOffs: [IdempotencyKey] = []
+        var appended: [IdempotencyKey] = []
+        var handOffAt: Int?
+        for item in new.dropFirst(head) where !shownKeys.contains(item.key) && aliases[item.key] == nil {
+            if handOff.contains(item.key) {
+                if handOffAt == nil { handOffAt = appended.count }
+                handOffs.append(item.key)
+            } else {
+                appended.append(item.key)
+            }
+        }
+        if let handOffAt { appended.insert(contentsOf: handOffs, at: handOffAt) }
+        projected += appended
+        return projected == new.map(\.key)
     }
 
     /// One read cursor moves every older message of mine to read at once;
@@ -92,52 +156,27 @@ struct HomeDiff: Equatable {
         for i in statuses.dropLast().reversed() { actions.remove(at: i) }
     }
 
-    /// How a message's parts are projected on each side (its tool roles, pictures and link cards).
-    struct Shown {
-        var oldRole: ChiefRows.ToolRole
-        var newRole: ChiefRows.ToolRole
-        var media: HomeMapping.Media
-        var links: HomeMapping.Links
-    }
-
     /// Actions for one shown message; false when MessagesLab cannot express it.
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
-                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, shown: Shown, into d: inout HomeDiff) -> Bool {
-        if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
+                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
+        if !o.isRetracted, n.isRetracted {
+            // A Chief chat drops the row (Delete, #36019); elsewhere Messages' unsend note.
+            d.actions.append(HomeMapping.hidesRetracted(newSummary, me: me) ? .delete(id) : .unsend(id))
+            return true
+        }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
-        let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
-        if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
+        // Mapped only for an edit: mapping both sides of every shown row on each store change
+        // stalled NIGHTLY's main thread for up to 418 ms (HomeDiffCostTests).
+        func split() -> Bool { owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count }
+        if o.editedAt != n.editedAt, !n.isRetracted, !split(), let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
             d.actions.append(.edit(id, text))
-        } else if o.parts != n.parts || shown.oldRole != shown.newRole {
-            // cmux-classic: a tool row or approval card changed in place (a call finished, a run grew,
-            // an approval was answered): MessagesLab's `.setCustomPart`, the row animates. Anything
-            // else that changed in place is a rebuild, as before.
-            let a = HomeMapping.projectedParts(o, summary: oldSummary, media: shown.media, links: shown.links, role: shown.oldRole).parts
-            let b = HomeMapping.projectedParts(n, summary: newSummary, media: shown.media, links: shown.links, role: shown.newRole).parts
-            if case .folded = shown.oldRole, case .folded = shown.newRole {
-                // A later call of a run: its change shows in the run's first message.
-            } else {
-                guard customChanges(from: a, to: b, id: id, rawChanged: o.parts != n.parts, into: &d) else { return false }
-            }
+        } else if o.parts != n.parts {
+            return false
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
         if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
-        return true
-    }
-
-    /// `.setCustomPart` for each hosted part that changed; false when another part changed, the
-    /// part count changed, or the raw parts changed with nothing to show for it (a rebuild).
-    static func customChanges(from a: [Part], to b: [Part], id: ID, rawChanged: Bool, into d: inout HomeDiff) -> Bool {
-        guard a.count == b.count else { return false }
-        var found: [Action] = []
-        for (i, (x, y)) in zip(a, b).enumerated() where x != y {
-            guard case .custom = x, case let .custom(c) = y else { return false }
-            found.append(.setCustomPart(id, i, c))
-        }
-        if found.isEmpty && rawChanged { return false }
-        d.actions += found
         return true
     }
 
@@ -184,7 +223,6 @@ struct HomeDiff: Equatable {
         case let .react(ref, kind, by): return "react \(ref.messageId):\(ref.partIndex) \(kind) \(by ?? "-")"
         case let .unsend(id): return "unsend \(id)"
         case let .edit(id, text): return "edit \(id) \(text)"
-        case let .setCustomPart(id, pi, part): return "custom \(id):\(pi) \(part.kind) v\(part.version)"
         default: return "\(a)"
         }
     }

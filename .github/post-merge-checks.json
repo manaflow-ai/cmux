@@ -1,0 +1,266 @@
+{
+  "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system.",
+  "merge_tier": {
+    "about": "CI v2 merge tiers (cmuxterm-hq docs/rfd/0013-ci-v2.md). With switch on, merge_hold and next-autoland do not wait for a queued or running check of a post_merge workflow on a pull request into feat-cmux-next; a finished red of one still holds the merge. Each one also runs after the merge (after_merge), where the base-red watch names the owner of a red, who reverts or fixes forward. switch off: every check holds the merge until it finishes, as before. Switched on 2026-11-21 under Leo's \"id rather we simply cut shit now and revisit later\"; revert that one line to switch off.",
+    "switch": "on",
+    "post_merge": {
+      "cmux-tui-spec.yml": {
+        "workflow": "cmux-tui spec inventory",
+        "after_merge": "the post-merge batch runs suite cmux-tui-spec, same paths; every job a pull request runs (changes, acpmux tests) also runs there",
+        "why": "the last check on 13 of 233 pull requests, done p90 59 min after the push with job queue p90 68 min and job runtime p90 11 min (cmuxterm-hq docs/rfd/0045-landing-tail.md, 290 merged PRs 2026-11-19 to 11-22)"
+      },
+      "gallery-health.yml": {
+        "workflow": "gallery health",
+        "after_merge": "the post-merge batch runs suite gallery-health, same paths",
+        "why": "renders gallery states; a display check no ruleset requires, base reds already warn"
+      },
+      "cmux-next-media.yml": {
+        "workflow": "cmux-next media",
+        "after_merge": "push to nightly-next tours every merge since the last nightly tip",
+        "why": "Mac tour captures for the PR comment; not a required check, holds an owned gui Mac up to two hours"
+      },
+      "cmux-next-hot-verify.yml": {
+        "workflow": "cmux-next hot verify",
+        "after_merge": "pull_request closed looks at the merge commit",
+        "why": "the look posts screenshots and a video; its header says advisory, never gates a merge"
+      },
+      "rust-workspaces.yml": {
+        "workflow": "rust workspaces",
+        "after_merge": "the post-merge batch (.github/post-merge-batch.json suite rust-workspaces)",
+        "why": "a suite of .github/post-merge-batch.json; done p90 196 min after the push, over 30 min on 45 of 161 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-tui-windows-check.yml": {
+        "workflow": "cmux-tui Windows check",
+        "after_merge": "the post-merge batch (.github/post-merge-batch.json suite cmux-tui-windows-check)",
+        "why": "a suite of .github/post-merge-batch.json; runs on scarce Windows runners (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-tui-sdks.yml": {
+        "workflow": "cmux-tui SDKs",
+        "after_merge": "the post-merge batch runs suite cmux-tui-sdks, same paths",
+        "why": "runs again on the push to feat-cmux-next for the same paths (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "test-ios.yml": {
+        "workflow": "iOS simulator tests",
+        "after_merge": "push to feat-cmux-next",
+        "why": "runs again on the push to feat-cmux-next, on simulator Macs (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "signing-keychain-macos.yml": {
+        "workflow": "Signing keychain (macOS)",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "runs again on the push to feat-cmux-next for the same paths, on an owned Mac (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-next-react-doctor.yml": {
+        "workflow": "cmux-next React Doctor",
+        "after_merge": "push to feat-cmux-next",
+        "why": "runs again on the push to feat-cmux-next; done p90 52 min after the push for a one-minute job, over 30 min on 38 of 236 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      },
+      "cmux-next-tab-switch.yml": {
+        "workflow": "cmux-next tab switch (advisory)",
+        "after_merge": "push to feat-cmux-next, same paths",
+        "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+      }
+    }
+  },
+  "workflows": {
+    "app-ffi-release.yml": {
+      "kind": "publish",
+      "why": "publishes the app FFI release from the base"
+    },
+    "app-ffi-repin.yml": {
+      "kind": "publish",
+      "why": "a bot that re-pins the app FFI after a release"
+    },
+    "app-store-shelf-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the App Store shelf check's Cargo build cache seed from the base"
+    },
+    "chief-evals.yml": {
+      "kind": "check",
+      "why": "Chief evals on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
+    },
+    "cloud-devbox-image-rebake.yml": {
+      "kind": "publish",
+      "why": "rebakes the Cloud devbox image after its inputs land"
+    },
+    "cloud-harness-matrix.yml": {
+      "kind": "publish",
+      "why": "a start matrix on live staging machines, run by its request file, not of the change"
+    },
+    "cloud-probes.yml": {
+      "kind": "publish",
+      "why": "request-file probes of live staging and development machines, not checks of the change"
+    },
+    "cloud-staging-test-sweep.yml": {
+      "kind": "publish",
+      "why": "deletes the staging test account's leftover machines, not a check of the change"
+    },
+    "cloud-journey-teammate.yml": {
+      "kind": "publish",
+      "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
+    },
+    "cmux-machine-channel-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes a Cargo build cache seed from the base"
+    },
+    "cmux-next-hourly-full-tier.yml": {
+      "kind": "publish",
+      "why": "dispatches full-tier suites on merged commits and reports failures to their owners"
+    },
+    "pinned-files-mirror.yml": {
+      "kind": "publish",
+      "why": "publishes the pinned file blobs to the download mirror"
+    },
+    "platform-fleet-inventory.yml": {
+      "kind": "publish",
+      "why": "posts the fleet's GCE and Freestyle VM lists to cmux-platform-production's inventory route; its push trigger only registers the workflow (#56642), a publication and not a verdict on a change"
+    },
+    "cloud-vm-image-graduate.yml": {
+      "kind": "publish",
+      "why": "a bot: a request file starts a report of the names people added to Cloud VM images, read from the live platform"
+    },
+    "cloud-vm-image-roll.yml": {
+      "kind": "publish",
+      "why": "rolls the Cloud VM image after its inputs land"
+    },
+    "cmux-art-publish.yml": {
+      "kind": "publish",
+      "why": "publishes art assets from the base"
+    },
+    "cmux-browser-host-chromium.yml": {
+      "kind": "publish",
+      "why": "builds and publishes the Chromium host from the base"
+    },
+    "cmux-browser-host-release.yml": {
+      "kind": "publish",
+      "why": "publishes the browser host release from the base"
+    },
+    "cmux-duress.yml": {
+      "kind": "check",
+      "why": "duress scenarios on each base head, compared with the previous base push's numbers (#51030); a pull request has no previous push to compare"
+    },
+    "cmux-mobile-ffi.yml": {
+      "kind": "check",
+      "why": "mobile FFI build on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
+    },
+    "cmux-next-base-autofix.yml": {
+      "kind": "publish",
+      "why": "a bot that repairs mechanical reds by committing on the base"
+    },
+    "cmux-next-base-linux.yml": {
+      "kind": "check",
+      "why": "reruns the step table's linux and web-browser jobs, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391) and give base_red_excuse.py their base verdicts; report-only"
+    },
+    "cmux-next-base-tier-kick.yml": {
+      "kind": "publish",
+      "why": "a scheduler: dispatches the base Mac tier at most every 15 minutes and cancels superseded runs; the checks it starts run on the pull request or in the post-merge batch"
+    },
+    "cmux-next-chromium-staleness.yml": {
+      "kind": "publish",
+      "why": "reports how stale the Chromium pin is; no verdict on a change"
+    },
+    "cmux-next-dev-kick.yml": {
+      "kind": "publish",
+      "why": "starts the DEV build for a landing"
+    },
+    "cmux-next-fast-tier-seed.yml": {
+      "kind": "publish",
+      "why": "seeds the fast tier's cache from the base"
+    },
+    "cmux-next-generated-catch-up.yml": {
+      "kind": "publish",
+      "why": "a bot that regenerates files on the base"
+    },
+    "cmux-next-head-compile.yml": {
+      "kind": "publish",
+      "why": "a bot: compiles the merged head, bisects a red one and opens the issue naming the merge; each pull request compiles its own merge commit, and only a post-merge run can see the skew between merges"
+    },
+    "cmux-next-package-deps-heal.yml": {
+      "kind": "publish",
+      "why": "a bot that heals package dependency pins on the base"
+    },
+    "cmux-next-payload-advisories.yml": {
+      "kind": "publish",
+      "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
+    },
+    "cmux-next-tab-switch.yml": {
+      "kind": "publish",
+      "why": "advisory tab-switch timing on exclusive display Macs, GATE_MODE report, never a verdict on a change (#48515); it needs a fleet display Mac no pull request step reaches"
+    },
+    "cmux-next-terminal.yml": {
+      "kind": "check",
+      "why": "terminal checks on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
+    },
+    "cmux-next-web-bundle-publish.yml": {
+      "kind": "publish",
+      "why": "publishes the web bundle from the base"
+    },
+    "cmux-next-web-lint.yml": {
+      "kind": "publish",
+      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
+    },
+    "cmux-rd-windows.yml": {
+      "kind": "check",
+      "why": "cmux-rd Windows build on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
+    },
+    "cmux-tui-artifacts.yml": {
+      "kind": "publish",
+      "why": "publishes the tree and writes its daemon-tests marker that the feat channel requires; the same cmux_next_ daemon tests run on the pull request (ci/steps.toml cmux-next-daemon-tests)"
+    },
+    "cmux-tui-headless-debug.yml": {
+      "kind": "publish",
+      "why": "publishes the headless debug daemon from the base"
+    },
+    "cmux-tui-team-signed.yml": {
+      "kind": "publish",
+      "why": "its push run only registers the workflow (every job skips); its dispatches sign and publish a landed tree"
+    },
+    "cmux-tui-tree-request.yml": {
+      "kind": "publish",
+      "why": "requests a cmux-tui tree publish for a landing"
+    },
+    "fleet-rd-host-macos.yml": {
+      "kind": "check",
+      "why": "cmux-rd-host macOS checks on a fleet Mac once per 2-hour window on the base tip, not per pull request (#49774); advisory"
+    },
+    "fresh-chief-eval.yml": {
+      "kind": "publish",
+      "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
+    },
+    "gateway-e2e.yml": {
+      "kind": "publish",
+      "why": "a manual trip against the live development backend with its stack credentials, started only by an edit of .github/gateway-e2e/request or a dispatch; a probe of a live system"
+    },
+    "git-mirror-bundle.yml": {
+      "kind": "publish",
+      "why": "publishes the git mirror bundle the fleet clones from"
+    },
+    "ios-link-ffi-cache-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's CmuxMobileLinkFFI.xcframework Actions cache entry that pull request runs read (Actions caches only flow from the base branch); no verdict on a change: the kit's bindings drift check runs on the pull request (cmux-next-ios-kit.yml kit-tests)"
+    },
+    "ios-internal-nightly-trigger.yml": {
+      "kind": "publish",
+      "why": "starts the iPhone internal build for a landing"
+    },
+    "mobile-worker-dev-deploy.yml": {
+      "kind": "publish",
+      "why": "deploys the mobile Worker to development"
+    },
+    "mobile-worker-prod-deploy.yml": {
+      "kind": "publish",
+      "why": "deploys the mobile Worker to production on a request file"
+    },
+    "pair-machine-join-check.yml": {
+      "kind": "publish",
+      "why": "a probe of the live production Workers' secrets and logs with Cloudflare credentials, started by an edit of its own file or a dispatch; no verdict about a change"
+    },
+    "platform-billing-test-secrets.yml": {
+      "kind": "publish",
+      "why": "puts the Stripe test key and reported teams on the cmux-platform Workers; a deploy of secrets, no verdict about a change"
+    },
+    "whats-new-gallery.yml": {
+      "kind": "publish",
+      "why": "publishes the What's New gallery pictures"
+    }
+  }
+}

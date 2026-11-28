@@ -20,7 +20,6 @@ ios/Config/AppStoreConnect.local.plist
 .ci-source-packages/
 .ci-reload-derived-data/
 .glaeda/
-.app-token-spread/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
@@ -52,9 +51,9 @@ tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
 
-# Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
-# still have an untracked mux/target that must never be committed again)
-/mux/
+# Stale pre-rebrand Rust TUI build dir (renamed to cmux-tui/; old checkouts may
+# still have an untracked mux/target). mux/ itself is the mux brain host.
+/mux/target/
 
 # Generated docs search index
 web/.pagefind-site/
@@ -69,10 +68,8 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
-!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/
-!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/*.swift
-!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/
-!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/*.swift
+# ...except the Artifacts page's source.
+!/webviews/src/pages/artifacts/
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
@@ -81,5 +78,95 @@ tmux-*.log
 /testbox-benchmark/
 /.cmux-scratch/
 
-# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
-Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
+# Local-only prototype and deploy state
+/Prototypes/*-clone/
+/.cloudflare/
+
+# The settings export stamp is derived, never committed (Leo 2026-10-21):
+# scripts/ci/defaults_guard.py source-stamp --ref REF prints it for any commit.
+/schemas/settings-export/
+# The cmux-next web bundle stamp (scripts/cmux-next/build-web-bundles.sh).
+/.web-bundles.key
+/.web-bundles.key.tmp
+# The cmux-next web bundles: build output of scripts/cmux-next/build-web-bundles.sh
+# (cx-vn5). Each resource directory keeps its GENERATED.md placeholder.
+/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md
+/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/GENERATED.md
+/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
+!/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
+/Resources/markdown-viewer/webviews-app/
+# The App Store packages the app bundles (samples/apps and first-party-apps with a STORE marker):
+# build output of scripts/cmux-next/sync-app-runtime.sh --store, which build-web-bundles.sh runs.
+/Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/
+# The settings Swift: the SettingsSchemaPlugin build-tool plugin writes it into its work directory from
+# schemas/settings (gen-settings-sources.py --swift-out, RFD 0048); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/*.generated.swift
+# The backdrop art records: the BackdropArtEntriesPlugin build-tool plugin writes them into its work directory
+# from art/manifest.json (generate_backdrop_art.py --entries-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift
+/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift
+# The Swift design scale: the DesignScalePlugin build-tool plugin writes it into its work directory from
+# schemas/design-scale (gen-design-scale-swift.py --swift-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift
+# enum DaemonCapability: DaemonCapabilitiesPlugin writes it into its work directory from
+# cmux-tui/spec/gui-capabilities.json (gen-daemon-capabilities.py --swift-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCapability.generated.swift
+# The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
+# by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
+# (#21946). Committed copies collided in every pull request that touched a catalog.
+/webviews/src/**/generated/strings.json
+/webviews/src/ui/featureTips/tips.generated.json
+/webviews/src/ui/instrument.generated.css
+/webviews/src/ui/theme.generated.css
+/webviews/src/ui/designTokens.generated.ts
+/webviews/src/pages/home-channels/generated/pane-strings.json
+/webviews/src/pages/changelog/generated/pane-strings.json
+/webviews/src/pages/settings/generated/pane-strings.json
+/webviews/src/pages/diff/generated/locales/
+/webviews/src/pages/diff/generated/localeLoaders.ts
+/webviews/src/**/generated/*.tmp
+# The pane and acpmux protocol types: build output of webviews/scripts/pane-protocol-codegen.ts and
+# acpmux-protocol-codegen.ts from the committed IR, written by the same runs as the strings tables
+# (RFD 0045: committed copies went stale whenever the IR changed without a rerun).
+/webviews/src/protocol/generated/
+/webviews/src/agent-session/acpmux/protocol/generated/
+
+# nested-groups prototype gallery output
+Packages/macOS/CmuxNext/mac-screen-devices-gallery/
+Packages/macOS/CmuxNext/mac-screen-devices-gallery.tar
+Packages/macOS/CmuxNext/nested-groups-gallery/
+Packages/macOS/CmuxNext/nested-groups-gallery.tar
+Packages/macOS/CmuxNext/point-at-element-gallery/
+Packages/macOS/CmuxNext/point-at-element-gallery.tar
+Packages/macOS/CmuxNext/group-line-gallery/
+Packages/macOS/CmuxNext/group-line-gallery.tar
+Packages/macOS/CmuxNext/left-bar-gallery/
+Packages/macOS/CmuxNext/left-bar-gallery.tar
+Packages/macOS/CmuxNext/leading-column-gallery/
+Packages/macOS/CmuxNext/leading-column-gallery.tar
+Packages/macOS/CmuxNext/ws-no-color-gallery/
+Packages/macOS/CmuxNext/ws-no-color-gallery.tar
+Packages/macOS/CmuxNext/group-header-gallery/
+Packages/macOS/CmuxNext/group-header-gallery.tar
+Packages/macOS/CmuxNext/machine-link-gallery/
+Packages/macOS/CmuxNext/machine-link-gallery.tar
+Packages/macOS/CmuxNext/sidebar-look-gallery/
+Packages/macOS/CmuxNext/sidebar-look-gallery.tar
+Packages/macOS/CmuxNext/no-color-group-gallery/
+Packages/macOS/CmuxNext/no-color-group-gallery.tar
+Packages/macOS/CmuxNext/machines-section-gallery/
+Packages/macOS/CmuxNext/machines-section-gallery.tar
+Packages/macOS/CmuxNext/usage-warning-gallery/
+Packages/macOS/CmuxNext/usage-warning-gallery.tar
+
+# Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
+.metadata_never_index
+
+# The extension SDK's customize types: every build of cmux-extension-sdk writes them from
+# cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
+/cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
+
+# Written at test time by TwoToneTests (cmux-config two_tone::fixture); never committed.
+/schemas/settings/two-tone-fixture.json

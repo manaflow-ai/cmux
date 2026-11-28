@@ -1,0 +1,1056 @@
+# Builds the app's ONE Rust library, CCmuxAppFFI.xcframework
+# (cmux-tui/crates/cmux-app-ffi: the remote desktop core, the sidebar layout
+# reducer and the cmux-motion C ABIs over one Rust runtime, macOS arm64; see
+# scripts/cmux-next/build-app-ffi.sh), a dynamic library the app carries at
+# Contents/Frameworks/libcmux_app_ffi.dylib, and publishes it as a prerelease in this
+# repository, tagged cmux-app-ffi-<full commit sha>.
+# Packages/macOS/CmuxNext/app-ffi-pin.json pins one release by URL and SwiftPM
+# checksum (Package.swift reads it at manifest time), so every build (app,
+# tests, release, nightly) links the same FFI.
+#
+# ARM64 ONLY (Leo, 2026-11-25: "i thought we were already skipping intel"): every push and every
+# ordinary dispatch builds, publishes and pins the arm64 slice alone. feat-cmux-next ships no Intel
+# app: nightly-next compiles arm64 only (nightly.yml decide), cmux NEXT Stable re-signs a nightly-next
+# build, and the pull request Release check is arm64 (ci-macos.yml release-archs). The x86_64 slice
+# doubled the Rust build of every FFI push for nothing. A stable release that ships Intel dispatches
+# this workflow with universal=true: that run builds arm64 + x86_64 and uploads the universal
+# xcframework as this run's artifact (30 days), and publishes no release and re-pins nothing (the
+# commit's cmux-app-ffi tag is immutable and holds the arm64 archive).
+#
+# Publishing runs only for a push to feat-cmux-next or a manual dispatch from
+# that ref. A release is never overwritten: an existing tag must carry the
+# same archive checksum, or the run fails. Releases are prereleases with
+# make_latest=false, and the run fails if the repository's latest release
+# ever points at an FFI tag. scripts/cmux-next/check-app-ffi-pin.sh fails CI
+# when the FFI sources change without a new pin.
+#
+# TOKEN: GITHUB_TOKEN may not create a cmux-app-ffi-* tag (run 37272232472,
+# HTTP 403): ruleset 24624526 admits only admins and the FFI release App
+# (manaflow-cmux-ffi-release, used for nothing else). The publish job runs in
+# the `ffi-release` environment (deployment policy: feat-cmux-next only),
+# which holds the App's CMUX_FFI_RELEASE_APP_ID and CMUX_FFI_RELEASE_APP_KEY. It mints a token for this
+# repository only, with contents:write, plus workflows:write only when the
+# tagged tree's .github/workflows differs from the default branch tip, their
+# merge-base or the last FFI tag (see the workflow-delta step), and only the
+# release create uses it.
+# Ruleset 24624527 keeps the tags immutable for everyone, the App included.
+#
+# FAIL-LOUD: the publish job never reports success without the release. When
+# it cannot create it (no App token, an HTTP 403, or a create that publishes
+# nothing, as in run 37556534995), it fails with "Publish by hand" and the
+# exact commands (HAND_PUBLISH). Publishing by hand, with its checks, is the
+# only other path: docs/ci/app-ffi-release.md is the runbook.
+#
+# The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
+# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs),
+# less each crate's tests/, benches/ and examples/ (--list-excluded: Cargo never
+# builds them into the library), except one a library file names (re-added
+# after the exclusions); scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+# keeps them in step.
+name: app FFI release
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/acpmux-client/**"
+      - "cmux-tui/crates/acpmux-list-types/**"
+      - "cmux-tui/crates/cmux-app-ffi/**"
+      - "cmux-tui/crates/cmux-action-catalog/**"
+      - "cmux-tui/crates/cmux-agent-pane-policy/**"
+      - "cmux-tui/crates/cmux-background-ready/**"
+      - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
+      - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-disk/**"
+      - "cmux-tui/crates/cmux-cloud-environment/**"
+      - "cmux-tui/crates/cmux-cloud-handlers/**"
+      - "cmux-tui/crates/cmux-cloud-machine/**"
+      - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-tab-discard/**"
+      - "cmux-tui/crates/cmux-browser-rules/**"
+      - "cmux-tui/crates/cmux-cloud-tasks/**"
+      - "cmux-tui/crates/cmux-config/**"
+      - "cmux-tui/crates/cmux-home-rules/**"
+      - "cmux-tui/crates/cmux-cookie-sync/**"
+      - "cmux-tui/crates/cmux-daemon-conn-core/**"
+      - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-update-prewarm-core/**"
+      - "cmux-tui/crates/cmux-health-core/**"
+      - "cmux-tui/crates/cmux-launch-image/**"
+      - "cmux-tui/crates/cmux-pane-pictures/**"
+      - "cmux-tui/crates/cmux-chat-markdown/**"
+      - "cmux-tui/crates/cmux-acpmux-remote-wire/**"
+      - "cmux-tui/crates/cmux-screenshots/**"
+      - "cmux-tui/crates/cmux-focus-core/**"
+      - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-keymap/**"
+      - "schemas/keymap/key-styles.json"
+      - "cmux-tui/crates/cmux-launch-record/**"
+      - "cmux-tui/crates/cmux-launch-shell/**"
+      - "cmux-tui/crates/cmux-layout-cache/**"
+      - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-lifeline/**"
+      - "cmux-tui/crates/cmux-local-auth/**"
+      - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-error-journal/**"
+      - "cmux-tui/crates/cmux-palette-ranker/**"
+      - "cmux-tui/crates/cmux-process/**"
+      - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-interactivity/**"
+      - "cmux-tui/crates/cmux-wallpaper/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-engine/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-sdk-ffi/**"
+      - "cmux-tui/crates/cmux-sign-clone-sweep/**"
+      - "cmux-tui/bindings/rust/**"
+      - "cmux-tui/crates/cmux-remote-browser/**"
+      - "cmux-tui/crates/cmux-tasks-core/**"
+      - "cmux-tui/crates/cmux-terminal-prediction/**"
+      - "cmux-tui/crates/cmux-url-input/**"
+      - "cmux-tui/crates/cmux-unix-socket/**"
+      - "cmux-tui/crates/cmux-window-rules/**"
+      - "cmux-tui/crates/cmux-message-preview/**"
+      - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-share-approval/**"
+      - "cmux-tui/crates/cmux-vnc/**"
+      # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
+      - "cmux-tui/crates/cmux-app-host/**"
+      - "cmux-tui/crates/cmux-egress/**"
+      - "cmux-tui/crates/cmux-embed/**"
+      - "cmux-tui/crates/cmux-embed-macros/**"
+      - "cmux-tui/crates/cmux-felt/**"
+      - "cmux-tui/crates/cmux-json/**"
+      - "cmux-tui/crates/cmux-rd-screen/**"
+      - "cmux-tui/crates/cmux-scope/**"
+      - "cmux-tui/crates/cmux-theme-tokens/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/cmux-next/build-app-ffi.sh"
+      - ".github/workflows/app-ffi-release.yml"
+      - "!cmux-tui/crates/*/tests/**"
+      - "!cmux-tui/crates/*/benches/**"
+      - "!cmux-tui/crates/*/examples/**"
+      - "!cmux-tui/bindings/rust/tests/**"
+      - "!cmux-tui/bindings/rust/benches/**"
+      - "!cmux-tui/bindings/rust/examples/**"
+      # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
+      - "cmux-tui/crates/cmux-rd-proto/tests/**"
+      # cmux-wallpaper's lottie code includes tests/fixtures/lottie/orbs.json (include_bytes!).
+      - "cmux-tui/crates/cmux-wallpaper/tests/**"
+  workflow_dispatch:
+    inputs:
+      universal:
+        # A stable release that ships Intel: arm64 + x86_64, artifact only (no release, no re-pin). Off for every
+        # push and ordinary dispatch, which build arm64 alone (see ARM64 ONLY above).
+        description: "Stable release only: build the universal arm64 + x86_64 xcframework as an artifact (no publish, no re-pin)"
+        type: boolean
+        default: false
+      rescue:
+        # Set only by this workflow's own `rescue` job (scripts/ci/app_ffi_rescue.py, hq#3690), after an earlier
+        # run's build sat queued with no runner for 20 minutes: `blacksmith` takes a Blacksmith macOS slot the
+        # placement found live, else rescue_pool; `owned` (the Blacksmith switch off) takes rescue_pool only. Empty
+        # (a person's dispatch) keeps the ordinary routes.
+        description: "Internal: `blacksmith` or `owned`, the build rescue's route (the build rescue sets it)"
+        type: string
+        default: ""
+      rescue_pool:
+        # The rescue's owned pool, another than the one the build sat on: `ffi-pool` (vars.CI_FFI_RELEASE_POOL),
+        # `promote` (vars.CI_NEXT_PROMOTE_POOL) or `side` (vars.CI_SIDE_LANE_RUNNER).
+        description: "Internal: the build rescue's owned pool, ffi-pool, promote or side (the build rescue sets it)"
+        type: string
+        default: ""
+      rescue_tried:
+        # The owned pools (ffi-pool, promote, side) this rescue chain has named, comma-separated, never empty: a rescued run whose build also
+        # gets no runner rescues again to an owned pool not in it (never Blacksmith), and leaves the build queued once all are tried.
+        description: "Internal: the owned pools the build rescue already named (the build rescue sets it)"
+        type: string
+        default: ""
+
+# No run-level group: with one (cancel-in-progress: false) a newer FFI push
+# waited for the whole older run, publish and re-pin included, before its own
+# build started (#36262). Now only the build job has a group, and it never
+# cancels a running build: cancelling it on each newer FFI push (#36346)
+# starved the releases when FFI pushes came faster than one build (2026-11-08:
+# four pushes in 45 minutes, nothing published). The group keeps one build
+# running and only the newest pending; each finished build publishes its own
+# tag (never overwritten), and its re-pin pins the newest published release,
+# which the app compiles against. The app-ffi-repin group runs the re-pins one
+# at a time on the same pull request.
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  # The build's runner, as cmux-next.yml's macos-placement places a feat-cmux-next
+  # push's Release compile (side_lane_placement.py PLACEMENT=promote): an idle
+  # vars.CI_NEXT_PROMOTE_POOL runner (attempt 1 of a push only), else a free
+  # Blacksmith macOS slot, 12 vCPU then 6, ranked as a feed's compile
+  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Blacksmith macOS is off
+  # unless vars.CI_BLACKSMITH_MACOS is `on` (cmux#43103's switch; Leo,
+  # 2026-11-11: "just stop using blacksmith temporarily"): with it off, the
+  # build takes vars.CI_SIDE_LANE_RUNNER after an idle promote runner, the
+  # owned pool the other cmux-next Mac jobs and, with the switch off,
+  # cmux-next.yml's push Release compile take. The build job holds no secret
+  # (the Linux publish job does). Never the nightly-only Macs: nightly
+  # comes first on the fleet (the per-mini nightly slot, below, ranks this
+  # build with nightly jobs instead). On 2026-11-14 the promote pool was unset and
+  # blacksmith-6vcpu-macos-26 stalled (104 queued, oldest 106 min): ead26e75's
+  # build queued 140 min, and "Check the app FFI pin" went red on every push
+  # (hq#10943). On 2026-11-10 the promote pool was unset and every
+  # build queued on blacksmith-6vcpu-macos-26 behind PR CI for 11 to 66 minutes,
+  # with feat-cmux-next red until the re-pin landed. SIDE_LABEL only says the
+  # run is on the owned pools (next_macos_cascade.skipped()). A failed or
+  # skipped placement leaves the build its earlier route. Known limit: the
+  # reading is taken when the run starts, so a build that first waits in its
+  # concurrency group for an older build starts on that reading.
+  # LINUX ROUTE (2026-11-19): the Linux jobs (placement, rescue, publish, re-pin) take the nightly lane's
+  # reserved label cmux-gcp-nightly-x64 first, attempts 1 and 2 (the build's RELEASE_FIRST rule, same switch
+  # vars.CI_RELEASE_PIN_SLOT). On vars.LINUX_RUNNER they queued behind all of cmux's PR CI: runs 44600407530 and
+  # 44612287186 sat in "place the build" on cmux-fleet-linux-x64 (2,600 jobs queued, 0 idle runners) for hours, and
+  # the pin guard went 30 h stale. That label's runners are one-job JIT VMs (signing rule 7), which the HQ booter
+  # (gha_runners.py LANE_POOLS) starts per queued job ahead of the PR lanes. Attempt 3 takes the old route.
+  placement:
+    name: place the build
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    # The routing App's read-only key, in the environment cmux-next's placement uses.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    # actions: write only for ffi_build_supersede.py's cancel of an older run whose build waits for a runner.
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      promote_runner: ${{ steps.place.outputs.promote_runner }}
+      blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
+      blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      # The attempt that placed: a re-run of the build alone keeps attempt 1's outputs, read then.
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool read token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the build
+        id: place
+        if: steps.route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLACEMENT: promote
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          # Unset is off here, as in cmux-next.yml: the cascade places nothing on Blacksmith macOS.
+          # A rescued run (inputs.rescue) places on Blacksmith macOS: its build's runs-on reads the 12 vCPU pick.
+          CI_BLACKSMITH_MACOS: ${{ inputs.rescue == 'blacksmith' && 'on' || vars.CI_BLACKSMITH_MACOS }}
+          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          PROMOTE_LABEL: ${{ github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
+          JOBS: app-ffi-build
+          CASCADE_JOBS: app-ffi-build
+          CASCADE_RUNS: ' app-ffi-build '
+          PROMOTE_JOBS: app-ffi-build
+          FRESH_JOBS: app-ffi-build
+        run: python3 scripts/ci/side_lane_placement.py
+
+      # A build queued for a runner holds the build group as a running one does: run 43978720557's build
+      # queued for hours on side-std while every newer FFI run went pending behind it and was replaced
+      # (2026-11-16). Cancel an older run whose build has not started on a runner, so the group keeps the
+      # newest run; a running build is never cancelled. About 1 to 3 calls; a failure changes nothing.
+      - name: Replace an older build still waiting for a runner
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/ffi_build_supersede.py
+
+  portable-tests:
+    name: app FFI unit tests (Linux)
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui/crates/cmux-app-ffi -> target
+          # The toolchain and both workspaces' lockfiles: a fixed key restores its first entry forever.
+          key: app-ffi-unit-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/crates/cmux-app-ffi/Cargo.lock', '.cargo/config.toml') }}
+
+      - name: Test the reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Test the remote desktop FFI
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: cargo test --locked
+
+      - name: Test the palette ranker
+        working-directory: cmux-tui
+        run: cargo test -p cmux-palette-ranker --locked
+
+  build:
+    name: build xcframework
+    needs: [placement, portable-tests]
+    # Placement may fail open; portable tests must pass before taking a Mac for the xcframework.
+    if: ${{ !cancelled() && needs.portable-tests.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
+    # The placement's route (above) when it placed this attempt. Without one
+    # (no placement, or a busy promote pool and no free Blacksmith slot),
+    # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
+    # promote runners (trustedRef feat-cmux-next): on Blacksmith 12 vCPU alone
+    # the build once sat queued for 12 hours (run 39402525970, 2026-10-20). A
+    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU, and with
+    # vars.CI_BLACKSMITH_MACOS not `on` every attempt without an idle promote
+    # runner takes vars.CI_SIDE_LANE_RUNNER instead (see placement). Queued
+    # on a Blacksmith label, the build holds it against pull request placements
+    # as a nightly job does (the queue janitor's reserved_queued,
+    # queue_janitor.RESERVED_POOL_WORKFLOW).
+    # RESCUE (hq#3690): a run the `rescue` job dispatched with rescue=blacksmith takes the Blacksmith macOS slot
+    # its placement (run with the switch on) found, 12 vCPU, else 6 vCPU; the placement names none for a dead,
+    # stalled or full label. Without one, and for rescue=owned (the switch off), it takes its rescue_pool, another
+    # owned pool than the one the earlier build sat on. A rescue never reaches Blacksmith macOS any other way.
+    # FFI_POOL: vars.CI_FFI_RELEASE_POOL, when set, is this build's own owned pool (one trusted runner that
+    # refuses PR jobs: glaeda-promote-trusted-light-xcode-26.6), every attempt, push or dispatch. Only this
+    # workflow reads it, so cmux-next.yml's push Release compile keeps vars.CI_NEXT_PROMOTE_POOL. Unset keeps
+    # the routes below.
+    # RELEASE_FIRST (claude-sr2-coord, 2026-11-16: "release and pin jobs ...
+    # and nightlies ... go ahead of PR jobs"): every attempt, push or dispatch,
+    # first takes glaeda's nightly slot label, mac-nightly,
+    # one runner per owned std mini that no pull request job asks for. glaeda's
+    # hook ranks this build as a nightly job there (teamleaderleo/glaeda#2037,
+    # release_pin_build): it is admitted ahead of every PR job waiting on the
+    # mini, and no PR job is refused for it. Run 43869638705 (a dispatch at
+    # 4c6b1efc) queued 1 to 4 hours on mac-std behind PR
+    # jobs while the nightly slots sat idle. vars.CI_RELEASE_PIN_SLOT `off`
+    # restores the routes below. Order: a rescue dispatch, then CI_FFI_RELEASE_POOL when set, then this slot.
+    # A bot's re-run past attempt 2 (the owned-pool rescue's move) leaves the slot for the routes below, so the
+    # rescue cannot loop on the minis (tests/test_seed_derived_data.py); a person's re-run keeps it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.rescue != '' && inputs.rescue_pool == 'ffi-pool' && vars.CI_FFI_RELEASE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'promote' && vars.CI_NEXT_PROMOTE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'side' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || vars.CI_RELEASE_PIN_SLOT != 'off' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'mac-nightly' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    timeout-minutes: 45
+    # A newer push or dispatch on the same ref waits for this build, never
+    # cancels it; a still newer one replaces it while it waits. A build that has
+    # not started on a runner is cancelled by a newer run's placement instead
+    # (scripts/ci/ffi_build_supersede.py), so it never holds the group.
+    concurrency:
+      group: app-ffi-release-build-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.assemble.outputs.tag }}
+      checksum: ${{ steps.assemble.outputs.checksum }}
+      workflow_changed: ${{ steps.workflow-delta.outputs.changed }}
+    steps:
+      # Treeless: every commit and ref the workflow-delta step needs (merge-base,
+      # tags merged into HEAD), but trees and blobs only for HEAD; the few the
+      # diffs below read are fetched on demand. The full clone of every ref took
+      # 5 to 10 minutes of a 7 to 15 minute build; treeless takes about one.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: tree:0
+
+      # A new tag whose tree differs in .github/workflows from what GitHub
+      # compares a new ref with needs a token with workflows:write. GitHub
+      # compares a new ref with the default branch, not with the last FFI tag:
+      # runs 37551889292 (d7167cb) and 38682698310 (854febb) had the same
+      # workflow tree as the last FFI tag, minted contents:write only and got
+      # HTTP 403 on POST /releases; run 38686128246 (cc78cb6) minted
+      # workflows:write and published. So the token gets workflows:write when
+      # .github/workflows differs from the default branch tip, from the
+      # merge-base with it, or from the last FFI tag; a base that cannot be
+      # read counts as a difference. The publish job asks for it only then.
+      - name: Workflow files differ from what GitHub compares the new tag with
+        id: workflow-delta
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags origin 'refs/tags/cmux-app-ffi-*:refs/tags/cmux-app-ffi-*' || true
+          git fetch --quiet origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" || true
+          changed=false
+          differs() { # $1 = label, $2 = base commit or empty
+            if [[ -z "$2" ]] || ! git cat-file -e "$2^{commit}" 2>/dev/null; then
+              echo "$1: not available; treating workflow files as changed"
+              changed=true
+            elif git diff --quiet "$2" HEAD -- .github/workflows; then
+              echo "$1 ($2): no workflow-file difference"
+            else
+              echo "$1 ($2): workflow files differ:"
+              git diff --stat "$2" HEAD -- .github/workflows | tail -n 1
+              changed=true
+            fi
+          }
+          default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/${DEFAULT_BRANCH}" || true)"
+          differs "default branch ${DEFAULT_BRANCH} tip" "$default_tip"
+          merge_base=""
+          if [[ -n "$default_tip" ]]; then merge_base="$(git merge-base "$default_tip" HEAD || true)"; fi
+          differs "merge-base with ${DEFAULT_BRANCH}" "$merge_base"
+          last="$(git tag --list 'cmux-app-ffi-*' --merged HEAD --sort=-creatordate | sed -n 1p)"
+          differs "last FFI tag ${last:-<none>}" "$last"
+          echo "changed=$changed"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin ${{ inputs.universal && 'x86_64-apple-darwin' || '' }}
+
+      # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
+      # arm64 alone unless a stable release asked for universal (ARM64 ONLY above).
+      - name: Build xcframework
+        working-directory: cmux-tui
+        env:
+          CMUX_APP_FFI_ARCHS: ${{ inputs.universal && 'arm64,x86_64' || 'arm64' }}
+          CMUX_APP_FFI_OUT: ${{ runner.temp }}/app-ffi
+          # Self-hosted Macs keep cargo's target directory between releases (build-app-ffi.sh).
+          CMUX_APP_FFI_PERSIST_TARGET: ${{ runner.environment == 'self-hosted' && '1' || '0' }}
+        run: ../scripts/cmux-next/build-app-ffi.sh
+
+      - name: Assemble, check and checksum
+        id: assemble
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/app-ffi
+          FFI_ARCHS: ${{ inputs.universal && 'arm64 x86_64' || 'arm64' }}
+          FFI_SLICE: ${{ inputs.universal && 'macos-arm64_x86_64' || 'macos-arm64' }}
+        run: |
+          set -euo pipefail
+          xcf="$OUT/CCmuxAppFFI.xcframework"
+          lib="$xcf/$FFI_SLICE/libcmux_app_ffi.dylib"
+          test -f "$lib" || { echo "::error::$lib is missing (build-app-ffi.sh builds the dynamic library)" >&2; exit 1; }
+          archs="$(lipo -archs "$lib")"
+          echo "architectures: $archs"
+          for arch in $FFI_ARCHS; do
+            [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
+          done
+          [[ "$FFI_ARCHS" == *x86_64* || " $archs " != *" x86_64 "* ]] || { echo "::error::$lib carries an x86_64 slice this run did not ask for" >&2; exit 1; }
+          # The app finds it at Contents/Frameworks through its @rpath, and a
+          # hot apply swaps that file: the install name must be the @rpath one.
+          install_name="$(otool -D "$lib" | sed -n '2p')"
+          [[ "$install_name" == "@rpath/libcmux_app_ffi.dylib" ]] || { echo "::error::$lib install name is '$install_name', not @rpath/libcmux_app_ffi.dylib" >&2; exit 1; }
+          test -d "$xcf/$FFI_SLICE/dSYMs/libcmux_app_ffi.dylib.dSYM" || { echo "::error::the xcframework carries no dSYM for libcmux_app_ffi.dylib" >&2; exit 1; }
+          # Prove each slice links with Apple's toolchain and exports every C
+          # entry point: a C program takes the address of each header function
+          # and links against the library (the link is what the app needs).
+          # The arm64 program runs, loading the library through its @rpath.
+          headers="$xcf/$FFI_SLICE/Headers"
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          {
+            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxScreenKitFFI/cmux_screen_kit.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-rd-core/include/cmux_screen_kit.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
+              printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
+            done
+            printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
+          } > "$smoke/smoke.c"
+          for arch in $FFI_ARCHS; do
+            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" \
+              -Wl,-rpath,"$(dirname "$lib")" -o "$smoke/smoke-$arch"
+          done
+          "$smoke/smoke-arm64"
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$dist"; mkdir -p "$dist"
+          # Source commit time on every file and directory: stable zip bytes
+          # for a rerun of the same commit, and new header mtimes after a pin
+          # change so a warm tree rebuilds the Clang module (cx-vqwl).
+          bash scripts/cmux-next/stamp-app-ffi-mtimes.sh "$xcf" "$GITHUB_SHA"
+          (cd "$OUT" && ditto -c -k --keepParent CCmuxAppFFI.xcframework "$dist/CCmuxAppFFI.xcframework.zip")
+          archive="$dist/CCmuxAppFFI.xcframework.zip"
+          checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          swiftpm_checksum="$(swift package compute-checksum "$archive")"
+          [[ "$swiftpm_checksum" == "$checksum" ]] || { echo "::error::SwiftPM checksum $swiftpm_checksum != SHA-256 $checksum" >&2; exit 1; }
+          printf '%s\n' "$checksum" > "$archive.sha256"
+          printf '%s  %s\n' "$checksum" CCmuxAppFFI.xcframework.zip > "$dist/SHA256SUMS"
+          printf '%s\n' "$GITHUB_SHA" > "$dist/SOURCE_SHA"
+          # The prelinked object the library is linked from, as an archive: the
+          # Linux cross-compile shadow builds the same one and compares them. Not
+          # a release asset (publish uploads the files it names).
+          cp "$OUT/macos/libcmux_app_ffi.a" "$dist/libcmux_app_ffi-prelinked.a"
+          echo "tag=cmux-app-ffi-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+          echo "checksum: $checksum"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CCmuxAppFFI.xcframework
+          # A universal run's artifact is what a stable release downloads; it publishes no release to keep it.
+          retention-days: ${{ inputs.universal && 30 || 7 }}
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+
+  # MACOS-CROSS-COMPILE-ON-LINUX shadow, compare-only. Builds the same
+  # CCmuxAppFFI slices on Linux (no Apple SDK; Apple's open-source ld64 from a
+  # pinned cctools-port for the -r prelink) and compares each with the slice
+  # the Mac `build` job produced (scripts/ci/macos-cross.sh). publish never
+  # needs this job, continue-on-error keeps a red comparison out of the run's
+  # conclusion, and it holds no write permission
+  # (tests/test_ci_macos_cross_shadow_jobs.py). It becomes blocking only after
+  # three clean publishes. The report is the job summary and an artifact.
+  # The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
+  # 43978720557's build sat queued on mac-std from 23:23Z to 02:38Z with no runner. This job
+  # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, it
+  # dispatches this workflow on the same ref with the rescue inputs and cancels this run. The script reads the
+  # Blacksmith switch: allowed, rescue=blacksmith (a live Blacksmith slot its placement finds, else rescue_pool; the
+  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run rescues again only
+  # to an owned pool no build of its chain sat on (inputs.rescue_tried; 2026-11-20, run 44734106982's build sat 110 min
+  # on the pool its rescue picked), so a chain ends after at most one rescue per owned pool. Nothing needs this job, so
+  # its result never gates the publish or the re-pin.
+  rescue:
+    name: rescue a build no runner took
+    needs: placement
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (inputs.rescue == '' || inputs.rescue_tried != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 110
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          # app_ffi_rescue.py imports deadline_http.py from its own folder.
+          sparse-checkout: |
+            scripts/ci/app_ffi_rescue.py
+            scripts/ci/deadline_http.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Watch the build and rescue it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          CI_FFI_RELEASE_POOL: ${{ vars.CI_FFI_RELEASE_POOL }}
+          CI_NEXT_PROMOTE_POOL: ${{ vars.CI_NEXT_PROMOTE_POOL }}
+          CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          RESCUE_TRIED: ${{ inputs.rescue_tried }}
+          FFI_UNIVERSAL: ${{ inputs.universal && 'true' || '' }}
+        # -u: a buffered print stamped every line at the job's end (job 140538369006: a 17 min sleep to a rate-limit reset
+        # logged at 13:54Z for a read refused at 13:37Z).
+        run: python3 -u scripts/ci/app_ffi_rescue.py
+
+  macos-cross-shadow:
+    name: macOS cross-compile shadow (Linux, compare only)
+    needs: build
+    # !cancelled(): the placement is an ancestor, and a failed placement must
+    # not skip what follows a build that ran past it.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    env:
+      # The slices the Mac build made (ARM64 ONLY above): scripts/ci/macos-cross.sh builds and compares these.
+      XC_TARGETS: ${{ inputs.universal && 'aarch64-apple-darwin x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+      FFI_SLICE: ${{ inputs.universal && 'macos-arm64_x86_64' || 'macos-arm64' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict
+        run: python3 tests/test_ci_macho_parity.py
+
+      - name: Install LLVM 19 and the cctools build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19 llvm-19-dev cmake ninja-build libblocksruntime-dev
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # Zig's darwin headers and libSystem stub: the Zig the ghostty-next
+      # manifest sets, the one libghostty-vt builds with.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Only the darwin headers and libSystem stub bundled with Zig are used.
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add $XC_TARGETS
+
+      - name: Cache the pinned cctools-port ld64
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Cache the pinned cctools-port ld64 (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Build cctools-port ld64
+        run: ./scripts/ci/macos-cross.sh cctools
+
+      - name: Download the Mac-built xcframework
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: ${{ runner.temp }}/macos-cross/mac
+
+      - name: Build on Linux (no Apple SDK)
+        run: |
+          set -euo pipefail
+          mac="$RUNNER_TEMP/macos-cross/mac"
+          (cd "$mac" && sha256sum --check --strict SHA256SUMS && unzip -q CCmuxAppFFI.xcframework.zip)
+          lib="$mac/libcmux_app_ffi-prelinked.a"
+          ./scripts/ci/macos-cross.sh toolchain "$(./scripts/ci/macos-cross.sh ref-sdk "$lib")"
+          start=$(date +%s)
+          ./scripts/ci/macos-cross.sh ffi
+          echo "LINUX_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Compare with the Mac build
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/$FFI_SLICE"
+          ./scripts/ci/macos-cross.sh parity-ffi "$RUNNER_TEMP/macos-cross/mac/libcmux_app_ffi-prelinked.a" > "$report" 2>&1 || status=1
+          # The headers the app imports come straight from the crates.
+          for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI; do
+            if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
+              echo "PASS header ${h##*:}/$(basename "${h%%:*}")" >> "$report"
+            else
+              echo "FAIL header ${h##*:}/$(basename "${h%%:*}") differs from the crate" >> "$report"; status=1
+            fi
+          done
+          cat "$report"
+          {
+            echo "### macOS cross-compile shadow (app FFI): ${GITHUB_SHA}"
+            echo "Linux build: ${LINUX_BUILD_SECONDS:-?} s."
+            echo '```'
+            cat "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity-app-ffi
+          retention-days: 3
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
+  publish:
+    name: publish release
+    needs: build
+    # !cancelled(): a failed placement (an ancestor the build runs past) must
+    # not skip the publish of a build that succeeded.
+    # A universal run (a stable release's) publishes nothing: its artifact is the deliverable (ARM64 ONLY above).
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.universal != true }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    # Never cancelled. Two runs of one commit (a push and a dispatch, or two
+    # dispatches) publish one at a time, so the second sees the first's
+    # release and checks its checksum instead of losing the create race.
+    concurrency:
+      group: app-ffi-release-publish-${{ github.sha }}
+      cancel-in-progress: false
+    # Holds the FFI release App credentials; its deployment policy admits only
+    # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
+    # the App token below and nothing else does.
+    environment: ffi-release
+    permissions:
+      contents: read
+    env:
+      # What a maintainer runs from a cmux checkout when this job cannot
+      # publish: download this run's artifact, check it, create the prerelease
+      # (never latest), then pin it and prove the pin. One shell command
+      # (runbook: docs/ci/app-ffi-release.md); commit the two pin files after.
+      HAND_PUBLISH: >-
+        gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name CCmuxAppFFI.xcframework --dir app-ffi-${{ github.sha }}
+        && (cd app-ffi-${{ github.sha }} && shasum -a 256 -c SHA256SUMS && test "$(cat SOURCE_SHA)" = ${{ github.sha }})
+        && gh release create ${{ needs.build.outputs.tag }} app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip app-ffi-${{ github.sha }}/CCmuxAppFFI.xcframework.zip.sha256 app-ffi-${{ github.sha }}/SHA256SUMS app-ffi-${{ github.sha }}/SOURCE_SHA
+        --repo ${{ github.repository }} --target ${{ github.sha }} --title ${{ needs.build.outputs.tag }}
+        --notes "cmux app FFI CCmuxAppFFI.xcframework, source ${{ github.sha }}, SwiftPM checksum ${{ needs.build.outputs.checksum }}"
+        --prerelease --latest=false
+        && scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
+        && scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: CCmuxAppFFI.xcframework
+          path: ${{ runner.temp }}/assets
+
+      # Exactly one of these two runs. The token is for this repository only.
+      - name: Mint release App token
+        id: app-token
+        if: needs.build.outputs.workflow_changed != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Mint release App token (workflow files changed)
+        id: app-token-workflows
+        if: needs.build.outputs.workflow_changed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Create the release (never overwrite)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || steps.app-token-workflows.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/assets" && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < "$RUNNER_TEMP/assets/SOURCE_SHA")" == "$GITHUB_SHA" ]]
+          notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one dynamic library, libcmux_app_ffi.dylib, macOS arm64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
+          # Only gh's "release not found" means absent; any other failed read
+          # (a 502) is asked again, so a rerun never creates over its release.
+          exists=""
+          probe="$(mktemp)"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>"$probe"; then exists=1; break; fi
+            if grep -qi "release not found" "$probe"; then exists=no; break; fi
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$probe")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$exists" ]]; then
+            echo "::error title=Publish by hand::could not read release $TAG after 6 tries (errors above), so this run neither created nor checked it. Rerun this job; if the release is still absent, publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          if [[ "$exists" == 1 ]]; then
+            existing="$(mktemp -d)"
+            gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$existing"
+            published="$(sha256sum "$existing/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
+            if [[ "$published" != "$CHECKSUM" ]]; then
+              echo "::error::release $TAG exists with checksum $published, not $CHECKSUM; it is never overwritten" >&2
+              exit 1
+            fi
+            echo "release $TAG already has the matching archive"
+          elif ! gh release create "$TAG" \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip.sha256 \
+              "$RUNNER_TEMP"/assets/SHA256SUMS "$RUNNER_TEMP"/assets/SOURCE_SHA \
+              --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
+            echo "::error title=Publish by hand::the release App token could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+
+      - name: The latest release is not an FFI tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          echo "latest release: ${latest:-none}"
+          if [[ "$latest" == cmux-app-ffi-* || "$latest" == layout-reducer-ffi-* ]]; then
+            echo "::error::the repository's latest release now points at $latest" >&2
+            exit 1
+          fi
+
+      - name: Anonymous download matches the checksum
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxAppFFI.xcframework.zip"
+          for _ in 1 2 3 4 5 6; do
+            if curl -fsSL --retry 3 -o downloaded.zip "$url"; then break; fi
+            sleep 10
+          done
+          got="$(sha256sum downloaded.zip | awk '{print $1}')"
+          [[ "$got" == "$CHECKSUM" ]] || { echo "::error::anonymous download of $url has checksum $got, not $CHECKSUM" >&2; exit 1; }
+          echo "anonymous download ok: $url"
+
+      # The last word: the job is green only when the release exists with this
+      # run's archive. It also runs after a failed or skipped step, so a create
+      # that published nothing can never end green.
+      # A failed read is asked again before it counts: run 42919934207 created
+      # the release and downloaded it anonymously, then one read here failed
+      # (GitHub was returning 502s) and the job said "does not exist", which
+      # skipped the re-pin and left base red on "Check the app FFI pin". It
+      # reads the public download URL, as the anonymous check does, so its
+      # retries spend no API token.
+      - name: The release exists with this run's archive
+        if: ${{ !cancelled() }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          check="$(mktemp -d)"
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxAppFFI.xcframework.zip"
+          found=""
+          for attempt in 1 2 3 4 5 6; do
+            rm -f "$check/CCmuxAppFFI.xcframework.zip"
+            if curl -fsSL -o "$check/CCmuxAppFFI.xcframework.zip" "$url" 2>"$check/read.err"; then
+              found=1
+              break
+            fi
+            echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$check/read.err")"
+            [[ "$attempt" == 6 ]] || sleep 10
+          done
+          if [[ -z "$found" ]]; then
+            echo "::error title=Publish by hand::release $TAG does not exist; this run published nothing. Publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          published="$(sha256sum "$check/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"
+          if [[ "$published" != "$CHECKSUM" ]]; then
+            echo "::error::release $TAG has checksum $published, not $CHECKSUM" >&2
+            exit 1
+          fi
+          echo "release $TAG exists with checksum $CHECKSUM"
+
+  repin:
+    name: open the re-pin pull request
+    needs: [build, publish]
+    # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh). A normal
+    # cancel of the whole run by hand also re-pins (the newest published release; if the cancel came after the
+    # publish, that can be this run's own release): one normal cancel cannot stop a re-pin, as app-ffi-repin.yml says.
+    # Known gap (accepted, ffi-pin-rev-5 N2 on #40150): a force-cancel skips always() and the failure step, so a run
+    # force-cancelled before its re-pin job completes re-pins nothing, and an older run that held for it does not
+    # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
+    # A universal run re-pins nothing (it publishes no release).
+    if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.universal != true
+    environment: ffi-release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
+    # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
+    # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
+    # a timeout in that wait would hide its "Re-pin rate-limited" reason.
+    timeout-minutes: 30
+    # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
+    # jobs with this token (READ_TOKEN) and writes nothing with it.
+    permissions:
+      actions: write
+      contents: read
+      checks: read
+      statuses: read
+    concurrency:
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
+      cancel-in-progress: false
+    steps:
+      # Workflows too: the force push moves app-ffi-repin from an older base to
+      # the tip, and when that range changes workflow files GitHub refuses a
+      # contents-only token ("`workflows` scope may be required", 2026-10-10).
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      # A separate token, because a mint that asks for a permission the App
+      # lacks fails whole: manaflow-cmux-release had contents, metadata and
+      # workflows only on 2026-10-07. Without it the branch is still pushed
+      # (and CI runs on it) and the job prints the link to open the PR.
+      - name: Mint the release App token for the pull request
+        id: pr-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+
+      # The base autofix's push identity (manaflow-cmux-pr-autofix, the bypass
+      # actor of feat-cmux-next's required check): publish-app-ffi-repin.sh
+      # pins on the base with it (scripts/cmux-next/pin-app-ffi-on-base.sh).
+      # Without it the pin goes through the pull request, as before.
+      - name: Mint the base pin token
+        id: base-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      # Treeless with full history: the re-pin walks feat-cmux-next's commits
+      # back to the current pin to find the newest published release.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/feat-cmux-next
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+          fetch-depth: 0
+          filter: tree:0
+
+      # Latest wins: the re-pin pins the newest release published from a
+      # feat-cmux-next commit newer than the current pin, whichever run
+      # published it (scripts/cmux-next/newest_app_ffi_release.py). A newer FFI
+      # commit whose release is not published (SOURCE_SHA or SHA256SUMS is a
+      # 404: its build was cancelled or is still running) is skipped, not
+      # waited for, and the base's FFI sources may be ahead of the pin:
+      # land-judge accepts such a pin once the app compiles against it
+      # (scripts/ci/base_red_excuse.py, the published base pin). The script
+      # checks the release's SOURCE_SHA and SHA256SUMS. The commit goes through
+      # GitHub's contents API, so it is written by the release App and signed
+      # by GitHub: the review reconciler reviews the app-ffi-repin pull request
+      # on first sight only when it changes the pin alone in such commits
+      # (app-ffi-pin.json and Package.swift's checksum comment line), and the lander lands it on that receipt. Base is then red on
+      # "Check the app FFI pin" for about the build time, not until someone
+      # notices (#32305, #31927 and #32436 each
+      # left it red for about an hour on 2026-11-02 while #32121 waited).
+      - name: Pin the new release and open or update the pull request
+        env:
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          BASE_TOKEN: ${{ steps.base-token.outputs.token }}
+          BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+          # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
+          # after 60 s with no byte instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
+        shell: bash
+        run: bash scripts/cmux-next/publish-app-ffi-repin.sh
+
+      # A failed or timed-out re-pin starts app-ffi-repin.yml, which re-pins the newest published release:
+      # another run's re-pin may have held for this one (publish-app-ffi-repin.sh), and without this no job
+      # re-pins until the next FFI push or pin merge. Needs actions: write. A dispatched app-ffi-repin.yml
+      # run does not start another, so a re-pin that keeps failing runs once more, not in a loop. A run cancelled
+      # by hand also starts one re-pin: harmless, a re-pin of the newest published release.
+      - name: Start the re-pin workflow when this re-pin failed
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        # The run's installation token shares a rate limit with every other job: runs 46002456039 and
+        # 46005933257 got "HTTP 403: API rate limit exceeded for installation" here (2026-11-27 13:47Z and
+        # 14:17Z) and no re-pin ran. Retry on the bounded backoff app-ffi-repin.yml's twin step uses (about 9 min).
+        run: |
+          for wait in 0 60 120 180 180; do
+            sleep "$wait"
+            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
+            echo "re-pin dispatch failed; retrying after backoff"
+          done
+          exit 1

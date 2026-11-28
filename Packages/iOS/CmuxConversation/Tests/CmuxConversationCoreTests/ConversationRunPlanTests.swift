@@ -83,6 +83,16 @@ import Testing
         #expect(plan.entries[1].isFirstInRun)
     }
 
+    @Test func theMessageAfterAReplyStartsANewRun() {
+        // Messages (iPhone 17 Pro Max, iOS 27): "Ask your agents how to do it
+        // safely" under Austin's own inline reply starts a run, 32 pt down.
+        let plan = ConversationRunPlan(messages: [
+            message(1, "me", minute: 0), message(2, "a", minute: 1, replyTo: "m1"), message(3, "a", minute: 2),
+        ], meID: "me")
+        #expect(plan.entries[1].isLastInRun, "the reply keeps its tail")
+        #expect(plan.entries[2].isFirstInRun)
+    }
+
     @Test func aTapbackMakesItsMessageARunOfItsOwn() {
         // Messages (iOS 26.5 and 27.0): a heart on the middle of three sent
         // messages puts tails on all three and 10 pt between runs.

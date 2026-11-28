@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxConversationCore
 import CmuxConversationGeometry
+import os
 import UIKit
 
 /// Metrics and colors matched to iOS 26 Messages.
@@ -15,7 +17,37 @@ enum ConversationTheme {
 
     /// `value` (a Large-size metric) at the current content size category.
     static func scaled(_ value: CGFloat, _ style: UIFont.TextStyle = .body) -> CGFloat {
-        UIFontMetrics(forTextStyle: style).scaledValue(for: value)
+        guard let traits = textSizeTraits else { return UIFontMetrics(forTextStyle: style).scaledValue(for: value) }
+        return UIFontMetrics(forTextStyle: style).scaledValue(for: value, compatibleWith: traits)
+    }
+
+    /// The traits text styles resolve with while the conversation in front
+    /// has a text size from its host (`ConversationViewController.textSize`):
+    /// that size and the controller's legibility weight (Bold Text). nil,
+    /// the default, leaves every font exactly as the system sizes it. Only
+    /// `ConversationThemeOwners` sets it (main thread); rows measured
+    /// ahead read it off the main thread, so the slot is behind a lock.
+    static var textSizeTraits: UITraitCollection? {
+        get { textSizeSlot.withLockUnchecked { $0 } }
+        set { textSizeSlot.withLockUnchecked { $0 = newValue } }
+    }
+    private static let textSizeSlot = OSAllocatedUnfairLock<UITraitCollection?>(uncheckedState: nil)
+    /// The bubble colours of the conversation in front, from its host
+    /// (`ConversationViewController.bubbleColors`, Chat Colors). nil, the
+    /// default, keeps Messages' colours. Set like `textSizeTraits`.
+    static var bubbleColors: ConversationBubbleColors? {
+        get { bubbleColorsSlot.withLock { $0 } }
+        set { bubbleColorsSlot.withLock { $0 = newValue } }
+    }
+    private static let bubbleColorsSlot = OSAllocatedUnfairLock<ConversationBubbleColors?>(initialState: nil)
+    /// Counts `textSizeTraits` and `bubbleColors` changes (main thread), so
+    /// work measured under older ones is not kept.
+    nonisolated(unsafe) static var themeEpoch = 0
+
+    /// `style`'s font at the host's size, or the system's when none is set.
+    private static func preferredFont(_ style: UIFont.TextStyle) -> UIFont {
+        guard let traits = textSizeTraits else { return .preferredFont(forTextStyle: style) }
+        return .preferredFont(forTextStyle: style, compatibleWith: traits)
     }
 
     /// A system font scaled like `style`. Bold Text needs nothing here: UIKit
@@ -52,6 +84,7 @@ enum ConversationTheme {
         var currentCategory: UIContentSizeCategory
         var legibility: UILegibilityWeight
         var boldText: Bool
+        var textSize: UIContentSizeCategory?
     }
 
     nonisolated(unsafe) private static var fontCache: [FontRequest: UIFont] = [:]
@@ -61,11 +94,16 @@ enum ConversationTheme {
         guard Thread.isMainThread else { return make() }
         let environment = MainActor.assumeIsolated {
             let current = UITraitCollection.current
+            let hostSize = textSizeTraits?.preferredContentSizeCategory
+            // A host size decides every text style: the system's own sizes
+            // (which differ inside and outside the controller's traits) do
+            // not, so they do not empty the cache.
             return FontEnvironment(
-                appCategory: UIApplication.shared.preferredContentSizeCategory,
-                currentCategory: current.preferredContentSizeCategory,
+                appCategory: hostSize == nil ? UIApplication.shared.preferredContentSizeCategory : .unspecified,
+                currentCategory: hostSize == nil ? current.preferredContentSizeCategory : .unspecified,
                 legibility: current.legibilityWeight,
-                boldText: UIAccessibility.isBoldTextEnabled
+                boldText: UIAccessibility.isBoldTextEnabled,
+                textSize: hostSize
             )
         }
         if environment != fontCacheEnvironment {
@@ -102,7 +140,8 @@ enum ConversationTheme {
     /// the default size.
     static var bubbleFont: UIFont {
         cachedFont(FontRequest(name: "bubble")) {
-            let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+            let descriptor = textSizeTraits.map { UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body, compatibleWith: $0) }
+                ?? UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
             return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
         }
     }
@@ -145,7 +184,7 @@ enum ConversationTheme {
     }
 
     /// The caption 2 font (11 pt at Large), ChatKit's `transcriptTextFont`.
-    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { .preferredFont(forTextStyle: .caption2) } }
+    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { preferredFont(.caption2) } }
 
     /// A transcript space given at Large, at the current text size
     /// (`ConversationTranscriptMetrics.space`): Messages grows every gap with
@@ -190,7 +229,7 @@ enum ConversationTheme {
 
     /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
     /// from the bubble's leading edge.
-    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
+    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { preferredFont(.caption2) } }
     static let senderNameInset: CGFloat = 14
     /// The name's line box and the bubble's offset under the name's top
     /// (`ConversationTranscriptMetrics.senderNameLine`).
@@ -208,7 +247,8 @@ enum ConversationTheme {
     static let footerInset: CGFloat = 20
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
-    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .subheadline) } }
+    /// `replyBalloonTextFont`: caption2 (11 pt at Large).
+    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { preferredFont(.caption2) } }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
@@ -222,7 +262,7 @@ enum ConversationTheme {
     }
     /// Separator, swipe-time and status gray: Messages draws these in the
     /// system secondary label color (138,138,142 on white).
-    static let timestampText = UIColor { traits in
+    static let timestampText = UIColor.resolving { traits in
         if traits.isOverConversationBackdrop { return backdropCaption(traits) }
         return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
@@ -230,7 +270,7 @@ enum ConversationTheme {
     /// The composer's dictation microphone: ChatKit's hierarchical symbol
     /// color, opaque (180,184,191 light, 74,75,77 dark; iOS 26.5 and 27.0),
     /// blended into the field by `composerInkCompositing`.
-    static let composerMicTint = UIColor { traits in
+    static let composerMicTint = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 74 / 255, green: 75 / 255, blue: 77 / 255, alpha: 1)
             : UIColor(red: 180 / 255, green: 184 / 255, blue: 191 / 255, alpha: 1)
@@ -242,7 +282,7 @@ enum ConversationTheme {
     /// and 31,30,33 over the long-press dim where ours read 17,19,22 (iOS
     /// 26.5). A faint white tint matches both (fitted); light mode needs none.
     /// iOS 27's plain glass already reads as Messages' 32,32,32 there.
-    static let systemMenuGlassTint = UIColor { traits in
+    static let systemMenuGlassTint = UIColor.resolving { traits in
         if #available(iOS 27, *) { return .clear }
         return traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
     }
@@ -250,7 +290,7 @@ enum ConversationTheme {
     /// The long-press menu's glass: `systemMenuGlassTint` in dark mode; in
     /// light mode Messages' context-menu platter reads darker than the plain
     /// glass (and on iOS 26 less blue), see `ConversationMenuGlassTint`.
-    static let longPressMenuGlassTint = UIColor { traits in
+    static let longPressMenuGlassTint = UIColor.resolving { traits in
         guard traits.userInterfaceStyle != .dark else { return systemMenuGlassTint.resolvedColor(with: traits) }
         let tint: ConversationMenuGlassTint
         if #available(iOS 27, *) { tint = .longPressLightIOS27 } else { tint = .longPressLightIOS26 }
@@ -290,7 +330,7 @@ enum ConversationTheme {
     // MARK: Colors
 
     /// iMessage blue. iOS 26 tints it slightly brighter in dark mode.
-    static let outgoingBubble = UIColor { traits in
+    static let outgoingBubble = UIColor.resolving { traits in
         // Increase Contrast: ChatKit's blue goes flat and darker (sampled
         // 0,105,233 light / 0,98,219 dark).
         guard traits.accessibilityContrast == .high else { return UIColor.systemBlue.resolvedColor(with: traits) }
@@ -299,7 +339,7 @@ enum ConversationTheme {
             : UIColor(red: 0, green: 105 / 255, blue: 233 / 255, alpha: 1)
     }
 
-    static let incomingBubble = UIColor { traits in
+    static let incomingBubble = UIColor.resolving { traits in
         if traits.accessibilityContrast == .high {
             // ChatKit's high-contrast gray (CKBalloonShapeLayer fill).
             return traits.userInterfaceStyle == .dark
@@ -383,10 +423,10 @@ enum ConversationTheme {
     /// Contacts' monogram gradient, top to bottom. Dark mode is a deeper
     /// violet (CKAvatar on iOS 26.5 / 27.0: 87,83,104 to 48,38,73).
     static let monogramGradient = [
-        UIColor { $0.userInterfaceStyle == .dark
+        UIColor.resolving { $0.userInterfaceStyle == .dark
             ? UIColor(red: 87 / 255, green: 83 / 255, blue: 104 / 255, alpha: 1)
             : UIColor(red: 169 / 255, green: 194 / 255, blue: 226 / 255, alpha: 1) },
-        UIColor { $0.userInterfaceStyle == .dark
+        UIColor.resolving { $0.userInterfaceStyle == .dark
             ? UIColor(red: 48 / 255, green: 38 / 255, blue: 73 / 255, alpha: 1)
             : UIColor(red: 115 / 255, green: 127 / 255, blue: 185 / 255, alpha: 1) },
     ]
@@ -394,10 +434,25 @@ enum ConversationTheme {
 
     static let failedBubble = outgoingBubble
 
+    // MARK: Chat Colors (the host's `bubbleColors`; each unset role keeps the colour above)
+
+    /// My bubbles' fill.
+    static var sentFill: UIColor { bubbleColors?.sent.map(UIColor.init(conversation:)) ?? outgoingBubble }
+    /// The other side's bubbles' fill.
+    static var receivedFill: UIColor { bubbleColors?.received.map(UIColor.init(conversation:)) ?? incomingBubble }
+    /// My bubbles take Messages' screen-fixed gradient only in its own blue.
+    static var sentFillGradient: ScreenGradient? { bubbleColors?.sent == nil ? iMessageGradient : nil }
+    /// Their bubbles follow a conversation background only in their own grey.
+    static var receivedFillAdaptsToBackdrop: Bool { bubbleColors?.received == nil }
+    /// My bubbles' text.
+    static var sentTextColor: UIColor { bubbleColors?.resolvedSentText.map(UIColor.init(conversation:)) ?? outgoingText }
+    /// The other side's text.
+    static var receivedTextColor: UIColor { bubbleColors?.resolvedReceivedText.map(UIColor.init(conversation:)) ?? incomingText }
+
     static let outgoingText = UIColor.white
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
-    static let secondaryText = UIColor { traits in
+    static let secondaryText = UIColor.resolving { traits in
         if traits.isOverConversationBackdrop { return backdropCaption(traits) }
         // Every transcript caption attribute set in ChatKit (status, notices,
         // availability, translation; iOS 26.5 and 27.0) uses the system
@@ -407,17 +462,32 @@ enum ConversationTheme {
     }
     static let tertiaryText = UIColor.tertiaryLabel
     static let notDelivered = UIColor.systemRed
-    static let replyThread = UIColor { traits in
+    /// ChatKit's `replyLineColor` (iOS 27): black 8 % light, white 16 % dark.
+    static let replyThread = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(white: 1, alpha: 0.28)
-            : UIColor(white: 0, alpha: 0.18)
+            ? UIColor(white: 1, alpha: 0.16)
+            : UIColor(white: 0, alpha: 0.08)
     }
 
-    static let quoteStroke = UIColor { traits in
+    /// A quote of their message: `reply_gray_unfilledBalloonColor` outline and
+    /// `reply_gray_nonMaterialBalloonTextColor` text.
+    static let quoteStroke = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(white: 1, alpha: 0.30)
-            : UIColor(white: 0, alpha: 0.22)
+            ? UIColor(white: 1, alpha: 0.22)
+            : UIColor(white: 0, alpha: 0.20)
     }
+    static let quoteText = UIColor.resolving { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1, alpha: 0.44)
+            : UIColor(white: 0, alpha: 0.44)
+    }
+
+    /// A quote of my message: `reply_blue_unfilledBalloonColor` outline and
+    /// `reply_blue_nonMaterialBalloonTextColor` text, system blue at 40/42 % and 80 %.
+    static let quoteOutgoingStroke = UIColor.resolving { traits in
+        UIColor(red: 0, green: 0.478, blue: 1, alpha: traits.userInterfaceStyle == .dark ? 0.42 : 0.40)
+    }
+    static let quoteOutgoingText = UIColor(red: 0, green: 0.478, blue: 1, alpha: 0.80)
 
     /// Composer text paragraph: the bubble's, natural line height, so the
     /// draft's lines sit where Messages' do and where the sent bubble puts them.
@@ -472,5 +542,24 @@ func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UICol
         view.clipsToBounds = ConversationGlassClipping.clipsToBounds(liquidGlass: false, contentReachesCorners: clipsContent)
     }
     return view
+}
+#endif
+
+#if canImport(UIKit)
+extension UIColor {
+    /// A trait-resolved color whose provider may run on any thread. UIKit and
+    /// the crash reporter's screenshot masking resolve colors off the main
+    /// thread; a provider written inside main-actor code inherits that
+    /// isolation and traps there, so providers go through this `@Sendable`
+    /// entry point instead of the bare trailing-closure initializer.
+    nonisolated static func resolving(_ provider: @escaping @Sendable (UITraitCollection) -> UIColor) -> UIColor {
+        UIColor(dynamicProvider: provider)
+    }
+}
+extension UIColor {
+    /// A Chat Colors colour (sRGB).
+    convenience init(conversation color: ConversationColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue, alpha: 1)
+    }
 }
 #endif

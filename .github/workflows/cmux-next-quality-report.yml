@@ -1,0 +1,366 @@
+name: cmux-next quality report
+
+# The nightly quality report of cmux NEXT (scripts/cmux-next/quality-report.py). Leo, 2026-11-10: "the lags,
+# the crashes ... it's not acceptable". Once a UTC day, on the first push to nightly-next (the NIGHTLY train's
+# branch) after midnight, it writes:
+#   - crashes and hangs of the last 24 h by signature, new or returning, NIGHTLY or DEV: from Sentry
+#     (manaflow/cmuxterm-macos, SENTRY_AUTH_TOKEN) when its API answers, else from the hang-watch issues in
+#     cmuxterm-hq (leo-workspace tools/hang_watch.py), read with the route App's issues token;
+#   - the metrics JSON: crash-free session rate (Sentry release health), the perf cron's newest interaction
+#     p95 per row (the perf-cron-state artifact), and the god-vs-small and animation token coverage slots
+#     (filled once those checks write their JSON; the report says "no input given" until then);
+#   - CI health (Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER"): over the last 50
+#     commits of feat-cmux-next and of main, the share of checks whose newest finished run is green, and the flake
+#     rate (a check that failed and then passed on the same commit), with the checks red now. One GraphQL read
+#     per 5 commits on the route App's checks-read token;
+#   - the nightly speed budget: merge to feed p50 and p95 against 30 min, nightlies over it and the largest stage,
+#     from the history nightly-speed.yml keeps in the cmuxterm-hq issue "cmux NEXT nightly speed budget" (read token).
+#   - the first-user journey (Leo, 2026-11-12: "We need to, like, actually properly, like, click through and utilize
+#     every single thing"): the newest results of the web click-through (first-user-journey-web.yml) and the iOS
+#     simulator walk (first-user-journey-ios.yml) here, and the fresh-user Mac walk (cmuxterm-hq
+#     first-user-journey-mac.yml), as cells by harness and sign-in state with their reds by rule. HQ
+#     docs/qa/first-user-journey.md.
+# The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
+# report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
+# is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
+# gates a build: every source that cannot be read leaves its metric null with the reason.
+#
+# A push to nightly-next runs this from nightly-next's own copy of the file, which follows feat-cmux-next, so
+# no default-branch dispatcher is needed. The sticky issue's hidden history is the day's record.
+on:
+  push:
+    branches:
+      - nightly-next
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-quality-report
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  report:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Every bounded step at its limit fits: Rust setup 30, the home's build 25, the gate step 90, the gate home 20, and
+    # the token mints (169 minutes), with room for the unbounded report steps.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false
+
+      # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: sticky-read-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: read
+
+      - name: Mint today's sticky read token
+        id: sticky-read
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.sticky-read-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: read
+
+      - name: Look for today's report in the sticky
+        id: done
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ (steps.sticky-read-bot.outputs.token || steps.sticky-read.outputs.token) }}
+        run: |
+          value="$(python3 -I scripts/cmux-next/quality-report.py done-today --repo manaflow-ai/cmuxterm-hq 2>/dev/null || true)"
+          [[ "$value" == true ]] || value=false
+          echo "done=$value" >> "$GITHUB_OUTPUT"
+
+      - name: Test the report
+        if: steps.done.outputs.done != 'true'
+        run: python3 -I scripts/cmux-next/tests/test_quality_report.py
+
+      - name: Initialize v2 gate measures
+        if: steps.done.outputs.done != 'true'
+        run: |
+          v2_gate_out="$RUNNER_TEMP/quality/v2-measures.ndjson"
+          echo "V2_GATE_OUT=$v2_gate_out" >> "$GITHUB_ENV"
+          mkdir -p "$(dirname "$v2_gate_out")"
+          : > "$v2_gate_out"
+
+      - name: Set up Rust for agent-service v2 god and small rows
+        if: steps.done.outputs.done != 'true'
+        timeout-minutes: 30
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The home below only reads the rows the gates wrote, so it gets its own build before the gates run. When the
+      # gates spend their whole limit (run 45522943505: the core group alone ran past 85 minutes on a slow runner),
+      # acpmux was never built under the gate profile, and the home spent its 17 minutes compiling and wrote nothing.
+      # Built here, the home runs in seconds and writes a report, naming every gate that did not get to run.
+      - name: Build the v2 gate home
+        if: steps.done.outputs.done != 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: cmux-tui
+        # `timeout` inside the step's limit, as for the gates below: a cargo the runner leaves behind holds the lock.
+        run: timeout --signal=TERM --kill-after=60s 1380s cargo bench --profile gate -p acpmux --bench v2 --no-run
+
+      - name: Run v2 gate measures
+        if: steps.done.outputs.done != 'true'
+        continue-on-error: true
+        # The whole gate script took 1,805 s at a cold native build (cmux-ci run 43709036687:
+        # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4, where the step has since taken
+        # 54 to 60 minutes and one night finished at 57m27s. The limits leave those runs room to finish.
+        timeout-minutes: 90
+        working-directory: cmux-tui
+        # `timeout` ends the script's whole process group inside the step's limit. When the CI runner cuts a step it
+        # signals only the step's shell, and a cargo left behind holds cmux-tui/target's lock, so the home below waits
+        # out its own limit on "Blocking waiting for file lock" and writes nothing (Nov 19).
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=60s 5100s ../scripts/cmux-next/run-v2-gates.sh
+
+      - name: Write the v2 god-small input
+        id: v2-home
+        if: steps.done.outputs.done != 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: cmux-tui
+        run: |
+          set -o pipefail
+          out="$RUNNER_TEMP/quality"
+          mkdir -p "$out"
+          # hq#11702: the report names a home that wrote nothing, with its error line. The exit is pre-written as -1
+          # so an outside kill reads as unfinished; the inner timeout leaves a useful 124 and elapsed time.
+          echo -1 > "$out/v2-home.exit"
+          home_limit=1020
+          start=$SECONDS
+          # The gate runner above appends one JSONL line per marked row.
+          code=0
+          timeout --signal=TERM --kill-after=30s "${home_limit}s" \
+            cargo bench --profile gate -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$out/v2-god-small.json" \
+            2> "$out/v2-home.stderr" || code=$?
+          echo "$((SECONDS - start))" > "$out/v2-home.seconds"
+          echo "$code" > "$out/v2-home.exit"
+          cat "$out/v2-home.stderr" >&2
+          exit "$code"
+
+      # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
+      # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). These tokens are
+      # minted after the slow Rust work so their one-hour lifetime covers the reads that use them.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: hq-read-bot
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }},cmuxterm-hq
+          permission-actions: read
+          permission-issues: read
+
+      - name: Mint the read token
+        id: hq-read
+        if: (steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.hq-read-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }},cmuxterm-hq
+          permission-actions: read
+          permission-issues: read
+
+      # Checks and contents (the commit history) read on this repository only, for the CI health section; its own mint, so an App without the checks
+      # grant costs only the CI numbers (n/a, with the reason), never the perf rows or the crash fallback.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: checks-read-bot
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: read
+          permission-contents: read
+
+      - name: Mint the checks read token
+        id: checks-read
+        if: (steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.checks-read-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: read
+          permission-contents: read
+
+      - name: Fetch the perf cron's state
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
+        run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
+
+      # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
+      # None yet, or no token: the report says "no input given" for god-vs-small.
+      - name: Fetch the degenerate lab's god-small rows
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --branch nightly-next --status completed -L 1 \
+            --json databaseId -q '.[0].databaseId')"
+          [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
+
+      # Each surface's newest results artifact, on the read token (actions read here and on cmuxterm-hq). A surface
+      # that cannot be read is n/a in the report with the reason; one older than 48 h is stale.
+      - name: Fetch the first-user journey results
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
+        run: |
+          for row in "web $GITHUB_REPOSITORY first-user-journey-web.yml" \
+                     "ios $GITHUB_REPOSITORY first-user-journey-ios.yml" \
+                     "mac manaflow-ai/cmuxterm-hq first-user-journey-mac.yml"; do
+            set -- $row
+            python3 -I scripts/cmux-next/quality-report.py fetch-journey --repo "$2" --workflow "$3" \
+              --artifact "first-user-journey-$1" --dir "$RUNNER_TEMP/journey/$1" || true
+          done
+
+      - name: Build the report
+        if: steps.done.outputs.done != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
+          CI_GH_TOKEN: ${{ (steps.checks-read-bot.outputs.token || steps.checks-read.outputs.token) }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/quality"
+          mkdir -p "$out"
+          journey=()
+          for surface in web ios mac; do
+            journey+=(--first-user-journey "$RUNNER_TEMP/journey/$surface/results.json")
+          done
+          report_args=(report --hours 24 \
+            --perf-state "$RUNNER_TEMP/perf-state/state.json" \
+            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed "${journey[@]}" \
+            --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
+            --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
+          # God-vs-small rows and errors from the v2 bench and the degenerate lab, merged into one input.
+          god_inputs=()
+          [[ -f "$out/v2-god-small.json" ]] && god_inputs+=("$out/v2-god-small.json")
+          [[ -f "$RUNNER_TEMP/god-small/god-small.json" ]] && god_inputs+=("$RUNNER_TEMP/god-small/god-small.json")
+          if (( ${#god_inputs[@]} )); then
+            python3 -I scripts/cmux-next/quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"
+            report_args+=(--god-small "$out/god-small.json")
+          else
+            echo "no god-small input (v2 bench or degenerate lab); report records no input given" >&2
+          fi
+          # The v2 gate home's exit and error line (hq#11702): when it wrote nothing, the report's first line says so.
+          if [[ -f "$out/v2-home.exit" ]]; then
+            report_args+=(--v2-home-exit "$(cat "$out/v2-home.exit")" --v2-home-stderr "$out/v2-home.stderr" \
+              --v2-home-output "$out/v2-god-small.json" --v2-home-limit 1020)
+            [[ -f "$out/v2-home.seconds" ]] && report_args+=(--v2-home-seconds "$(cat "$out/v2-home.seconds")")
+          fi
+          python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
+          cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # The public artifact has no signature names (quality-report.py public_report); they go to the sticky only.
+      - name: Keep the metrics JSON
+        if: steps.done.outputs.done != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-quality-metrics
+          path: ${{ runner.temp }}/quality/quality-metrics.json
+          retention-days: 3
+
+      # Issues write on cmuxterm-hq only, for the sticky report.
+      - name: Mint the cmuxterm-hq issues write token
+        id: hq-token
+        if: steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
+
+      - name: Update the sticky report in cmuxterm-hq
+        id: sticky
+        if: steps.done.outputs.done != 'true' && steps.hq-token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: |
+          python3 -I scripts/cmux-next/quality-report.py sticky \
+            --report "$RUNNER_TEMP/quality/quality-metrics-full.json" --md "$RUNNER_TEMP/quality/quality-report.md"
+
+      - name: Fail when a marked v2 gate has no measure
+        if: steps.done.outputs.done != 'true'
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/quality/v2-god-small.json"
+          test -s "$report" || { echo "v2 gate home did not write $report" >&2; exit 1; }
+          python3 -I - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              rows = json.load(stream)["rows"]
+          failed = [row for row in rows if row.get("status") == "failed"]
+          if failed:
+              for row in failed:
+                  print(f"v2 gate failed: {row['name']}: {row.get('reason', 'unknown reason')}", file=sys.stderr)
+              raise SystemExit(1)
+          PY

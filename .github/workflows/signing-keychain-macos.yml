@@ -9,30 +9,41 @@ on:
   push:
     branches: [main, feat-cmux-next]
     paths:
+      - scripts/ci/**/*.sh
       - scripts/ci/signing-keychain.sh
       - scripts/ci/lib/signing-runtime-guard.sh
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
-      - scripts/derive_sparkle_public_key.swift
       - tests/test_derive_sparkle_public_key.sh
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
+      - scripts/ci/**/*.sh
       - scripts/ci/signing-keychain.sh
       - scripts/ci/lib/signing-runtime-guard.sh
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
-      - scripts/derive_sparkle_public_key.swift
       - tests/test_derive_sparkle_public_key.sh
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: signing-keychain-macos-${{ github.ref }}
+  group: signing-keychain-macos-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -40,9 +51,63 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  # The triggers above are wide for bash32-syntax (any scripts/ci change can
+  # break macOS /bin/bash 3.2), and that job runs on Linux. The real import
+  # needs a Mac but tests only the keychain tool, so this Linux job starts it
+  # only when the tool, what it sources, its test or this workflow changed.
+  # Before this, every scripts/*.sh PR queued a Blacksmith macOS job (nine at
+  # once on 2026-10-27, ahead of nightly signing on the same label). A diff
+  # that cannot be read (new branch, too many files, API error) runs it.
+  real-import-plan:
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    name: Does the keychain tool change?
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'cmux-linux') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - name: Compare the changed files with the keychain tool's inputs
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          # Keep in sync with tests/test_signing_keychain_real_import_gate.py.
+          INPUTS: |-
+            ^scripts/ci/signing-keychain\.sh$
+            ^scripts/ci/lib/signing-runtime-guard\.sh$
+            ^scripts/import-apple-developer-id-intermediates\.sh$
+            ^scripts/apple-developer-id-certs/
+            ^scripts/select-ci-xcode\.sh$
+            ^tests/test_signing_keychain_real_import\.sh$
+            ^tests/test_derive_sparkle_public_key\.sh$
+            ^scripts/derive_sparkle_public_key\.swift$
+            ^\.github/workflows/signing-keychain-macos\.yml$
+        run: |
+          set -uo pipefail
+          run=true
+          if [ "$EVENT" != workflow_dispatch ] && [ -n "$BASE" ] && [ "${BASE//0/}" != "" ]; then
+            if files="$(gh api "repos/$REPO/compare/$BASE...$HEAD" \
+                --jq 'if (.files | length) >= 300 then error("too many files") else .files[].filename end')"; then
+              if ! grep -E -f <(printf '%s\n' "$INPUTS") <<<"$files" >/dev/null; then
+                run=false
+              fi
+            else
+              echo "::warning::could not read the diff; running the real import"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "real import: $run" >> "$GITHUB_STEP_SUMMARY"
+
   real-import:
     name: Real keychain import (throwaway identity)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    needs: real-import-plan
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (needs.real-import-plan.outputs.run == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -59,3 +124,49 @@ jobs:
 
       - name: Import, sign and delete with a throwaway identity
         run: bash tests/test_signing_keychain_real_import.sh
+
+  # macOS runs scripts/ci with /bin/bash 3.2, which rejects some scripts that
+  # bash 5 accepts (a heredoc inside $(...) with an apostrophe broke nightly-next
+  # run 39011132580). Linux CI uses bash 5, so this check parses with GNU bash
+  # 3.2.57, the release macOS /bin/bash is, built on Linux
+  # (scripts/ci/build-bash32.sh): no Mac needed. The parse guard test below
+  # proves this bash rejects the construct that broke nightly-next.
+  bash32-syntax:
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    name: scripts/ci parse under /bin/bash 3.2
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Restore bash 3.2.57
+        id: bash32-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/bash32
+          key: bash-3.2.57-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/build-bash32.sh') }}
+
+      - name: Build bash 3.2.57
+        run: |
+          ./scripts/ci/build-bash32.sh "$RUNNER_TEMP/bash32"
+          echo "CMUX_PARSE_BASH=$RUNNER_TEMP/bash32/bin/bash" >> "$GITHUB_ENV"
+
+      - name: Save bash 3.2.57
+        if: ${{ (steps.bash32-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/bash32
+          key: ${{ steps.bash32-cache.outputs.cache-primary-key }}
+
+      - name: Parse every scripts/ci shell script with bash 3.2
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
+
+      - name: Parse guards fail on a script bash 3.2 cannot parse
+        run: |
+          "$CMUX_PARSE_BASH" tests/test_bash32_parse_guard.sh | tee "$RUNNER_TEMP/guard.out"
+          ! grep -q '^SKIP' "$RUNNER_TEMP/guard.out"

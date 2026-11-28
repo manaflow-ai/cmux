@@ -1,11 +1,5 @@
 name: iOS App Store (production)
 
-# Retired for the classic app. The App Store record com.cmux.app (6783338052)
-# now ships cmux-next from feat-cmux-next, and the cmux-next App Store lane on
-# that branch replaces this one. Classic (ios/) ships only to its internal
-# TestFlight record, cmux CLASSIC, through ios-appstore-upload.yml. The
-# refuse-classic job below stops every dispatch before anything is archived,
-# uploaded or submitted; the steps after it are kept only for reference.
 on:
   workflow_dispatch:
     inputs:
@@ -27,11 +21,6 @@ on:
         required: false
         default: false
         type: boolean
-      release_when_approved:
-        description: Release on the App Store as soon as App Review approves (AFTER_APPROVAL); unchecked keeps a manual release
-        required: false
-        default: false
-        type: boolean
       retarget_initial_draft:
         description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
         required: false
@@ -50,19 +39,6 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  refuse-classic:
-    name: Refuse to ship the classic app to com.cmux.app
-    # No secrets: any Linux pool will do.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 5
-    steps:
-      - name: Refuse the classic App Store upload and submission
-        run: |
-          MESSAGE='This workflow no longer uploads or submits the classic iOS app (ios/ on main). The App Store record com.cmux.app (6783338052) now ships cmux-next from feat-cmux-next, and the cmux-next App Store lane on that branch replaces this one. Classic builds go to the internal TestFlight record cmux CLASSIC (dev.cmux.app.classic) through ios-appstore-upload.yml.'
-          echo "::error::$MESSAGE"
-          echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
-          exit 1
-
   # Proof of concept for capability-based runner selection. This job needs a
   # macOS host with iOS runtimes and a working simctl; which vendor supplies
   # that is .github/runners.json's problem, not this workflow's. On
@@ -71,6 +47,42 @@ jobs:
   runners:
     uses: ./.github/workflows/resolve-runners.yml
 
+  # The commit of main this run ships, resolved once: the source archive and the
+  # upload build the same commit even when main moves during the run.
+  app-source:
+    name: Resolve the app source commit (main)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve main
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve main: $sha" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  # IOS-SOURCE-ARCHIVE-PER-RELEASE: the corresponding-source archive (Ghostty,
+  # ghostty-next and every Zig package, z2d included) of the exact commit this
+  # run uploads, built and checked by the cmux-next source-archive workflow
+  # before the upload. The upload needs it: no iOS build ships without one.
+  source-archive:
+    name: Build and check the iOS source archive
+    needs: app-source
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-next-source-archive.yml
+    with:
+      ref: ${{ needs.app-source.outputs.sha }}
+      build: ios-${{ github.run_id }}
+      artifact: cmux-ios-source-archive
+
   upload-and-validate:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
@@ -78,13 +90,11 @@ jobs:
     name: Upload and validate production App Store build
     # The app source is always main, including dispatches of workflow repairs.
     if: github.event_name == 'workflow_dispatch'
-    # refuse-classic always fails, so this job never runs.
-    needs: [refuse-classic, runners]
-    # It holds the App Store Connect key, so the capability map's answer is used only
-    # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
-    # name any machine (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
+    needs: [runners, app-source, source-archive]
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}
     timeout-minutes: 90
+    outputs:
+      final_build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -96,14 +106,12 @@ jobs:
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
       INPUT_REFRESH_STORE_LISTING: ${{ github.event.inputs.refresh_store_listing }}
       INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
-      # MANUAL holds an approved version until someone releases it in App Store
-      # Connect; AFTER_APPROVAL makes one dispatch (submit + release) the whole release.
-      IOS_APPSTORE_RELEASE_TYPE: ${{ github.event.inputs.release_when_approved == 'true' && 'AFTER_APPROVAL' || 'MANUAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: refs/heads/main
+          # main, as resolved by app-source (the commit the source archive holds).
+          ref: ${{ needs.app-source.outputs.sha }}
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
@@ -215,9 +223,6 @@ jobs:
         env:
           IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
-          # The public App Store binary must not contain the unapproved system
-          # VPN API. Beta/internal lanes keep that feature separately.
-          IOS_APPSTORE_ENABLE_CLOUD_VPN: "0"
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
@@ -282,20 +287,20 @@ jobs:
                 --version-id "$INITIAL_DRAFT_ID" \
                 --version "$VERSION" \
                 --copyright "2026 Manaflow, Inc." \
-                --release-type "$IOS_APPSTORE_RELEASE_TYPE"
+                --release-type MANUAL
             else
               asc versions create \
                 --app "$ASC_APP_ID" \
                 --version "$VERSION" \
                 --platform IOS \
                 --copyright "2026 Manaflow, Inc." \
-                --release-type "$IOS_APPSTORE_RELEASE_TYPE"
+                --release-type MANUAL
             fi
           else
             asc versions update \
               --version-id "$VERSION_ID" \
               --copyright "2026 Manaflow, Inc." \
-              --release-type "$IOS_APPSTORE_RELEASE_TYPE"
+              --release-type MANUAL
             if [ "${INPUT_REFRESH_STORE_LISTING:-false}" != "true" ]; then
               echo "Keeping existing App Store metadata and screenshots for $VERSION"
               exit 0
@@ -343,7 +348,7 @@ jobs:
 
       # The archive used to resolve every Swift package from the network
       # (about 129 s of the 592 s archive step in run 36522549397). Restore
-      # the ios-spm- package checkouts that ios-appstore-upload.yml's upload lane
+      # the ios-spm- package checkouts that ios-testflight.yml's upload lane
       # saves from main (and test-ios.yml's seed_cache dispatch), under the
       # same key, through the same CMUX_IOS_SPM_CACHE_DIR hook in
       # upload-testflight.sh. Restore only: this release job never writes a
@@ -356,7 +361,7 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           # r2-cache.sh reads through this public URL; without it every R2
-          # restore is a miss (ios-appstore-upload.yml sets it workflow-wide).
+          # restore is a miss (ios-testflight.yml sets it workflow-wide).
           CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
@@ -443,7 +448,6 @@ jobs:
             echo "- signing: manual (CI-imported iOS distribution cert + App Store profile)"
             echo "- build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
             echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
-            echo "- release type: \`${IOS_APPSTORE_RELEASE_TYPE}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup signing material
@@ -451,3 +455,36 @@ jobs:
         run: |
           rm -f "${ASC_API_KEY_PATH:-}"
           security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
+
+  # Attaches the archive as cmux-ios-source-<build>.tar.gz to the ios-source
+  # release (the name the iOS Acknowledgements pane's z2d offer gives) and tags
+  # the commit cmux-next-src-<11 characters>. Only after a successful upload and
+  # only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1 (the coordinator's hold).
+  publish-source-archive:
+    name: Publish the iOS source archive
+    needs: [app-source, upload-and-validate, source-archive]
+    if: ${{ !cancelled() && needs.upload-and-validate.result == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.app-source.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download the iOS source archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ios-source-archive
+          path: source-archive
+
+      - name: Publish the iOS source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_NUMBER: ${{ needs.upload-and-validate.outputs.final_build_number }}
+          APP_COMMIT: ${{ needs.app-source.outputs.sha }}
+        run: ./scripts/cmux-next/publish-ios-source-archive.sh "$BUILD_NUMBER" "$APP_COMMIT" source-archive

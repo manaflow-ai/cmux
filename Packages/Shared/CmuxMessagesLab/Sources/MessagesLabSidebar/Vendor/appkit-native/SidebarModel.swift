@@ -25,6 +25,12 @@ protocol SidebarDelegate: AnyObject {
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem]
     // v1.2 (default in the extension below).
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int)
+    // cmux (default in the extension below).
+    /// The person opened a conversation: a plain click on its row or tile (the selected one too),
+    /// Return on the highlighted one in the list or the search field, or an accessibility press.
+    /// Called after `didSelect`. Up/Down only select; Command-, Shift- and Control-clicks only
+    /// select. The host moves the keyboard into the conversation (Messages' message field).
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID)
 }
 
 /// v1.1: the context-menu actions an owner supports for one conversation. An action that is
@@ -116,6 +122,8 @@ extension SidebarDelegate {
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
     /// v1.2: a pinned tile was dragged to `index` in the pinned order (default: the tiles go back).
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) {}
+    /// cmux: a conversation was opened (default: nothing beyond the selection).
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID) {}
 }
 
 /// v1.1: where the sidebar's strings come from. Every sidebar string is in one catalog,
@@ -156,6 +164,9 @@ enum SidebarStrings {
     static var showAlerts: String { s("sidebar.menu.showAlerts", "Show Alerts") }
     static var delete: String { s("sidebar.menu.delete", "Delete Conversation…") }
     static var noResults: String { s("sidebar.noResults", "No Results") }
+    /// cmux: the empty list under the Unread filter, and its button that shows every chat again.
+    static var noUnread: String { s("sidebar.noUnread", "No Unread Chats") }
+    static var showAll: String { s("sidebar.showAll", "Show All") }
     static var conversations: String { s("sidebar.list", "Conversations") }
     static var pinned: String { s("sidebar.pinned", "Pinned") }
     static var typing: String { s("sidebar.typing", "Typing") }
@@ -222,9 +233,12 @@ struct SidebarMetrics: Equatable {
     // Width. The host owns the width, its storage and its reset; the list reads only the
     // width it gets and reports these two (SidebarController.minimumWidth / preferredWidth).
     static let preferredWidth: CGFloat = 320
-    /// Narrowest useful width: the compact list (avatar only) with its margins.
-    static let minimumWidth: CGFloat = 76
-    /// Below this the list is compact: avatars only, pinned avatars in one column, no names.
+    /// Narrowest useful width: the compact list (avatar only) with its margins. cmux: Messages'
+    /// narrow sidebar on macOS 26 is 92 pt (the user, 2026-11-23: "this is too small").
+    static let minimumWidth: CGFloat = 92
+    /// Below this the list is compact: one column of avatars, pinned or not (Messages' narrow
+    /// sidebar; the user, 2026-11-03, msg 20149). cmux: as in Messages on macOS 26, a compact row is
+    /// the full row with its avatar centred and no text: 80.5 pt, a 40 pt avatar, the same selection.
     static let compactBelow: CGFloat = 180
     /// A pinned column needs this much width: 3 columns from 260 pt, 2 from 180 pt.
     static let minTileWidth: CGFloat = 80
@@ -238,21 +252,25 @@ struct SidebarMetrics: Equatable {
     static let searchBottomGap: CGFloat = 10
 
     // Rows.
-    static let rowHeight: CGFloat = 72
+    // cmux: macOS 26 Messages' row, measured at 2x (the user, 2026-11-23: "EXACTLY like imessage"): 161 px.
+    static let rowHeight: CGFloat = 80.5
     static let selectionInsetX: CGFloat = 10
-    static let selectionRadius: CGFloat = 10
-    static let dotDiameter: CGFloat = 10
+    static let selectionRadius: CGFloat = 8 // cmux: Messages (macOS 26) measures 8 pt, circular
+    static let dotDiameter: CGFloat = 9 // cmux: Messages' dot is 18 px at 2x
     static let dotCenterX: CGFloat = 19
     static let avatar: CGFloat = 40
     static let avatarX: CGFloat = 28
-    static let textX: CGFloat = 80
+    static let textX: CGFloat = 74.5 // cmux: measured, 6.5 pt right of the avatar
     static let textRightInset: CGFloat = 20
-    static let nameBaseline: CGFloat = 23
-    static let previewBaseline: CGFloat = 40
-    static let previewLineHeight: CGFloat = 16
-    static let separatorInsetRight: CGFloat = 10
+    // cmux: measured in the 80.5 pt row: the name and time on 29, the preview lines on 45 and 60.
+    static let nameBaseline: CGFloat = 29
+    static let previewBaseline: CGFloat = 45
+    static let previewLineHeight: CGFloat = 15
+    /// cmux: the separator runs from half a point left of the text to 21.5 pt short of the right edge.
+    static let separatorX: CGFloat = 74
+    static let separatorInsetRight: CGFloat = 21.5
     static let nameSize: CGFloat = 13
-    static let previewSize: CGFloat = 13
+    static let previewSize: CGFloat = 12 // cmux: Messages' preview is 12 pt (measured widths)
     static let timeSize: CGFloat = 12
     static let timeGap: CGFloat = 6
 
@@ -260,24 +278,44 @@ struct SidebarMetrics: Equatable {
     static let pinColumns = 3
     static let pinInsetX: CGFloat = 10
     static let pinTopPad: CGFloat = 12
-    static let pinMaxAvatar: CGFloat = 76
+    static let pinMaxAvatar: CGFloat = 88 // cmux: Messages (macOS 26) at a wide list, measured at 2x
     static let pinAvatarSideInset: CGFloat = 14
     static let pinNameSize: CGFloat = 11
     static let pinNameGap: CGFloat = 6
     static let pinNameHeight: CGFloat = 16
     static let pinBottomPad: CGFloat = 8
     static let pinSelectionRadius: CGFloat = 12
+    /// cmux: the selection runs this far past the avatar on the top and the sides, at every width (Messages, macOS 26,
+    /// measured at 2x: an 88 pt avatar in a 108 pt slab); the tile's own width only caps it.
+    static let pinSelectionPad: CGFloat = 10
     static let pinSectionBottom: CGFloat = 6
+    /// cmux: Messages' avatar strip parts its pinned avatars from the rest with a line in a 10 pt gap (macOS 26,
+    /// measured at 2x): 54 x 2 pt, centred, the separator's colour.
+    static let compactDividerGap: CGFloat = 10
+    static let compactDivider = CGSize(width: 54, height: 2)
 
     var width: CGFloat
 
     /// The row avatar's x: the measured column, or centered in the compact list.
-    var rowAvatarX: CGFloat { compact ? ((width - Self.avatar) / 2).rounded() : Self.avatarX }
-    var dotCenterX: CGFloat { compact ? max(Self.dotDiameter / 2 + 1, rowAvatarX - 9) : Self.dotCenterX }
+    var rowAvatarX: CGFloat { compact ? ((width - compactAvatar) / 2).rounded() : Self.avatarX }
+    /// cmux: how much a compact list wider than the narrowest is scaled: the whole strip (avatar, row, slab, divider)
+    /// grows with the width, so a wider strip is the narrowest one zoomed, never small avatars in an empty band (the
+    /// user, 2026-11-24: "make them bigger here"). 1 in the full list.
+    var compactScale: CGFloat { compact ? max(1, width / Self.minimumWidth) : 1 }
+    /// The compact list's avatar, pinned or not: the row's (Messages' narrow list), scaled with the strip (cmux).
+    var compactAvatar: CGFloat { (Self.avatar * compactScale).rounded() }
+    /// A row's height: the measured row; in the compact list scaled with the strip (cmux), on the half point.
+    var listRowHeight: CGFloat { compact ? (Self.rowHeight * compactScale * 2).rounded() / 2 : Self.rowHeight }
+    /// A row's avatar in the row's own coordinates (`rowHeight`: the row's height), centred on the
+    /// row; in the compact list centred across it too.
+    func rowAvatar(rowHeight: CGFloat) -> CGRect {
+        let a = compact ? compactAvatar : Self.avatar
+        return CGRect(x: rowAvatarX, y: ((rowHeight - a) / 2).rounded(), width: a, height: a)
+    }
     /// The row text's width (name, preview) at this list width.
     var textWidth: CGFloat { max(0, width - Self.textX - Self.textRightInset) }
 
-    /// Avatar-only rows and a one-column pinned list without names.
+    /// One column of avatar-only rows, pinned and unpinned alike (cmux: Messages' narrow list).
     var compact: Bool { width < Self.compactBelow }
     /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
     var columns: Int {
@@ -286,28 +324,78 @@ struct SidebarMetrics: Equatable {
     }
     var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
     /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
-    /// columns it stays at 52 pt, so a column change moves tiles but never resizes them.
+    /// columns it stays at 52 pt, so a column change moves tiles but never resizes them. In the
+    /// compact list it is the row avatar: pinned and unpinned avatars are one size there.
     var pinAvatar: CGFloat {
         let fit = (tileWidth - 2 * Self.pinAvatarSideInset).rounded()
-        if compact { return min(Self.pinMinAvatar, max(36, width - 24)).rounded() }
+        if compact { return compactAvatar }
         return columns == Self.pinColumns ? min(Self.pinMaxAvatar, max(Self.pinMinAvatar, fit)) : Self.pinMinAvatar
     }
+    /// A tile's height: the avatar and the name under it; in the compact list a row's (cmux). Every compact row is this tall,
+    /// so pinned and unpinned avatars keep one rhythm.
     var tileHeight: CGFloat {
-        compact ? Self.pinTopPad / 2 + pinAvatar + Self.pinBottomPad
-            : Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
+        if compact { return listRowHeight } // cmux: a compact tile is a row: avatar only
+        return Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
     }
     func pinnedHeight(count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
         let rows = (count + columns - 1) / columns
-        return CGFloat(rows) * tileHeight + Self.pinSectionBottom
+        return CGFloat(rows) * tileHeight + (compact ? compactDividerGapScaled : Self.pinSectionBottom)
     }
-    func tileRect(_ i: Int) -> CGRect {
+    /// cmux: the compact list's slab: the narrowest list's (its row less the insets) scaled with the strip, centred on the
+    /// avatar, never a bar across the strip (the user, 2026-11-24).
+    /// The avatar plus an even margin, so the slab shares the avatar's centre on the point grid.
+    var compactSelectionWidth: CGFloat {
+        compactAvatar + 2 * (((Self.minimumWidth - 2 * Self.selectionInsetX - Self.avatar) / 2) * compactScale).rounded()
+    }
+    /// cmux: the compact selection's x in list coordinates, centred on the avatar.
+    var compactSelectionX: CGFloat { ((width - compactSelectionWidth) / 2).rounded() }
+    /// cmux: the compact slab's corner, scaled with the strip.
+    var compactSelectionRadius: CGFloat { (Self.selectionRadius * compactScale).rounded() }
+    /// cmux: the line under the pinned avatars and its gap, scaled with the strip (the line stays 2 pt thick).
+    var compactDividerSize: CGSize {
+        // The avatar plus an even margin, as the slab, so the line shares the avatar's centre.
+        CGSize(width: compactAvatar + 2 * (((Self.compactDivider.width - Self.avatar) / 2) * compactScale).rounded(), height: Self.compactDivider.height)
+    }
+    /// Even, so the 2 pt line in its middle sits on whole points.
+    var compactDividerGapScaled: CGFloat { 2 * (Self.compactDividerGap / 2 * compactScale).rounded() }
+    /// cmux: the compact list's unread dot centre: as far left of the avatar as in the narrowest list, so the dot stays
+    /// with its avatar in a wider strip.
+    var compactDotCenterX: CGFloat { rowAvatarX - (((Self.minimumWidth - Self.avatar) / 2).rounded() - Self.dotCenterX) }
+    /// cmux: a tile's selection in tile coordinates: the avatar and its name with `pinSelectionPad` around the avatar,
+    /// never the tile's whole width (the user, 2026-11-23: in a wide list it was a wide slab); the compact tile is a row.
+    var tileSelection: CGRect {
+        if compact {
+            let w = min(tileWidth, compactSelectionWidth)
+            return CGRect(x: ((tileWidth - w) / 2).rounded(), y: 0, width: w, height: tileHeight)
+        }
+        let w = min(tileWidth - 4, pinAvatar + 2 * Self.pinSelectionPad)
+        let avatarX = ((tileWidth - pinAvatar) / 2).rounded()
+        let x = max(2, avatarX - ((w - pinAvatar) / 2).rounded())
+        return CGRect(x: x, y: Self.pinTopPad - Self.pinSelectionPad, width: w, height: tileHeight - 2 * (Self.pinTopPad - Self.pinSelectionPad))
+    }
+    /// cmux: the width a tile's name is fitted to (`SidebarDraw.tileNameKeyWidth`): the selection's, so a selected
+    /// name stays 2 pt inside it.
+    var tileNameWidth: CGFloat { compact ? tileWidth : tileSelection.width + 4 }
+    /// cmux: tile `i` of a grid of `count`. A last row with fewer tiles than columns is centred in the list (Messages'
+    /// pinned grid; the user, 2026-11-25: one pinned Chief sat in the left column), so a resize keeps it centred.
+    func tileRect(_ i: Int, count: Int) -> CGRect {
         let cols = columns
         let r = i / cols, c = i % cols
         let tw = tileWidth
-        let used = tw * CGFloat(cols)
-        let x0 = ((width - used) / 2).rounded()
+        let inRow = max(1, min(cols, count - r * cols))
+        let x0 = ((width - tw * CGFloat(inRow)) / 2).rounded()
         return CGRect(x: x0 + CGFloat(c) * tw, y: CGFloat(r) * tileHeight, width: tw, height: tileHeight)
+    }
+    /// cmux: the slot under `p` in a grid of `count` (`tileRect(_:count:)`'s layout), clamped to the grid.
+    func tileSlot(at p: CGPoint, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let cols = columns, rows = (count + cols - 1) / cols
+        // no trap on NaN (a zero tile size) or a huge position
+        let r = min(rows - 1, max(0, CrashGuard.int(p.y / tileHeight, in: CrashGuard.rowRange)))
+        let inRow = min(cols, count - r * cols)
+        let c = min(inRow - 1, max(0, CrashGuard.int((p.x - tileRect(r * cols, count: count).minX) / tileWidth, in: CrashGuard.rowRange)))
+        return r * cols + c
     }
 }
 
@@ -323,6 +411,8 @@ struct SidebarPalette: Equatable {
     var selectionActive: CGColor
     var selectionInactive: CGColor
     var selectedText: CGColor
+    // cmux: a pinned tile's name when not selected (Messages' label colour; Home's neutral selection draws it grey).
+    var pinName: CGColor
     var monogramTop: CGColor
     var monogramBottom: CGColor
     var groupDisc: CGColor
@@ -349,17 +439,21 @@ struct SidebarPalette: Equatable {
             }
             return SidebarPalette(
                 dark: dark,
-                name: NSColor.labelColor.cgColor,
-                secondary: NSColor.secondaryLabelColor.cgColor,
-                separator: NSColor.separatorColor.cgColor,
+                // cmux: dark, Messages' vibrant sidebar text and separator as measured on its 27/255 panel
+                // (name 244, preview and time 164, separator 58): white at 95 %, 60 % and 13.6 %.
+                name: dark ? CGColor(gray: 1, alpha: 0.952) : NSColor.labelColor.cgColor,
+                secondary: dark ? CGColor(gray: 1, alpha: 0.601) : NSColor.secondaryLabelColor.cgColor,
+                separator: dark ? CGColor(gray: 1, alpha: 0.136) : NSColor.separatorColor.cgColor,
                 unread: (unreadColor ?? NSColor.systemBlue).cgColor,
                 accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
+                pinName: NSColor.labelColor.cgColor, // cmux
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
-                monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
-                monogramBottom: dark ? p3(104, 108, 117) : p3(134, 139, 151),
+                // cmux: dark measured on macOS 26 Messages (2026-11-23).
+                monogramTop: dark ? p3(166, 170, 182) : p3(166, 171, 184),
+                monogramBottom: dark ? p3(135, 138, 148) : p3(134, 139, 151),
                 groupDisc: dark ? p3(72, 72, 74) : p3(209, 209, 214),
                 // Messages' incoming bubble grey (the transcript palette, dark 59/59/61) for the
                 // pinned preview bubble; light: #E9E9EB (the transcript's light link card).

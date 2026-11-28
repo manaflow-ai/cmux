@@ -1,9 +1,11 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// A file attachment's details, as Messages shows them in its document
 /// bubble: the name, the type (a uniform type identifier) and the size.
-public struct ConversationFileInfo: Sendable, Hashable {
+public struct ConversationFileInfo: Sendable, Hashable, Codable {
     /// The file name with its extension, e.g. "Quarterly Report.pdf".
     public var name: String
     /// Uniform type identifier, e.g. "com.adobe.pdf".
@@ -22,6 +24,7 @@ public struct ConversationFileInfo: Sendable, Hashable {
         self.init(name: name, uti: Self.uti(name: name, mimeType: mimeType), byteCount: byteCount)
     }
 
+    #if canImport(UniformTypeIdentifiers)
     public var type: UTType { UTType(uti) ?? .data }
 
     /// Images sent as files still open in the photo viewer.
@@ -40,6 +43,21 @@ public struct ConversationFileInfo: Sendable, Hashable {
         return first.uppercased() + description.dropFirst()
     }
 
+    #else
+    // Without UniformTypeIdentifiers (the Linux CI package build) the type
+    // comes from a small fixed table; see ConversationFileTypeTable.
+
+    /// Images sent as files still open in the photo viewer.
+    public var isImage: Bool { ConversationFileTypeTable.isImage(uti: uti) }
+
+    /// The MIME type the upload declares.
+    public var mimeType: String { ConversationFileTypeTable.mimeType(uti: uti) ?? "application/octet-stream" }
+
+    public var typeDescription: String {
+        ConversationFileTypeTable.description(uti: uti) ?? URL(fileURLWithPath: name).pathExtension.uppercased()
+    }
+    #endif
+
     /// "1.2 MB", as Messages and Files format sizes.
     public var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
@@ -47,14 +65,20 @@ public struct ConversationFileInfo: Sendable, Hashable {
 
     static func uti(name: String, mimeType: String?) -> String {
         let ext = URL(fileURLWithPath: name).pathExtension
+        #if canImport(UniformTypeIdentifiers)
         if !ext.isEmpty, let type = UTType(filenameExtension: ext), !type.isDynamic { return type.identifier }
         if let mimeType, let type = UTType(mimeType: mimeType), !type.isDynamic { return type.identifier }
         return UTType.data.identifier
+        #else
+        if !ext.isEmpty, let uti = ConversationFileTypeTable.uti(filenameExtension: ext) { return uti }
+        if let mimeType, let uti = ConversationFileTypeTable.uti(mimeType: mimeType) { return uti }
+        return "public.data"
+        #endif
     }
 }
 
 /// A file picked for sending, waiting for upload.
-public struct ConversationPendingFile: Sendable, Hashable {
+public struct ConversationPendingFile: Sendable, Hashable, Codable {
     public var data: Data
     public var info: ConversationFileInfo
 
@@ -89,5 +113,19 @@ extension ConversationBackend {
             return try await files.uploadFileAttachment(data, info: info)
         }
         throw ConversationBackendError(code: -1, message: "file attachments are not supported")
+    }
+}
+
+/// Upload progress of the send in flight. ``ConversationStore`` binds
+/// ``report`` around each attachment's upload; a backend that moves bytes
+/// calls it with the fraction of that attachment sent so far (0...1), and the
+/// sending row shows it ("Uploading 42%"). Unbound, reports go nowhere.
+public struct ConversationUploadProgress {
+    public init() {}
+    @TaskLocal public static var report: (@Sendable (Double) -> Void)?
+
+    /// Reports `fraction` (clamped to 0...1) to the send in flight, if any.
+    public static func send(_ fraction: Double) {
+        report?(min(1, max(0, fraction)))
     }
 }

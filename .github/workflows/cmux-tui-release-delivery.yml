@@ -27,35 +27,18 @@ concurrency:
 jobs:
   delivery:
     name: verify registry delivery
-    # The cmux-bot mint below holds an App key: LINUX_RUNNER moves this job only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       # Always use the trusted default branch, never workflow_run's source.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: refs/heads/main
+          ref: main
           persist-credentials: false
           fetch-depth: 1
-      # This job's reads spend the cmux-bot App's own budget, not the repository's GITHUB_TOKEN pool
-      # (1,000 requests an hour shared by every workflow; run 43989417033 failed on "API rate limit
-      # exceeded for installation"). github.token stays the fallback: for a failed mint, a
-      # refused read, and every write (hq docs/compendium/ci-quotas.md, cmux#35264).
-      - name: Mint the cmux-bot token for this job's reads
-        id: read-token
-        if: vars.CMUX_BOT_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-contents: read
-
       - name: Check newest stable TUI release on PyPI and npm
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
-          GH_FALLBACK_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         # The post-build check may still be inside the two-hour delivery grace
         # period. The scheduled check catches forgotten approvals after it.
         run: python3 cmux-tui/scripts/check_release_delivery.py

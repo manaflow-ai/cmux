@@ -1,0 +1,31 @@
+{
+  "id": "multiplayer-a672-two-chiefs",
+  "owner": "a672",
+  "channels": true,
+  "about": "another Chief's thanks needs nothing (loop guard)",
+  "history": [
+    {
+      "kind": "user",
+      "conv": "Infra",
+      "author": "Leo",
+      "text": "Can someone check why the nightly is red?"
+    },
+    {
+      "kind": "talk",
+      "text": "Looking: a902 is on the nightly failure."
+    }
+  ],
+  "turns": [
+    {
+      "conv": "Infra",
+      "author": "Leo's Chief",
+      "author_kind": "Chief",
+      "text": "Thanks! Noted on my side.",
+      "checks": [
+        {
+          "type": "silent"
+        }
+      ]
+    }
+  ]
+}

@@ -29,8 +29,7 @@ env:
 jobs:
   full-text:
     if: ${{ inputs.full_text_only }}
-    # swift test only: an owned mini's side label on attempt 1 (main's rescue moves a stuck or
-    # refused job), Blacksmith macOS last. verify launches the app, so it stays on Blacksmith.
+    # Package tests with no secrets: cmux-mac, the one own-branch Mac label (vars.CI_OVERFLOW_MAC switches it).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 30
     steps:
@@ -47,12 +46,11 @@ jobs:
         run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter WorkstreamFullTextTests
       - name: Test mobile reading and authorization
         run: |
-          swift test --package-path Packages/iOS/CmuxMobileShell --filter MobileAgentFeedTerminalReplyTests
           swift test --package-path Packages/iOS/CmuxMobileRPC --filter MobileCoreRPCNotificationFeedAuthTests
           swift test --package-path Packages/iOS/CmuxMobileShellModel --filter MobileAgentFeedItemTests
   verify:
     if: ${{ !inputs.full_text_only }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 30
     env:
       BUILD_TAG: ${{ inputs.tag }}
@@ -81,10 +79,7 @@ jobs:
       - name: Wait for the requested build
         env:
           GH_TOKEN: ${{ github.token }}
-        # The build is normally finished when this is dispatched, and gh run
-        # watch returns at once for a completed run. One check per five
-        # minutes otherwise keeps the repository's API budget for real work.
-        run: gh run watch "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --interval 300 --exit-status
+        run: gh run watch "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --interval 15 --exit-status
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -93,9 +88,14 @@ jobs:
           name: reload-${{ inputs.tag }}-macos
           path: downloaded-app
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '22.18.0'
+          node-version: '22.23.4'
 
       - name: Install pinned provider editors
         run: |
@@ -119,10 +119,6 @@ jobs:
           swift test --package-path Packages/macOS/CMUXAgentLaunch \
             --scratch-path "$RUNNER_TEMP/swift-agent-launch" \
             --filter WorkstreamStoreTests 2>&1 | tee "$ARTIFACTS/feed-ingestion.log"
-          swift test --package-path Packages/iOS/CmuxMobileShell \
-            --scratch-path "$RUNNER_TEMP/swift-mobile-shell" \
-            --filter 'MobileAgentFeedTerminalReplyTests|MobileShellAgentFeedStateTests' \
-            2>&1 | tee "$ARTIFACTS/feed-replies.log"
           swift test --package-path Packages/macOS/CmuxControlSocket \
             --scratch-path "$RUNNER_TEMP/swift-control" \
             --filter ControlCommandCoordinatorMobileHostTests \
@@ -194,4 +190,4 @@ jobs:
         with:
           name: feed-reply-evidence-${{ inputs.tag }}
           path: reply-evidence
-          retention-days: 14
+          retention-days: 3

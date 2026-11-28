@@ -1,0 +1,45 @@
+{
+  "id": "teleport-a963-mini",
+  "owner": "a963",
+  "about": "\"teleport to cmux-mini-7\" moves over SSH to that host with no question",
+  "stubs": [
+    {
+      "cmd": "move",
+      "stdout": "{\"from\": \"/home/person/.cmux/chief/default\", \"to\": \"ssh:cmux-mini-7:.cmux/chief/default\", \"moved\": false, \"dry_run\": true, \"steps\": [{\"step\": \"preflight\", \"ok\": true, \"ms\": 900, \"detail\": \"/Users/person/.cmux/chief/default (macos aarch64, .cmux/bin/optchat-chief)\"}], \"memory\": {\"messages\": 5139, \"nodes\": 10100}, \"conversations\": {\"messages\": 4321, \"nodes\": 0}, \"bytes\": 0, \"error\": null}",
+      "match": "\"dry_run\":true"
+    },
+    {
+      "cmd": "move",
+      "match": "\"to\"",
+      "stdout": "{\"scheduled\": true, \"pid\": 4242, \"report\": \"/home/person/.cmux/chief/default/state/move.json\", \"note\": \"the move starts when this turn ends: answer the person now; the old copy stays for rollback\"}"
+    }
+  ],
+  "turns": [
+    {
+      "text": "teleport yourself to cmux-mini-7",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "move",
+          "re": "\"to\"\\s*:\\s*\"ssh:cmux-mini-7"
+        },
+        {
+          "type": "called",
+          "cmd": "move",
+          "re": "\"dry_run\"\\s*:\\s*true"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 60
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the Chief starts the teleport itself this turn (a real move after the dry run) and tells the person in a line or two where it is going, without asking for a token, a confirmation or any step. FAIL when it asks the person anything, asks them to run a command or provide a token, or only describes how to move."
+        }
+      ]
+    }
+  ]
+}

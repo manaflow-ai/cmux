@@ -1,3 +1,4 @@
+#if canImport(AuthenticationServices)
 import AuthenticationServices
 import Foundation
 import Testing
@@ -61,3 +62,4 @@ import Testing
         #expect(received == .failed(reason: "presentation_context_invalid"))
     }
 }
+#endif

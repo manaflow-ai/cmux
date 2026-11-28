@@ -10,6 +10,12 @@ final class ConversationEffectLabel: UILabel {
     private let effectLayer = ConversationTextEffectLayer()
     /// Keys explode and jitter randomness to the message.
     var effectSeed: UInt64 = 0
+    /// Glyphs not yet rendered render off the main thread and show when
+    /// ready (transcript rows; see `ConversationTextEffectLayer`).
+    var rendersEffectsOffMainThread: Bool {
+        get { effectLayer.rendersOffMainThread }
+        set { effectLayer.rendersOffMainThread = newValue }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)

@@ -202,7 +202,7 @@ struct LongTextGeometry: RowTextGeometry {
     var length: Int { layout.selectionLength }
     private var lh: CGFloat { Fixture.lineHeight }
     /// Folded: text line of a text-local display y, and the display shift of the tail.
-    private var tailFirst: Int { max(LongTextFold.headLines, layout.totalLines - LongTextFold.tailLines) }
+    private var tailFirst: Int { LongTextFold.tailFirst(layout.totalLines) } // cmux: never above totalLines
     private var tailShift: CGFloat { CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight }
     private func textY(display y: CGFloat) -> CGFloat {
         guard folded else { return y }
@@ -224,7 +224,9 @@ struct LongTextGeometry: RowTextGeometry {
         guard folded else { return move(layout.rects(for: r, visible: max(0, v0)...max(0, v1)), 0) }
         let headEnd = CGFloat(LongTextFold.headLines) * lh
         var out: [CGRect] = []
-        if v0 < headEnd { out += move(layout.rects(for: r, visible: max(0, v0)...min(v1, headEnd - 1)), 0) }
+        // cmux: compare the clamped bounds; v0 in (headEnd - 1, headEnd) built an inverted range and trapped
+        let h0 = max(0, v0), h1 = min(v1, headEnd - 1)
+        if h0 <= h1 { out += move(layout.rects(for: r, visible: h0...h1), 0) }
         let t0 = max(CGFloat(tailFirst) * lh, v0 - tailShift), t1 = v1 - tailShift
         if t1 > t0 { out += move(layout.rects(for: r, visible: t0...t1), tailShift) }
         return out

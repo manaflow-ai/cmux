@@ -42,11 +42,26 @@ public struct ConversationLiveChangeGate: Sendable, Equatable {
     public private(set) var held: ConversationStoreChange?
     /// My send flights in the air (a rapid second send flies beside the first).
     public private(set) var flightsInAir = 0
+    /// Whether a landed page waits (see `ConversationPageLanding`). What
+    /// arrives meanwhile lands with the page, as when a page lands under a
+    /// drag: the caller releases it when the page lands.
+    public private(set) var isHoldingPage = false
 
     /// Whether anything holds other people's changes back.
-    public var isHolding: Bool { isMeasuring || isDragging || flightsInAir > 0 }
+    public var isHolding: Bool { isMeasuring || isDragging || flightsInAir > 0 || isHoldingPage }
 
     public init() {}
+
+    /// A landed page started waiting.
+    public mutating func beginPageHold() {
+        isHoldingPage = true
+    }
+
+    /// The waiting page is about to land; what waited stays held for the
+    /// caller to release with it.
+    public mutating func endPageHold() {
+        isHoldingPage = false
+    }
 
     /// A page started measuring.
     public mutating func beginMeasuring() {

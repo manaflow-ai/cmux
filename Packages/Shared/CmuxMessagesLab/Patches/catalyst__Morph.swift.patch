@@ -1,6 +1,73 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
-@@ -449,6 +449,8 @@
+@@ -135,7 +135,7 @@
+             tail.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
+             bubble.addSublayer(tail)
+             // Text images drawn as the bubble draws them, at the LARGEST size they
+-            // reach on screen (the scale pulse overshoots 1 slightly), so the
++            // reach on screen (`peakScale`; cmux: the scale pulse no longer passes 1), so the
+             // layer only ever scales them down (resolution brief: no upscaled
+             // snapshot during an animation).
+             text.contents = images.0
+@@ -254,25 +254,45 @@
+     /// The send frame's text and blur, prepared off main while the draft changes (the same
+     /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
+     /// send uses them only for an equal layout, size and scale; else it renders as before.
++    /// cmux: made once the draft rests (`prepareRest` after its last change), not for each key:
++    /// each key made them again for the whole draft at the moment its own frame was drawn (at
++    /// 3,000 characters about 5 ms of CPU per key; HomeComposerSendPrepTests).
+     private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
+     private static let prepLock = NSLock()
+-    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
++    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?), draft: Int)?  // cmux: + draft
+     private static var prepSerial = 0
+     static var preparedHits = 0
++    /// cmux: the hash of the trimmed draft the newest send images were made for (tests; several Home views share them).
++    static func preparedDraftHash() -> Int? { prepLock.lock(); defer { prepLock.unlock() }; return prepared?.draft }
++    /// cmux: returns once the renders queued so far are done (tests).
++    static func drainPrepare() { prepQueue.sync {} }
++    /// cmux: how long a draft rests before its send images are made: longer than most gaps between
++    /// typed keys (80-250 ms), so the render does not land in the next key's frame (a 100 ms rest woke
++    /// as the next key came at 100 ms a key). A send sooner than that draws its own, as before.
++    static let prepareRest: Duration = .milliseconds(250)
+     /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
+     static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
+-        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+-        guard !t.isEmpty, !LongText.isLong(t) else { return }
+         prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
+-        prepQueue.async {
+-            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
+-            guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
+-            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+-            guard let tl else { return }
+-            let images = textImages(tl, size, scale: scale)
+-            prepLock.lock()
+-            if serial == prepSerial { prepared = (tl, size, scale, images) }
+-            prepLock.unlock()
++        guard !draft.isEmpty else { return }  // cmux: an emptied draft (a send, a clear) only drops a pending rest
++        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
++        // cmux: a bounded rest (the intended delay, not a poll); a newer draft's serial makes this one stale.
++        Task.detached(priority: .userInitiated) {
++            try? await Task.sleep(for: prepareRest)
++            prepLock.lock(); let current = serial == prepSerial; prepLock.unlock()
++            guard current else { return }
++            prepQueue.async { PaletteScope.with(box) {
++                prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
++                // cmux: trimmed and measured here, off the key's main-thread work.
++                let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
++                guard latest, !t.isEmpty, !LongText.isLong(t),
++                      let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
++                let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
++                guard let tl else { return }
++                let images = textImages(tl, size, scale: scale)
++                prepLock.lock()
++                if serial == prepSerial { prepared = (tl, size, scale, images, t.hashValue) }
++                prepLock.unlock()
++            } }
+         }
+     }
+     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
+@@ -450,6 +470,8 @@
      /// The outgoing gradient's colour at a window y (pt).
      static func blue(atWindowY y: CGFloat) -> UIColor {
          let px = y * 2

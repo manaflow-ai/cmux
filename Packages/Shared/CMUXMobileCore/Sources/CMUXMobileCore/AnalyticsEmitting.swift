@@ -5,11 +5,10 @@ import Foundation
 /// This is the single injection point for product analytics in the mobile app.
 /// It lives in `CMUXMobileCore` (the universally-imported, dependency-free base
 /// package) so the lowest fire-site — `MobileClientIDRepository` in
-/// `CmuxMobileShellModel` — can depend on the seam without any upward edge. The
-/// concrete `AnalyticsEmitter` actor lives in `CmuxMobileAnalytics`, is built
-/// once at the app composition root, and is injected here as `any
-/// AnalyticsEmitting`. Tests and SwiftUI previews use ``NoopAnalytics`` or a
-/// recording fake.
+/// `CmuxMobileShellModel` — can depend on the seam without any upward edge. A
+/// concrete emitter is built once at the app composition root and injected
+/// here as `any AnalyticsEmitting`. Tests and SwiftUI previews use
+/// ``NoopAnalytics`` or a recording fake.
 ///
 /// ### Non-blocking contract
 ///

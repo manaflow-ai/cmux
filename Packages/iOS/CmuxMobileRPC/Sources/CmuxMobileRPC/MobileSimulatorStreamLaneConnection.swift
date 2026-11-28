@@ -2,7 +2,7 @@ public import CMUXMobileCore
 public import Foundation
 
 /// One simulator-stream v2 lane: raw framed wire bytes in both directions.
-/// Message framing and codec live in `CmuxSimulatorStreamKit`; this seam is
+/// Message framing and codec live with the stream's consumer; this seam is
 /// deliberately byte-level so the transport package stays codec-free.
 public protocol MobileSimulatorStreamLaneConnection: Sendable {
     /// Returns the next received chunk, or nil after a clean host finish.

@@ -4,12 +4,10 @@ name: CI compile attribution
 # author and merger with the exact compiler errors, and fix forward (or open a
 # revert). Nothing here gates or slows a merge: it all happens after one.
 #
-# The compile itself is seed-derived-data.yml, which already builds every
-# push's app-host test product (the app and cmuxTests, build-for-testing) on
-# the trusted warm minis and Blacksmith. Its first seed job whose Build fails
-# dispatches this workflow at once; its completion, and each
-# main-compile-probe.yml completion, runs it again. Every run re-derives the
-# state from main's head, so a missed or duplicate trigger is harmless.
+# The compile is main-compile-probe.yml (this branch's copy of
+# seed-derived-data.yml went in #53395: it cannot fire off main); each of its
+# completions runs this. Every run re-derives the state from main's head, so a
+# missed or duplicate trigger is harmless.
 #
 #   analyze   read-only: the newest known compile, and where each of its
 #             errors first appeared (scripts/ci/main_compile_attribution.py)
@@ -23,7 +21,7 @@ name: CI compile attribution
 #             of a confirmed culprit, labeled compile-revert, for a person.
 on:
   workflow_run:
-    workflows: ["Seed DerivedData", "Main compile probe"]
+    workflows: ["Main compile probe"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -41,7 +39,7 @@ on:
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  SOURCE_WORKFLOW_PATHS: .github/workflows/seed-derived-data.yml .github/workflows/main-compile-probe.yml
+  SOURCE_WORKFLOW_PATHS: .github/workflows/main-compile-probe.yml
 
 permissions: {}
 
@@ -54,11 +52,13 @@ concurrency:
 jobs:
   analyze:
     name: Analyze
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && contains(fromJSON('[".github/workflows/seed-derived-data.yml",".github/workflows/main-compile-probe.yml"]'), github.event.workflow_run.path)) }}
-    # Analysis only reads trusted main history and the Actions/PR APIs, but it
-    # mints App tokens to read on their budget, so it runs on a literal
-    # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    environment:
+      name: ci-attribution-agent
+      deployment: false
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && github.event.workflow_run.path == '.github/workflows/main-compile-probe.yml') }}
+    # Analysis only reads trusted main history and the Actions/PR APIs. It
+    # needs no secret or write token, so use the shared Linux runner pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -85,76 +85,21 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # The analysis only reads: on the manaflow-glaeda-route App's own budget, with
-      # GH_TOKEN for what it may not read or is refused (guard_attribution.GitHub).
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
-
-      - name: Mint the glaeda-route token
-        id: glaeda-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: ./.app-token-spread/.github/actions/app-token-spread
-        with:
-          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-actions: read
-          permission-contents: read
-          permission-issues: read
-          permission-pull-requests: read
-          skip-token-revoke: true
-
       - name: Checkout main with history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 60
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
-
-      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
-      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
-      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
-      - name: Read the cmux-bot budget before this job
-        id: app-spend
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py start ci-compile-attribution/analyze --floor pass
-
-      # The glaeda-route App installation's budget around the reads below (a free
-      # rate_limit read): the installation is shared, so the delta between `before`
-      # and `after` is this step's reads plus whatever else ran meanwhile.
-      - name: Log the glaeda-route App budget before
-        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
-          PROBE: ${{ github.workflow }}/analyze/before
-        run: >-
-          gh api rate_limit --jq
-          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Analyze
         id: analyze
         env:
-          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || (steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token) || github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           HEAD_INPUT: ${{ inputs.head }}
         run: |
           set -euo pipefail
@@ -166,40 +111,22 @@ jobs:
           python3 scripts/ci/main_compile_attribution.py "${args[@]}"
           cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
-          PROBE: ${{ github.workflow }}/analyze/after
-        run: >-
-          gh api rate_limit --jq
-          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
-
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compile-report
           path: ${{ runner.temp }}/compile-report.json
-          retention-days: 14
-
-      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
-      # every job holding a cmux-bot token spends the same pool).
-      - name: Read the cmux-bot budget after this job
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py end ci-compile-attribution/analyze
+          retention-days: 7
 
   report:
+    environment:
+      name: ci-attribution-agent
+      deployment: false
     # The headline is the job name, so the webhook feed carries the culprit.
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: attribution must follow a failed compile within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 10
     permissions:
       actions: write # dispatches main-compile-probe.yml
@@ -229,17 +156,6 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
-      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
-      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
-      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
-      - name: Read the cmux-bot budget before this job
-        id: app-spend
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py start ci-compile-attribution/report --floor pass
-
       - name: Download the report
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -249,7 +165,7 @@ jobs:
       - name: Comment on the culprits
         if: ${{ needs.analyze.outputs.state == 'red' }}
         env:
-          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A demo against an old commit (inputs.head) never pings anyone.
           DRY_RUN: ${{ (inputs.dry_run || inputs.head) && '--dry-run' || '' }}
         run: python3 scripts/ci/main_compile_attribution.py report --report "$RUNNER_TEMP/compile-report/compile-report.json" $DRY_RUN
@@ -260,12 +176,12 @@ jobs:
       - name: Probe the commits the seeds skipped
         if: ${{ needs.analyze.outputs.probes != '' && !inputs.dry_run && !inputs.head }}
         env:
-          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           PROBES: ${{ needs.analyze.outputs.probes }}
           # The PR pool's root label (compile admission's), then the Blacksmith
           # pool whose seeds match its width.
-          OWNED: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_PROBE_POOL || 'glaeda-root-std-xcode-26.6' }}
-          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26_large }}
+          OWNED: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_PROBE_POOL || 'mac-std' }}
+          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-12vcpu-macos-26') }}
         run: |
           set -euo pipefail
           since="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ)"
@@ -282,21 +198,14 @@ jobs:
             echo "Probe of $sha still queued on $OWNED after 3 minutes; moved to $OVERFLOW" >> "$GITHUB_STEP_SUMMARY"
           done
 
-      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
-      # every job holding a cmux-bot token spends the same pool).
-      - name: Read the cmux-bot budget after this job
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py end ci-compile-attribution/report
-
   fix:
     name: Fix forward or revert
+    environment:
+      name: ci-attribution-agent
+      deployment: false
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds the Claude token and the fix PR App key
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 30
     concurrency:
       group: ci-compile-attribution-fix
@@ -328,17 +237,6 @@ jobs:
           fetch-depth: 60
           persist-credentials: false
 
-      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
-      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
-      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
-      - name: Read the cmux-bot budget before this job
-        id: app-spend
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py start ci-compile-attribution/fix --floor pass
-
       - name: Download the report
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -350,7 +248,7 @@ jobs:
       - name: Check that main's head is the analyzed commit and nothing is open for it
         id: head
         env:
-          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
@@ -381,39 +279,13 @@ jobs:
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
-          # Every file under .git, by name and bytes (the check step below repeats it).
-          git_dir_digest() {
-            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
-          }
-          # First, so a step that fails before the fixer starts (npm, the prompt) still leaves the check a digest.
-          git_dir_digest > "$RUNNER_TEMP/git-dir.before"
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
-          # .git is never the fixer's: a .git/config key (core.fsmonitor, a filter, http.proxy, url.*.insteadOf) or
-          # a hook would run or redirect the git commands after it, which hold APP_TOKEN (and actions/checkout's post
-          # step, which holds github.token). So the fixer works in a copy of the tracked files with no .git, its
-          # tools may not touch a .git, only its edits to tracked files come back, and the next step fails the run
-          # (and removes .git) when .git changed anyway.
-          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
-          tree="$RUNNER_TEMP/fixer-tree"
-          rm -rf "$tree"
-          mkdir -p "$tree"
-          git ls-files -z > "$RUNNER_TEMP/tracked.z"
-          tar --null -T "$RUNNER_TEMP/tracked.z" -cf - | tar -xf - -C "$tree"
-          touch "$RUNNER_TEMP/fixer-start"
-          (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
-            --allowedTools "Read,Edit,Glob,Grep" \
-            --disallowedTools "Bash,WebFetch,WebSearch,Edit(.git/**),Write(.git/**)" \
-            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json"
-          (cd "$tree" && find . -type f -newer "$RUNNER_TEMP/fixer-start" -print0) | while IFS= read -r -d '' path; do
-            path="${path#./}"
-            grep -qxzF -- "$path" "$RUNNER_TEMP/tracked.z" || continue
-            [ -f "$path" ] && [ ! -L "$path" ] || continue
-            cp -- "$tree/$path" "$path"
-          done
-          # Isolated (-I): the root, where the fixer writes, is not on the import path.
-          python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
+          claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
+            --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
+            --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
+          python3 - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
           data = json.load(open(sys.argv[1]))
           out = data.get("structured_output") or {}
@@ -428,40 +300,15 @@ jobs:
           print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
           PY
 
-      # Runs whenever the fixer ran, even when it failed or timed out: a .git that
-      # changed while it ran is removed (actions/checkout's post step then
-      # leaves it alone), and the run uses nothing the fixer did.
-      - name: Check that the fixer left .git alone
-        id: gitdir
-        if: ${{ always() && steps.fixer.outcome != 'skipped' && steps.fixer.outcome != '' }}
-        run: |
-          set -euo pipefail
-          git_dir_digest() {
-            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
-          }
-          if [ ! -s "$RUNNER_TEMP/git-dir.before" ] || [ "$(git_dir_digest)" != "$(cat "$RUNNER_TEMP/git-dir.before")" ]; then
-            rm -rf .git
-            echo "::error::.git changed while the fixer ran (or was never measured); nothing the fixer did is used."
-            exit 1
-          fi
-
       # A fixer that did not finish (no token, an outage) decides nothing:
       # no fix and no revert, and the culprit comment still stands.
-      # Every file git does not track goes first: a fix commits tracked files
-      # only (commit -a), and a module the fixer added (json.py at the root or
-      # beside a script) must not be imported by the python3 runs below, which
-      # hold APP_TOKEN. They also run isolated (-I).
-      # Every git command from here on runs with no fsmonitor, no hook and no
-      # global or system config, whatever .git or HOME holds.
       - name: Keep only a small mechanical diff
         id: diff
-        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.gitdir.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
+        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
         env:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
           set -euo pipefail
-          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
-          git clean -ffdxq
           changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
           files="$(git diff --name-only | wc -l | tr -d ' ')"
           echo "The fixer changed $changed lines in $files files (mechanical: ${MECHANICAL:-unknown})." >> "$GITHUB_STEP_SUMMARY"
@@ -503,11 +350,9 @@ jobs:
           REVERT_LABEL: compile-revert
         run: |
           set -euo pipefail
-          # No fsmonitor and no hook in any git command here (the diff step above says why).
-          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
-          python3 -I scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
+          python3 scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
             --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
-          field() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
+          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
           branch="$(field branch)"
           git config user.name "cmux compile attribution"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -555,19 +400,9 @@ jobs:
       - name: Link the pull request from the culprit comment
         if: ${{ steps.pr.outputs.fix != '' || steps.pr.outputs.revert != '' }}
         env:
-          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           FIX_PR: ${{ steps.pr.outputs.fix }}
           REVERT_PR: ${{ steps.pr.outputs.revert }}
         run: |
-          python3 -I scripts/ci/main_compile_attribution.py report \
+          python3 scripts/ci/main_compile_attribution.py report \
             --report "$RUNNER_TEMP/compile-report/compile-report.json" --fix-pr "$FIX_PR" --revert-pr "$REVERT_PR"
-
-      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
-      # every job holding a cmux-bot token spends the same pool).
-      - name: Read the cmux-bot budget after this job
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py end ci-compile-attribution/fix

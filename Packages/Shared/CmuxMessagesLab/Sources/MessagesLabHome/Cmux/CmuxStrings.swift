@@ -1,43 +1,202 @@
+import CmuxHomeCore
 import Foundation
 
 /// cmux's own transcript strings (Resources/CmuxHome.xcstrings, every app
 /// language), for the few places a vendored file says something MessagesLab
 /// does not (marked `cmux:` there).
 enum CmuxStrings {
+    // MARK: The status line's turn details (HomeTurnStatusPopover)
+
+    static var turnTitle: String {
+        String(localized: "home.turn.title", defaultValue: "This Turn", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The turn's time so far: "Total 1m 5s".
+    static func turnTotal(_ elapsed: String) -> String {
+        String(format: String(localized: "home.turn.total", defaultValue: "Total %@", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), elapsed)
+    }
+    /// The running step's state in the list.
+    static var turnNow: String {
+        String(localized: "home.turn.now", defaultValue: "now", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The status line's help and accessibility label: a click shows the steps.
+    static var turnShow: String {
+        String(localized: "home.turn.show", defaultValue: "Show This Turn's Steps", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// A step under a second.
+    static var turnUnderOneSecond: String {
+        String(localized: "home.turn.under1s", defaultValue: "<1s", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    // MARK: The running indicator's folded steps (HomeTurnProgress); the agent chat's words
+
+    static func turnRanCommands(_ n: Int) -> String {
+        String(localized: "home.turn.ranCommands", defaultValue: "Ran \(n) commands", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static func turnReadFiles(_ n: Int) -> String {
+        String(localized: "home.turn.readFiles", defaultValue: "Read \(n) files", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static func turnEditedFiles(_ n: Int) -> String {
+        String(localized: "home.turn.editedFiles", defaultValue: "Edited \(n) files", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static func turnRanSearches(_ n: Int) -> String {
+        String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    /// The message menu's permalink item (tree threads, cx-och3h).
+    /// The remove button on an attachment in the message box (its help and accessibility label).
+    static var removeAttachment: String {
+        String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The mic button in the message box at rest (its help and accessibility label).
+    static var dictate: String {
+        String(localized: "home.compose.dictate", defaultValue: "Dictate", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The mic button while it records (a click stops and keeps the words).
+    static var stopDictation: String {
+        String(localized: "home.compose.stopDictation", defaultValue: "Stop Dictation", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The return-key button beside the waveform while dictating: stop and keep the words.
+    static var finishDictation: String {
+        String(localized: "home.compose.finishDictation", defaultValue: "Finish Dictation", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The empty message box while dictating, before any words arrive.
+    static var listening: String {
+        String(localized: "home.compose.listening", defaultValue: "Listening…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The compose field's send button (its help and accessibility label).
+    static var send: String {
+        String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The compose button after the person stops the Chief's turn.
+    static var continueTurn: String {
+        String(localized: "home.compose.continue", defaultValue: "Continue", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// Reply to Selection (ChatController+ReplyQuote.swift): the menu item, the card's line and its remove button.
+    static var replyToSelection: String {
+        String(localized: "home.message.replyToSelection", defaultValue: "Reply to Selection", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The card's line over the quote: "Replying to Chief".
+    static func replyingTo(_ name: String) -> String {
+        String(format: String(localized: "home.replyQuote.replyingTo", defaultValue: "Replying to %@", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), name)
+    }
+    /// The card's line when the quoted message's sender is unknown.
+    static var replyingToSelection: String {
+        String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    // MARK: The Chief composer's `/` menu (SlashSkillMenuView)
+
+    static var slashSkillsTitle: String {
+        String(localized: "home.slashSkills.title", defaultValue: "Skills", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The menu's only row when no skill matches the command typed.
+    static func slashSkillsNoMatch(_ query: String) -> String {
+        String(format: String(localized: "home.slashSkills.noMatch", defaultValue: "No skills match “%@”", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), query)
+    }
+    /// The source tag of a Chief skill.
+    static var slashSkillsSourceChief: String {
+        String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The source tag of the person's own Claude Code skill.
+    static var slashSkillsSourceClaude: String {
+        String(localized: "home.slashSkills.source.claude", defaultValue: "Claude", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    static var replyQuoteRemove: String {
+        String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var copyLink: String {
+        String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
     static var notDelivered: String {
-        String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
+        String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
     static var mayNotHaveBeenDelivered: String {
-        String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: .module)
+        String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
     /// Under the field while a send waits for the owner to name its conversation (cx-ebm.55).
     static var waitingForChief: String {
-        String(localized: "home.send.waitingForChief", defaultValue: "Waiting for the Chief to connect…", table: "CmuxHome", bundle: .module)
+        String(localized: "home.send.waitingForChief", defaultValue: "Waiting for the Chief to connect…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
     static var waitingToConnect: String {
-        String(localized: "home.send.waitingToConnect", defaultValue: "Waiting to connect…", table: "CmuxHome", bundle: .module)
+        String(localized: "home.send.waitingToConnect", defaultValue: "Waiting to connect…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
     /// Home moved the typed text from the cache's Chief conversation to the live Chief.
     static var chiefRestarted: String {
-        String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: .module)
+        String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
     /// A reply's thread root is not delivered yet (my send still going): the thread view closes.
     static var threadRootNotReady: String {
         String(localized: "home.thread.rootNotReady", defaultValue: "You can reply in this thread once its first message is delivered.",
-               table: "CmuxHome", bundle: .module)
+               table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
     /// The context menu item that cancels my send while it uploads or after it failed.
     static var cancelUpload: String {
-        String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
+        String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
-    static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
-    static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
+    /// The context menu item on my "Not Delivered" message that sends it again.
+    static var tryAgain: String {
+        // retry-prompt-ok: re-sends the person's message to the model (a paid turn)
+        String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    /// The context menu item on a person's committed Chief message: run the
+    /// Chief's turn again for that message (distinct from a failed send).
+    static var retryReply: String {
+        // retry-prompt-ok: asks the model for the reply again (a paid turn)
+        String(localized: "home.menu.retryReply", defaultValue: "Retry Reply", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    /// The context menu item that sends a bubble's text to another chat or agent.
+    static var forward: String {
+        String(localized: "home.menu.forward", defaultValue: "Forward…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    /// The context menu item on my "Not Delivered" message that drops it.
+    static var deleteFailed: String {
+        String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    /// The context menu item on my message in a Chief chat that deletes it (#36019).
+    static var deleteMessage: String {
+        String(localized: "home.menu.deleteMessage", defaultValue: "Delete", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+
+    static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var viewVideoLarger: String {
+        String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var closeVideoViewer: String {
+        String(localized: "home.video.closeViewer", defaultValue: "Close Video", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
+    static var copyAttachment: String { Strings.menuCopy }
+    static var saveAttachmentAs: String {
+        String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: MessagesLabLocalization.bundle), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: MessagesLabLocalization.bundle), count)
+    }
+    /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
+    static var openLink: String {
+        String(localized: "home.menu.openLink", defaultValue: "Open Link", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var copyLinkAddress: String {
+        String(localized: "home.menu.copyLinkAddress", defaultValue: "Copy Link Address", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
     static var openInDefaultApp: String {
-        String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: .module)
+        String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
     /// The reason HomeMapping gives a failed send that reached the owner and
@@ -48,5 +207,126 @@ enum CmuxStrings {
     static func failedLabel(_ status: DeliveryStatus?) -> String {
         if case .failed(let reason) = status, reason == mayHaveBeenDeliveredReason { return mayNotHaveBeenDelivered }
         return notDelivered
+    }
+
+    // MARK: The Chief's plan card (HomeTableRowProvider.swift)
+
+    /// The card's header: "Plan", or "Plan · 3 active" while some steps still run. Never a step count.
+    static func planHeader(steps: Int, active: Int) -> String {
+        if active == 0 {
+            return String(localized: "home.plan.title", defaultValue: "Plan", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        }
+        return String(format: String(localized: "home.plan.activeCount", defaultValue: "Plan · %lld active", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), active)
+    }
+
+    /// A step's state pill.
+    static func planState(_ state: ChiefPlanStep.State) -> String {
+        switch state {
+        case .working: String(localized: "home.plan.state.working", defaultValue: "Working", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .needsInput: String(localized: "home.plan.state.needsInput", defaultValue: "Needs You", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .waitingOnCI: String(localized: "home.plan.state.waitingOnCI", defaultValue: "Waiting on CI", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .ciFailed: String(localized: "home.plan.state.ciFailed", defaultValue: "CI Failed", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .inReview: String(localized: "home.plan.state.inReview", defaultValue: "In Review", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .landed: String(localized: "home.plan.state.landed", defaultValue: "Landed", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .done: String(localized: "home.plan.state.done", defaultValue: "Done", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        case .failed: String(localized: "home.plan.state.failed", defaultValue: "Failed", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+        }
+    }
+
+    /// The card's click menu: the owner's chat ("Open a12's Chat").
+    static func planOpenOwner(_ owner: String) -> String {
+        String(format: String(localized: "home.plan.openOwner", defaultValue: "Open %@’s Chat", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), owner)
+    }
+
+    /// The card's click menu: a link ("Open #22590", "Open github.com").
+    static func planOpenLink(_ name: String) -> String {
+        String(format: String(localized: "home.plan.openLink", defaultValue: "Open %@", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), name)
+    }
+
+    /// A table card's menu item that opens a picture of a cell full size (`alt`: its description).
+    // MARK: A message's preview (HomeQuotePreview, HomeMarkdownPreview): its words, never its Markdown
+
+    /// A table named by its column titles: "Table: Before / After".
+    static func previewTable(_ columns: String) -> String {
+        String(format: String(localized: "home.preview.table", defaultValue: "Table: %@", table: "CmuxHome", bundle: .module), columns)
+    }
+    /// A table whose columns have no titles.
+    static var previewTableUntitled: String {
+        String(localized: "home.preview.tableUntitled", defaultValue: "Table", table: "CmuxHome", bundle: .module)
+    }
+    /// One picture with no words.
+    static var previewImage: String {
+        String(localized: "home.preview.image", defaultValue: "Image", table: "CmuxHome", bundle: .module)
+    }
+    /// Several pictures with no words: "2 images".
+    static func previewImages(_ n: Int) -> String {
+        String(format: String(localized: "home.preview.images", defaultValue: "%lld images", table: "CmuxHome", bundle: .module), n)
+    }
+    /// A table card's one body row.
+    static var previewOneRow: String {
+        String(localized: "home.preview.oneRow", defaultValue: "1 row", table: "CmuxHome", bundle: .module)
+    }
+    /// A table card's body rows: "3 rows".
+    static func previewRows(_ n: Int) -> String {
+        String(format: String(localized: "home.preview.rows", defaultValue: "%lld rows", table: "CmuxHome", bundle: .module), n)
+    }
+    /// A quoted diagram.
+    static var previewDiagram: String {
+        String(localized: "home.preview.diagram", defaultValue: "Diagram", table: "CmuxHome", bundle: .module)
+    }
+
+    static func tableOpenPicture(_ alt: String) -> String {
+        let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) : alt
+        return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), name)
+    }
+
+    // MARK: The large picture viewer (HomePictureViewer)
+
+    static var closePictureViewer: String { String(localized: "home.picture.close", defaultValue: "Close", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var picturePrevious: String { String(localized: "home.picture.previous", defaultValue: "Previous Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureNext: String { String(localized: "home.picture.next", defaultValue: "Next Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureToolMove: String { String(localized: "home.picture.tool.move", defaultValue: "Move", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureToolArrow: String { String(localized: "home.picture.tool.arrow", defaultValue: "Arrow", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureToolBox: String { String(localized: "home.picture.tool.box", defaultValue: "Box", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureToolPen: String { String(localized: "home.picture.tool.pen", defaultValue: "Pen", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureToolText: String { String(localized: "home.picture.tool.text", defaultValue: "Text", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureUndo: String { String(localized: "home.picture.undo", defaultValue: "Undo", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureCompare: String { String(localized: "home.picture.compare", defaultValue: "Compare Side by Side", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    /// The picture viewer's comparison styles (``HomePictureCompare/Style``): the control's VoiceOver name and its segments' tooltips.
+    static var pictureStyle: String { String(localized: "home.picture.style", defaultValue: "Comparison Style", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureStyleSideBySide: String { String(localized: "home.picture.style.sideBySide", defaultValue: "Side by Side", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureStyleFlip: String { String(localized: "home.picture.style.flip", defaultValue: "Flip in Place (Space, B, A)", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureStyleSlider: String { String(localized: "home.picture.style.slider", defaultValue: "Slider", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    /// The picture viewer's switch between a comparison's rows ("Light | Dark"), for VoiceOver.
+    static var pictureRowSwitch: String { String(localized: "home.picture.rowSwitch", defaultValue: "Picture Set", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureViewer: String { String(localized: "home.picture.viewer", defaultValue: "Picture Viewer", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureLoading: String { String(localized: "home.picture.loading", defaultValue: "Loading Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureLoadFailed: String { String(localized: "home.picture.loadFailed", defaultValue: "This picture could not be loaded.", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    static var pictureTextPlaceholder: String { String(localized: "home.picture.textPlaceholder", defaultValue: "Type, then press Return", table: "CmuxHome", bundle: MessagesLabLocalization.bundle) }
+    /// A picture with no name in the viewer's title (its table cell and alt text are empty).
+    static var pictureUntitled: String {
+        String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    /// The viewer's place in its pictures: "2 of 4".
+    static func pictureCounter(_ index: Int, _ count: Int) -> String {
+        String(format: String(localized: "home.picture.counter", defaultValue: "%1$ld of %2$ld", table: "CmuxHome", bundle: MessagesLabLocalization.bundle), index, count)
+    }
+
+    // MARK: The transcript scroller's arrow and page parts (SequenceScroller)
+
+    static var scrollerPageDown: String {
+        String(localized: "home.scroller.pageDown", defaultValue: "Page Down", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var scrollerPageUp: String {
+        String(localized: "home.scroller.pageUp", defaultValue: "Page Up", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var scrollerScrollDown: String {
+        String(localized: "home.scroller.scrollDown", defaultValue: "Scroll Down", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
+    static var scrollerScrollUp: String {
+        String(localized: "home.scroller.scrollUp", defaultValue: "Scroll Up", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 }

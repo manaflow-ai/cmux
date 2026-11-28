@@ -13,6 +13,8 @@ import AppKit
 protocol LabGlassSurface: NSView {
     var contentView: NSView? { get set }
     var cornerRadius: CGFloat { get set }
+    /// cmux: the glass's tint (NSGlassEffectView.tintColor); nil is the system glass.
+    var tintColor: NSColor? { get set }
 }
 
 /// A glass container: the system container on macOS 26, a plain view below.
@@ -69,12 +71,17 @@ final class LegacyGlassView: NSVisualEffectView, LabGlassSurface {
         }
     }
 
+    /// cmux: the tint over the blur, as NSGlassEffectView's.
+    var tintColor: NSColor? {
+        didSet { layer?.backgroundColor = tintColor?.cgColor }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         material = .popover
         blendingMode = .withinWindow
-        state = .followsWindowActiveState
+        state = .active  // cmux: the same glass when Home's window is not key (ChatController.followsKeyWindow)
     }
 
     required init?(coder: NSCoder) { nil }

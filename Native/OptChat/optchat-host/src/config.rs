@@ -1,0 +1,143 @@
+use std::fmt;
+use std::time::Duration;
+
+use optchat_core::{CompactPrompt, VIEW};
+
+use crate::report::{stderr_reporter, Reporter};
+use crate::RETRY_BASE;
+
+/// The official Anthropic Messages API. A gateway or router comes from the person's own
+/// setting (`OPTCHAT_ANTHROPIC_BASE_URL`), never from a built-in host.
+pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+/// Environment variable that lets `ANTHROPIC_API_KEY` go to a base URL that is not the official
+/// API (`1`); without it such a URL gets no key (cmux#13742).
+pub const SEND_KEY_ENV: &str = "OPTCHAT_SEND_KEY_TO_BASE_URL";
+/// Environment variable that overrides `DEFAULT_BASE_URL`.
+pub const BASE_URL_ENV: &str = "OPTCHAT_ANTHROPIC_BASE_URL";
+/// Environment variable with the key for a base URL that needs one.
+pub const API_KEY_ENV: &str = "OPTCHAT_ANTHROPIC_API_KEY";
+/// What a base URL gets when no key may go to it: a keyless gateway ignores it, and a real key
+/// must not travel to a host the person did not name for it.
+pub const SUBROUTER_KEY: &str = "subrouter";
+/// The compactor model: Claude Haiku 5.5 (the reference client's), at
+/// `DEFAULT_EFFORT` (section 4.2 uses Sonnet at medium). About half the time
+/// per node and a fraction of the cost; it writes over-long lines more
+/// often, which the ruler and the "Too long" retry handle.
+/// `OPTCHAT_COMPACTOR_MODEL` (or engine.json's `compactor-model`) picks
+/// another, e.g. `claude-sonnet-5-5`.
+pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
+/// The compactor's `output_config.effort` (`OPTCHAT_COMPACTOR_EFFORT`):
+/// medium. Measured 2026-10-09 on 33 node inputs (Haiku 5.5 through Claude
+/// Code): 20% cheaper and 36% faster per node than high with lines as
+/// good; low was cheaper still but leaked reasoning into 3 of 12 lines and
+/// left 2 over the size limit.
+pub const DEFAULT_EFFORT: &str = "medium";
+/// How one chat runs. Fixed for the life of the process: the compactor's
+/// system prompt heads every cached prefix, so it must not change per call.
+#[derive(Clone)]
+pub struct Config {
+    /// The agent's name in the compactor prompt.
+    pub agent: String,
+    /// Which compactor prompt (default Taelin's).
+    pub prompt: CompactPrompt,
+    /// Compactor model id.
+    pub model: String,
+    /// Model a declined node (`stop_reason: refusal`) is built with instead.
+    /// None by default: no other model is picked for the person; a declined
+    /// node keeps its input, cut to the room, as its line, so one message
+    /// never blocks rule 3.
+    pub fallback_model: Option<String>,
+    /// Also send the Messages API's server-side `fallbacks: "default"` (beta
+    /// `server-side-fallback-2026-07-01`). Off by default: the team subrouter
+    /// may not forward the beta, and a 400 there would fail every call.
+    pub server_fallback: bool,
+    /// `output_config.effort` (`DEFAULT_EFFORT`); low effort overshot the
+    /// size limit much more (section 4.2).
+    pub effort: Option<String>,
+    /// Base URL of the Messages API (`/v1/messages` is appended).
+    pub base_url: String,
+    /// `x-api-key` (see `api_key`).
+    pub api_key: String,
+    /// Output cap per compactor call; thinking tokens count against it.
+    pub max_tokens: u32,
+    /// Wall-clock cap on one HTTP call, so a stalled connection cannot hold
+    /// a compactor slot (and with rule 3 every later level-0 node) for long:
+    /// it fails and is retried. A compactor reply is one line of at most
+    /// 512 bytes plus medium-effort thinking, well inside it.
+    pub http_timeout: Duration,
+    /// The view's byte budget.
+    pub budget: usize,
+    /// The turns' tool list for the API compactor (spec 4: a compaction
+    /// sends the turns' system prompt and tools, never called, so it reads
+    /// them from the turns' cache entry). None sends no tools.
+    pub tools: Option<serde_json::Value>,
+    /// A failed node's first retry wait, doubled each try (`RETRY_BASE`).
+    pub retry: Duration,
+    pub reporter: Reporter,
+    /// The memory database; None puts it in the chat directory
+    /// (`memory.sqlite3`). The Chief keeps it at `$MUX_HOME/optchat/memory.sqlite3`.
+    pub db: Option<std::path::PathBuf>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let base_url = std::env::var(BASE_URL_ENV)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        Config {
+            agent: "OptChat".to_string(),
+            prompt: CompactPrompt::Taelin,
+            model: DEFAULT_MODEL.to_string(),
+            fallback_model: None,
+            server_fallback: false,
+            effort: Some(DEFAULT_EFFORT.to_string()),
+            api_key: api_key(&base_url, |k| std::env::var(k).ok()),
+            base_url,
+            max_tokens: 16_000,
+            http_timeout: Duration::from_secs(240),
+            budget: VIEW,
+            tools: None,
+            retry: RETRY_BASE,
+            reporter: stderr_reporter(),
+            db: None,
+        }
+    }
+}
+
+/// The key for `base_url`: `OPTCHAT_ANTHROPIC_API_KEY` when set (the person's key for the URL
+/// they configured); else `ANTHROPIC_API_KEY` for the official API, or for another URL only
+/// when `OPTCHAT_SEND_KEY_TO_BASE_URL=1`; else the placeholder. A typo, a proxy or a third-party
+/// URL never receives the person's real key unasked (cmux#13742).
+pub fn api_key(base_url: &str, env: impl Fn(&str) -> Option<String>) -> String {
+    let set = |k: &str| env(k).filter(|v| !v.trim().is_empty());
+    if let Some(key) = set(API_KEY_ENV) {
+        return key;
+    }
+    let official = base_url.trim_end_matches('/') == DEFAULT_BASE_URL;
+    if official || set(SEND_KEY_ENV).as_deref() == Some("1") {
+        if let Some(key) = set("ANTHROPIC_API_KEY") {
+            return key;
+        }
+    }
+    SUBROUTER_KEY.to_string()
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("agent", &self.agent)
+            .field("prompt", &self.prompt.name())
+            .field("model", &self.model)
+            .field("fallback_model", &self.fallback_model)
+            .field("server_fallback", &self.server_fallback)
+            .field("effort", &self.effort)
+            .field("base_url", &self.base_url)
+            .field("max_tokens", &self.max_tokens)
+            .field("http_timeout", &self.http_timeout)
+            .field("budget", &self.budget)
+            .field("retry", &self.retry)
+            .field("db", &self.db)
+            .finish_non_exhaustive()
+    }
+}

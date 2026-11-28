@@ -78,7 +78,7 @@ final class MorphBubble {
         textSize = size
         fieldRect = field
         flyingRect = target
-        let bs = Springs.Bubble(fieldShrinks: fieldShrinks)
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count, travel: Double(field.width - target.width))
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
@@ -135,7 +135,7 @@ final class MorphBubble {
             tail.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
             bubble.addSublayer(tail)
             // Text images drawn as the bubble draws them, at the LARGEST size they
-            // reach on screen (the scale pulse overshoots 1 slightly), so the
+            // reach on screen (`peakScale`; cmux: the scale pulse no longer passes 1), so the
             // layer only ever scales them down (resolution brief: no upscaled
             // snapshot during an animation).
             text.contents = images.0
@@ -159,10 +159,10 @@ final class MorphBubble {
             for l in [body, underlay] {
                 Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), bs.width, begin: begin)
                 Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), bs.width, begin: begin)
-                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.width, begin: begin)
-                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.width, begin: begin)
+                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.height, begin: begin)
+                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.height, begin: begin)
             }
-            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.width, begin: begin)
+            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.height, begin: begin)
             Animate.pulse(bubble, "transform.scale", bs.scale, begin: begin)
             // The blue fill is translucent at first, the text is not: Messages' text is white
             // (min channel > 215) from 75-92 ms, while its body is still translucent (lossless
@@ -212,6 +212,7 @@ final class MorphBubble {
             (bs.right, Double(field.maxX), Double(target.maxX), 0.1),
             (bs.centerY, Double(y0), Double(target.midY), 0.1),
             (bs.width, Double(w0), Double(w1), 0.1),
+            (bs.height, Double(h0), Double(h1), 0.1),
             (bs.scale, 1, 1, 0.1 / Double(max(w1, h1))),
             (o, o.from, 1, 0.01), (Springs.textUnblur, 0, 1, 0.01)]
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
@@ -253,25 +254,45 @@ final class MorphBubble {
     /// The send frame's text and blur, prepared off main while the draft changes (the same
     /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
     /// send uses them only for an equal layout, size and scale; else it renders as before.
+    /// cmux: made once the draft rests (`prepareRest` after its last change), not for each key:
+    /// each key made them again for the whole draft at the moment its own frame was drawn (at
+    /// 3,000 characters about 5 ms of CPU per key; HomeComposerSendPrepTests).
     private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
     private static let prepLock = NSLock()
-    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
+    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?), draft: Int)?  // cmux: + draft
     private static var prepSerial = 0
     static var preparedHits = 0
+    /// cmux: the hash of the trimmed draft the newest send images were made for (tests; several Home views share them).
+    static func preparedDraftHash() -> Int? { prepLock.lock(); defer { prepLock.unlock() }; return prepared?.draft }
+    /// cmux: returns once the renders queued so far are done (tests).
+    static func drainPrepare() { prepQueue.sync {} }
+    /// cmux: how long a draft rests before its send images are made: longer than most gaps between
+    /// typed keys (80-250 ms), so the render does not land in the next key's frame (a 100 ms rest woke
+    /// as the next key came at 100 ms a key). A send sooner than that draws its own, as before.
+    static let prepareRest: Duration = .milliseconds(250)
     /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
     static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
-        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !LongText.isLong(t) else { return }
         prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
-        prepQueue.async {
-            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
-            guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
-            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
-            guard let tl else { return }
-            let images = textImages(tl, size, scale: scale)
-            prepLock.lock()
-            if serial == prepSerial { prepared = (tl, size, scale, images) }
-            prepLock.unlock()
+        guard !draft.isEmpty else { return }  // cmux: an emptied draft (a send, a clear) only drops a pending rest
+        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
+        // cmux: a bounded rest (the intended delay, not a poll); a newer draft's serial makes this one stale.
+        Task.detached(priority: .userInitiated) {
+            try? await Task.sleep(for: prepareRest)
+            prepLock.lock(); let current = serial == prepSerial; prepLock.unlock()
+            guard current else { return }
+            prepQueue.async { PaletteScope.with(box) {
+                prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
+                // cmux: trimmed and measured here, off the key's main-thread work.
+                let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard latest, !t.isEmpty, !LongText.isLong(t),
+                      let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
+                let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+                guard let tl else { return }
+                let images = textImages(tl, size, scale: scale)
+                prepLock.lock()
+                if serial == prepSerial { prepared = (tl, size, scale, images, t.hashValue) }
+                prepLock.unlock()
+            } }
         }
     }
     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
@@ -305,7 +326,7 @@ final class MorphBubble {
         let h1 = Double(flyingRect.height), h0 = max(Double(fieldRect.height), h1)
         let cy = springs.centerY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
         let s = springs.scale.value(tau, from: 1, to: 1)
-        let h = springs.width.value(tau, from: h0, to: h1)
+        let h = springs.height.value(tau, from: h0, to: h1)
         return cy + (h - h1 / 2) * s
     }
 
@@ -433,7 +454,7 @@ final class MorphBubble {
 
     /// Three box-convolution passes (about a Gaussian), at the source's pixel size.
     static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
-        guard let format = vImage_CGImageFormat(cgImage: cg),
+        guard var format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
               let width = Int(exactly: src.width), let height = Int(exactly: src.height), // no trapping conversion
               var dst = try? vImage_Buffer(width: width, height: height, bitsPerPixel: format.bitsPerPixel) else { return nil }

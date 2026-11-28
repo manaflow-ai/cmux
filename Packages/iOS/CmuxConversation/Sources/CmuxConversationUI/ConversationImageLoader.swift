@@ -40,7 +40,8 @@ final class ConversationImageLoader {
             guard let data, let image = UIImage(data: data) else { return nil }
             let scale = pixelWidth / max(image.size.width * image.scale, 1)
             let target = CGSize(width: image.size.width * min(1, scale), height: image.size.height * min(1, scale))
-            return await image.byPreparingThumbnail(ofSize: target) ?? image
+            let thumbnail = await image.byPreparingThumbnail(ofSize: target) ?? image
+            return Self.displayReady(thumbnail)
         }
         inFlight[key] = task
         let image = await task.value
@@ -81,6 +82,24 @@ final class ConversationImageLoader {
                 return nil
             }
         }.value
+    }
+
+    /// The image in Core Animation's own bitmap format (8-bit BGRA, sRGB).
+    /// A decoded PNG or a prepared thumbnail can stay in its file's byte
+    /// order (RGBX); Core Animation then converts it on the main thread when
+    /// the layer first commits, ~8-40 ms for a photo in the frame it scrolls
+    /// in or finishes loading. Drawn 1:1 in the same color space, so the
+    /// pixels are the same.
+    nonisolated private static func displayReady(_ image: UIImage) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.preferredRange = .standard
+        if let alpha = image.cgImage?.alphaInfo {
+            format.opaque = alpha == .none || alpha == .noneSkipFirst || alpha == .noneSkipLast
+        }
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 
     private func key(_ attachment: ConversationAttachment, _ pixelWidth: CGFloat) -> String {

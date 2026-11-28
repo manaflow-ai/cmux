@@ -46,8 +46,6 @@ final class LayerHostView: NSView {
 /// (drawn glass and fitted header blur), so they compare 1:1 with catalyst.
 final class HostView: NSView {
     let below = LayerHostView()
-    /// The transcript text selection highlight (over the rows).
-    let selectionHost = LayerHostView()
     let morphHost = LayerHostView()
     let composeHost = LayerHostView()
     let above = LayerHostView()
@@ -56,26 +54,43 @@ final class HostView: NSView {
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
         ? TraceableTranscriptScrollView(frame: .zero) : TranscriptScrollView(frame: .zero)
     let fieldChrome = FieldChrome()
+    /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
+    let sendButton = ComposeSendButton(frame: .zero)
+    /// cmux: the voice input's mic, waveform and finish buttons, and "Listening…" (ComposeVoiceControls.swift).
+    let voiceControls = ComposeVoiceControls(frame: .zero)
+    let listeningLine = ComposeListeningLine(frame: .zero)
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
-    /// cmux-classic: the band under the compose field over rows scrolled beneath it (FooterFade.swift).
-    let footerFade = FooterFadeView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
     let paneHeader = PaneHeaderView(frame: .zero)
+    /// cmux: Home's glass band under the header controls (HeaderGlass.swift); nil until Home asks for it.
+    var headerGlass: HeaderGlassView?
+    /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
+    var bareTop = false
+    /// cmux: room kept clear above the oldest row at rest, in the view's points (Home's pinned
+    /// section, ``MessagesLabHomeView/rowsTopClearance``); 0: none.
+    var extraRowsTop: CGFloat = 0
+    /// cmux: room kept clear under the newest row, in the view's points (Home's toasts,
+    /// ``MessagesLabHomeView/rowsBottomClearance``); 0: none.
+    private(set) var extraRowsBottom: CGFloat = 0
+    /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
+    var topFadeStyle: HomeTopFadeStyle?
+    /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
+    var topFadeView: HomeTopFadeView?
+    /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
+    var quoteCard: ReplyQuoteCardView?
+    /// cmux: the Chief composer's `/` menu (HostView+SlashSkills.swift); nil when none shows.
+    var slashMenuView: SlashSkillMenuView?
     private(set) var demo: MessagesWindowView?
+    /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
+    /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
+    var contentZoom: CGFloat = 1
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
     var windowPlaceObserver: NSObjectProtocol?
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
-    /// cmux-classic: the hosted rows' live views over the scroll view (vendored CustomRowsHost:
-    /// the Chief's tool rows and approval cards, ChiefRows).
-    private(set) var customRows: CustomRowsHost?
-    deinit {
-        windowPlaceObserver.map(NotificationCenter.default.removeObserver)
-        // The router keys hosts by their list; a closed pane's host must not outlive it.
-        if let list = demo?.collection as? RowRecycler { CustomRowsRouter.shared.remove(list) }
-    }
+    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -83,8 +98,9 @@ final class HostView: NSView {
         // cmux: the pane's fill shows through (the window view paints the
         // themed background); a pane has no black window behind it.
         layer?.backgroundColor = nil
-        registerForDraggedTypes([.fileURL, .png, .tiff])
-        scrollView.document.registerForDraggedTypes([.fileURL, .png, .tiff])
+        // cmux: drops on the pane (outside the field) go to the host's view around it
+        // (HomeNativeTranscriptView: Home's drop target and its highlight), so neither
+        // this view nor the transcript registers drag types.
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
@@ -103,9 +119,6 @@ final class HostView: NSView {
         addSubview(below)
         addSubview(scrollView)
         addSubview(headerBackdrop)
-        addSubview(selectionHost)
-        addSubview(footerFade)  // cmux-classic: over the rows and their hosted views, under the morph and the field
-        if let c = controller { selectionHost.root.addSublayer(c.selection.layer) }
         addSubview(morphHost)
         morphHost.root.addSublayer(demo.morphView.layer)
         addSubview(fieldChrome)
@@ -118,6 +131,10 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
+        // cmux: above the text view's clip (the text leaves its slot free).
+        addSubview(sendButton)
+        addSubview(listeningLine)
+        addSubview(voiceControls)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -136,18 +153,12 @@ final class HostView: NSView {
         // (MessagesLab 258b385: two views can be at two scales; PaneHost+Scale.swift).
         ScaleKeeper.shared.register(self)
         ScaleKeeper.shared.start()
-        // cmux-classic: hosted rows (their overlay goes right above the scroll view, under the header).
-        customRows = CustomRowsHost.install(self, demo)
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
-        // cmux-classic: a size change keeps the newest row on the field when the person was following it
-        // (PaneHost+Follow.swift).
-        let sizeChanged = followSize != bounds.size
-        if sizeChanged { followSize = bounds.size; lastSizeChange = CACurrentMediaTime() }
-        for v in [below, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
+        for v in [below, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds
@@ -165,7 +176,13 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
-        if sizeChanged { keepFollowingNewest(sizeChanged: true) }
+        placeNativeViews()
+    }
+
+    /// cmux: sets ``extraRowsBottom``; the rows slide to their new place over `duration` seconds (0: at once).
+    func setExtraRowsBottom(_ value: CGFloat, duration: TimeInterval) {
+        extraRowsBottom = value
+        demo?.setRowsBottomInset(value / max(contentZoom, 0.01), duration: duration)
         placeNativeViews()
     }
 
@@ -176,27 +193,45 @@ final class HostView: NSView {
         // inset); the shared list starts 80 pt above the window.
         // Below the titlebar (toolbar and name pill accessory): not adjacent
         // to it, so no scroll pocket.
+        // cmux: no header (HeaderGlass.swift `useBareTop`): the rows start near the top and fade out there.
+        // cmux: a pinned section under the header keeps the oldest row clear of it (only the top of
+        // the scroll range moves; a chat at rest at its newest message does not).
+        let rowsTop = (bareTop ? bareRowsTop : Fixture.headerHeight + 8) + extraRowsTop / max(contentZoom, 0.01)
+        if demo.rowsTopInset != rowsTop || (bareTop && demo.topFade != bareRowsTop) {
+            demo.rowsTopInset = rowsTop
+            if bareTop { demo.topFade = bareRowsTop }
+            demo.setNeedsLayout()
+        }
+        // cmux: toasts over the chat keep the newest row above them (`setExtraRowsBottom` slides it there;
+        // a zoom change or a new transcript takes it here at once).
+        let rowsBottom = extraRowsBottom / max(contentZoom, 0.01)
+        if demo.rowsBottomInset != rowsBottom { demo.setRowsBottomInset(rowsBottom, duration: 0) }
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
         // MessagesLab de36498: the scroller's track from under the header to just above the field (host coordinates).
-        scrollView.placeScroller(top: Fixture.headerHeight, bottom: demo.fieldTop - 0.5)
+        scrollView.placeScroller(top: titlebarHeight, bottom: demo.fieldTop - 0.5)
         scrollView.syncFromModel()
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
-        let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBandHeight)
+        let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
-        if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
-        fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
-                          emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
-        // cmux-classic: the band follows the rows' geometry after every layout and width pass (HeaderFade.swift).
-        applyHeaderReveal()
+        placeHeaderGlass()
+        placeTopFadeView()
+        updateTopFadeScrollEdge()
+        controller?.placeSendButton(animated: false)
+        // A narrow pane drops the emoji button, then the "+" button, so the draft keeps its line (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: demo.compose.bounds.width)
+        fieldChrome.place(field: demo.compose.fieldRect, plus: chrome.showsPlus ? demo.compose.plusRect : nil,
+                          emoji: chrome.showsEmoji ? CGRect(x: chrome.emojiX, y: demo.compose.plusRect.minY, width: 31, height: 30) : nil)
+        placeQuoteCard(above: demo.compose.fieldRect)
+        placeSlashMenu(above: demo.compose.fieldRect)
     }
 
     /// Height of the header area over the content. cmux: the in-pane
-    /// header (the window's titlebar belongs to cmux-next).
-    var titlebarHeight: CGFloat { Fixture.headerHeight }
+    /// header (the window's titlebar belongs to cmux-next); none with `bareTop`.
+    var titlebarHeight: CGFloat { bareTop ? 0 : Fixture.headerHeight }
 
     // MARK: Display scale
 
@@ -213,7 +248,8 @@ final class HostView: NSView {
     /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
     /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
     /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
-    /// view's own bounds do not. Both come back when the resize ends (the still pixels are the resting ones).
+    /// view's own bounds do not, except a bare top's fade (HeaderGlass.swift `useBareTop`), which pauses during the
+    /// drag. Both come back when the resize ends (the still pixels are the resting ones).
     private var restingClipMask: CALayer?
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
@@ -253,39 +289,21 @@ final class HostView: NSView {
     }
 
     /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden.
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        controller?.followWindowScale()
-    }
+    override func viewDidUnhide() { super.viewDidUnhide(); controller?.followWindowScale() }
 
     // MARK: Events outside the transcript (the header and compose bar)
 
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,
     // covers only the field, and only for the key window (no wake-up per mouse move).
     private var hoverArea: NSTrackingArea?
-    /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
-    var headerZoneArea: NSTrackingArea?
-    let headerZone = HeaderZoneTracker()
-    /// cmux-classic: the header fade's state (HeaderFade.swift): the pointer is in the top zone, the
-    /// band also shows while rows lie under the header, the band's height, and each show's length.
-    var headerHovered = false
-    var headerRevealsWhenScrolled = false
-    var headerFadeExtent: CGFloat?
-    var headerFadeDuration: (Bool) -> TimeInterval = { _ in 0 }
-    /// cmux-classic: the person chose the newest row (their last scroll ended there, or a send pinned
-    /// it), the size of the last layout, and when it last changed (PaneHost+Follow.swift).
-    var followsNewest = true
-    var followSize = CGSize.zero
-    var lastSizeChange: CFTimeInterval = 0
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        updateHeaderZone()
         if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
         guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
         let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)
@@ -301,27 +319,33 @@ final class HostView: NSView {
         controller?.demo?.compose.hoverAttachments(nil)
     }
 
-    // MARK: Drop
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
 extension FieldChrome {
     /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
     /// glass on a light theme (the glass renders for its view's appearance),
     /// MessagesLab's dark glass and white symbols otherwise.
-    func applyTheme(light: Bool, symbol: NSColor) {
+    ///
+    /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
+    /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
+    /// placeholder reads on it as on the web field; nil keeps the clear system glass.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
+        field.wantsLayer = true
+        if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
+            let width: CGFloat = light && edge != nil ? 1 : 0
+            if layer.borderWidth != width { layer.borderWidth = width }
+            if let edge, light { layer.borderColor = edge.cgColor }
+        }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
         for b in [plus, emoji] where b.contentTintColor != tint { b.contentTintColor = tint }
     }
-}
-
-extension TranscriptDocumentView {
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
 /// Live app glue (Catalyst's ChatViewController): the store, the engine clock,
@@ -340,6 +364,8 @@ extension TranscriptDocumentView {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -347,8 +373,36 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
-    /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
+    var approvalDecision: ((PartRef, Bool) -> Void)?
+    /// A failed-turn card's button (HomeTurnFailureRowProvider): Retry, Copy error or Details.
+    var turnFailureAction: ((PartRef, HomeTurnFailureRowProvider.Action) -> Void)?
+    /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// Each app.links line this transcript logs for a link press (tests; nil in the app).
+    var linkNotes: ((String) -> Void)?
+    /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
+    /// that agent (its id, and the pill's frame in window coordinates); nil: the click opens and closes the row.
+    var onAgentPill: ((String, CGRect) -> Void)?
+    /// cmux: the context menu of an agent's pill: the host's items for that agent (its id); none or nil: the
+    /// message's own menu.
+    var agentPillMenu: ((String) -> [NSMenuItem])?
+    /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
+    /// host's hover cards for link chips follow it (HomeLinkChip).
+    var onPointerMoved: ((CGPoint?) -> Void)?
+    /// cmux: the field's height changed (a draft wrapped to more or fewer lines, an attachment, a
+    /// send): the host lays out what sits above the field (the first-run panel, its notice).
+    var onFieldTopChange: (() -> Void)?
+    /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
+    var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
+    /// cmux: a press on a link moved past the drag slop: the host may take the drag (a split or
+    /// tab drop zone opens the link there; plans/cmux-next/link-drag-DESIGN.md). `screenPoint` is
+    /// where the pointer is. True when the host took it: the gesture is then the host's (its own
+    /// event monitor tracks the rest), with no text selection, click or tapback hold here. Nil (or
+    /// false): the press selects text as before.
+    var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)?
+    /// cmux: where attachments open and what their right-click menu offers (HomeFileHost); nil
+    /// keeps the system open.
+    weak var fileHost: HomeFileHost?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
@@ -369,8 +423,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
-    /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
-    private var pickerLift: NSView?
+    /// The picker's emoji bubble (PaneMenu).
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
@@ -378,7 +431,43 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var tapbackChoice: TapbackChoice?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
+    /// cmux: a press on a link (the link and where it started): a move past the slop offers it to
+    /// ``onDragLink``. Cleared on the move that offers it and on every press.
+    private var linkPress: (url: URL, at: CGPoint)?
+    /// cmux: the host took this press as a link drag; its later moves and release are not ours.
+    private var linkDragTaken = false
+    /// cmux: a press on an attachment: a move past the slop drags it out (``beginAttachmentDrag``).
+    /// Cleared on the move that starts the drag and on every press.
+    var attachmentPress: (request: HomeAttachmentDragRequest, at: CGPoint)?
+    /// cmux: the pressed attachment's local copy, fetched from the press on, so a drag usually
+    /// carries the file itself rather than a promise of it.
+    var attachmentPressFile: (attachment: ID, file: URL)?
+    var attachmentPrefetch: Task<Void, Never>?
+    /// cmux: this press became an attachment drag; its later moves and release are AppKit's.
+    private var attachmentDragTaken = false
+    /// cmux: the running attachment drag's source and promise delegate (both held weakly by AppKit).
+    var attachmentDragSource: HomeAttachmentDrag?
+    /// cmux: starts an attachment's drag out of Home (a dragging session on the host); tests record it.
+    lazy var beginAttachmentDrag: (HomeAttachmentDragRequest, NSEvent) -> Void = { [weak self] request, event in
+        self?.startAttachmentDrag(request, event)
+    }
     private(set) lazy var selection = TranscriptSelection(controller: self)
+    /// cmux: Find in this chat (Cmd-F; TranscriptFind.swift).
+    private(set) lazy var find = TranscriptFind(controller: self)
+    /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
+    /// nil: a reply answers the whole message.
+    var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
+    /// cmux: the skills a Chief chat's `/` menu offers (ChatController+SlashSkills.swift); nil: no menu here.
+    var slashSkills: SlashSkillSource? {
+        didSet {
+            slashSkills?.onChange = { [weak self] in self?.updateSlashMenu() }
+            if slashSkills == nil { slashMenu = nil }
+        }
+    }
+    /// cmux: the `/` menu's state; nil while it is closed.
+    var slashMenu: SlashSkillMenu? { didSet { if slashMenu != oldValue { slashMenuChanged() } } }
+    /// cmux: the draft whose menu Esc closed (or a pick filled): it stays closed until the draft changes.
+    var slashMenuDismissed: String?
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
@@ -391,37 +480,61 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onInstalled: [(ChatController) -> Void] = []
     /// cmux: the host's shared stop action (Home: stop the Chief's turn).
     var onStop: (() -> Void)?
+    /// cmux: after an accepted stop, the same button offers Continue until
+    /// the next person message or turn.
+    var onContinue: (() -> Void)?
+    /// cmux: the host's Stop all agents (Option-click on the stop button);
+    /// nil: Option-click stops as a click does.
+    var onStopAll: (() -> Void)?
+    /// cmux: the stop button's tooltip while the Chief works (the host's
+    /// words, naming Option-click); nil: "Stop".
+    var stopToolTip: String? { didSet { updateStopButton() } }
+    /// True after `chief.stop` accepted the running turn and before a new
+    /// message or turn clears the action.
+    var continueAvailable = false { didSet { if continueAvailable != oldValue { updateStopButton() } } }
+    /// cmux: whether a pasteboard holds text the field pastes (Cmd+V from the
+    /// pane, PaneHost+Keyboard.swift); tests stub it.
+    var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
+    /// cmux: makes the pane's window key after a drop or a pick aimed at it
+    /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
+    /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
+    weak var shownPictureViewer: NSView?
+    /// cmux: a click on a picture in the message box waits out the double-click interval (DraftPictureClick.swift).
+    let draftPictureClick = DraftPictureClick()
+    var bringWindowForward: (NSWindow) -> Void = { window in
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
-    /// cmux-classic: `MessagesWindowView.cmuxTypingOffAtOnce`, kept here until the window view exists.
-    var typingLeavesAtOnce = false { didSet { demo?.cmuxTypingOffAtOnce = typingLeavesAtOnce } }
-    /// cmux-classic: `MessagesWindowView.cmuxBottomInset` (room under the newest row for the host's own line over the
-    /// transcript's bottom), kept here until the window view exists; the native views follow a change.
-    var transcriptBottomInset: CGFloat = 0 {
-        didSet {
-            guard transcriptBottomInset != oldValue, let demo else { return }
-            demo.cmuxBottomInset = transcriptBottomInset
-            afterEngine()
-        }
-    }
-    /// cmux-classic: an approval card waits; Stop is the quiet way out (it denies the request).
-    var isWaitingForApproval = false { didSet { if isWaitingForApproval != oldValue { updateStopButton() } } }
+    /// cmux: opens the system emoji picker (ChatController+Emoji.swift; tests count the calls).
+    var openEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
+    /// cmux: the message box's dictation (ComposeVoice.swift).
+    private(set) lazy var voice = ComposeVoice(controller: self)
+    /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
+    var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
     private var observers: [NSObjectProtocol] = []
+    /// Its own window's key observers (PaneHost+KeyState.swift).
+    var keyObservers: [NSObjectProtocol] = []
+    /// Whether the view greys when its window is not key (MessagesLab's parity behavior). Off in cmux; the
+    /// `--follow-key-state` argument turns it on for parity runs.
+    var followsKeyWindow = ChatController.args.contains("--follow-key-state")
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
-        ChiefRows.registerProviders()  // cmux-classic: before the first rows are derived
         self.host = host
         self.wake = wake
         super.init()
         host.controller = self
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
+        host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
+        host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
     }
 
     deinit {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        (observers + keyObservers).forEach { NotificationCenter.default.removeObserver($0) }
         wake.cancel()
         hold.cancel()
         if let m = pickerKeys { NSEvent.removeMonitor(m) }
@@ -434,56 +547,90 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
         self.store = store
         store.responder = nil
+        // Nested threads (host-hooks-b): the daemon's replies have a parent at any depth (conversation-tree-v1).
+        store.setThreadMode(.tree)
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
         self.demo = demo
-        demo.cmuxTypingOffAtOnce = typingLeavesAtOnce
-        // cmux-classic: "Waiting for you" (HomeProjection.applyApprovalWait) leaves with the decision, no ghost.
-        demo.cmuxNoticeOffAtOnce = true
-        demo.cmuxBottomInset = transcriptBottomInset
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
+        // A stream's final message takes its rows' keys: a selection in them goes along (TranscriptSelection.renameRows).
+        demo.onRowsRenamed = { [weak self] map in self?.selection.renameRows(map) }
+        demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell); self?.find.draw(cell) }
         // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
         let shared = store.onChange
         store.onChange = { a, t, o, n in shared?(a, t, o, n); FlightRecorder.shared.action(a) }
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
+        followKeyState()  // its own window's key state (cx-95476)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
+        // cmux: the "+" opens the host's + menu above the button (Files, the recent clipboard).
+        host.fieldChrome.onPlus = { [weak self] in
+            guard let self else { return }
+            self.intents?.plusClicked(anchor: self.host.fieldChrome.plus)
+        }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
-        demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
+        demo.compose.onFieldResize = { [weak self] old, new, el, begin in
+            self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
+            self?.onFieldTopChange?()
+        }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
         demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
         // The scroller (MessagesLab 93cf61f): a knob drag or a track click. Home has no
         // pager: a drag scrolls the loaded window (older pages load as it nears the top).
+        // The knob's 0...1 spans the loaded rows' model offsets, minOffset (oldest row under the header)
+        // to pinnedOffset. Not the document's height from y = 0: the document starts at the layout's slack
+        // (thousands of points above the oldest row), so that mapping scrolled into empty space and the
+        // release snapped back (scrawl 37, 2026-10-19). scroll(toModelOffset:) ends a running pace first
+        // (MessagesLab 3508ff9: a jump shows at once).
         (host.scrollView.verticalScroller as? SequenceScroller)?.onJump = { [weak self] v in
-            guard let self else { return }
-            let sv = self.host.scrollView, clip = sv.contentView
-            let range = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
-            sv.endPace() // MessagesLab 3508ff9: a jump shows at once (upstream goes through scroll(toModelOffset:))
-            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: (CGFloat(v) * range).rounded())); sv.reflectScrolledClipView(clip)
+            guard let self, let demo = self.demo else { return }
+            let lo = demo.minOffset, hi = max(lo, demo.pinnedOffset)
+            self.host.scrollView.scroll(toModelOffset: lo + CGFloat(max(0, min(1, v))) * (hi - lo))
         }
         installFrameAndPressWiring(demo) // MessagesLab ced183d (PaneHost+FrameWiring.swift)
         // An attachment grows the field at once (MessagesLab cd2bc08): the glass follows without animating.
         demo.compose.onFieldJump = { [weak self] in
             guard let self, let demo = self.demo else { return }
             self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+            self.onFieldTopChange?()
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
+        // cmux: Return while dictating finishes it (the words stay to edit), it does not send.
         tv.onSend = { [weak self] in
-            // cmux-classic: Return in the empty field while an approval card waits allows it.
-            if self?.answerPendingApproval(prominent: true) == true { return }
-            self?.send()
+            guard let self else { return }
+            // cmux: Return in the `/` menu picks the skill (ChatController+SlashSkills.swift).
+            if slashMenuTakesReturn() { return }
+            if voice.finish() != true { send() }
         }
+        // cmux: the send button sends as Return does, and follows the field and the draft.
+        host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
+        demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
+        voiceChromeChanged(animated: false)  // cmux: the mic, when the host gave an engine before the field existed
         tv.onEscape = { [weak self] in self?.escape() }
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
-        tv.view.onPasteImage = { _ in }
+        tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
+        tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
+        tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
+        // cmux: a click on a picture schedules its open; the field's next press (a double click's second) cancels it.
+        tv.view.onOpenDraftPicture = { [weak self, weak field = tv.view] id, rect, image in
+            guard let self else { return false }
+            self.draftPictureClick.schedule { [weak self, weak field] in
+                guard let self else { return }
+                let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
+                self.openDraftPicture(id, from: from)
+            }
+            return true
+        }
+        tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
+        tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
+        tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self, let demo = self.demo, let store = self.store else { return }
             let s = demo.compose.textView.view.string
@@ -491,15 +638,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
+            self?.host.updateTopFadeScrollEdge()
+            self?.scrolledForSaveHover()
             self?.intents?.scrolled()
-            // cmux-classic: only the person's own scroll stops the following (PaneHost+Follow.swift).
-            self?.host.noteScrollPosition()
-            // cmux-classic: the header's band shows while rows lie under it (HeaderFade.swift).
-            self?.host.applyHeaderReveal()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -513,16 +662,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
-        guard let window, let demo else { return }
-        let nc = NotificationCenter.default
-        if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
-            demo.setInactive(!window.isKeyWindow)
-        } else {
-            demo.setInactive(!Self.args.contains("--active"))
-        }
-        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
+        followKeyState()  // its own window's key state; drops the old window's key observers
+        guard let window, demo != nil else { return }
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
         followDisplay()
     }
 
@@ -530,22 +672,27 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
         RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
-        let tv = FieldTextView(usingTextLayoutManager: true)
+        // TextKit 1, as the composer field (ComposeTextView).
+        let tv = FieldTextView(usingTextLayoutManager: false)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
         tv.insertText("Warm", replacementRange: NSRange(location: 0, length: 0))
-        if let tlm = tv.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        tv.textKit1LayOutAll()
         let r = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 32))
         if let cg = r.image(actions: { ctx in
             TextDraw.line("Warm", font: Fixture.bodyFont, color: .white, x: 2, baseline: 20, in: ctx.cgContext)
         }).cgImage { _ = MorphBubble.boxBlur(cg, radiusPx: 9) }
     }
 
-    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(demo?.compose.textView.view) } }
+    /// Gives the pane's keyboard target the keyboard: the compose field, or the picture viewer while it is open.
+    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(keyboardTarget) } }
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
+        let field = demo.map { ($0.compose.fieldRect, $0.fieldTop) }
         thread.note(a)
+        forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
         // run at the start of the next display frame, so they do not add their commits to
         // the keystroke's frame; a send goes first only past statuses and typing (message
@@ -578,19 +725,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
             inKeystrokeFrame = true
             nextFrame { [weak self] in self?.inKeystrokeFrame = false }
         }
-        afterEngine()
+        // A key that kept the field's frame changed only the compose layers (no engine job ran with it: a due one waits
+        // for the next frame, `ahead`), so the scale walk covers the compose tree alone.
+        let keyInField: Bool = { if case .setDraft = a, let demo, let field { return field == (demo.compose.fieldRect, demo.fieldTop) }; return false }()
+        afterEngine(composeOnly: keyInField)
     }
 
-    /// After any engine change: the native views follow the shared geometry.
-    func afterEngine() {
-        ScaleKeeper.shared.setNeedsApply()
+    /// After any engine change: the native views follow the shared geometry. `composeOnly`: only the compose layers
+    /// could have changed (ScaleKeeper walks that tree alone).
+    func afterEngine(composeOnly: Bool = false) {
+        if composeOnly { ScaleKeeper.shared.setNeedsComposeApply(host) } else { ScaleKeeper.shared.setNeedsApply() }
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
-        // cmux-classic: keep following the newest row across a size change, and the header's band
-        // follows the rows (new rows push the others under it with no scroll event).
-        host.keepFollowingNewest()
-        host.applyHeaderReveal()
+        if replyQuote != nil { placeQuoteCard() }
+        if let demo, slashMenu != nil { host.placeSlashMenu(above: demo.compose.fieldRect) }
         scheduleWake()
     }
 
@@ -634,45 +783,111 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// starts then, as before), or keeps the draft when it refuses.
     func send() {
         guard store != nil else { return }
+        composerHistory.end()
         intents?.send()
     }
 
-    func textDidChange(_ notification: Notification) {
+    func textDidChange(_ notification: Notification) { // perf-hot: 2ms home-key (every key typed into the Home composer)
         guard let demo else { return }
-        dispatch(.setDraft(demo.compose.textView.view.string))
+        let tv = demo.compose.textView.view
+        voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops
+        let draft = store?.state.ui.draft.attachments ?? []
+        // An edit can move the pictures: the remove button waits for the pointer to move again.
+        demo.compose.inlineHover.hide()
+        // cmux: attachments are in the text (Draft+InlineMarks.swift); the field leads and the draft
+        // follows it (ComposeFieldUndo.swift).
+        let text = followField(tv, draft: draft, compose: demo.compose)
+        composerHistory.textChanged(to: text)
         intents?.draftChanged()
+        updateSlashMenu()  // cmux: the `/` menu follows the command
+    }
+
+    /// cmux: the draft takes the field's text and its attachments, in the field's order, and
+    /// returns the text. A picture the field shows that the draft does not have came back (Edit >
+    /// Undo of its deletion, Redo of its paste): the draft takes it in again when the host can
+    /// (`canRestoreDraftAttachment`). An attachment character that stands for no attachment that
+    /// can come back (a plain U+FFFC pasted as text) leaves the text, and with it the field's undo
+    /// entries, whose ranges no longer fit (cmux #48500).
+    private func followField(_ tv: FieldTextView, draft: [Attachment], compose: ComposeView) -> String {
+        let had = Set(draft.map(\.id))
+        var marks = tv.textStorage.map(ComposeInlineText.marks(in:)) ?? []
+        let orphans = marks.filter { m in
+            guard let a = m.attachment else { return true }
+            return !had.contains(a.attachmentID) && intents?.canRestoreDraftAttachment(a.attachmentID) == false
+        }
+        if !orphans.isEmpty, let storage = tv.textStorage {
+            for m in orphans.reversed() { storage.replaceCharacters(in: NSRange(location: m.offset, length: 1), with: "") }
+            tv.forgetUndo()
+            marks = ComposeInlineText.marks(in: storage)
+        }
+        // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
+        let text = String(nativeCopyOf: tv.string)
+        let shown = marks.compactMap(\.attachment)
+        let shownIDs = shown.map(\.attachmentID)
+        // Every key: the same attachments, or some deleted (Delete, a cut, the remove button), in order.
+        if shownIDs.count <= draft.count, Self.isInOrder(shownIDs, in: draft.map(\.id)) {
+            dispatch(.setDraft(text))
+            let kept = Set(shownIDs)
+            for a in draft where !kept.contains(a.id) { dispatch(.removeDraftAttachment(a.id)) }
+            return text
+        }
+        // A picture came back, or the pictures moved: the draft's attachments again, in the field's
+        // order, each at its mark. The field already shows them, so the draft's render leaves it be.
+        compose.draftFollowsField = true
+        defer { compose.draftFollowsField = false }
+        dispatch(.setDraft(Draft.stripMarks(text)))
+        for a in draft { dispatch(.removeDraftAttachment(a.id)) }
+        for m in marks {
+            guard let inline = m.attachment else { continue }
+            let model = draft.first { $0.id == inline.attachmentID } ?? inline.model
+            dispatch(.attachAt(model, m.offset))
+        }
+        tv.typingAttributes = ComposeInlineText.attributes(inline: !shown.isEmpty)
+        return text
+    }
+
+    /// Whether IDS are PARENT's in its order, some left out.
+    private static func isInOrder(_ ids: [ID], in parent: [ID]) -> Bool {
+        var it = parent.makeIterator()
+        return ids.allSatisfy { id in
+            while let next = it.next() { if next == id { return true } }
+            return false
+        }
     }
 
     func escape() {
         if picker != nil { closePicker(); return }
-        // cmux-classic: Esc in the empty field while an approval card waits denies it (before Stop).
-        if answerPendingApproval(prominent: false) { return }
-        // In the field a working agent stops first (one Esc), as before threads; then the
-        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
-        if isWorking { onStop?(); return }
-        _ = thread.escape()
-    }
-
-    // MARK: Drops
-
-    // cmux: the host's intake reads the pasteboard (types only while dragging).
-    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
-    }
-    func performDrop(_ sender: NSDraggingInfo) -> Bool {
-        intents?.takeAttachments(from: sender.draggingPasteboard) ?? false
-    }
-
-    func showEmojiPicker() {
-        focusCompose()
-        NSApp.orderFrontCharacterPalette(nil)
+        if dismissSlashMenu() { return }  // cmux: Esc closes the `/` menu first
+        // cmux: Esc while dictating drops the words and leaves the draft as it was.
+        if voice.cancel() { return }
+        // Innermost first. cmux: Reply to Selection: an empty field's Esc takes the quote off
+        // first, the next one closes the thread.
+        if replyQuote != nil, store?.state.ui.draft.text.isEmpty != false { replyQuote = nil; return }
+        // cmux: an open reply or thread view closes before a working Chief stops (Lawrence 2026-10-21).
+        if thread.escape() { return }
+        // In the main chat a working agent stops (one Esc).
+        if isWorking { onStop?() }
     }
 
     // MARK: Clicks
 
+    var approvalPress: ApprovalTarget?
+
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
+        // cmux: the hovered picture's save button (HomeMediaSaveHover) takes its own press.
+        if picker == nil, e.clickCount == 1, pressSaveHover(at: p) { return }
+        approvalPress = picker == nil ? approvalTarget(at: p) : nil
+        if approvalPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
+        linkPress = nil
+        linkDragTaken = false
+        attachmentPress = nil
+        attachmentDragTaken = false
         if e.clickCount == 1 {
+            if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
+            if linkPress == nil, let hit = demo?.hit(p), case let .attachment(a) = hit.row.part {
+                pressAttachment(a, message: hit.row.ref.messageId, frame: hit.body, at: p)
+            }
             selection.mouseDown(p)
             // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
             if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
@@ -684,6 +899,32 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        if approvalPress != nil { return }
+        // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
+        // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
+        if linkDragTaken { return }
+        if let press = linkPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            linkPress = nil
+            let screen = window.map { $0.convertPoint(toScreen: host.convert(p, to: nil)) } ?? p
+            if onDragLink?(press.url, screen) == true {
+                linkDragTaken = true
+                hold.cancel()
+                selection.clear()
+                return
+            }
+        }
+        // cmux: a press on an attachment moved past the slop drags the file out (Finder, other apps).
+        if attachmentDragTaken { return }
+        if let press = attachmentPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            attachmentPress = nil
+            attachmentDragTaken = true
+            hold.cancel()
+            selection.clear()
+            var request = press.request
+            if let fetched = attachmentPressFile, fetched.attachment == request.attachment { request.file = fetched.file }
+            beginAttachmentDrag(request, e)
+            return
+        }
         hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
@@ -693,46 +934,129 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if let pressed = approvalPress {
+            approvalPress = nil
+            if approvalTarget(at: p) == pressed { _ = approvalClicked(at: p) }
+            noteDroppedLinkClick(at: p, "an approval press")
+            return
+        }
+        if linkDragTaken {
+            linkDragTaken = false
+            _ = selection.mouseUp()
+            noteDroppedLinkClick(at: p, "a link drag")
+            return
+        }
+        if attachmentDragTaken {
+            attachmentDragTaken = false
+            _ = selection.mouseUp()
+            noteDroppedLinkClick(at: p, "an attachment drag")
+            return
+        }
+        attachmentPress = nil
         let held = hold.fired
         hold.cancel()
-        if held || thread.swallowed(e) { return }
-        if selection.mouseUp() { return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
+        if held || thread.swallowed(e) { noteDroppedLinkClick(at: p, held ? "a press-and-hold" : "the thread"); return }
+        if selection.mouseUp() { noteDroppedLinkClick(at: p, "a text selection"); return }
+        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) } else { noteDroppedLinkClick(at: p, "click count \(e.clickCount)") }
     }
 
+    /// A single click at `p`. A click on a link that something before the link took logs what took it
+    /// (``clickTaker(_:)``, category app.links; goal agent-shortcut-found: run 45968907489's click on
+    /// "turn it on" opened nothing and logged nothing).
     func clicked(_ p: CGPoint) {
-        guard let demo else { return }
-        if picker != nil { closePicker(); return }
-        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
-        if thread.clicked(p) { return }
-        guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
-        if let hit = demo.hit(p) {
+        if let taker = clickTaker(p) { noteDroppedLinkClick(at: p, taker) }
+    }
+
+    /// Runs a single click at `p`; what took it when that ran before the link's turn (the picker, a
+    /// draft chip, the thread, the header or the field's edge, the status line, a long message's band,
+    /// an approval, a turn failure, a Not Delivered mark), nil when the link (or what is under the click
+    /// past the link's turn) took it. Only a click over a link logs the name (noteDroppedLinkClick).
+    func clickTaker(_ p: CGPoint) -> String? {
+        guard let demo else { return "no transcript" }
+        if picker != nil { closePicker(); return "the tapback picker" }
+        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); intents?.draftChanged(); return "a draft chip" }
+        if thread.clicked(p) { return "the thread" }
+        // cmux: a click on the header strip or the field's edge gives the field the keyboard too.
+        guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else {
+            focusCompose()
+            return p.y > host.titlebarHeight ? "the message field's edge" : "the header strip"
+        }
+        // cmux: the Chief's status line opens its turn's details.
+        if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return "the status line" }
+        // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
+        // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
+        if demo.longTextBandHit(p) { return "a long message's band" }
+        if approvalClicked(at: p) { return "an approval" }
+        if turnFailureClicked(at: p) { return "a turn failure" }
+        // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
+        if failedMarkClicked(at: p) { return "a Not Delivered mark" }
+        guard let hit = demo.hit(p) else {
+            // cmux: a click on empty transcript space gives the field the keyboard.
+            focusCompose()
+            return "no bubble under the click"
+        }
+        do {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
-            if openLink(hit, at: p) { return }
+            if openLink(hit, at: p) { return nil }
+            // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
+            if quoteClicked(hit, at: p) { return nil }
+            // cmux: a click on an agent's pill opens its chat in the host's agent pane.
+            if let onAgentPill, case let .custom(custom) = hit.row.part,
+               let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                        width: hit.body.width) {
+                onAgentPill(pill.peer, host.convert(pill.rect.offsetBy(dx: hit.body.minX, dy: hit.body.minY), to: nil))
+                return nil
+            }
+            // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
+            // (the user, 2026-11-05: "i want to be able to expand and annotate").
+            if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
+               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width,
+                                body: hit.body.origin) {
+                return nil
+            }
+            // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
+            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return nil }
+            // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
+            if let url = intents?.feedRowURL(hit.row.ref.messageId) {
+                if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
+                return nil
+            }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
+            // cmux: its expand button (shown once it played) opens the large viewer (the user, 2026-10-30).
+            case let .attachment(a) where a.kind == "video":
+                if intents?.videoState(hit.row.ref) != .poster, HomeVideo.expandRect(body: hit.body).insetBy(dx: -4, dy: -4).contains(p) {
+                    intents?.openVideo(hit.row.ref, a.id)
+                } else {
+                    intents?.toggleVideo(hit.row.ref, a.id)
+                }
+            // cmux: a picture opens large, to zoom and mark up (opening it in an app is in the context menu).
+            case let .attachment(a) where a.kind == "image": openPictureAttachment(hit.row.ref.messageId, a.id)
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
-            default: break
+            // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
+            // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
+            default: focusCompose()
             }
-            return
+            return nil
         }
-        // cmux: a click on empty transcript space gives the field the keyboard.
-        focusCompose()
     }
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
     /// the word under the cursor; the picker is press and hold.
+    /// cmux: a double-click on a video opens it in the large viewer (the user, 2026-10-30: "i want to
+    /// double click it and see it bigger").
     func doubleClicked(_ p: CGPoint) {
-        guard demo?.hit(p) != nil else { return }
+        guard let hit = demo?.hit(p) else { return }
+        if case let .attachment(a) = hit.row.part, a.kind == "video" { intents?.openVideo(hit.row.ref, a.id); return }
         if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker
 
     func showPicker(for hit: MessagesWindowView.Hit) {
+        guard intents?.canInteract(with: hit.row.ref.messageId) != false else { return }
         closePicker()
         let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in
@@ -742,17 +1066,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         let size = p.fittingSize
         let x = min(max(8, hit.row.outgoing ? hit.body.maxX - size.width : hit.body.minX), host.bounds.width - size.width - 8)
-        p.frame = CGRect(x: x, y: max(Fixture.headerHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
+        p.frame = CGRect(x: x, y: max(host.titlebarHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
         // The pane dims under the picker; a click on the dim closes it.
-        let dim = PickerDimView(frame: host.bounds)
+        // MessagesLab 69f4256: the pressed bubble stays bright above the dim. cmux: the dim has a hole
+        // in the bubble's shape, so the real bubble shows through (a bitmap copy over the dim drew
+        // upside down in a pane, Lawrence 2026-10-20).
+        let dim = PickerDimView(frame: host.bounds, hole: pickerHole(for: hit))
         dim.onClick = { [weak self] in self?.closePicker() }
         host.addSubview(dim, positioned: .below, relativeTo: host.above)
         pickerDim = dim
-        // MessagesLab 69f4256: the pressed bubble stays bright above the dim.
-        if let lift = pickerLift(for: hit) {
-            host.addSubview(lift, positioned: .below, relativeTo: host.above)
-            pickerLift = lift
-        }
         host.addSubview(p, positioned: .below, relativeTo: host.above)
         picker = p
         let emoji = pickerEmojiButton(under: p)
@@ -769,7 +1091,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func closePicker() {
         picker?.removeFromSuperview(); picker = nil
         pickerDim?.removeFromSuperview(); pickerDim = nil
-        pickerLift?.removeFromSuperview(); pickerLift = nil
         pickerEmoji?.removeFromSuperview(); pickerEmoji = nil
         if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
     }
@@ -781,4 +1102,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func windowDidResize() { host.needsLayout = true }
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
+}
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
 }

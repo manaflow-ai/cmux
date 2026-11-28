@@ -9,6 +9,10 @@ struct Conversation: Codable, Equatable {
     var title: String
     var participants: [Participant]
     var messages: [Message]
+    /// cmux: a group conversation (CmuxHomeCore `ConversationSummary.kind(me:) == .group`): the transcript
+    /// names the first bubble of each run of another person's messages and draws their avatar beside the
+    /// last (RowBuilder). nil or false: a direct or Chief chat, no names or avatars.
+    var cmuxGroup: Bool? = nil
 }
 
 struct Participant: Codable, Equatable {
@@ -16,13 +20,20 @@ struct Participant: Codable, Equatable {
     var displayName: String
     var isMe: Bool
     var avatar: Avatar?
+    /// cmux: no name over this sender's runs in a transcript that names others' (a person's own Chief in
+    /// its own chat, where only the agents that sent through the CLI need one: HomeMapping.participants).
+    var cmuxUnnamed: Bool? = nil
 
     enum Avatar: Codable, Equatable {
         case monogram(String)
         case image(String)
+        /// cmux: an agent brand's mark (CmuxAgentBrands `AgentBrandID`), on a white disc
+        /// (an agent's message sent through its owner's CLI, HomeAgentSender).
+        case brand(String)
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
             if let m = try c.decodeIfPresent(String.self, forKey: .monogram) { self = .monogram(m) }
+            else if let b = try c.decodeIfPresent(String.self, forKey: .brand) { self = .brand(b) }
             else { self = .image(try c.decode(String.self, forKey: .image)) }
         }
         func encode(to encoder: Encoder) throws {
@@ -30,9 +41,10 @@ struct Participant: Codable, Equatable {
             switch self {
             case let .monogram(m): try c.encode(m, forKey: .monogram)
             case let .image(i): try c.encode(i, forKey: .image)
+            case let .brand(b): try c.encode(b, forKey: .brand)
             }
         }
-        enum K: String, CodingKey { case monogram, image }
+        enum K: String, CodingKey { case monogram, image, brand }
     }
 }
 
@@ -58,6 +70,20 @@ struct Message: Codable, Equatable {
     /// plain text, always (the default: a user's message with `*` or `|` stays as typed).
     /// `.markdown`: the host marks it (an agent's reply), and the markdown engine renders it.
     var format: MessageFormat? = nil
+    /// `ThreadMode.tree` (a host option): the message this reply answers, when it is not the thread
+    /// root (`replyTo` stays the root, so the transcript groups the reply with its thread). nil in
+    /// `.messages` mode (macOS Messages: a reply answers its thread) and for a reply to the root.
+    /// The host sends it as the reply's parent (cmux: `reply_to`; ThreadHost.swift).
+    var parent: PartRef? = nil
+    /// `ThreadMode.tree`: the host's count of the replies under this message (a root: its whole
+    /// thread; a reply: its branch), when the loaded window may not hold them all (cmux: the
+    /// daemon's `reply_count`). nil: counted from the loaded messages. Ignored in `.messages` mode.
+    var replyCount: Int? = nil
+    /// cmux: an aside under the sender's own message: the Chief's messages to its agents and their
+    /// reports (`HomeAgentMessages` rows). It never draws the sender's avatar or name, and it ends the
+    /// sender's run, so the avatar stays beside the sender's last real bubble while asides arrive, fold
+    /// and open (user 2026-11-02: "chief icon is bouncing"). nil: a message of the conversation.
+    var cmuxAside: Bool? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 

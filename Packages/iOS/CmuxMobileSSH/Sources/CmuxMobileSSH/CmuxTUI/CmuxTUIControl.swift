@@ -28,7 +28,7 @@ public actor CmuxTUIControl {
     /// The session name the caller asked for; `nil` when reached through a
     /// hashed socket, whose file name does not carry it.
     private let requestedSession: String?
-    private let channel: SSHSessionChannel
+    private let channel: any CmuxTUICarrier
     private let outbound: AsyncStream<Data>.Continuation
     private var serverInfo: CmuxTUIServerInfo?
     private var nextRequest = 0
@@ -42,7 +42,7 @@ public actor CmuxTUIControl {
     private var closed = false
     private var resourceScope: (machine: String, session: String)?
 
-    private init(channel: SSHSessionChannel, session: String?) {
+    private init(channel: any CmuxTUICarrier, session: String?) {
         self.channel = channel
         self.requestedSession = session
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
@@ -57,8 +57,19 @@ public actor CmuxTUIControl {
         }
     }
 
+    /// Opens a control connection over any line carrier: an SSH relay
+    /// channel, or an irx daemon lane spliced to a paired Mac's daemon.
+    public static func open(
+        carrier: any CmuxTUICarrier,
+        session: String?,
+        clientName: String,
+        handshakeTimeout: Duration
+    ) async throws -> CmuxTUIControl {
+        try await open(channel: carrier, session: session, clientName: clientName, handshakeTimeout: handshakeTimeout)
+    }
+
     static func open(
-        channel: SSHSessionChannel,
+        channel: any CmuxTUICarrier,
         session: String?,
         clientName: String,
         handshakeTimeout: Duration
@@ -91,10 +102,15 @@ public actor CmuxTUIControl {
         serverInfo?.session ?? requestedSession ?? ""
     }
 
-    /// The server's `identify` result.
-    public var server: CmuxTUIServerInfo {
-        // Set by `open` before the control is returned.
-        serverInfo!
+    /// The server's `identify` result. `open` sets it before it returns the
+    /// control, so it is `nil` only on a control whose handshake did not finish.
+    public var server: CmuxTUIServerInfo? {
+        serverInfo
+    }
+
+    /// Whether the server advertised `capability` in `identify` (false before the handshake).
+    private func serverSupports(_ capability: String) -> Bool {
+        serverInfo?.capabilities.contains(capability) == true
     }
 
     /// Closes the relay channel. Terminals keep running on the host.
@@ -237,7 +253,7 @@ public actor CmuxTUIControl {
     }
 
     private func detachView(surface: Int, lease: String?) async throws {
-        if let lease, server.capabilities.contains("view-attachment-detach-v1") {
+        if let lease, serverSupports("view-attachment-detach-v1") {
             // The response is a cleanup fence: no frames for this stream follow it.
             _ = try await request(
                 "detach-attached-view",
@@ -256,7 +272,7 @@ public actor CmuxTUIControl {
 
     /// Whether the server can stream browser surfaces to this client.
     public var supportsBrowserAttach: Bool {
-        server.capabilities.contains(Self.browserPointerGuardCapability)
+        serverSupports(Self.browserPointerGuardCapability)
     }
 
     /// Attaches to a browser surface. The stream starts with `.state`
@@ -572,7 +588,7 @@ public actor CmuxTUIControl {
         case "tree-changed":
             subscription?.yield(.treeChanged)
         case "title-changed":
-            if let surface = event.surface { subscription?.yield(.titleChanged(surface: surface, title: event.title ?? "")) }
+            if let surface = event.surface { subscription?.yield(.titleChanged(surface: surface, title: event.text ?? event.title ?? "")) }
         case "surface-exited":
             if let surface = event.surface { subscription?.yield(.surfaceExited(surface: surface)) }
         case "surface-resized":
@@ -674,7 +690,7 @@ extension CmuxTUIControl {
     /// when the server predates `terminal-idle-close-v1`.
     @discardableResult
     public func setIdlePolicy(surface: Int, seconds: Int?) async throws -> Bool {
-        guard server.capabilities.contains(Self.idleCloseCapability) else { return false }
+        guard serverSupports(Self.idleCloseCapability) else { return false }
         var params: [String: CmuxTUIWireValue] = ["surface": .int(surface)]
         // An omitted `idle_close_seconds` clears the policy.
         if let seconds { params["idle_close_seconds"] = .int(seconds) }
@@ -696,7 +712,7 @@ extension CmuxTUIControl {
 
     /// Whether `attachment` can be replaced in place by `reattach`.
     public func canReattach(_ attachment: CmuxTUIAttachment) -> Bool {
-        attachment.lease != nil && server.capabilities.contains(Self.viewDetachCapability)
+        attachment.lease != nil && serverSupports(Self.viewDetachCapability)
     }
 
     /// Replaces `attachment` with a fresh stream on this same connection. The

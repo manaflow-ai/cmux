@@ -111,20 +111,33 @@ import Testing
     }
 
     /// OpenBSD regress vector (lib/libutil/bcrypt_pbkdf), also produced by pyca `bcrypt.kdf`.
-    @Test func bcryptPBKDFMatchesOpenBSDVector() {
-        let key = BcryptPBKDF(rounds: 4).derive(password: Array("password".utf8), salt: Array("salt".utf8), keyLength: 32)
+    @Test func bcryptPBKDFMatchesOpenBSDVector() throws {
+        let key = try BcryptPBKDF(rounds: 4).derive(password: Array("password".utf8), salt: Array("salt".utf8), keyLength: 32)
         #expect(Self.hex(key) == "5bbf0cc293587f1c3635555c27796598d47e579071bf427e9d8fbe842aba34d9")
     }
 
     /// 48-byte output (aes256-ctr key + IV) at OpenSSH's default 16 rounds; vector from pyca `bcrypt.kdf`.
-    @Test func bcryptPBKDFMatchesSixteenRoundVector() {
+    @Test func bcryptPBKDFMatchesSixteenRoundVector() throws {
         let start = ContinuousClock.now
-        let key = BcryptPBKDF(rounds: 16).derive(password: Array("pw".utf8), salt: Array(0..<16), keyLength: 48)
+        let key = try BcryptPBKDF(rounds: 16).derive(password: Array("pw".utf8), salt: Array(0..<16), keyLength: 48)
         let elapsed = ContinuousClock.now - start
         print("bcrypt_pbkdf 16 rounds, 48 bytes: \(elapsed)")
         #expect(Self.hex(key) == "936104ab12ea59c4b74d9f0074669f9d7ed6afaffa1471b35c71a87e8693e967d9d12c0bf877293a149ff6a3047d4dbc")
-        let other = BcryptPBKDF(rounds: 16).derive(password: Array("password".utf8), salt: Array("salt".utf8), keyLength: 48)
+        let other = try BcryptPBKDF(rounds: 16).derive(password: Array("password".utf8), salt: Array("salt".utf8), keyLength: 48)
         #expect(Self.hex(other) == "c339d704ec235f27690d3f12167c05a55bf86d572f270adbf9fe04c379da5f8c7942a939245dbb39ebe26fc2bd19b88b")
+    }
+
+    /// Out-of-range KDF arguments used to trap in a precondition.
+    @Test func bcryptPBKDFRefusesOutOfRangeArguments() {
+        #expect(throws: SSHPrivateKeyParseError.malformed) {
+            try BcryptPBKDF(rounds: 0).derive(password: [1], salt: [1], keyLength: 32)
+        }
+        #expect(throws: SSHPrivateKeyParseError.malformed) {
+            try BcryptPBKDF(rounds: 4).derive(password: [1], salt: [1], keyLength: 0)
+        }
+        #expect(throws: SSHPrivateKeyParseError.malformed) {
+            try BcryptPBKDF(rounds: 4).derive(password: [1], salt: [1], keyLength: 1_025)
+        }
     }
 
     @Test func acceptsSmartPunctuationMangledArmor() throws {

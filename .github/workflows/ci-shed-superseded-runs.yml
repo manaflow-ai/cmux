@@ -25,13 +25,10 @@ on:
 
 permissions: {}
 
-# A newer sweep replaces this one (see cancel-in-progress below); the job ends inside one schedule tick.
+# One sweep at a time; a second waits instead of racing the first one's cancels, and never cancels it.
 concurrency:
   group: ci-shed-superseded-runs
-  # A newer sweep replaces an older one, queued or running: sweeps are idempotent (each reads the queue afresh, and
-  # a cancel of a run already cancelled is a no-op error row), and a held group starves the drain. On 2026-11-20
-  # sweep 44749834573 sat queued for its runner label from 14:03Z while every later sweep waited behind it.
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -41,11 +38,14 @@ jobs:
   shed:
     name: Shed queued runs on superseded heads
     if: github.repository == 'manaflow-ai/cmux'
+    environment:
+      name: ci-bot
+      deployment: false
     permissions:
       actions: write
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}
-    timeout-minutes: 9 # under the */10 tick, so the next sweep rarely cancels a running one
+    runs-on: cmux-gcp-pr-control-jit-x64
+    timeout-minutes: 30
     steps:
       - name: Check out the shed script
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -54,23 +54,24 @@ jobs:
           sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: true
 
-      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
-      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
-      - name: Read the GITHUB_TOKEN floor
-        id: job-floor
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        env:
-          JOB_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/job_token_floor.py ci-shed-superseded-runs/shed
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
 
       - name: Cancel queued runs nobody will read
-        if: steps.job-floor.outputs.held != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
-          SHED_MAX_CANCELS: ${{ vars.CI_SHED_MAX_CANCELS || '400' }} # fits the 9 min job: 6 sweeps an hour shed up to 2,400 runs
+          SHED_MAX_CANCELS: ${{ vars.CI_SHED_MAX_CANCELS || '1500' }}
           SHED_CANCEL_SPACING_SECONDS: ${{ vars.CI_SHED_CANCEL_SPACING_SECONDS || '0.2' }}
           SHED_MAX_JOB_READS: ${{ vars.CI_SHED_MAX_JOB_READS || '300' }}
         run: python3 scripts/ci/shed_superseded_runs.py

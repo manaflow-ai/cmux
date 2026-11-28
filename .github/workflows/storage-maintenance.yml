@@ -1,8 +1,8 @@
 name: Storage maintenance
 
-# One entry point for storage hygiene. Every job keeps its own credentials,
-# permissions and main-only guard. A dispatch selects one task; the weekly
-# schedule runs both the read-only census and the PR media cleanup.
+# One entry point for storage hygiene. Each job keeps its own credentials,
+# permissions, runner and main-only guard. The weekly schedule runs both the
+# read-only census and PR media cleanup; each other schedule runs one task.
 on:
   schedule:
     - cron: "37 * * * *"
@@ -47,7 +47,7 @@ jobs:
     concurrency:
       group: actions-artifact-prune
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 50
     permissions:
       contents: read
@@ -76,7 +76,7 @@ jobs:
     concurrency:
       group: r2-cache-prune
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     # Only main may use the R2 write credentials (see #14147).
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -108,37 +108,23 @@ jobs:
     concurrency:
       group: r2-binaries-prune
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
-    timeout-minutes: 75
-    environment: artifacts
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     permissions:
       contents: read
       actions: read
-    env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
-      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
-      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
-      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
-      - name: Checkout the GitHub API wait
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .gh-budget-tooling
-          sparse-checkout: |
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
-          sparse-checkout-cone-mode: false
-      - name: Wait through GitHub API rate limits and 5xx in this job
-        working-directory: ${{ github.workspace }}
-        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Trunk commits, pins and windows
@@ -240,9 +226,11 @@ jobs:
     concurrency:
       group: r2-storage-census-binaries
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
-    environment: artifacts
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     permissions:
       contents: read
     steps:
@@ -269,15 +257,16 @@ jobs:
           name: r2-census-binaries
           path: ${{ runner.temp }}/r2-census-binaries.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 7
 
   r2-census-cef:
+    environment: ci-cache-writer
     name: Census (cef)
     if: ${{ (github.ref == 'refs/heads/main') && ((github.event_name == 'schedule' && github.event.schedule == '41 6 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.task == 'r2-census')) }}
     concurrency:
       group: r2-storage-census-cef
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -305,7 +294,7 @@ jobs:
           name: r2-census-cef
           path: ${{ runner.temp }}/r2-census-cef.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 7
 
   r2-census-ci-cache:
     name: Census (ci-cache)
@@ -313,7 +302,7 @@ jobs:
     concurrency:
       group: r2-storage-census-ci-cache
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
@@ -342,7 +331,7 @@ jobs:
           name: r2-census-ci-cache
           path: ${{ runner.temp }}/r2-census-ci-cache.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 7
 
   pr-media:
     name: Prune obsolete pull request media
@@ -350,7 +339,7 @@ jobs:
     concurrency:
       group: pr-media-prune
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: write

@@ -1,0 +1,2674 @@
+//! The brain: one thread that owns the host state and turns inputs (daemon
+//! events, acpmux events, turn workers' reports) into effects. It keeps the
+//! queue of new messages and runs the turn loop of section 7:
+//!
+//! ```text
+//! on message: if a call is running: deliver it between tool calls
+//!             else: queue.push(text); if idle: turn()
+//! turn: settle (worker) -> take the queue -> render the view -> log the
+//!       messages as `user` -> fresh call (worker) -> post the reply
+//! ```
+//!
+//! Delivery between tool calls depends on the engine. The native engine
+//! (`Engine::Native`, the host's own Messages API loop) asks the brain for
+//! queued messages at every tool boundary, so MASTER's "messages the user
+//! sends while you work reach you between tool calls" holds. The acpmux
+//! engine steers the message into the running session (`steer.rs`; acpmux's
+//! Claude Code adapter writes it to claude's stdin, read at the next tool
+//! boundary). A session that cannot steer (another harness, an older
+//! acpmux) stops the running turn (`session/cancel`; its steps are already
+//! in the log) and the next fresh turn takes the message with the view of
+//! everything the stopped turn did. A turn that hangs is stopped by
+//! `Settings::turn_limit`.
+
+mod approvals;
+mod automations;
+pub use automations::{AutomationsRequest, UPDATE_ACTIONS};
+mod background;
+mod budget_hold;
+mod chief_inbox;
+pub use chief_inbox::name as chief_inbox_name;
+mod children;
+mod control;
+mod drafts;
+mod engine_control;
+pub mod files;
+mod harness_offer;
+mod home_approvals;
+mod image_fit;
+pub mod images;
+mod inbox;
+pub mod media;
+mod memory;
+mod mux_ack;
+mod outbox;
+mod outcome_ledger;
+mod previews;
+mod prewarm;
+pub mod reaction_wake;
+mod recover;
+pub mod redescribe;
+mod replies;
+mod reply_ledger;
+mod rights_gate;
+pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
+pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+pub use rights_gate::RightsCtx;
+mod send;
+mod side;
+mod spawn_text;
+pub use spawn_text::{NO_TEXT_TAG, no_text_note};
+mod spawns;
+mod steer;
+mod transcript;
+mod turn_actions;
+mod turns;
+mod wakes;
+mod watches;
+pub use reaction_wake::{JudgeAsk, ReactionJudge};
+pub use replies::{REACTIONS, reaction, tapback};
+pub use steer::STEER_DEADLINE;
+pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
+pub use turns::stuck_notice;
+
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+use std::time::{Duration, Instant};
+
+use cmux_chief::acp::SessionSummary;
+use cmux_conversation::{Op, Part, Summary};
+use optchat_host::OptChat;
+
+use crate::acpmux::{AgentEvent, AgentPort};
+use crate::daemon::{ConversationPort, DaemonEvent};
+use crate::state::{HostState, OutboxEntry, StateFile};
+use crate::turn::{TurnOutcome, TurnStart};
+
+/// Everything the brain reacts to.
+/// The start of [`Brain::run`]'s answer when a signal asked the host to stop.
+pub const STOP_REQUESTED: &str = "stop requested";
+
+/// The brain's stop when an update asked the host to hand off when idle
+/// (SIGUSR1): it stopped between turns, so the next host cuts nothing.
+pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
+
+/// How long a handoff request waits for the running turn: past it the host
+/// stops anyway and the next host adopts the turn session.
+pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// How long a host whose binary was replaced waits for no turn to run: it
+/// still works, so only a turn that never ends brings the cut.
+pub(crate) const BINARY_REPLACED_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
+
+pub enum Input {
+    Daemon(Box<DaemonEvent>),
+    Agents(Box<AgentEvent>),
+    /// A turn worker settled the view and asks for its turn (None: nothing to
+    /// do). `deferred`: it waited SETTLE_BOUND and lines are still building.
+    Settled {
+        reply: Sender<Option<TurnStart>>,
+        deferred: bool,
+    },
+    /// A turn worker could not settle (shutdown or a failed write).
+    SettleFailed,
+    /// An acpmux turn's session and how far its events are folded.
+    TurnProgress {
+        key: String,
+        session_id: String,
+        after: u64,
+    },
+    /// A native turn is between tool calls: the brain logs what is queued
+    /// and answers with the texts to deliver (section 7).
+    Boundary {
+        key: String,
+        /// The prompt blocks to deliver: the messages' images, then their text.
+        reply: Sender<Vec<serde_json::Value>>,
+    },
+    /// A draft of the running turn's reply (`draft.rs`).
+    Draft(Box<crate::draft::Draft>),
+    /// A change of the running turn's run record (`run.rs`).
+    Run(Box<crate::run::RunUpdate>),
+    /// A steer's outcome (`steer.rs`): Ok once the harness read it.
+    Steered {
+        id: u64,
+        result: Result<(), String>,
+    },
+    /// The steers of turn `key` that the deadline found unread were asked
+    /// back (`steer.rs` `on_steer_deadline`): whether every one was dropped
+    /// unread, so the turn's session holds none of them.
+    SteersWithdrawn {
+        key: String,
+        all: bool,
+    },
+    /// The deadline found a person's steer of turn `key` unread and asked
+    /// acpmux to move the turn's running work to the background
+    /// (`steer.rs`): whether something moved.
+    SteerBackgrounded {
+        key: String,
+        moved: bool,
+    },
+    TurnEnded {
+        key: String,
+        /// Boxed: the outcome and its stats are the largest input.
+        outcome: Box<TurnOutcome>,
+    },
+    /// Something the user must hear once (the compactor cannot build a
+    /// node): posted in the Chief conversation, with `key` as its
+    /// idempotency key, as soon as the conversation is known.
+    Notice {
+        key: String,
+        text: String,
+    },
+    /// The compactor's start-up probe: Err with the text the user must
+    /// hear (the compactor cannot build a node), Ok when it built one.
+    CompactorStatus(Result<(), String>),
+    /// The turn loop's view of stuck lines (`stuck_notice`): Some with the
+    /// notice for a line that cannot be built as things stand; None when no
+    /// such line is left, which retracts only a notice this posted, never
+    /// the probe's (https://github.com/manaflow-ai/cmux/issues/36026: a
+    /// line stuck only on timeouts kept another line's notice up).
+    CompactorStuck(Option<String>),
+    /// Section 9: a `spawn` asks for its spawn id and subagent ids.
+    SpawnRegister {
+        tasks: Vec<String>,
+        /// The env's acpmux peer (`OPTCHAT_SUBAGENT_PEER`); None: none.
+        peer: Option<String>,
+        /// `spawn(place)`: `cloud`, `local` or None (the saved default).
+        place: Option<String>,
+        /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
+        harness: Option<String>,
+        /// Acpmux's health and login snapshot, read off the brain thread.
+        machines: Vec<crate::place_route::Machine>,
+        /// The subagent numbers (`a<N>`) whose session names acpmux already
+        /// holds, read off the brain thread: a spawn never gives one of them
+        /// (a deleted memory restarts the counter while the old sessions stay).
+        taken: Vec<u64>,
+        reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
+    },
+    /// A queued subagent's launch, saved in its record.
+    SubagentQueued {
+        id: String,
+        launch: crate::state::QueuedLaunch,
+    },
+    /// A subagent's session exists (its prompt follows).
+    SubagentStarted {
+        id: String,
+        session_id: String,
+        /// The effective session policy (configured policy or spawn floor).
+        policy: Option<String>,
+        /// The harness its session runs on.
+        harness: Option<String>,
+        /// Its lifetime (action_lifetime.rs), decided as it starts.
+        made: Option<crate::action_lifetime::Made>,
+        /// It starts under the goal (goal.rs).
+        goal: bool,
+    },
+    /// A subagent's first prompt (view and task) is sent: its inbox follows.
+    SubagentPrompted {
+        id: String,
+    },
+    /// A subagent's task turn started at acpmux: `turn_started` after the
+    /// echo of its task prompt `prompt_id` (`Spawner::forward_answer`).
+    SubagentTurnStarted {
+        id: String,
+        prompt_id: String,
+    },
+    /// A subagent's cmux workspace exists.
+    SubagentWorkspace {
+        id: String,
+        key: String,
+        name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
+    },
+    /// Where a subagent's workspace opens, sent at its start before it opens (a later
+    /// `control show|hide` reopens one the user closed there).
+    SubagentWorkspaceSlot {
+        id: String,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    },
+    /// `control show` opened workspace `key`.
+    SubagentWorkspaceShown {
+        id: String,
+        key: String,
+        name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
+    },
+    /// `control show|hide` moved its workspace out of or into the "Chief's workspaces" group.
+    SubagentWorkspaceMoved {
+        id: String,
+        into_chief_group: bool,
+    },
+    /// Workspace `key` is gone (it could not open, or the user closed it): the
+    /// next `control show|hide` opens a new one.
+    SubagentWorkspaceFailed {
+        id: String,
+        key: String,
+    },
+    /// A subagent could not start.
+    SubagentFailed {
+        id: String,
+        error: String,
+    },
+    /// A cloud subagent holds this sandbox key (agent_keys.rs): revoked once
+    /// it has been done for `agent_keys::REVOKE_AFTER_DONE`.
+    SubagentAgentKey {
+        id: String,
+        key_id: String,
+    },
+    /// The sandbox key of subagent `id` is revoked (its VMs go with it).
+    AgentKeyRevoked {
+        id: String,
+    },
+    /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
+    AgentKeyRevokeFailed {
+        id: String,
+    },
+    /// The answer of a prompt the host sent a subagent (token use, cost).
+    SubagentAnswer {
+        id: String,
+        answer: Result<serde_json::Value, String>,
+    },
+    /// An auto-resume of subagent `id` is due (auto_resume.rs): its backoff
+    /// passed, or (`after_network`) the network came back (`online`) or
+    /// the wait for it ended (`!online`).
+    AutoResume {
+        id: String,
+        attempt: u32,
+        reason: String,
+        after_network: bool,
+        online: bool,
+    },
+    /// The model endpoint answers again after the Chief's turn was cut by a
+    /// network error (`turns::Cut::Network`), or the wait for it ended
+    /// (`!online`): the cut turn whose hold is `hold` runs at `not_before`
+    /// at the earliest.
+    NetworkBack {
+        hold: Instant,
+        not_before: Instant,
+        online: bool,
+    },
+    /// Subagent `id`, whose account hit a usage limit, continues in a new
+    /// session on `harness` (auto_resume.rs `Decision::Move`).
+    AutoMove {
+        id: String,
+        harness: String,
+    },
+    /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
+    /// there is no such subagent or it has none yet.
+    SubSession {
+        id: String,
+        reply: Sender<Option<String>>,
+    },
+    /// The running turn's view as its subagents get it (`spawn`): None
+    /// outside a turn.
+    TurnView {
+        reply: Sender<Option<String>>,
+    },
+    /// `tell(id, message, key, queue)`.
+    Tell {
+        id: String,
+        message: String,
+        key: Option<String>,
+        /// Wait for the running turn instead of interrupting it.
+        queue: bool,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `react(id, reaction)` (replies.rs).
+    React {
+        id: u64,
+        reaction: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `transcript(n, before)` (transcript.rs): the conversation as the
+    /// daemon stores it; the answer goes to `reply`.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
+    Reply {
+        id: u64,
+        text: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell's steer into subagent `id`'s running turn in `session` was
+    /// refused (its agent cannot steer now): the brain interrupts the turn
+    /// and sends `message` as its next prompt (spawns.rs `tell_unsteered`).
+    TellUnsteered {
+        id: String,
+        session: String,
+        message: String,
+    },
+    /// `send(text, attachments, reply_to)` (send.rs).
+    Send {
+        call: crate::tools::SendCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `stop()` (wakes.rs): ends the running turn.
+    StopTurn {
+        reply: Sender<Result<String, String>>,
+    },
+    /// A check-in's PR check ended (memory.rs): the loops whose PR merged.
+    CheckInReady {
+        slot: String,
+        merged: Vec<(String, String)>,
+    },
+    /// `follow_up`, `follow_ups`, `check_ins`, `nothing`, `ask` (memory.rs).
+    WakeTool {
+        call: crate::tools::WakeCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `sleep(seconds, note, until)` (wakes.rs).
+    Sleep {
+        call: crate::tools::SleepCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `automation(action, ...)` (automations.rs): the Chief's tool.
+    Automation {
+        call: crate::automations::AutomationCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// chief.automation.list / chief.automation.update from Home.
+    Automations {
+        request: AutomationsRequest,
+        reply: Sender<serde_json::Value>,
+    },
+    /// `watch(...)` (watches.rs): start, cancel or list watches.
+    Watch {
+        call: crate::tools::WatchCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A watch's command ended it (watches.rs): the Chief wakes once.
+    WatchFired(Box<crate::watch::Fired>),
+    /// A message from a Chief on another machine (peer_chiefs.rs), already
+    /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
+    PeerChiefNote {
+        text: String,
+    },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
+    /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
+    EscalateAuth {
+        agent: String,
+        request: crate::tools::AuthEscalation,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `peers` from subagent `caller` (acp-chief-issues.md #11).
+    PeerList {
+        caller: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `tell` from subagent `from` to subagent `id`.
+    PeerTell {
+        from: String,
+        id: String,
+        message: String,
+        key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell to a running subagent that neither its steer nor the prompt
+    /// after it delivered (acp-chief-issues.md #10): it goes back into the
+    /// subagent's inbox, first, for its next prompt.
+    TellUndelivered {
+        id: String,
+        message: String,
+        error: String,
+    },
+    /// `control(action, ...)` (control.rs).
+    Control {
+        request: crate::tools::ControlCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// Once a minute while subagents work: stuck detection (control.rs).
+    SubTick,
+    /// Changes a per-Chief setting (`chief_settings`).
+    Setting {
+        key: String,
+        value: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// The per-Chief settings as JSON.
+    Settings {
+        reply: Sender<serde_json::Value>,
+    },
+    /// The policy floor for a child spawned now (`Brain::spawn_policy`).
+    SpawnPolicy {
+        reply: Sender<Option<String>>,
+    },
+    /// The turn session's tool hook (`optchat-chief rights-hook`): `phase`
+    /// `pre` or `post`, Claude Code's hook input; answers the hook's output.
+    RightsHook {
+        phase: String,
+        payload: serde_json::Value,
+        reply: Sender<serde_json::Value>,
+    },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
+    },
+    /// Whether the running turn is the owner's own (true) or one another
+    /// person's text started (false); read only: no log, audit or count.
+    TurnTrust {
+        reply: Sender<bool>,
+    },
+    /// The reaction classifier's answer for decision `id` on Chief message
+    /// `seq` (reaction_wake.rs).
+    ReactionJudged {
+        seq: u64,
+        id: u64,
+        answer: Result<String, String>,
+    },
+    /// A description of a turn's image arrived (or failed): logged as a note.
+    Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
+    /// The owner's `memory redescribe`: describe the images these note
+    /// lines name again (redescribe.rs). Answers `{"started": [ids],
+    /// "refused": [{"id", "why"}]}` at once; each new description rewrites
+    /// its note through the memory's change book when it arrives.
+    Redescribe {
+        notes: Vec<u64>,
+        reply: Sender<serde_json::Value>,
+    },
+    /// A new description of the image note line `note` names arrived (or failed).
+    Redescribed {
+        note: u64,
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
+    /// chief.engine.get / chief.engine.set: the engine this brain's turns
+    /// take (engine.json), answered as one JSON value (`engine_control`).
+    Engine {
+        request: EngineRequest,
+        reply: Sender<serde_json::Value>,
+    },
+    /// SIGTERM, SIGINT or SIGHUP to the host: the brain stops taking input
+    /// and returns [`STOP_REQUESTED`] (E20).
+    Shutdown {
+        signal: i32,
+    },
+    /// Every few seconds while cloud VMs are set: pauses idle ones
+    /// (`cloud.autoPauseIdleSeconds`).
+    CloudTick,
+    /// Fleet job `job`, which cloud subagent `id` waits on, ended in `state`.
+    FleetJobFinished {
+        id: String,
+        job: String,
+        state: String,
+    },
+    /// The fleet poll of subagent `id`'s jobs ended.
+    FleetPolled {
+        id: String,
+    },
+    /// The pool tool refused or failed to pause `peer` with `error`: it is
+    /// tried again after a growing wait (`cloud_pause_backoff`).
+    CloudPauseFailed {
+        peer: String,
+        error: String,
+    },
+    /// The pool tool paused `peer`.
+    CloudPaused {
+        peer: String,
+    },
+    /// A finished subagent's own VM `peer` is deleted (its work was pushed).
+    CloudVmDeleted {
+        peer: String,
+    },
+    /// Deleting `peer` was refused (unpushed work) or failed: tried again
+    /// after another reap wait.
+    CloudVmDeleteFailed {
+        peer: String,
+    },
+    /// Subagent `id`'s own VM could not be made (`why`): it runs on this host.
+    SubagentPlacedHere {
+        id: String,
+        why: String,
+    },
+    /// SIGUSR1 to the host: an update replaced the app, so the brain stops
+    /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
+    /// off and starts the next host.
+    /// The host's binary was replaced on disk (an app update): hand off once
+    /// no turn runs (`update_watch`).
+    BinaryReplaced,
+    HandoffWhenIdle,
+    /// chief.stop: stops the running turn as a newer message does;
+    /// answers `{"stopped": bool}`.
+    Stop {
+        reply: Sender<serde_json::Value>,
+    },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
+    /// and the other subagents going on; answers `{"stopped": bool, ...}`.
+    StopSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {all: true} ("Stop all agents"): the running turn and
+    /// every subagent at work or queued; answers `{"stopped": bool,
+    /// "subagents": [ids]}`.
+    StopAll {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {restart: [ids]} (Restart on the stop-all toast): those
+    /// subagents go on; answers `{"restarted": [ids], "errors": [...]}`.
+    RestartSubagents {
+        names: Vec<String>,
+        reply: Sender<serde_json::Value>,
+    },
+    /// The link preview thread's answer for reply `key`: its parts with the
+    /// cards filled (pictures uploaded), or None when no line qualifies (the
+    /// reply stays its text).
+    Previews {
+        key: String,
+        parts: Option<Vec<cmux_conversation::Part>>,
+    },
+}
+
+/// What chief.engine.get / chief.engine.set ask the brain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EngineRequest {
+    Show,
+    /// An absent field stays; `default` clears one.
+    Set {
+        harness: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        speed: Option<String>,
+        compactor_speed: Option<String>,
+        compactor_harness: Option<String>,
+        compactor_model: Option<String>,
+        turn_routing: Option<String>,
+        /// The reaction classifier's fields (reaction_wake.rs).
+        reactions: Box<ReactionFields>,
+    },
+}
+
+/// The reaction-wake fields of an engine set (engine.json
+/// `classifier_harness`, `classifier_model`, `classifier_prompt`,
+/// `reactions_can_wake`): an absent field stays; `default` clears one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReactionFields {
+    pub classifier_harness: Option<String>,
+    pub classifier_model: Option<String>,
+    pub classifier_prompt: Option<String>,
+    /// `true`, `false` or `default`.
+    pub reactions_can_wake: Option<String>,
+    /// The Chief turns' permission mode (`engine::parse_mode_flag`: a mode,
+    /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
+    /// this box so `EngineRequest` stays small (clippy large_enum_variant).
+    pub permission_mode: Option<String>,
+    /// The Cloud machine this Chief does computer use on (engine.rs
+    /// `computer`, cmux issue 36047): `machine:<id>`, or `none`/`default` to
+    /// detach. Not a reaction field either; boxed here for the same reason.
+    pub computer: Option<String>,
+}
+
+impl From<DaemonEvent> for Input {
+    fn from(event: DaemonEvent) -> Input {
+        Input::Daemon(Box::new(event))
+    }
+}
+
+impl From<AgentEvent> for Input {
+    fn from(event: AgentEvent) -> Input {
+        Input::Agents(Box::new(event))
+    }
+}
+
+/// What runs a turn.
+#[derive(Clone)]
+pub enum Engine {
+    /// A fresh acpmux session per turn (claude-sr, codex, ...).
+    Acpmux,
+    /// The host's own Messages API loop (sections 7 and 8 in full).
+    Native(Arc<crate::native::Native>),
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine::Acpmux => f.write_str("Acpmux"),
+            Engine::Native(_) => f.write_str("Native"),
+        }
+    }
+}
+
+/// How turns run.
+#[derive(Clone, Debug)]
+pub struct Settings {
+    /// The constant working directory of every turn session.
+    pub session_dir: PathBuf,
+    /// `MUX_HARNESS` (default claude, or a configured claude-cr).
+    pub harness: String,
+    /// `MUX_POLICY` (default approve-all).
+    pub policy: String,
+    pub model: Option<String>,
+    /// acpmux `effort` of each turn session (`effort::turn_effort`); None:
+    /// the harness's default.
+    pub effort: Option<String>,
+    /// The value of the `mux.parent` tag on the Chief's children.
+    pub parent: String,
+    /// Turn session names are `<turn_prefix>-<first id>`; `optchat-<home id>`,
+    /// so two homes on one acpmux daemon never remove each other's turns.
+    pub turn_prefix: String,
+    /// The owner's agent gap plus a margin (mux/host: 2.2 s).
+    pub agent_gap: Duration,
+    /// Longest a turn may run (None: no limit).
+    pub turn_limit: Option<Duration>,
+    /// A turn with no harness event for this long ends with a typed error
+    /// and runs once again (`OPTCHAT_CHIEF_TURN_IDLE_MIN`, default 10).
+    pub turn_idle_limit: Option<Duration>,
+    pub engine: Engine,
+    /// The turn sessions' acpmux preset on a Claude harness, whose system
+    /// prompt each turn sets (the cached layout); None on another harness.
+    pub turn_preset: Option<String>,
+    /// This Chief's home id: the `cmux.chief` tag on its turn and
+    /// compactor sessions.
+    pub chief_id: String,
+    /// The turn's system text (`prompt::system_text`): the head of the
+    /// cached layout's system prompt, and the session directory's CLAUDE.md
+    /// in the old layout.
+    pub system_text: String,
+    /// `$MUX_HOME/optchat/engine.json` (engine.rs), read at each turn start:
+    /// harness, model and effort swap between turns. None: the fields above.
+    pub engine_file: Option<PathBuf>,
+    /// Every acpmux harness's family (`_acpmux/harnesses` at host start).
+    /// Empty: the default harness is Claude when `turn_preset` is set.
+    pub families: std::collections::BTreeMap<String, crate::acpmux::Family>,
+    /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
+    /// harness exists: a turn on codex starts with it.
+    pub codex_preset: Option<String>,
+    /// The open-source brains (Hermes, OpenClaw; brain_home.rs): each brain harness's turn
+    /// preset and whether it can run a turn. A turn engine.json puts on one that cannot runs on
+    /// `harness` with a visible note.
+    pub brains: crate::brain_home::BrainTurns,
+    /// The per-Chief settings file (`chief_settings`), read at start.
+    pub settings_file: PathBuf,
+    /// The monitoring trace's directory, where approvals are recorded
+    /// (None: not recorded).
+    pub trace_dir: Option<PathBuf>,
+    /// `OPTCHAT_CACHE_TTL` at host start: the turns' cache TTL over the
+    /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
+    /// Claude Code path.
+    pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
+    /// Reads the person's Home workspace for each turn (`home_view`); None: no block.
+    pub home_view: Option<crate::home_view::HomeView>,
+    /// Who this Chief is in the conversations and which messages wake it.
+    pub membership: crate::membership::Membership,
+    /// Keep a Claude turn's Claude Code session after the turn and prompt it
+    /// again with only the next turn's new messages while the frozen view
+    /// holds (the Unii baseline's one process: no spawn, a fully cached
+    /// prefix). The session runs with Claude Code's own cache marks.
+    /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
+    pub keep_turn_session: bool,
+    /// This Chief's display name, when it keeps a stable acpmux session on
+    /// the `chief` harness that relays into its conversation
+    /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
+    /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
+    pub chief_inbox: Option<String>,
+}
+
+/// The longest a turn waits for view lines that are still building
+/// (chief 2026-10-10: 10 s; hq-6d 2026-10-14, Lawrence "the chief responds
+/// too slow": 1 s, the turn starts and the compactor catches up after);
+/// then it reads them unsummarized and the next turn gets their summaries.
+/// The key prefix of the probe's compactor notice.
+const COMPACTOR_NOTICE: &str = "notice:optchat:compactor:";
+/// The key prefix of a stuck line's compactor notice (`compactor_stuck`).
+const STUCK_NOTICE: &str = "notice:optchat:compactor:stuck:";
+
+pub const SETTLE_BOUND: Duration = Duration::from_secs(1);
+/// How often a turn waiting for the compactor updates `settle.json`.
+const PROGRESS_TICK: Duration = Duration::from_secs(2);
+
+/// The start of the `mux.parent` value on sessions this Chief started;
+/// mux/host uses `mux`, so the two never claim each other's children.
+pub const PARENT: &str = "optchat-chief";
+
+/// The `mux.parent` value of the Chief of `home`: two homes sharing one
+/// acpmux daemon (tagged builds) never claim each other's children.
+pub fn parent_tag(home: &std::path::Path) -> String {
+    format!("{PARENT}:{}", crate::paths::home_id(home))
+}
+
+/// Longest reply text posted (the owner refuses more than 64 KiB per message).
+const REPLY_BYTES: usize = 60_000;
+
+/// One queued new message. The inbox is one queue; each turn takes the
+/// items of its head item's conversation and answers there (G9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Queued {
+    text: String,
+    source: Source,
+    /// The images of a human message, for the turn's prompt (never logged).
+    images: Vec<images::TurnImage>,
+    /// The side conversation of a human message; None for the main
+    /// conversation, which also takes every note, child report and spawn.
+    conversation: Option<String>,
+    /// Already logged as `user` (a steer on a harness that answers at the
+    /// turn's end, which then failed): the next turn takes it without
+    /// logging it again.
+    logged: bool,
+}
+
+impl Queued {
+    /// It starts a turn (and stops a working one); a stopped subagent's
+    /// report does not, and waits for the next turn.
+    fn wakes(&self) -> bool {
+        !matches!(&self.source, Source::Spawn(r) if r.quiet)
+    }
+
+    /// A waking message of the owner (a person's own words): it never waits
+    /// for a turn adopted from before a restart (`adopt_orphans`).
+    fn is_owner_message(&self) -> bool {
+        self.wakes()
+            && matches!(
+                self.source,
+                Source::Message {
+                    requires_approval: false,
+                    ..
+                }
+            )
+    }
+
+    /// The trusted agent session that sent this item, when it is one that
+    /// takes the ask floor only because a trusted agent sent it.
+    fn trusted_relay(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message {
+                requires_approval: true,
+                relay: Some(name),
+                ..
+            } => Some(name),
+            _ => None,
+        }
+    }
+
+    fn requires_approval(&self) -> bool {
+        matches!(
+            self.source,
+            Source::Message {
+                requires_approval: true,
+                ..
+            } | Source::OwnerAction {
+                requires_approval: true
+            } | Source::Resume {
+                requires_approval: true,
+                ..
+            } | Source::Spawn(crate::state::SpawnRef {
+                requires_approval: true,
+                ..
+            }) | Source::Peer { .. }
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Source {
+    /// A human message of the Chief conversation; `remote` names the paired
+    /// install that sent it (the relay's origin), None for a local one.
+    /// `requires_approval` is true for every author other than the Chief's
+    /// owner, even when the message is otherwise allowed to wake the Chief.
+    Message {
+        seq: u64,
+        /// The message's id (a side floor's crash dedupe).
+        id: String,
+        remote: Option<String>,
+        requires_approval: bool,
+        /// The trusted acpmux session that sent it through the owner's CLI
+        /// (`relay.trustedAgents`): its turn may tell and spawn the Chief's
+        /// own subagents. None for every other message.
+        relay: Option<String>,
+    },
+    /// A child's report; its record turns `Reported` with this floor when logged.
+    Child { session_id: String, floor: u64 },
+    /// Anything else (a child's permission request).
+    Note,
+    /// Another person's Chief's message through the agent hub
+    /// (peer_chiefs.rs): `from` is its hub name. Always under the floor; the
+    /// rights table holds it to `chief:<from>`'s grants (rights_gate.rs).
+    Peer { from: String },
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
+    /// A subagent's report (section 9).
+    Spawn(crate::state::SpawnRef),
+    /// The note that resumes a turn a host stop cut (`HostState::resumes`),
+    /// with the cut messages' full text for the turn's prompt.
+    Resume {
+        remote: bool,
+        requires_approval: bool,
+        cut: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Phase {
+    Idle,
+    /// A worker waits for the view to settle.
+    Settling,
+    Running,
+}
+
+pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The longest the Chief waits for a turn session the next acpmux adopted
+/// (an update relaunch) to end before it folds and ends it.
+pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Runs after every turn with its key (persist and back up, section 10).
+pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The machine's helper limit (machine_limits.rs).
+pub(crate) struct MachineLimit {
+    /// Most local helpers at work at once.
+    pub(crate) ceiling: usize,
+    /// Why the machine is over budget now, or None when it has room.
+    pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+}
+
+/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
+type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
+
+pub struct Brain {
+    chat: Arc<OptChat>,
+    agents: Arc<dyn AgentPort>,
+    settings: Settings,
+    file: StateFile,
+    state: HostState,
+    tx: Sender<Input>,
+    log: Log,
+    /// The running watches by id (watches.rs); dropping one kills its
+    /// process group, so a stopping host leaves none behind.
+    watch_runs: HashMap<String, crate::watch::Running>,
+    daemon: Option<Box<dyn ConversationPort>>,
+    reconnect: Option<Box<dyn Fn() + Send>>,
+    summary: Option<Summary>,
+    /// Ids of the Chief's own messages (the wake rule's reply-to check).
+    mux_messages: HashSet<String>,
+    /// Highest conversation seq handled (queued or skipped).
+    handled: u64,
+    queue: VecDeque<Queued>,
+    phase: Phase,
+    agents_up: bool,
+    sessions: HashMap<String, SessionSummary>,
+    /// Turn sessions left by a host that stopped mid-turn before it knew
+    /// their id, removed by name once acpmux is up.
+    stale_sessions: Vec<String>,
+    outbox_timer: Option<Instant>,
+    /// Pending attachment jobs of this process; persisted manifests resume
+    /// when this set is empty after a restart.
+    media_uploads: HashSet<String>,
+    /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
+    last_agent_send: Option<u64>,
+    fatal: Option<String>,
+    /// A human message arrived while an acpmux turn ran: that turn is
+    /// being stopped, and its end posts nothing.
+    stop_wanted: bool,
+    /// The owner stopped the running turn (chief.stop): its end posts nothing.
+    owner_stopped: bool,
+    /// This turn's send was refused for length once; its next send posts.
+    length_refused: bool,
+    /// Subagents whose landed report this turn saw, with what landed
+    /// (landed_told.rs): `sleep` and `stop` are refused once until a post
+    /// of the turn names them.
+    turn_landed: Vec<(String, String)>,
+    /// The words the turn posted (`send`, `reply`), to see whom it named.
+    turn_posts: String,
+    /// This turn was refused once for a landed report it had not told.
+    landed_refused: bool,
+    /// The subagents the running turn started (spawn_text.rs).
+    turn_spawned: Vec<String>,
+    /// The newest top-level texts of the Chief conversation by seq, true for
+    /// a person's: the loop guard's count (budget_hold.rs).
+    guard_rows: std::collections::BTreeMap<u64, bool>,
+    /// The running turn posted words by `send` or `reply` (spawn_text.rs).
+    turn_said: bool,
+    /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
+    spawn_text_nudged: bool,
+    /// The running turn's interrupt (a new one per turn).
+    interrupt: Arc<crate::turn::Interrupt>,
+    /// The steer on its way into the running turn (`steer.rs`), and the
+    /// last steer's number.
+    steering: Vec<steer::Steering>,
+    /// The turn (its key) a written but unread steer was taken back from
+    /// (`steer.rs`): its session is not kept (turns.rs `keep_turn_session`).
+    steer_left: Option<String>,
+    /// The turn (its key) whose unread steers are being taken back now:
+    /// no new steer goes into it (`steer.rs`).
+    withdrawing: Option<String>,
+    /// The turn (its key) whose running work the steer deadline asked to
+    /// move to the background, once a turn (`steer.rs`).
+    backgrounded: Option<String>,
+    /// The turn (its key) whose running work did move to the background
+    /// (`steer.rs`): its session must outlive the turn (`background.rs`).
+    moved: Option<String>,
+    /// Turn sessions that are not kept but still run moved work: followed
+    /// until their background turn ends, then ended (`background.rs`).
+    draining: Vec<background::Draining>,
+    steer_seq: u64,
+    /// A draft could not be published (logged once).
+    draft_failed: bool,
+    /// A run append failed once: later failures are not logged.
+    run_failed: bool,
+    /// A live frame (`chief-live-v1`) failed once: later failures are not logged.
+    live_failed: bool,
+    /// What the owner took of each streamed step (renumbers, restarts after a failure).
+    live_streams: crate::run::LiveStreams,
+    /// The attachments uploaded for the running turn's steps (turn key, step id):
+    /// every later append of the step names them again (a step is replaced whole).
+    run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
+    /// The owner said once that it takes no typing indicator (cloud).
+    typing_unsupported: bool,
+    after_turn: Option<TurnHook>,
+    /// Notices waiting for the conversation to be known.
+    notices: Vec<(String, String)>,
+    /// Notice keys already handled (each is posted once per process).
+    noticed: HashSet<String>,
+    /// Claude Code refused a turn's cache marker (it placed a fourth
+    /// breakpoint of its own): later turns go without it.
+    marker_refused: crate::prompt::MarkLatch,
+    /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
+    /// host restarts or `cache.ttl` is set again.
+    ttl_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// The TTL the session settings held when the pool was last hinted: a
+    /// pooled session runs Claude Code with it.
+    prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// Whether the pool was last hinted for a turn with our mark (Claude
+    /// Code's own marks off, `session_dir::set_session_cache`).
+    prewarm_ours: Option<bool>,
+    /// The turn session the last turn kept (`Settings::keep_turn_session`).
+    kept: Option<turns::KeptTurn>,
+    /// The running turn's keep check: its key, session shape, and view identity.
+    keep_pending: Option<KeepPending>,
+    /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
+    ttl_stale: Arc<std::sync::atomic::AtomicBool>,
+
+    /// The monitoring trace (`trace.rs`).
+    pub(crate) trace: crate::trace::Trace,
+    /// Where subagents' workspaces are renamed when they finish.
+    workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Sign-ins waiting on the person, as open Feed requests (needs_you_feed.rs).
+    sign_ins: crate::needs_you_feed::SignInRequests,
+    /// Starts a queued subagent by id (`Spawner::queue_starter`).
+    sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Endpoint-wide Claude gateway health shared with the spawn path.
+    gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// Direct Messages API engine used while the Claude gateway is down.
+    fallback_engine: Option<Engine>,
+    /// B4: the VMs behind cloud peers, how long a peer idles before its VM
+    /// pauses, and since when each idles (the paused peers are saved in
+    /// `state.cloud_paused`).
+    cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+    cloud_idle: std::time::Duration,
+    /// Subagent sessions another acpmux link reports (a move handed them to
+    /// this machine's default daemon, placed_agents.rs): the home daemon's
+    /// list never judges them gone.
+    reported_elsewhere: std::collections::HashSet<String>,
+    cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Peers whose last pause failed: when the next try may run and the
+    /// error last logged. The waits come from `cloud_pause_backoff`.
+    cloud_pause_retry: std::collections::BTreeMap<String, spawns::PauseRetry>,
+    cloud_pause_backoff: Vec<std::time::Duration>,
+    /// One VM per subagent: how long a finished subagent's own VM stays
+    /// (paused) before it is deleted, since when each is done, and the
+    /// deletes in flight.
+    cloud_reap: std::time::Duration,
+    cloud_reaping: std::collections::BTreeSet<String>,
+    /// The fleet controller cloud subagents' `fleet-wait` jobs are read
+    /// from (fleet_wait.rs), how often, when last, and the subagents whose
+    /// poll is running.
+    fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+    fleet_every: std::time::Duration,
+    fleet_polled_ms: u64,
+    fleet_polling: std::collections::BTreeSet<String>,
+    /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
+    /// keyed subagent is done, and the revokes in flight.
+    agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+    agent_key_done_since: std::collections::BTreeMap<String, u64>,
+    agent_key_revoking: std::collections::BTreeSet<String>,
+    /// When the cloud checks last ran (`control::next_cloud_tick`).
+    cloud_ticked_at: Option<Instant>,
+    /// How long a keyed subagent stays done before its key is revoked.
+    agent_key_grace: std::time::Duration,
+    /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
+    max_live: Option<usize>,
+    /// The machine's helper limit (machine_limits.rs): its ceiling and how
+    /// it reads the machine's load; None (tests, `OPTCHAT_MACHINE_HELPERS=0`): none.
+    machine_limit: Option<MachineLimit>,
+    /// Why the machine is over budget at the last read (machine_limits::over_budget).
+    machine_over: Option<String>,
+    /// The wall clock (ms since the epoch) the subagent watch reads; tests
+    /// set their own (`set_clock`).
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// When this host started (wall clock, ms since the epoch, as acpmux
+    /// stamps events): a subagent session that closed before it closed
+    /// with the last host (`resume_closed`).
+    born_ms: u64,
+    /// Each running subagent's folded events (sub_watch.rs), by id: kept
+    /// between ticks so each tick reads only the new events.
+    watches: HashMap<String, crate::sub_watch::Watch>,
+    /// A finished subagent's workspace closes instead of taking the done
+    /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
+    sub_close_on_finish: bool,
+    /// Auto-resume of subagents that stopped on an error (auto_resume.rs);
+    /// None: off (`OPTCHAT_AUTO_RESUME=off`).
+    resume_policy: Option<crate::auto_resume::ResumePolicy>,
+    /// Whether the model endpoint answers (a network stop waits for it).
+    reach: Arc<dyn crate::auto_resume::Reachability>,
+    /// The previous turn's view, to measure how much of it stayed (cache).
+    prev_view: Option<String>,
+    /// When the current settle wait and turn began.
+    settle_clock: Option<Instant>,
+    /// Where a turn waiting for the compactor says how far it is.
+    settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
+    /// A Chief that is not the default: a compactor fault is also its message.
+    compactor_messages: bool,
+    /// The compactor fault shown now came from a stuck line
+    /// (`compactor_stuck`).
+    stuck_fault: bool,
+    /// The compactor fault shown now came from the start-up probe: a stuck
+    /// line's clear leaves it.
+    probe_fault: bool,
+    turn_clock: Option<Instant>,
+    /// When each queued human message was posted (its `created_at`), by
+    /// message id, until a turn takes it: the trace's posted-to-first-words
+    /// time (`turns::FirstWords`).
+    posted: HashMap<String, String>,
+    /// The running turn's first-words clock (`turn.end`'s `first_draft_ms`
+    /// and `posted_to_first_draft_ms`).
+    first_words: turns::FirstWords,
+    /// The running turn's view with its new messages, what a `spawn` in it
+    /// gives its subagents (no wait for the compactor to summarize the
+    /// turn's own messages and tool calls).
+    turn_view: Option<String>,
+    /// The running turn's engine (engine.rs), for the trace.
+    turn_engine: Option<crate::engine::TurnEngine>,
+    /// Whether the current turn is executing on the direct gateway fallback.
+    turn_gateway_fallback: bool,
+    turn_route: Option<crate::turn_route::RoutePick>,
+    /// The configured engine before own-turn routing; subagents keep their defaults.
+    turn_spawn_engine: Option<crate::engine::TurnEngine>,
+    /// The per-Chief settings (`chief_settings`), owned by the host.
+    chief: crate::chief_settings::ChiefSettings,
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
+    turn_ask: bool,
+    /// The running turn took an automation's note (automations.rs): what it
+    /// spawns never fires an `agent_done` automation, so one cannot start
+    /// itself again and again.
+    turn_from_automation: bool,
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
+    /// The last ask turn's other-person text came only from trusted agent
+    /// sessions (`relay.trustedAgents`), named here: it may tell and spawn
+    /// the Chief's own subagents (Leo, 2026-11-02). Set at each turn start.
+    turn_relay: Option<String>,
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
+    turn_denied: Vec<String>,
+    /// Requests of the running turn denied again because they repeat one
+    /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
+    repeat_denials: u32,
+    /// The rights table and the audit (rights_gate.rs); None: off.
+    rights: Option<RightsCtx>,
+    /// The owner's change book for this Chief's memory (inspect/edit.rs): a
+    /// message the person deletes in the chat is written over with its
+    /// tombstone there, journaled and undoable like an inspector delete.
+    memory_editor: Option<Arc<crate::inspect::edit::Editor>>,
+    /// Writes the log's description of each turn image (None: references only).
+    describer: Option<Arc<dyn images::Describe>>,
+    /// A user's reaction that may wake the Chief (reaction_wake.rs).
+    reaction_wake: reaction_wake::State,
+    /// Images being described now (`conversation/hash`), started once each.
+    describing: HashSet<String>,
+    /// Highest seq handled (queued or skipped) of each side conversation;
+    /// its saved floor follows once nothing of it is queued (`handled` for
+    /// the main conversation).
+    side_handled: HashMap<String, u64>,
+    /// Woken conversations not acked yet: the highest woken seq of each
+    /// (`mux_ack.rs`).
+    mux_pending: HashMap<String, u64>,
+    /// Local side conversations (`membership`), from the last summary seen:
+    /// None when the Chief is not in it (its messages are not read), else
+    /// each participant and whether it is a person.
+    side_member: HashMap<String, Option<HashMap<String, bool>>>,
+    /// The thread a reply to a waking group message goes into, by message
+    /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
+    /// only: after a restart such a reply goes to the top level.
+    reply_threads: HashMap<String, (String, String)>,
+    /// The seq of each user message of the Chief conversation, by id, and
+    /// the newest seq it has (any author): whether a reply would sit right
+    /// under the message it answers (`replies.rs`). In memory only: after a
+    /// restart an unknown message counts as not the newest.
+    message_seqs: HashMap<String, u64>,
+    newest_seq: u64,
+    /// The keys of the reactions this host posted (`react` dedupe, besides
+    /// the message's own reactions).
+    reacted: std::collections::HashSet<String>,
+    /// The idempotency keys of this run's `send` calls (send.rs): a repeat
+    /// of one in the same turn is a noop even after the owner took it.
+    sent_keys: std::collections::HashSet<String>,
+    /// Messages the owner refused and the outbox dropped (outbox.rs) that the
+    /// Chief has not been told of yet: `send` reports them (send.rs).
+    refused: Vec<outbox::Refused>,
+    /// `send` keys the outbox merged into an earlier entry (pacing::coalesce):
+    /// absorbed key -> the key it went under, until that `send` answers.
+    merged_sends: HashMap<String, String>,
+    /// The running turn was ended by the Chief's own `stop` or `sleep`
+    /// (wakes.rs): its final text is not posted, and it is no failure.
+    tool_stopped: bool,
+    /// The running turn was stopped for asking again and again for a tool
+    /// call it was denied (approvals.rs): later requests are denied, and the
+    /// turn posts one line saying so (what it asked for) instead of its text.
+    denial_stopped: Option<(String, approvals::DenyWhy)>,
+    /// Permission requests the host left open, denied once overdue
+    /// (`approvals::deny_overdue_permissions_at`).
+    unanswered: Vec<approvals::Unanswered>,
+    /// Subagent prompts whose refused allow the person was told about
+    /// (`control answer`): the line is posted once per prompt.
+    approval_told: HashSet<String>,
+    /// Fetches link previews for replies' URL lines (None: replies stay text).
+    previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// The memory files whose index and standing rules every turn reads
+    /// after the chat (memory_files.rs); None: no files on this host.
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
+    /// The self-paced check-ins (check_in.rs).
+    check_ins: crate::check_in::Mode,
+    /// What the person set for the Chief's own wakes (check_ins tool).
+    wake_settings: crate::check_in::WakeSettings,
+    /// The last check-in slot taken (`YYYY-MM-DD HH:MM`).
+    check_in_last: Option<String>,
+    /// The `<chief-memory>` block the last turn read.
+    last_memory_block: Option<String>,
+    /// The running wake run (memory.rs), when the turn is one.
+    wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
+    /// A wake run whose turn was cut: its resume turn goes on as it.
+    cut_wake_run: Option<memory::WakeRunState>,
+    /// This Chief's measured $/token rates and when they were read.
+    rates: Option<(std::time::Instant, std::collections::BTreeMap<String, f64>)>,
+
+    /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
+    /// `turns::MAX_CUTS` the next one fails as before, never a loop.
+    cuts: u32,
+    /// One of the cut tries in a row reached a harness (`TurnOutcome::unstarted`
+    /// false): its work may have run, so the try that ends the row is never
+    /// treated as one that did not start.
+    cut_ran: bool,
+    /// Refused turns in a row (`TurnOutcome::refused`): each refused reply says how many, so no two
+    /// in a row post the same text (first-run findings row 8). Any other ended turn resets it.
+    refused_in_row: u32,
+    /// While set, an adopted turn session still runs and no turn starts; at
+    /// this time it is folded and ended anyway (`children::adopt_orphans`).
+    orphan_wait: Option<Instant>,
+    /// When a turn an upstream error cut may run again (None: now).
+    resume_at: Option<Instant>,
+    /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
+    upstream_backoff: Vec<std::time::Duration>,
+    /// How often a turn cut by a network error checks the model endpoint.
+    network_poll: std::time::Duration,
+    /// An update asked for a handoff: the brain stops between turns, at
+    /// the latest at this deadline.
+    handoff_at: Option<Instant>,
+    handoff_wait: std::time::Duration,
+    /// How long a person's message steered into the running turn may stay
+    /// unread before the turn is interrupted (`steer.rs`); None: it waits
+    /// for the turn's next tool boundary.
+    steer_deadline: Option<Duration>,
+    /// When that deadline passes, and for which turn.
+    steer_due: Option<(Instant, String)>,
+    /// The waits between reply checks (`reply_ledger::REPLY_RETRY_WAITS`).
+    reply_waits: Vec<Duration>,
+}
+
+impl Brain {
+    pub fn new(
+        chat: Arc<OptChat>,
+        agents: Arc<dyn AgentPort>,
+        settings: Settings,
+        file: StateFile,
+        tx: Sender<Input>,
+        log: Log,
+    ) -> Brain {
+        // The state lives in the memory database from here on (an old
+        // host.json is imported once).
+        let file = file.attach(chat.clone());
+        let mut state = file.load();
+        let acpmux = matches!(settings.engine, Engine::Acpmux);
+        let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let pruned_spawns = state.prune_spawns();
+        if pruned_spawns > 0
+            && let Err(error) = file.save(&state)
+        {
+            log(&format!(
+                "pruning {pruned_spawns} completed spawn records: {error}"
+            ));
+        }
+        // Only this home's turn sessions: a name without its prefix is a
+        // host before audit round 3's or another home's, never removed.
+        let own = format!("{}-", settings.turn_prefix);
+        stale_sessions.retain(|name| name.starts_with(&own));
+        let handled = state.logged_seq;
+        let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
+        let cloud_idle = std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs);
+        let cloud_reap =
+            std::time::Duration::from_secs(chief.cloud_delete_after_paused_days * 86_400);
+        let mut brain = Brain {
+            chat,
+            agents,
+            settings,
+            file,
+            state,
+            tx,
+            log,
+            watch_runs: HashMap::new(),
+            daemon: None,
+            reconnect: None,
+            summary: None,
+            mux_messages: HashSet::new(),
+            handled,
+            queue: VecDeque::new(),
+            phase: Phase::Idle,
+            agents_up: false,
+            sessions: HashMap::new(),
+            stale_sessions,
+            outbox_timer: None,
+            media_uploads: HashSet::new(),
+            last_agent_send: None,
+            fatal: None,
+            stop_wanted: false,
+            length_refused: false,
+            turn_landed: Vec::new(),
+            turn_posts: String::new(),
+            landed_refused: false,
+            turn_spawned: Vec::new(),
+            guard_rows: Default::default(),
+            turn_said: false,
+            spawn_text_nudged: false,
+            owner_stopped: false,
+            interrupt: Arc::new(crate::turn::Interrupt::new()),
+            steering: Vec::new(),
+            steer_left: None,
+            withdrawing: None,
+            backgrounded: None,
+            moved: None,
+            draining: Vec::new(),
+            steer_seq: 0,
+            draft_failed: false,
+            run_failed: false,
+            live_failed: false,
+            live_streams: Default::default(),
+            run_attachments: HashMap::new(),
+            typing_unsupported: false,
+            marker_refused: crate::prompt::MarkLatch::default(),
+            ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            prewarm_ttl: None,
+            prewarm_ours: None,
+            kept: None,
+            keep_pending: None,
+            ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            chief,
+            turn_ask: false,
+            turn_from_automation: false,
+            last_turn_ask: false,
+            turn_relay: None,
+            turn_denied: Vec::new(),
+            repeat_denials: 0,
+            after_turn: None,
+            notices: Vec::new(),
+            noticed: HashSet::new(),
+            trace: crate::trace::Trace::off(),
+            workspaces: None,
+            sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
+            sub_starter: None,
+            gateway: None,
+            fallback_engine: None,
+            cloud_vms: None,
+            cloud_idle,
+            reported_elsewhere: Default::default(),
+            cloud_idle_since: Default::default(),
+            cloud_pause_retry: Default::default(),
+            cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
+            cloud_reap,
+            cloud_reaping: Default::default(),
+            fleet: None,
+            fleet_every: std::time::Duration::from_secs(30),
+            fleet_polled_ms: 0,
+            fleet_polling: Default::default(),
+            agent_keys: None,
+            agent_key_done_since: Default::default(),
+            agent_key_revoking: Default::default(),
+            cloud_ticked_at: None,
+            agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
+            max_live: None,
+            machine_limit: None,
+            machine_over: None,
+            clock: Arc::new(now_ms),
+            born_ms: now_ms(),
+            watches: HashMap::new(),
+            sub_close_on_finish: false,
+            resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
+            reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
+                |k| std::env::var(k).ok(),
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
+            prev_view: None,
+            settle_clock: None,
+            settle_status: None,
+            compactor_messages: false,
+            stuck_fault: false,
+            probe_fault: false,
+            turn_clock: None,
+            posted: HashMap::new(),
+            first_words: turns::FirstWords::default(),
+            turn_view: None,
+            turn_engine: None,
+            turn_gateway_fallback: false,
+            turn_route: None,
+            turn_spawn_engine: None,
+            describer: None,
+            reaction_wake: reaction_wake::State::default(),
+            describing: HashSet::new(),
+            side_handled: HashMap::new(),
+            mux_pending: HashMap::new(),
+            side_member: HashMap::new(),
+            reply_threads: HashMap::new(),
+            message_seqs: HashMap::new(),
+            newest_seq: 0,
+            reacted: std::collections::HashSet::new(),
+            sent_keys: std::collections::HashSet::new(),
+            refused: Vec::new(),
+            merged_sends: HashMap::new(),
+            tool_stopped: false,
+            denial_stopped: None,
+            unanswered: Vec::new(),
+            approval_told: HashSet::new(),
+            previewer: None,
+            memory_files: None,
+            check_ins: crate::check_in::Mode::Off,
+            wake_settings: crate::check_in::WakeSettings::default(),
+            check_in_last: None,
+            last_memory_block: None,
+            wake_run: None,
+            cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
+            rates: None,
+
+            cuts: 0,
+            cut_ran: false,
+            refused_in_row: 0,
+            resume_at: None,
+            orphan_wait: None,
+            upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            network_poll: crate::auto_resume::NETWORK_POLL,
+            handoff_at: None,
+            handoff_wait: HANDOFF_DEADLINE,
+            steer_deadline: None,
+            steer_due: None,
+            reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
+            rights: None,
+            memory_editor: None,
+        };
+        // A host can exit after sub_done persists Done but before deliver
+        // queues the report. Recover that durable outbox before accepting new
+        // work so the report reaches both Chief and Home after restart.
+        brain.redeliver_saved_reports();
+        // Each cut turn runs again first, on the reference client's note;
+        // its messages are in the log already and are not logged again.
+        let resumes = brain.state.resumes.clone();
+        for resume in resumes {
+            brain.queue.push_back(Queued {
+                text: recover::RESUMED.to_owned(),
+                source: Source::Resume {
+                    remote: resume.remote,
+                    requires_approval: resume.requires_approval,
+                    cut: resume.messages,
+                },
+                images: Vec::new(),
+                conversation: resume.conversation,
+                logged: false,
+            });
+        }
+        brain.rearm_reply_checks();
+        brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
+        brain
+    }
+
+    /// Runs `hook` after every turn (the host snapshots the memory there).
+    pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
+        self.after_turn = Some(hook);
+        self
+    }
+
+    /// The memory's change book (`inspect/edit.rs`): a deleted chat message
+    /// becomes its tombstone in the memory, so the Memory Inspector and the
+    /// next re-rendered view no longer hold its text.
+    pub fn with_memory_editor(
+        mut self,
+        editor: Option<Arc<crate::inspect::edit::Editor>>,
+    ) -> Brain {
+        self.set_memory_editor(editor);
+        self
+    }
+
+    /// `with_memory_editor` on a built brain.
+    pub fn set_memory_editor(&mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) {
+        self.memory_editor = editor;
+    }
+
+    /// Writes the monitoring trace (`trace.rs`).
+    /// A turn that waits for the compactor writes how far it is here.
+    pub fn with_settle_status(mut self, status: crate::settle_status::SettleStatus) -> Brain {
+        self.settle_status = Some(Arc::new(status));
+        self
+    }
+
+    /// A compactor fault is also posted as this Chief's message (a Chief whose
+    /// home the app does not watch for `state/compactor.json`).
+    pub fn with_compactor_messages(mut self, on: bool) -> Brain {
+        self.compactor_messages = on;
+        self
+    }
+
+    pub fn with_trace(mut self, trace: crate::trace::Trace) -> Brain {
+        self.trace = trace;
+        self
+    }
+
+    /// `with_trace` and `with_workspaces` on a brain already made.
+    pub fn set_trace(&mut self, trace: crate::trace::Trace) {
+        self.trace = trace;
+    }
+
+    pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
+        self.workspaces = workspaces;
+    }
+
+    /// Posts sign-ins that wait on the person to the Feed through `feed`
+    /// (needs_you_feed.rs); None (the default) posts nothing.
+    pub fn set_feed(&mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) {
+        self.sign_ins = crate::needs_you_feed::SignInRequests::new(
+            &self.settings.chief_id,
+            feed,
+            self.log.clone(),
+        );
+    }
+
+    /// `set_feed` while building the brain.
+    pub fn with_feed(mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) -> Brain {
+        self.set_feed(feed);
+        self
+    }
+
+    /// The dedupe keys of the sign-in requests open in the Feed.
+    pub fn open_sign_ins(&self) -> Vec<String> {
+        self.sign_ins.open_keys()
+    }
+
+    /// Finished subagents' workspaces close (true) or stay with the done
+    /// mark (false, the default).
+    pub fn set_sub_close_on_finish(&mut self, close: bool) {
+        self.sub_close_on_finish = close;
+    }
+
+    /// Moves subagent `id`'s run start back by `by` (tests of how long a run
+    /// took; no production caller).
+    pub fn backdate_sub_run(&mut self, id: &str, by: std::time::Duration) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.run_ms = sub.run_ms.saturating_sub(by.as_millis() as u64);
+        }
+    }
+
+    /// Auto-resume of subagents that stop on an error (None: off), and the
+    /// probe a network stop waits on.
+    pub fn set_auto_resume(
+        &mut self,
+        policy: Option<crate::auto_resume::ResumePolicy>,
+        reach: Option<Arc<dyn crate::auto_resume::Reachability>>,
+    ) {
+        self.resume_policy = policy;
+        if let Some(reach) = reach {
+            self.reach = reach;
+        }
+    }
+
+    /// Where queued subagents are started when a slot frees.
+    pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
+        // A host that runs subagents checks them for stuck runs.
+        if starter.is_some() && self.sub_starter.is_none() {
+            control::start_ticker(self.tx.clone());
+        }
+        self.sub_starter = starter;
+    }
+
+    pub fn set_gateway(&mut self, gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>) {
+        self.gateway = gateway;
+    }
+
+    pub fn set_fallback_engine(&mut self, engine: Option<Engine>) {
+        self.fallback_engine = engine;
+    }
+
+    /// The subagent sessions another acpmux link reports (placed_agents.rs):
+    /// a home daemon list without one of them does not end it.
+    pub fn set_reported_elsewhere(&mut self, sessions: std::collections::HashSet<String>) {
+        self.reported_elsewhere = sessions;
+    }
+
+    /// The VMs behind cloud peers: resumed before a cloud subagent starts,
+    /// paused after `idle` with no cloud subagent on them (B4).
+    pub fn set_cloud_vms(
+        &mut self,
+        vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+        idle: std::time::Duration,
+    ) {
+        // The cloud checks run from the brain's own timer (`next_cloud_tick`).
+        self.cloud_vms = vms;
+        self.cloud_idle = idle;
+    }
+
+    /// How long a finished subagent's own VM is kept (paused) before it is
+    /// deleted (`cloud.deleteAfterPausedDays`, default 7 days).
+    pub fn set_fleet_jobs(
+        &mut self,
+        fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+        every: std::time::Duration,
+    ) {
+        self.fleet = fleet;
+        self.fleet_every = every;
+    }
+
+    /// The waits before each new try of a failed VM pause, the last one
+    /// repeated (5 s, 30 s, 2 min, 10 min on a host).
+    pub fn set_cloud_pause_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        if !waits.is_empty() {
+            self.cloud_pause_backoff = waits;
+        }
+    }
+
+    pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
+        self.cloud_reap = after;
+    }
+
+    /// Revokes cloud subagents' sandbox keys once they are done for a while.
+    /// `grace`: how long a subagent stays done before its key is revoked
+    /// (`agent_keys::REVOKE_AFTER_DONE` on a host).
+    pub fn set_agent_keys(
+        &mut self,
+        keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+        grace: std::time::Duration,
+    ) {
+        self.agent_keys = keys;
+        self.agent_key_grace = grace;
+    }
+
+    /// How long a finished subagent's own VM stays paused before it is
+    /// deleted (`cloud.deleteAfterPausedDays`).
+    pub fn cloud_delete_after_paused(&self) -> std::time::Duration {
+        self.cloud_reap
+    }
+
+    /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
+    /// pauses.
+    pub fn cloud_auto_pause_idle(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.chief.cloud_auto_pause_idle_secs)
+    }
+
+    /// The clock the subagent watch reads (ms since the epoch).
+    pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.clock = clock;
+    }
+
+    /// Caps the subagents at work at once (None: no cap, the default).
+    pub fn set_max_live(&mut self, limit: Option<usize>) {
+        self.max_live = limit;
+    }
+
+    /// Limits local helpers to `ceiling` at once, holding new starts while
+    /// `load` says the machine is over budget (machine_limits.rs). Read once
+    /// now and on every subagent tick.
+    pub fn set_machine_limit(
+        &mut self,
+        ceiling: usize,
+        load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+    ) {
+        self.machine_over = load();
+        self.machine_limit = Some(MachineLimit { ceiling, load });
+    }
+
+    /// Renames subagents' workspaces when they finish (workspaces.rs).
+    pub fn with_workspaces(
+        mut self,
+        workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    ) -> Brain {
+        self.workspaces = workspaces;
+        self
+    }
+
+    /// Describes each turn image for the log (the compactor's deny-all model).
+    pub fn set_describer(&mut self, describer: Arc<dyn images::Describe>) {
+        self.describer = Some(describer);
+    }
+
+    /// acpmux sessions the brain keeps a summary of (its children only).
+    pub fn known_sessions(&self) -> usize {
+        self.sessions.len()
+    }
+
+    pub fn state(&self) -> &HostState {
+        &self.state
+    }
+
+    /// Why the host must stop, once it must.
+    pub fn fatal(&self) -> Option<&str> {
+        self.fatal.as_deref()
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.phase == Phase::Idle
+            && !self.queue.iter().any(Queued::wakes)
+            && self.steering.is_empty()
+            && !self.reaction_wake.busy()
+    }
+
+    /// When the outbox timer fires, if armed.
+    pub fn next_timer(&self) -> Option<Instant> {
+        [
+            self.outbox_timer,
+            self.resume_at,
+            self.orphan_wait,
+            self.handoff_at,
+            self.steer_due.as_ref().map(|(at, _)| *at),
+            self.reaction_wake.due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    /// Runs until a fatal error; returns it.
+    pub fn run(mut self, rx: Receiver<Input>) -> String {
+        self.rearm_auto_resumes();
+        self.rearm_watches();
+        loop {
+            if let Some(fatal) = &self.fatal {
+                return fatal.clone();
+            }
+            // The `sleep` wakes run on the same loop (wakes.rs); they stay
+            // out of `next_timer`, which waits only for the outbox and resume.
+            // So does the watch on permission requests nobody answers
+            // (approvals.rs).
+            let timer = [
+                self.next_timer(),
+                self.next_wake(),
+                self.next_automation_due(),
+                self.next_unanswered_due(),
+                self.next_reply_due(),
+                self.next_outcome_due(),
+                self.next_check_in(),
+                self.next_cloud_tick(),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let input = match timer {
+                Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    Ok(input) => input,
+                    Err(RecvTimeoutError::Timeout) => {
+                        self.on_timer();
+                        self.fire_wakes_at(now_ms());
+                        self.fire_automations_at(now_ms());
+                        self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
+                        self.fire_check_in();
+                        self.fire_cloud_checks_if_due();
+                        let now = (self.clock)();
+                        self.deny_overdue_permissions_at(now);
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => return "input channel closed".into(),
+                },
+                None => match rx.recv() {
+                    Ok(input) => input,
+                    Err(_) => return "input channel closed".into(),
+                },
+            };
+            self.step(input);
+        }
+    }
+
+    pub fn step(&mut self, input: Input) {
+        match input {
+            Input::Daemon(event) => self.on_daemon(*event),
+            Input::Agents(event) => self.on_agents(*event),
+            Input::Settled { reply, deferred } => {
+                let start = self.settled(deferred);
+                let _ = reply.send(start);
+            }
+            Input::SettleFailed => {
+                self.phase = Phase::Idle;
+                let status = self.chat.status();
+                if let Some(fatal) = status.fatal {
+                    self.fatal = Some(format!("the memory stopped writing: {fatal}"));
+                }
+            }
+            Input::TurnProgress {
+                key,
+                session_id,
+                after,
+            } => self.progress(&key, session_id, after),
+            Input::Boundary { key, reply } => {
+                let blocks = self.boundary(&key);
+                let _ = reply.send(blocks);
+            }
+            Input::Draft(draft) => self.turn_draft(&draft),
+            Input::Run(update) => self.turn_run(*update),
+            Input::Steered { id, result } => self.steered(id, result),
+            Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
+            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
+            Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
+            Input::Notice { key, text } => self.notice(key, text),
+            Input::CompactorStatus(status) => self.compactor_status(status),
+            Input::CompactorStuck(notice) => self.compactor_stuck(notice),
+            Input::SpawnRegister {
+                tasks,
+                peer,
+                place,
+                harness,
+                machines,
+                taken,
+                reply,
+            } => {
+                // `cloud:SIZE`: on the cloud, at that VM size.
+                let (place, size) = match place.as_deref().and_then(|p| p.split_once(':')) {
+                    Some((p, s)) => (Some(p.to_owned()), Some(s.to_owned())),
+                    None => (place, None),
+                };
+                let plan = self
+                    .spawn_peer(peer.as_deref(), place.as_deref())
+                    .and_then(|peers| {
+                        let engine = self.spawn_engine();
+                        let family = self.family_of(
+                            harness
+                                .as_deref()
+                                .or_else(|| engine.as_ref().map(|e| e.harness.as_str()))
+                                .unwrap_or(&self.settings.harness),
+                        );
+                        self.register_spawn_sized(
+                            &tasks,
+                            &peers,
+                            place.as_deref(),
+                            size.as_deref(),
+                            &machines,
+                            family,
+                            &taken,
+                        )
+                    })
+                    .map(|mut plan| {
+                        if let Some(h) = harness.as_deref() {
+                            plan.engine = Some(self.engine_on(h));
+                        }
+                        plan
+                    });
+                if let Ok(plan) = &plan {
+                    self.spawned_in_turn(&plan.ids);
+                }
+                let _ = reply.send(plan);
+            }
+            Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
+            Input::SubagentStarted {
+                id,
+                session_id,
+                policy,
+                harness,
+                made,
+                goal,
+            } => self.sub_started(&id, session_id, policy, harness, made, goal),
+            Input::SubagentPrompted { id } => {
+                self.sub_prompted(&id);
+                self.stop_if_cancelled(&id);
+            }
+            Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
+            Input::SubagentWorkspaceSlot { id, name, slot } => {
+                self.sub_workspace_slot(&id, name, slot)
+            }
+            Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
+            Input::SubagentWorkspaceMoved {
+                id,
+                into_chief_group,
+            } => {
+                if let Some(made) = self.state.sub_mut(&id).and_then(|s| s.made.as_mut()) {
+                    made.visibility = Some(if into_chief_group {
+                        crate::action_lifetime::Visibility::Chief
+                    } else {
+                        crate::action_lifetime::Visibility::User
+                    });
+                    self.save();
+                }
+            }
+            Input::SubagentWorkspaceShown { id, key, name, ws } => {
+                self.sub_workspace_opened(&id, key, name, ws, false)
+            }
+            Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
+            Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
+            Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
+            Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
+            Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::AutoResume {
+                id,
+                attempt,
+                reason,
+                after_network,
+                online,
+            } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
+            Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
+            Input::NetworkBack {
+                hold,
+                not_before,
+                online,
+            } => self.network_back(hold, not_before, online),
+            Input::TurnView { reply } => {
+                let _ = reply.send(self.turn_view.clone());
+            }
+            Input::SubSession { id, reply } => {
+                let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
+                let _ = reply.send(session);
+            }
+            Input::Tell {
+                id,
+                message,
+                key,
+                queue,
+                reply,
+            } => {
+                // The subagent sees who asked for a tell a trusted agent drove.
+                let message = match self.relay_sender() {
+                    Some(from) => format!("[relayed from {from}] {message}"),
+                    None => message,
+                };
+                let answer = self.tell_with(&id, &message, key.as_deref(), queue);
+                let _ = reply.send(answer);
+            }
+            Input::React {
+                id,
+                reaction,
+                reply,
+            } => {
+                let _ = reply.send(self.react(id, &reaction));
+            }
+            Input::Reply { id, text, reply } => {
+                let result = self.reply_now(id, &text);
+                if result.is_ok() {
+                    self.said_in_turn();
+                    self.posted_in_turn(&text);
+                }
+                let _ = reply.send(result);
+            }
+            Input::Transcript { n, before, reply } => {
+                let _ = reply.send(self.transcript(n, before));
+            }
+            Input::TellUnsteered {
+                id,
+                session,
+                message,
+            } => self.tell_unsteered(&id, &session, &message),
+            Input::Send { call, reply } => {
+                let words = call.text.clone().filter(|t| !t.trim().is_empty());
+                let result = self.send(call);
+                if let Some(words) = words
+                    && result
+                        .as_deref()
+                        .is_ok_and(|r| r.starts_with("outcome: done"))
+                {
+                    self.said_in_turn();
+                    self.posted_in_turn(&words);
+                }
+                let _ = reply.send(result);
+            }
+            Input::StopTurn { reply } => {
+                let _ = reply.send(self.stop_turn());
+            }
+            Input::Sleep { call, reply } => {
+                let _ = reply.send(self.sleep(call));
+            }
+            Input::Automation { call, reply } => {
+                let _ = reply.send(self.automation(call));
+            }
+            Input::Automations { request, reply } => {
+                let _ = reply.send(self.automations_control(request));
+            }
+            Input::WakeTool { call, reply } => {
+                let _ = reply.send(self.wake_tool(call));
+            }
+            Input::CheckInReady { slot, merged } => {
+                self.close_merged(&merged);
+                self.check_in_ready(slot);
+            }
+            Input::Watch { call, reply } => {
+                let _ = reply.send(self.watch(call));
+            }
+            Input::WatchFired(fired) => self.watch_fired(*fired),
+            Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
+            Input::EscalateAuth {
+                agent,
+                request,
+                reply,
+            } => {
+                let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
+            Input::PeerList { caller, reply } => {
+                let _ = reply.send(Ok(self.agents_list(&caller)));
+            }
+            Input::PeerTell {
+                from,
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let _ = reply.send(self.peer_tell(&from, &id, &message, key.as_deref()));
+            }
+            Input::TellUndelivered { id, message, error } => {
+                self.tell_undelivered(&id, message, &error);
+            }
+            Input::Control { request, reply } => {
+                if matches!(request.action.as_str(), "show" | "hide") {
+                    // Opening or closing a workspace is the daemon's I/O: off the run loop.
+                    self.control_workspace(&request, reply);
+                } else {
+                    let answer = self.control(&request);
+                    let _ = reply.send(answer);
+                }
+            }
+            Input::CloudTick => self.run_cloud_checks(),
+            Input::FleetJobFinished { id, job, state } => {
+                self.fleet_job_finished(&id, &job, &state)
+            }
+            Input::FleetPolled { id } => {
+                self.fleet_polling.remove(&id);
+            }
+            Input::CloudPauseFailed { peer, error } => self.cloud_pause_failed(&peer, &error),
+            Input::CloudPaused { peer } => self.cloud_pause_ok(&peer),
+            Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
+            Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
+            Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
+            Input::SubTick => {
+                self.read_machine_load();
+                self.sub_tick();
+            }
+            Input::Setting { key, value, reply } => {
+                let _ = reply.send(self.set_setting(&key, &value));
+            }
+            Input::Settings { reply } => {
+                let _ = reply.send(self.chief.to_json());
+            }
+            Input::SpawnPolicy { reply } => {
+                let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
+            Input::RightsHook {
+                phase,
+                payload,
+                reply,
+            } => {
+                let _ = reply.send(self.rights_hook(&phase, &payload));
+            }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
+            }
+            Input::TurnTrust { reply } => {
+                let _ = reply.send(!self.turn_is_ask());
+            }
+            Input::Described { image, description } => self.described(&image, description),
+            Input::Redescribe { notes, reply } => {
+                let _ = reply.send(self.redescribe(&notes));
+            }
+            Input::Redescribed {
+                note,
+                image,
+                description,
+            } => self.redescribed(note, &image, description),
+            Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
+            Input::Engine { request, reply } => {
+                let _ = reply.send(self.engine_control(request));
+            }
+            Input::Stop { reply } => {
+                let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(self.owner_continue());
+            }
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
+            }
+            Input::Shutdown { signal } => {
+                (self.log)(&format!("signal {signal}: stopping"));
+                // The Chief goes away: its idle cloud VMs pause now.
+                self.cloud_shutdown();
+                self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
+            }
+            Input::BinaryReplaced => {
+                if self.handoff_at.is_none() {
+                    (self.log)(
+                        "this host's binary was replaced (an update): stopping once no turn runs",
+                    );
+                    // No cut of a running turn: an outdated host still works.
+                    self.handoff_at = Some(Instant::now() + BINARY_REPLACED_WAIT);
+                }
+                self.handoff_if_idle();
+            }
+            Input::HandoffWhenIdle => {
+                if self.handoff_at.is_none() {
+                    (self.log)("an update asks for a handoff: stopping once no turn runs");
+                    self.handoff_at = Some(Instant::now() + self.handoff_wait);
+                }
+                self.handoff_if_idle();
+            }
+            Input::StopSubagent { name, reply } => {
+                let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
+            }
+            Input::StopAll { reply } => {
+                let _ = reply.send(self.stop_all());
+            }
+            Input::RestartSubagents { names, reply } => {
+                let _ = reply.send(self.restart_subagents(&names));
+            }
+            Input::Previews { key, parts } => self.previews_fetched(&key, parts),
+        }
+    }
+
+    /// Whether a turn can start now: the memory writes, and the engine's
+    /// owner is connected (the native engine needs no acpmux).
+    fn ready(&self) -> bool {
+        self.fatal.is_none()
+            && (self.agents_up || matches!(self.settings.engine, Engine::Native(_)))
+    }
+
+    /// Posts a notice once, now or as soon as the conversation is known.
+    fn notice(&mut self, key: String, text: String) {
+        if !self.noticed.insert(key.clone()) {
+            return;
+        }
+        (self.log)(&text);
+        self.notices.push((key, text));
+        self.post_notices();
+    }
+
+    /// cx-oqnw3: a compactor fault is a system notice (the app reads
+    /// `state/compactor.json`), never a Chief message; a good probe removes
+    /// it, and retracts a notice an older build posted as a message (cx-1hpt).
+    ///
+    /// A compactor that cannot run because the turns' own agent is not installed is no fault: the
+    /// Set Up card already says that agent is missing, with its Install button. First-run findings:
+    /// a clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
+    /// answers." under the card from the first launch on. A compactor whose other agent is missing
+    /// (a Codex Chief that compacts on Claude Code) still posts its notice.
+    fn compactor_status(&mut self, status: Result<(), String>) {
+        let status = match status {
+            Err(text) if crate::harness_gate::turn_agent_missing(&text, self.turn_harness()) => {
+                (self.log)(&text);
+                Ok(())
+            }
+            status => status,
+        };
+        self.stuck_fault = false;
+        self.probe_fault = status.is_err();
+        if let Some(settle) = &self.settle_status {
+            settle.compactor_fault(status.as_ref().err().map(String::as_str));
+        }
+        match status {
+            Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
+            Ok(()) => self.retract_compactor_notice(),
+        }
+    }
+
+    /// The harness the Chief's turns run on: the last turn's, else the configured one.
+    pub(super) fn turn_harness(&self) -> &str {
+        self.turn_engine
+            .as_ref()
+            .map_or(self.settings.harness.as_str(), |e| e.harness.as_str())
+    }
+
+    /// A stuck line's notice (`Input::CompactorStuck`): posted like the
+    /// probe's, but cleared only while the fault shown is its own.
+    fn compactor_stuck(&mut self, notice: Option<String>) {
+        match notice {
+            Some(text) => {
+                if !self.probe_fault && !self.stuck_fault {
+                    self.stuck_fault = true;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(Some(&text));
+                    }
+                }
+                self.post_compactor_notice(STUCK_NOTICE, text);
+            }
+            None => {
+                let ours = self
+                    .state
+                    .compactor_notice
+                    .as_ref()
+                    .is_some_and(|p| p.key.starts_with(STUCK_NOTICE));
+                if self.stuck_fault {
+                    self.stuck_fault = false;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(None);
+                    }
+                }
+                if ours {
+                    self.retract_compactor_notice();
+                }
+            }
+        }
+    }
+
+    fn post_compactor_notice(&mut self, prefix: &str, text: String) {
+        if !self.compactor_messages || self.state.compactor_notice.is_some() {
+            return (self.log)(&text);
+        }
+        let key = format!("{prefix}{}", now_ms());
+        self.state.compactor_notice = Some(crate::state::PostedNotice {
+            key: key.clone(),
+            message_id: None,
+        });
+        self.save();
+        self.notice(key, text);
+    }
+
+    fn retract_compactor_notice(&mut self) {
+        let Some(posted) = self.state.compactor_notice.take() else {
+            return;
+        };
+        // Not sent yet: it never shows.
+        self.notices.retain(|(k, _)| *k != posted.key);
+        self.state
+            .outbox
+            .retain(|e| e.idempotency_key != posted.key || e.attempted);
+        match (posted.message_id, self.state.conversation.clone()) {
+            (Some(id), Some(conversation)) => {
+                (self.log)("the memory compactor works again; its notice is retracted");
+                self.state.outbox.push(op_entry(
+                    conversation,
+                    &format!("{}:retract", posted.key),
+                    Op::MessageRetract { message_id: id },
+                ));
+            }
+            _ => (self.log)("the memory compactor works again"),
+        }
+        self.save();
+        self.flush_outbox();
+    }
+
+    /// The owner confirmed the message sent under `key`.
+    pub(super) fn sent(&mut self, key: &str, message_id: &str) {
+        if let Some(posted) = self.state.compactor_notice.as_mut()
+            && posted.key == key
+        {
+            posted.message_id = Some(message_id.to_owned());
+        }
+    }
+
+    /// Moves waiting notices into the outbox once the conversation is known.
+    pub(super) fn post_notices(&mut self) {
+        let Some(conversation) = self.state.conversation.clone() else {
+            return;
+        };
+        if self.notices.is_empty() {
+            return;
+        }
+        for (key, text) in std::mem::take(&mut self.notices) {
+            self.state
+                .outbox
+                .push(reply_entry(conversation.clone(), &key, &text));
+        }
+        self.save();
+        self.flush_outbox();
+    }
+
+    pub fn on_timer(&mut self) {
+        let now = Instant::now();
+        if self.handoff_at.is_some_and(|at| at <= now) && self.fatal.is_none() {
+            (self.log)("the turn ran past the handoff deadline; stopping, the next host adopts it");
+            self.fatal = Some(format!("{HANDOFF_WHEN_IDLE} (deadline)"));
+            return;
+        }
+        if self.outbox_timer.is_some_and(|at| at <= now) {
+            self.outbox_timer = None;
+            self.flush_outbox();
+        }
+        self.on_resume_timer();
+        self.on_steer_deadline(now);
+        self.reaction_timer(now);
+        if self.orphan_wait.is_some_and(|at| at <= now) {
+            (self.log)("an adopted turn session ran past its wait; folding and ending it");
+            self.adopt_orphans(true);
+            self.maybe_start_turn();
+        }
+    }
+
+    /// Sets how long a handoff request waits for the running turn (tests
+    /// shorten it).
+    pub fn set_handoff_deadline(&mut self, wait: std::time::Duration) {
+        self.handoff_wait = wait;
+    }
+
+    /// A handoff was asked and no turn runs (none in flight, no adopted turn
+    /// session it waits for): the brain stops. True when it stopped.
+    pub(super) fn handoff_if_idle(&mut self) -> bool {
+        if self.handoff_at.is_none() || self.phase != Phase::Idle || self.orphan_wait.is_some() {
+            return false;
+        }
+        if self.fatal.is_none() {
+            (self.log)("no turn runs: handing off for the update");
+            // Replies the agent gap holds back post now, not with the next host.
+            if self.outbox_timer.take().is_some() {
+                self.flush_outbox();
+            }
+            self.save();
+            self.fatal = Some(HANDOFF_WHEN_IDLE.into());
+        }
+        true
+    }
+
+    fn save(&self) {
+        self.save_with(Vec::new());
+    }
+
+    /// Saves the state and `extra` writes in one transaction.
+    fn save_with(&self, extra: Vec<optchat_host::StateWrite>) {
+        if let Err(e) = self.file.save_with(&self.state, extra) {
+            (self.log)(&format!("saving the host state failed: {e}"));
+        }
+    }
+
+    /// Changes a per-Chief setting and saves it.
+    pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
+        use crate::chief_settings::{
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, CONTACT, REPLY_THREADS, SHOW_AFTER_REPORT,
+            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_contact, parse_reply_threads, parse_ttl,
+        };
+        if key == CONTACT {
+            let contact = parse_contact(value)?;
+            let mut next = self.chief.clone();
+            next.contact = contact.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!(
+                "setting {key} = {}",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+            return Ok(format!(
+                "{key} = {}; applies after host restart",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+        }
+        if key == crate::chief_settings::TRUST_AGENTS {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.trust_agents = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::TRUSTED_AGENTS {
+            let list = crate::chief_settings::parse_trusted_agents(value)?;
+            let mut next = self.chief.clone();
+            next.trusted_agents = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
+        if key == crate::chief_settings::RELAY_MCP_SERVERS {
+            let list = crate::chief_settings::parse_mcp_servers(value)?;
+            let mut next = self.chief.clone();
+            next.relay_mcp_servers = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
+        if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
+            let days = crate::chief_settings::parse_paused_days(value)?;
+            let mut next = self.chief.clone();
+            next.cloud_delete_after_paused_days = days;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_reap = std::time::Duration::from_secs(days * 86_400);
+            (self.log)(&format!("setting {key} = {days}"));
+            return Ok(format!("{key} = {days}"));
+        }
+        if key == crate::chief_settings::CLOUD_AUTO_PAUSE {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.cloud_auto_pause = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+            let secs = crate::chief_settings::parse_idle_secs(value)?;
+            let mut next = self.chief.clone();
+            next.cloud_auto_pause_idle_secs = secs;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_idle = std::time::Duration::from_secs(secs);
+            (self.log)(&format!("setting {key} = {secs}"));
+            return Ok(format!("{key} = {secs}"));
+        }
+        if key == crate::chief_settings::TRACE_FULL {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.trace_full = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.trace.set_full(on);
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::REPLY_MAX_WORDS {
+            let words: usize = value
+                .trim()
+                .parse()
+                .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
+            let mut next = self.chief.clone();
+            next.reply_max_words = words;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {words}"));
+            return Ok(format!("{key} = {words}"));
+        }
+        if key == SHOW_AFTER_REPORT {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.show_after_report = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == SHOW_SUBAGENT_WORKSPACES {
+            // From the next spawn on; a subagent already running keeps its
+            // workspace or stays hidden (`control show|hide ID` changes one).
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.show_subagent_workspaces = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == REPLY_THREADS {
+            let threads = parse_reply_threads(value)?;
+            let mut next = self.chief.clone();
+            next.reply_threads = threads;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {}", threads.as_str()));
+            return Ok(format!("{key} = {}", threads.as_str()));
+        }
+        if key == CACHE_TTL {
+            // From the next turn on (the native engine: the next host start).
+            let ttl = parse_ttl(value)?;
+            let mut next = self.chief.clone();
+            next.cache_ttl = Some(ttl);
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.ttl_refused
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
+            (self.log)(&format!("setting {key} = {}", ttl.as_str()));
+            return Ok(format!("{key} = {}", ttl.as_str()));
+        }
+        Err(format!(
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {}, {})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE,
+            crate::chief_settings::TRUST_AGENTS,
+            crate::chief_settings::TRUSTED_AGENTS,
+            crate::chief_settings::RELAY_MCP_SERVERS
+        ))
+    }
+
+    fn queue(&mut self, text: String, source: Source) {
+        self.queue_with_images(text, Vec::new(), source);
+    }
+
+    fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
+        self.queue_in(None, text, images, source);
+    }
+
+    /// Queues an item of `conversation` (None: the main one). It interrupts
+    /// only a running turn of the same conversation (G9): an item for
+    /// another conversation waits and runs when it is the head.
+    fn queue_in(
+        &mut self,
+        conversation: Option<String>,
+        text: String,
+        images: Vec<images::TurnImage>,
+        source: Source,
+    ) {
+        // Section 9: subagents' reports reach a working Chief between its
+        // tool calls (steered on acpmux); one that cannot reach it waits for
+        // the next turn and never stops it (decision 2026-10-09).
+        let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
+        let same = self.phase == Phase::Running && self.turn_side() == conversation;
+        let item = Queued {
+            logged: false,
+            text,
+            source,
+            images,
+            conversation,
+        };
+        let wakes = item.wakes();
+        let owner = item.is_owner_message();
+        // A person's message for the running wake run lifts its cost limit
+        // (memory.rs): the person is answered whatever the run cost.
+        if owner && same {
+            self.lift_wake_budget();
+        }
+        self.queue.push_back(item);
+        if human && same && wakes {
+            self.interrupt_for_newer();
+        }
+        // A person's message never waits behind a turn adopted from before
+        // a restart (an update relaunch, `orphan_wait`): that turn cannot
+        // take it, so it is folded and ended as at its deadline, and the
+        // next turn reads the message at once, as a running turn is
+        // interrupted for one (steer.rs; user 2026-10-21). Another agent's
+        // message waits for it, as for any running turn.
+        if owner && self.orphan_wait.is_some() {
+            (self.log)("a new message: folding and ending the adopted turn session it waited for");
+            self.adopt_orphans(true);
+        }
+        self.maybe_start_turn();
+    }
+
+    /// Queues `text` as a note at the head of the main conversation's queue
+    /// and steers it into a running main turn at once (a subagent's
+    /// sign-in escalation: the user is waiting on it, so it never waits
+    /// behind other reports).
+    fn queue_urgent(&mut self, text: String) {
+        let item = Queued {
+            logged: false,
+            text,
+            source: Source::Note,
+            images: Vec::new(),
+            conversation: None,
+        };
+        self.queue.push_front(item);
+        if self.phase == Phase::Running && self.turn_side().is_none() {
+            self.interrupt_for_newer();
+        }
+        self.maybe_start_turn();
+    }
+
+    /// The side conversation of `conversation` (None for the main one).
+    fn side_of(&self, conversation: Option<&str>) -> Option<String> {
+        conversation
+            .filter(|c| self.state.conversation.as_deref() != Some(*c))
+            .map(str::to_owned)
+    }
+
+    /// The side conversation of the pending turn (None: the main one).
+    fn turn_side(&self) -> Option<String> {
+        let turn = self.state.turn.as_ref()?;
+        self.side_of(turn.conversation.as_deref())
+    }
+
+    /// Whether a human message of `conversation` (None: main) is queued.
+    fn queued_messages_of(&self, conversation: Option<&str>) -> bool {
+        self.queue.iter().any(|q| {
+            q.conversation.as_deref() == conversation && matches!(q.source, Source::Message { .. })
+        })
+    }
+}
+
+/// A turn's reply key: `turn:optchat:<first new message id>:<its stamp>`,
+/// from message `first`'s stored date `stamp`. Ids start again at 0 after a
+/// memory reset or a restored backup, while the owner keeps every key it
+/// saw, so the id alone would collide (and the owner would refuse or
+/// silently replay the reply). The millisecond stamp tells the two apart.
+fn reply_key_at(first: u64, stamp: &str) -> String {
+    let stamp: String = stamp.chars().filter(char::is_ascii_digit).collect();
+    format!("turn:optchat:{first}:{stamp}")
+}
+
+/// An outbox entry for `op` under `key`.
+fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
+    OutboxEntry {
+        conversation,
+        idempotency_key: key.to_owned(),
+        op,
+        rate_retried: false,
+        not_before: None,
+        attempted: false,
+        rate_attempts: 0,
+        previews_until: None,
+        plain_text: None,
+        pending_media: Vec::new(),
+    }
+}
+
+/// A turn reply: `message.send` whose client_msg_id is the turn key, so a
+/// retry never posts twice.
+fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
+    answer_entry(conversation, key, text, Vec::new(), Vec::new())
+}
+
+/// A turn reply that names the messages it answers (E22).
+fn answer_entry(
+    conversation: String,
+    key: &str,
+    text: &str,
+    answers: Vec<String>,
+    answers_pending: Vec<String>,
+) -> OutboxEntry {
+    let text = if text.len() > REPLY_BYTES {
+        let mut cut = REPLY_BYTES;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!(
+            "{}\n\n[reply cut: {cut} of {} bytes shown]",
+            &text[..cut],
+            text.len()
+        )
+    } else {
+        text.to_owned()
+    };
+    OutboxEntry {
+        conversation,
+        idempotency_key: key.to_owned(),
+        op: Op::MessageSend {
+            client_msg_id: key.to_owned(),
+            parts: vec![Part::Text { text, runs: None }],
+            reply_to: None,
+            answers,
+            answers_pending,
+            thread_root: None,
+        },
+        rate_retried: false,
+        not_before: None,
+        attempted: false,
+        rate_attempts: 0,
+        previews_until: None,
+        plain_text: None,
+        pending_media: Vec::new(),
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}

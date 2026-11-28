@@ -1,0 +1,25 @@
+{
+  "id": "barrage-five-messages-at-once",
+  "group": "barrage",
+  "owner": "tenacity-loop",
+  "about": "five messages that arrive together in one turn: each gets its own handling, the last does not swallow the others",
+  "turns": [
+    {
+      "text": "cmd+shift+t should reopen every tab a bulk close closed",
+      "also": [
+        {"kind": "user", "text": "the composer loses focus after an image paste"},
+        {"kind": "user", "text": "make the hover card 1px tighter horizontally"},
+        {"kind": "user", "text": "notifications should include the workspace name"},
+        {"kind": "user", "text": "and the iOS app needs pull to refresh on the chat list"}
+      ],
+      "checks": [
+        {"type": "called", "cmd": "spawn", "re": "(?i)reopen|bulk"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)paste|composer"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)hover card"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)notification"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)pull to refresh|pull-to-refresh"},
+        {"type": "no_question"}
+      ]
+    }
+  ]
+}

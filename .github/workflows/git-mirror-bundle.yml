@@ -1,0 +1,197 @@
+name: git mirror bundle
+
+# Publishes a git bundle of cmux's main, feat-cmux-next and nightly-next to the
+# NEXT cache bucket. glaeda-git-mirror seeds a runner mini's full local mirror
+# (/Users/Shared/cmux-build-fleet/git/cmux.git) from it when the mirror is missing
+# or broken, so no mini ever clones the whole repository from GitHub; after the
+# seed, the mirror's own minute-by-minute fetch brings the commits since. A
+# build's checkout then fetches its commit from that mirror (Leo, 2026-10-25:
+# "just use the fucking r2 or the ssds"; cmux run 40466772597's GitHub fetch hung
+# 62 min and killed the nightly).
+#
+# Layout (scripts/ci/r2-cache.sh, namespace `any`): v1/any/objects/<key>.tar.zst
+# holding cmux.bundle, and v1/any/latest/git-mirror-cmux- naming the newest key.
+# Keys are git-mirror-cmux-<UTC YYYYMMDDHH>.<feat-cmux-next sha12>, with no dash after
+# the stable prefix: r2-cache.sh writes one pointer per dash-terminated prefix, and the
+# pruner keeps every pointer's target, so a dash there would pin each bundle for good.
+# r2_cache_prune.py keeps them a day, and always the one the pointer names.
+# The same run also writes raw bundles for VM guests' `git clone --bundle-uri` under
+# v1/any/git-bundle/ (see the last step); nothing CI restores reads them.
+#
+# It writes at most every BUNDLE_INTERVAL_HOURS: a push between finds the newest
+# bundle fresh and stops after one HEAD request. Measured 2026-10-27 on Blacksmith
+# Linux: full fetch 36 s, bundle 8 s, 2.36 GB.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BUNDLE_INTERVAL_HOURS: "12"
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  CI_CACHE_R2_NAMESPACE: any
+
+# One publish at a time, and only the newest pending push. This covers both
+# the cheap due probe and the expensive publish so two probes cannot both
+# dispatch a full 2.36 GB bundle during the same publication.
+concurrency:
+  group: git-mirror-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Is a git mirror bundle due
+    # Every push gets a cheap HEAD check; only the rare due=true run may take
+    # the shared 32-vCPU Linux build pool. Keep fork-safe hosted routing.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 3
+    permissions: {}
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - name: Is a bundle due
+        id: due
+        run: |
+          set -euo pipefail
+          pointer="$CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/latest/git-mirror-cmux-"
+          key="$(curl --fail --silent --show-error --location --max-time 30 "$pointer" | head -c 512 | tr -d '[:space:]' || true)"
+          due=true
+          if [[ "$key" =~ ^git-mirror-cmux-([0-9]{10})\.[0-9a-f]{12}$ ]] && [[ "${{ github.event_name }}" != workflow_dispatch ]]; then
+            stamp="${BASH_REMATCH[1]}"
+            written="$(date -u -d "${stamp:0:8} ${stamp:8:2}:00" +%s)"
+            age_hours=$(( ($(date -u +%s) - written) / 3600 ))
+            echo "newest bundle $key is ${age_hours} h old"
+            if (( age_hours < BUNDLE_INTERVAL_HOURS )); then due=false; fi
+          else
+            echo "newest bundle: ${key:-none}"
+          fi
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    needs: probe
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.probe.outputs.due == 'true' }}
+    name: Publish the git mirror bundle
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch the mirrored branches
+        id: fetch
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/cmux.git"
+          git init --quiet --bare "$repo"
+          started=$SECONDS
+          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
+            fetch --quiet --no-tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" \
+            +refs/heads/main:refs/heads/main \
+            +refs/heads/feat-cmux-next:refs/heads/feat-cmux-next \
+            +refs/heads/nightly-next:refs/heads/nightly-next
+          echo "fetched in $((SECONDS - started)) s"
+          head="$(git -C "$repo" rev-parse refs/heads/feat-cmux-next)"
+          echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H).${head:0:12}" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/bundle"
+          started=$SECONDS
+          git -C "$repo" bundle create --quiet "$RUNNER_TEMP/bundle/cmux.bundle" --branches
+          git -C "$repo" bundle verify --quiet "$RUNNER_TEMP/bundle/cmux.bundle"
+          echo "bundled in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/bundle/cmux.bundle" | cut -f1) MB"
+          # The guests' blobless copy lives outside bundle/, so the archive CI restores is unchanged.
+          mkdir -p "$RUNNER_TEMP/guest"
+          started=$SECONDS
+          git -C "$repo" bundle create --quiet "$RUNNER_TEMP/guest/cmux-blobless.bundle" --filter=blob:none --branches
+          echo "blobless bundle in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/guest/cmux-blobless.bundle" | cut -f1) MB"
+          # Every blob of main's tip tree in one pack (blobs only: it can add objects, never move a ref). leo-workspace
+          # tools/wt indexes it into a new blobless mirror, so the mirror's first checkout takes only the blobs changed
+          # since from GitHub, not the whole tree (the cold-VM blob gap: 392.5 MB from GitHub on a Freestyle lane VM).
+          started=$SECONDS
+          git -C "$repo" ls-tree -r --format='%(objecttype) %(objectname) %(path)' refs/heads/main \
+            | awk '$1 == "blob" { print substr($0, 6) }' \
+            | git -C "$repo" pack-objects --quiet --stdout > "$RUNNER_TEMP/guest/cmux-main-blobs.pack"
+          echo "main tip blob pack in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/guest/cmux-main-blobs.pack" | cut -f1) MB"
+
+      # The local cache-save action and the r2-cache.sh it runs.
+      - name: Checkout the cache tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions
+            scripts/ci
+
+      - name: Publish the bundle
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/bundle
+          key: ${{ steps.fetch.outputs.key }}
+
+      # Raw bundles a VM guest's `git clone --bundle-uri=URL` reads directly, at fixed keys
+      # overwritten each publish (r2_cache_prune.py never touches keys outside objects/, and
+      # overwriting keeps one copy of each):
+      #   v1/any/git-bundle/cmux-full.bundle      the same cmux.bundle the archive holds; for a
+      #                                           clone without --filter
+      #   v1/any/git-bundle/cmux-blobless.bundle  commits and trees only; for --filter=blob:none
+      #   v1/any/git-bundle/cmux-full.list, cmux-blobless.list  one-entry bundle lists naming them
+      #   v1/any/git-bundle/cmux-main-blobs.pack  every blob of main's tip tree, a bare pack (not a bundle): a new
+      #                                           blobless wt mirror indexes it before its first checkout
+      # Never pair the full bundle with --filter=blob:none: git 2.56 then repacks the whole
+      # bundle into a second promisor pack (measured 2026-11-23: 177 s, 6.2 GB .git). A filtered
+      # bundle without --filter leaves a clone with no blobs. These two lists carry no
+      # bundle.heuristic, so a later `git fetch` never downloads a whole bundle again.
+      # For later fetches (RFD 0056 part 3): cmux-blobless-rolling.list sets the creationToken
+      # heuristic over a weekly base and a delta since it (scripts/ci/git_bundle_list.py), so a
+      # guest's `git fetch` with fetch.bundleURI takes only the delta from the edge, then tops up
+      # from the code host.
+      - name: Publish the raw bundles for guests
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          guest="$RUNNER_TEMP/guest"
+          ln -f "$RUNNER_TEMP/bundle/cmux.bundle" "$guest/cmux-full.bundle"
+          for flavor in full blobless; do
+            printf '[bundle]\n\tversion = 1\n\tmode = all\n[bundle "%s"]\n\turi = cmux-%s.bundle\n' \
+              "$flavor" "$flavor" > "$guest/cmux-$flavor.list"
+          done
+          put() { # <file> <content type> <cache control>
+            local url
+            url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
+            local status
+            status="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+              | curl --config - --silent --show-error --retry 3 --retry-delay 2 \
+                  --connect-timeout 15 --max-time 1800 --aws-sigv4 "aws:amz:auto:s3" \
+                  -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" -H "content-type: $2" -H "cache-control: $3" \
+                  -o /dev/null -w '%{http_code}' -T "$1" "$url")"
+            [[ "$status" == 200 ]] || { echo "::warning::upload of $(basename "$1") failed (HTTP $status)"; return 1; }
+            echo "published $CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
+          }
+          # Bundles before lists, so a list never names a bundle that is not there yet.
+          put "$guest/cmux-blobless.bundle" application/octet-stream no-cache
+          put "$guest/cmux-full.bundle" application/octet-stream no-cache
+          put "$guest/cmux-blobless.list" text/plain no-store
+          put "$guest/cmux-full.list" text/plain no-store
+          # The rolling list: its base (when it rotates) and delta first, the list last.
+          rolling="$RUNNER_TEMP/rolling"
+          python3 -I scripts/ci/git_bundle_list.py plan --repo "$RUNNER_TEMP/cmux.git" \
+            --built "$guest/cmux-blobless.bundle" --out "$rolling" \
+            --public "$CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/git-bundle" | tee "$RUNNER_TEMP/rolling.json"
+          for f in $(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["upload"]))' "$RUNNER_TEMP/rolling.json"); do
+            case "$f" in *.list) put "$rolling/$f" text/plain no-store ;; *) put "$rolling/$f" application/octet-stream no-cache ;; esac
+          done
+          # Last, so its failure never holds back a list. No list names it: the wt manifest's bundle.blobs does.
+          put "$guest/cmux-main-blobs.pack" application/octet-stream no-cache

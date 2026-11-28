@@ -101,7 +101,7 @@ import Testing
         let store = try await connectedStore(backend)
         let rowID = try #require(store.scheduleSend(text: "x", at: Date().addingTimeInterval(600)))
         store.cancelScheduled(rowID: rowID)
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(30))
         #expect(store.scheduledMessages.isEmpty)
         #expect(try await backend.scheduledMessages().isEmpty)
     }

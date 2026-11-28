@@ -18,7 +18,6 @@ Allowed cases:
 - CLI command output that is the intended user-facing result.
 - Tests and fixtures where stdout is part of the harness.
 - Debug-only `NSLog` or cmux event logging guarded by `#if DEBUG`.
-- Sanitized release diagnostics in `Sources/Providers/*` that intentionally use `NSLog` for provider observability, as long as the changed log cannot expose secrets or personal data.
 - One-off local debugging that is removed before merge.
 
 Preferred shape:

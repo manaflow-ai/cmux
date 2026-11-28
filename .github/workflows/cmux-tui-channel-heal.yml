@@ -34,31 +34,20 @@ jobs:
   heal:
     name: heal the feat-cmux-next acpmux channel
     if: github.repository == 'manaflow-ai/cmux' && (vars.CMUX_TUI_CHANNEL_HEAL || '1') != '0'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
     timeout-minutes: 5
     permissions:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/feat-cmux-next
+          ref: feat-cmux-next
           # The lag is measured in first-parent history; 1500 commits covers more than a day of landings.
           fetch-depth: 1500
           persist-credentials: false
 
-      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this tick sends nothing on it
-      # and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
-      - name: Read the GITHUB_TOKEN floor
-        id: job-floor
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          JOB_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/job_token_floor.py cmux-tui-channel-heal/heal
-
       - name: Read the channel and act once
-        if: steps.job-floor.outputs.held != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: feat-cmux-next

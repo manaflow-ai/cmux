@@ -51,7 +51,7 @@ public struct TerminalWorkContext: Sendable, Codable, Equatable {
     ) {
         self.transition = transition
         self.population = population
-        self.workspaceCount = workspaceCount.map { min(max(0, $0), Int(UInt16.max)) }
-        self.surfaceCount = surfaceCount.map { min(max(0, $0), Int(UInt16.max)) }
+        self.workspaceCount = workspaceCount.map { min(max(0, $0), Int(clamping: UInt16.max)) }
+        self.surfaceCount = surfaceCount.map { min(max(0, $0), Int(clamping: UInt16.max)) }
     }
 }
