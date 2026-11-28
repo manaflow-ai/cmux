@@ -1706,6 +1706,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
+
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
         barrier = self.tmp / "parallel-barrier"
@@ -1837,6 +1855,27 @@ def type_error(code: str, message: str, where: str) -> str:
     """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
     return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
             "     :       ^\n     `----\n\n")
+
+
+class PrTier(unittest.TestCase):
+    def test_the_pr_tier_leaves_the_slow_gates_to_the_push_tier(self):
+        module = load(SCRIPT)
+        args = (Path("/r"), "b" * 40, "m" * 40, Path("/base"), True, True, True)
+        full = {name: argv for name, argv in module.gates(*args, tier="full")}
+        pr = {name: argv for name, argv in module.gates(*args, tier="pr")}
+        self.assertTrue(all(full.values()))
+        self.assertEqual(sorted(n for n, argv in pr.items() if argv is None), sorted(module.PR_TIER_DEFERRED))
+        self.assertIsNotNone(pr["prepush gate"])
+        self.assertIsNotNone(pr["crash ratchet"])
+        for name in module.PR_TIER_DEFERRED:
+            self.assertIn(name, module.SKIPPED)
+
+    def test_the_workflow_runs_the_pr_tier_unless_full_ci_or_the_variable_says_full(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CI_FAST_GATES_PR_TIER", text)
+        self.assertIn("full-ci", text)
+        self.assertIn('--tier "$TIER"', text)
+        self.assertEqual(text.count("--tier"), 3)
 
 
 class GateBudget(unittest.TestCase):

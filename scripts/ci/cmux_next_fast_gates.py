@@ -394,8 +394,11 @@ def prepare(args: argparse.Namespace) -> int:
         # The checkout holds the merge and its two parents only (fetch-depth 2): the PR's own commits need their
         # parents, or the per-commit gates read a cut commit as adding the whole tree.
         deepen(repo, args.remote, [head, base], head, base)
-    write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
-                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false",
+    # The PR tier (PR_TIER_DEFERRED) leaves the bun-installing gates to the push tier: no bun, no web install.
+    pr_tier = getattr(args, "tier", "full") == "pr"
+    write_outputs(args.output, {"merge": merge,
+                                "web": "true" if not pr_tier and web_needed(repo, base, merge) else "false",
+                                "checks": "true" if not pr_tier and checks_needed(repo, args.event, base, merge) else "false",
                                 "ratchet": "true" if ratchet else "false"})
     return 0
 
@@ -447,19 +450,30 @@ def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
     return inputs_changed(repo, base, merge, CRASH_CLASS_INPUTS)
 
 
+# The gates a pull request's own run leaves to the push tier (the same gates run there as cmux-next-web-lint.yml,
+# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). `--tier full` (a dispatch, the `full-ci`
+# label, or vars.CI_FAST_GATES_PR_TIER=full) runs them on the pull request again. Slowest gate first on 2026-11-24:
+# crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
+PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
+
+# Why the PR tier skipped a gate that would otherwise run (a gate its own inputs skip keeps its SKIPPED reason).
+TIER_SKIPPED = "the pull request tier leaves it to the push tier (cmux-next-web-lint.yml, cmux-next-crash-class.yml, " \
+               "ci-web.yml); the full-ci label or vars.CI_FAST_GATES_PR_TIER=full runs it here"
+
 SKIPPED = {"web lint": "no web path changed",
-           "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
            "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
+           "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
            "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
                               "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
-          checks: bool = False, ratchet: bool = True,
-          crash_class: bool = True) -> list[tuple[str, list[str] | None]]:
-    """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
+          checks: bool = False, ratchet: bool = True, tier: str = "full",
+          crash_class: bool = True, deferred: set[str] | None = None) -> list[tuple[str, list[str] | None]]:
+    """(name, argv) in order; argv None is a skipped gate (SKIPPED says why). DEFERRED, when given, gets the names
+    the PR tier skipped that would otherwise run (TIER_SKIPPED says why)."""
     py = sys.executable
-    return [
+    table = [
         ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
@@ -486,6 +500,11 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
                                    "--base-rev", base]),
     ]
+    if tier == "pr":
+        if deferred is not None:
+            deferred.update(name for name, argv in table if name in PR_TIER_DEFERRED and argv is not None)
+        table = [(name, None if name in PR_TIER_DEFERRED else argv) for name, argv in table]
+    return table
 
 
 def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
@@ -623,6 +642,28 @@ def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
     return removed
 
 
+FIXIT_LINT_SECONDS = 300.0
+
+
+def fixit_lint(repo: Path, base: str, merge: str, deadline: float | None) -> None:
+    """A red web lint (a finding, not a stall): its tools' own safe fixes, linted again, as a fixup patch
+    (scripts/ci/oops/fixit_lint.py; off unless the workflow sets FIXIT_COMPILE_HEAD_SHA). Only after every gate has
+    finished, since it edits the checkout and puts it back; never changes this run's result. Leo, 2026-11-22: "hell,
+    maybe even should've been automatic. how are our fixit type things for lint errors and random bullshit?\""""
+    seconds = FIXIT_LINT_SECONDS if deadline is None else min(FIXIT_LINT_SECONDS, deadline - time.monotonic())
+    if seconds < 30:
+        print(f"fixit-lint: {max(seconds, 0):.0f}s of the gates' budget left; not tried", flush=True)
+        return
+    script = Path(__file__).resolve().parent / "oops" / "fixit_lint.py"
+    print("::group::fixit-lint", flush=True)
+    try:
+        subprocess.run([sys.executable, "-I", str(script), "run", "--base", base, "--merge", merge, "--repo", str(repo),
+                        "--seconds", str(int(seconds))], cwd=repo, timeout=seconds + 60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"fixit-lint: {type(exc).__name__}: {exc}", flush=True)
+    print("::endgroup::", flush=True)
+
+
 def ensure_bun_tmpdir(env: dict) -> Path | None:
     """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
     the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
@@ -660,7 +701,8 @@ def run(args: argparse.Namespace) -> int:
         export_tree(repo, args.base, holder)
         ratchet = ratchet_inputs_changed(repo, args.base, merge)
         crash_class = crash_class_inputs_changed(repo, args.base, merge)
-        planned = gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet, crash_class)
+        planned = gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet,
+                        tier=args.tier, crash_class=crash_class, deferred=(tier_deferred := set()))
         active = [(name, argv) for name, argv in planned if argv is not None]
         # Web lint and webviews checks can both run bun install in webviews/, so webviews checks waits for web lint
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
@@ -672,7 +714,7 @@ def run(args: argparse.Namespace) -> int:
 
         for name, argv in planned:
             if argv is None:
-                print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
+                print(f"{name}: skipped ({TIER_SKIPPED if name in tier_deferred else SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
             if name not in active_results:
@@ -697,6 +739,9 @@ def run(args: argparse.Namespace) -> int:
             if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
+        # Inside the try: its --fix runs bun too, under the BUN_TMPDIR the finally removes.
+        if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
+            fixit_lint(repo, args.base, merge, deadline)
     finally:
         shutil.rmtree(holder, ignore_errors=True)
         if bun_tmp:
@@ -741,11 +786,14 @@ def main(argv: list[str] | None = None) -> int:
     prep.add_argument("--remote", default="origin")
     prep.add_argument("--output", type=Path, help="append key=value lines here (GITHUB_OUTPUT)")
     prep.add_argument("--repo", type=Path, default=Path.cwd())
+    prep.add_argument("--tier", choices=("pr", "full"), default="full",
+                      help="pr: leave the gates in PR_TIER_DEFERRED to the push tier (no bun setup for them)")
     gate = sub.add_parser("run", help="run every gate on BASE..merge")
     gate.add_argument("--base", required=True)
     gate.add_argument("--merge", default="HEAD")
     gate.add_argument("--web", choices=("true", "false"), default="true")
     gate.add_argument("--checks", choices=("true", "false"), default="false")
+    gate.add_argument("--tier", choices=("pr", "full"), default="full")
     gate.add_argument("--summary", type=Path)
     gate.add_argument("--repo", type=Path, default=Path.cwd())
     gate.add_argument("--budget-seconds", type=int,

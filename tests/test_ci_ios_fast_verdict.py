@@ -50,15 +50,93 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(p["build"])
         self.assertTrue(p["app"])
 
-    def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
-        # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
-        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
-                     "cmux-tui/vendor/smoltcp/src/lib.rs"):
+    def rust_root(self, files: dict[str, str]) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+        return root
+
+    def test_rust_the_swift_surface_sees_builds_the_kit_and_the_app(self) -> None:
+        # cmux#55399: a cmux-tui crate change can break the iOS build; one that names the bindings, a C export or an
+        # Apple target, a build.rs, or a file the planner cannot read (deleted) still takes the Mac.
+        files = {
+            "cmux-tui/crates/cmux-mobile-core/src/api.rs": "#[uniffi::export]\npub fn ping() {}\n",
+            "cmux-tui/crates/cmux-rd-ffi/src/lib.rs": '#[no_mangle]\npub extern "C" fn rd() {}\n',
+            "cmux-tui/crates/cmux-wg/src/tun.rs": '#[cfg(target_os = "ios")]\nfn tun() {}\n',
+            "cmux-tui/crates/cmux-wg/Cargo.toml": "[target.'cfg(target_vendor = \"apple\")'.dependencies]\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml": "[dependencies]\nuniffi = \"0.29\"\n",
+            "cmux-tui/crates/cmux-wg/build.rs": "fn main() {}\n",
+        }
+        root = self.rust_root(files)
+        for path in [*files, "cmux-tui/crates/cmux-wg/src/gone.rs", "cmux-tui/rust-toolchain.toml"]:
             with self.subTest(path=path):
-                p = self.plan(path)
+                p = fv.plan([path], root=root)
                 self.assertTrue(p["build"])
                 self.assertTrue(p["app"])
-                self.assertTrue(fv.affects([path]))
+                self.assertTrue(p["proof"])
+                self.assertTrue(fv.affects([path], root=root))
+
+    def test_rust_the_swift_surface_cannot_see_plans_nothing(self) -> None:
+        # 11-27 22:00-23:30Z: 7 of 10 sampled Mac runs (about 14 min each) were these: a lock bump, a crate's
+        # internals, its tests. The Linux Rust steps compile and test them; the bindings are the same.
+        files = {
+            "cmux-tui/Cargo.lock": "[[package]]\nname = \"uniffi\"\n",
+            "cmux-tui/Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/lib.rs": "pub fn wire() -> u8 { 1 }\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/tests.rs": "#[test]\nfn t() {}\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-host/tests/relay.rs": "#[test]\nfn relay() {}\n",
+            "cmux-tui/vendor/smoltcp/src/lib.rs": "pub mod iface;\n",
+        }
+        root = self.rust_root(files)
+        p = fv.plan(list(files), root=root)
+        self.assertFalse(p["run"], p)
+        self.assertFalse(p["proof"])
+        self.assertFalse(fv.affects(list(files), root=root))
+        # With a Swift change beside them, only the Swift plans.
+        p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
+        self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
+        self.assertFalse(p["app"])
+
+    def test_the_matrix_cells_run_the_tests_that_read_them(self) -> None:
+        p = self.plan("cmux-next-ios/reliability-matrix/cells.json")
+        self.assertEqual(p["tests"], ["CmuxMobileLiveTests"])
+        self.assertFalse(p["app"])
+        self.assertFalse(p["build"])
+
+    def test_a_base_that_named_the_bindings_builds(self) -> None:
+        # A removed uniffi export changes the bindings though the head no longer names it.
+        path = "cmux-tui/crates/cmux-mobile-core/src/api.rs"
+        root = self.rust_root({path: "pub fn ping() {}\n"})
+        self.assertFalse(fv.plan([path], root=root)["run"])
+        self.assertTrue(fv.plan([path], root=root, base_marked={path})["build"])
+
+    def test_the_base_grep_reads_the_base_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            marked, plain = "cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"
+            for rel, text in ((marked, "#[uniffi::export]\nfn f() {}\n"), (plain, "fn g() {}\n")):
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / rel).write_text(text)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                got = fv.base_marked_paths([marked, plain, "cmux-tui/Cargo.lock", "docs/a.md"], base="HEAD")
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(got, {marked})
+
+    def test_the_ere_and_the_regex_agree(self) -> None:
+        for text in ("uniffi::Record", 'extern "C" fn', "#[no_mangle]", 'cfg(target_os = "macos")',
+                     'cfg(target_vendor="apple")', "fn plain()", 'target_os = "linux"'):
+            with self.subTest(text=text):
+                ere = subprocess.run(["grep", "-qE", fv.RUST_SWIFT_MARK_ERE], input=text, text=True).returncode == 0
+                self.assertEqual(bool(fv.RUST_SWIFT_MARK.search(text)), ere)
 
     def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
         import ios_link_ffi_key
@@ -125,6 +203,20 @@ class PlanTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.plan(path)["build"])
 
+    def test_only_its_own_files_need_no_flow_proof(self) -> None:
+        # cmux#62950 changed only ios_fast_verdict.sh: the kit built, then cmux/ios-fast waited on an ios-flows record
+        # that `cmux ios verify` never posts for a diff no flow reads, so the status stayed pending for good.
+        self.assertFalse(self.plan(*fv.SELF)["proof"])
+        self.assertTrue(self.plan(fv.SELF[0], KIT + "Sources/CmuxMobileKit/A.swift")["proof"])
+        self.assertFalse(self.plan("docs/a.md")["proof"])
+        for wf in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            with self.subTest(workflow=wf):
+                text = (ROOT / ".github/workflows" / wf).read_text()
+                self.assertIn("PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}", text)
+                self.assertIn('[ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]', text)
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(pipeline["jobs"]["ios-fast-runner"]["outputs"]["proof"], "${{ steps.plan.outputs.proof }}")
+
     def test_many_targets_fall_back_to_a_build(self) -> None:
         have = sorted(fv.test_targets(fv.ROOT) - fv.SKIPPED_TESTS)
         self.assertGreater(len(have), fv.MAX_TEST_TARGETS)
@@ -181,6 +273,117 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(seen[1][0], "https://api.github.com/repos/o/r/statuses/abc")
         self.assertEqual(seen[1][1]["context"], "cmux/ios-fast")
         self.assertEqual(len(seen[1][1]["description"]), 140)
+
+
+class ReuseTest(unittest.TestCase):
+    """A head whose cmux/ios-fast passed on the same iOS inputs takes no Mac again (30 of 156 jobs, 405 of 2154 Mac
+    min in the 4 h to 2026-11-27 23:00Z)."""
+
+    PLAN = {"run": True, "tests": ["CmuxMobileShellTests"], "build": False, "app": True, "proof": True, "why": []}
+
+    def repo(self, tmp: str, files: dict[str, str]) -> None:
+        for path, text in files.items():
+            Path(tmp, path).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, path).write_text(text)
+        git = ["git", "-C", tmp, "-c", "user.email=a@b", "-c", "user.name=a"]
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "x", "--allow-empty"], check=True)
+
+    def digest(self, files: dict[str, str], plan: dict | None = None) -> str | None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.repo(tmp, files)
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                return fv.inputs_digest(plan or self.PLAN)
+            finally:
+                os.chdir(cwd)
+
+    def test_the_digest_reads_the_routed_files_only(self) -> None:
+        base = {KIT + "Sources/CmuxMobileShell/Foo.swift": "a", "docs/x.txt": "1"}
+        d = self.digest(base)
+        self.assertRegex(d or "", r"^[0-9a-f]{12}$")
+        self.assertEqual(self.digest({**base, "docs/x.txt": "2"}), d)
+        self.assertNotEqual(self.digest({**base, KIT + "Sources/CmuxMobileShell/Foo.swift": "b"}), d)
+        self.assertNotEqual(self.digest(base, {**self.PLAN, "app": False}), d)
+
+    def test_no_tree_is_no_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                self.assertIsNone(fv.inputs_digest(self.PLAN))
+            finally:
+                os.chdir(cwd)
+
+    def statuses(self, rows) -> bool:
+        def fake(req, seconds=0, **kw):
+            self.assertIn("/commits/abc/statuses", req.full_url)
+            if isinstance(rows, Exception):
+                raise rows
+            return 200, json.dumps(rows).encode(), {}
+
+        old = fv.gh_http.request
+        fv.gh_http.request = fake
+        try:
+            return fv.passed_at("o/r", "abc", "0123456789ab", "t")
+        finally:
+            fv.gh_http.request = old
+
+    def test_only_a_pass_on_the_same_inputs_counts(self) -> None:
+        tag = "[inputs 0123456789ab]"
+        row = {"context": "cmux/ios-fast", "state": "success", "description": f"Passed: {tag} tests X"}
+        self.assertTrue(self.statuses([{"context": "cmux/ios-fast", "state": "pending"}, row]))
+        self.assertFalse(self.statuses([{**row, "description": "Passed: [inputs ffffffffffff] tests X"}]))
+        self.assertFalse(self.statuses([{**row, "state": "failure", "description": f"Failed: {tag} tests X"}]))
+        self.assertFalse(self.statuses([{**row, "description": f"Build passed; {tag} no proof"}]))
+        self.assertFalse(self.statuses([{**row, "description": fv.REUSED.format("0123456789ab")}]))
+        self.assertFalse(self.statuses([{**row, "context": "other"}]))
+        self.assertFalse(self.statuses(OSError("down")))
+
+    def run_reuse(self, passed: bool, plan: dict | None = None) -> dict:
+        old = (fv.inputs_digest, fv.head_sha, fv.passed_at)
+        fv.inputs_digest = lambda result: "0123456789ab"
+        fv.head_sha = lambda: "abc"
+        fv.passed_at = lambda repo, sha, digest, token: passed
+        try:
+            return fv.reuse(plan or self.PLAN, {"REPO": "o/r", "GH_TOKEN": "t"})
+        finally:
+            fv.inputs_digest, fv.head_sha, fv.passed_at = old
+
+    def test_a_head_that_passed_on_these_inputs_takes_no_mac(self) -> None:
+        r = self.run_reuse(True)
+        self.assertFalse(r["run"])
+        self.assertFalse(r["proof"])
+        self.assertEqual(fv.summary(r), "Reused the pass at this head [inputs 0123456789ab]")
+
+    def test_a_new_build_names_its_inputs_in_its_pass(self) -> None:
+        r = self.run_reuse(False)
+        self.assertTrue(r["run"])
+        self.assertEqual(fv.summary(r), "[inputs 0123456789ab] tests CmuxMobileShellTests; app build")
+        self.assertTrue(f"Passed: {fv.summary(r)}".startswith("Passed: " + fv.INPUTS_TAG.format(r["inputs"])))
+
+    def test_a_plan_that_builds_nothing_reads_nothing(self) -> None:
+        nothing = {**self.PLAN, "run": False}
+        self.assertEqual(self.run_reuse(True, nothing), nothing)
+
+    def test_the_status_posts_say_reused(self) -> None:
+        for f in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            text = (ROOT / ".github/workflows" / f).read_text()
+            self.assertIn('case "$SUMMARY" in Reused*) desc="$SUMMARY"', text, f)
+
+    def test_the_plan_and_its_callers_may_read_statuses(self) -> None:
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        runner = pipeline["jobs"]["ios-fast-runner"]
+        self.assertEqual(runner["permissions"].get("statuses"), "read")
+        plan = next(s for s in runner["steps"] if s.get("id") == "plan")
+        self.assertEqual(set(plan["env"]), {"REPO", "GH_TOKEN"})
+        for f in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            jobs = yaml.safe_load((ROOT / ".github/workflows" / f).read_text())["jobs"]
+            for name, job in jobs.items():
+                if job.get("uses") == "./.github/workflows/pr-pipeline.yml":
+                    self.assertIn(job["permissions"].get("statuses"), ("read", "write"), f"{f} {name}")
 
 
 class RouterStatusTest(unittest.TestCase):
@@ -298,6 +501,13 @@ class WorkflowTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
 
+    def test_the_default_on_switch_normalizes_an_unset_variable(self) -> None:
+        # GitHub coerces null and '0' to numeric zero. String normalization keeps an
+        # unset switch enabled and still lets an explicit '0' disable the verdict.
+        # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
+        self.assertEqual(self.jobs["ios-fast-runner"]["if"],
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
         self.assertEqual(runner["steps"][0]["with"]["fetch-depth"], 2)
@@ -325,7 +535,8 @@ class WorkflowTest(unittest.TestCase):
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
         self.assertEqual(job["needs"], ["ios-fast-runner"])
-        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' }}")
+        # A pass on the same inputs (ios-fast-runner's reuse lookup) skips the Mac.
+        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}")
         self.assertIn("needs.ios-fast-runner.outputs.runs_on", job["runs-on"])
         self.assertIs(job["steps"][0]["with"]["clean"], False)
         names = [s.get("name") for s in job["steps"]]
@@ -347,7 +558,9 @@ class WorkflowTest(unittest.TestCase):
     def test_the_verdict_reaches_the_router(self) -> None:
         call = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         outputs = call.get("on", call.get(True))["workflow_call"]["outputs"]
-        self.assertEqual(outputs["ios_fast_verdict"]["value"], "${{ jobs.ios-fast.outputs.verdict }}")
+        # A reused pass reads success; else the Mac job's own verdict.
+        self.assertEqual(outputs["ios_fast_verdict"]["value"],
+                         "${{ jobs.ios-fast.outputs.verdict || (jobs.ios-fast-runner.outputs.reused == 'true' && 'success' || '') }}")
         self.assertEqual(outputs["ios_fast_run"]["value"], "${{ jobs.ios-fast-runner.outputs.run }}")
         record = next(s for s in self.jobs["ios-fast"]["steps"] if s.get("id") == "verdict")
         self.assertIn("success() || failure()", record["if"])
