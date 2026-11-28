@@ -222,6 +222,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         flushStale()
         return shownTabs().result
     }
+
+    /// The overview's More menu owns the pane filter so the workspace title keeps its center.
+    public func overviewMenuContent() -> AnyView {
+        AnyView(PaneFilterControl.MenuContent(setting: paneFilter, result: paneFilterResult))
+    }
     private var listedTabs: [TabsKitTab] = [] {
         didSet { listVersion &+= 1 }
     }

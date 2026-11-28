@@ -18,6 +18,7 @@
 //! | `browser_rules_tab_state_apply` | `{machine, event}` or `{machine, events}` | `{machine, changed}` |
 //! | `browser_rules_tab_state_security` | `{url}` | the scheme-level [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
+//! | `browser_rules_automation_*` | see [`crate::automation_ops`] | |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
@@ -148,6 +149,9 @@ pub fn serves(op: &str) -> bool {
 /// Runs `op` on `request` (a JSON object; null means `{}`).
 pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
     let request = if request.is_null() { json!({}) } else { request };
+    if let Some(answer) = crate::automation_ops::call(op, request.clone()) {
+        return answer;
+    }
     match op {
         "browser_rules_is_top_level_domain" => {
             let TldRequest { label, labels } = parse(request)?;

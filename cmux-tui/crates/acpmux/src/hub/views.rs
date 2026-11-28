@@ -879,6 +879,7 @@ impl Hub {
             pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
+            residency: serde_json::to_value(self.residency_of(session, m.status)).ok(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
@@ -1336,6 +1337,9 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // How many restarts this pid came through as an exec in place (`daemon/handoff.rs`):
+            // 0 on a normal start. `daemon restart` waits for it to grow.
+            "handoffs": crate::daemon::handoffs(),
             // What kind of device this machine is (`cmux-device-kind`), so the app draws This
             // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
             "device": cmux_device_kind::this_device().kind.as_str(),
@@ -1366,6 +1370,9 @@ impl Hub {
             "liveAgents": live,
             // Live agent hosts still on another build than this one (`views/host_build.rs`).
             "hostsOnOtherBuilds": other_build,
+            // The idle policy and what the chats cost now: resident, busy, what a lane cap
+            // counts, hibernated (`residency.rs`, versioned `v`).
+            "residency": self.residency_status(&sessions),
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
