@@ -172,7 +172,7 @@ impl Failure {
 
     /// An "isn't available on this server" failure names the server it asked: the platform origin
     /// comes from --platform or CMUX_PLATFORM_ORIGIN as well as the default, and a 404 from staging
-    /// (joined machines off there by design) read as production's (leo-workspace ask-28e9b7d3c8).
+    /// (joined machines off there by design) read as production's.
     fn naming_server(mut self, origin: &str) -> Self {
         if self.code.ends_with(".unavailable") && self.message.contains(" on this server") {
             self.message = self.message.replacen(" on this server", &format!(" on {origin}"), 1);

@@ -106,7 +106,7 @@ pub(crate) fn read_credential(
 /// The platform that serves `/v1/machines/*` for a token the API at `api_origin` issued. The
 /// app's session names its API (`cloud-api.cmux.dev`), which answers 404 on every machine route,
 /// so a signed-in `machine placement status` read "isn't available on this server (it answered
-/// 404)" (leo-workspace ask-28e9b7d3c8). An API none of the deployments has (a preview, local)
+/// 404)". An API none of the deployments has (a preview, local)
 /// gives `None`: the usual variables, then production, decide.
 pub(super) fn platform_of_api(api_origin: &str) -> Option<String> {
     use cmux_cloud_client::backend::Backend;

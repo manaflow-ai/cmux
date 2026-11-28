@@ -1108,7 +1108,7 @@ fn placement_refusals_name_the_role_and_a_404_and_never_a_secret() {
     .code
     .unwrap_err();
     assert_eq!(failure.code, "machine_join.unavailable");
-    // It names the platform it asked: staging's 404 read as production's (ask-28e9b7d3c8).
+    // It names the platform it asked: staging's 404 read as production's.
     assert_eq!(
         failure.message,
         format!("joined placement isn't available on {origin} (it answered 404)")
