@@ -280,6 +280,28 @@ body {
 }
 /* design-scale:end */
 
+/* FLOATING MATERIAL B1 (experiment floating-material, ui/glass/floatingMaterial.experiment.ts; off by default,
+   the default needs Leo's word; RFD 0207 "Floating material to B1"). design-system-decisions B1: one floating
+   material on the web, the theme surface at 88% in light and dark, blur 32, saturate 1. Under `b1` the
+   floating levels take it: popover 72/24 -> 88/32, menu 80/32 (72 dark) -> 88/32, chip 60/24 -> 88/32 (a
+   tooltip's host-fitted --cmux-tooltip-tint still wins over the chip fallback), the transient web tint
+   80 (72 dark) -> 88, and saturate 1.6 -> 1 on each. Chrome (docked, not floating), content, the lens and
+   the fisheye are not floating and stay. The blur is the menu level's 32 radius, so the levels stay the
+   design scale's. Reduce Transparency and Liquid Glass off keep their own (no blur, opaque): this block
+   never applies under them. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-floating-material="b1"]:not([data-reduce-transparency], [data-glass="off"]) {
+    --ds-glass-popover-tint: 88%;
+    --ds-glass-popover-blur: blur(var(--ds-glass-menu-radius)) saturate(1);
+    --ds-glass-menu-tint: 88%;
+    --ds-glass-menu-blur: blur(var(--ds-glass-menu-radius)) saturate(1);
+    --ds-glass-chip-tint: 88%;
+    --ds-glass-chip-blur: blur(var(--ds-glass-menu-radius)) saturate(1);
+    --ds-transient-web-tint: 88%;
+    --ds-transient-web-saturation: 1;
+  }
+}
+
 @media (min-resolution: 2dppx) {
   :root {
     --cmux-hairline: 0.5px;

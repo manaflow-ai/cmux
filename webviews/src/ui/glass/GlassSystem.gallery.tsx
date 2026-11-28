@@ -18,7 +18,10 @@ import { type CSSProperties, useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 
 type Mode = "glass" | "off" | "reduce";
-type Props = { mode: Mode; scene?: "levels" | "hover-input" };
+// The floating material (floating-material experiment, ui/glass/floatingMaterial.experiment.ts): `levels`, today's
+// shipped levels; `b1`, design-system-decisions B1's one floating material (88%, blur 32, saturate 1), off by default.
+type Material = "levels" | "b1";
+type Props = { mode: Mode; scene?: "levels" | "hover-input"; material?: Material };
 
 const TEXT =
   "The build finished on the second worker. Three tests failed in the parser suite, all on the same fixture: a trailing comma after the last field. The fix is one line in the tokenizer; the rest of the run is green. Next: rerun the suite at the new head, then post the numbers on the pull request. ";
@@ -60,22 +63,26 @@ const textAt = (
 
 const MENU_ROWS = ["Open in New Tab", "Fork Conversation", "Copy Link", "Move to Cloud", "Archive"];
 
-function useMode(mode: Mode): void {
+function useMode(mode: Mode, material: Material = "levels"): void {
   useEffect(() => {
     const root = document.documentElement;
     const saved = root.getAttribute("data-glass");
+    const savedMaterial = root.getAttribute("data-floating-material");
+    root.setAttribute("data-floating-material", material);
     if (mode === "off") root.setAttribute("data-glass", "off");
     root.toggleAttribute("data-reduce-transparency", mode === "reduce");
     return () => {
       root.removeAttribute("data-reduce-transparency");
+      if (savedMaterial === null) root.removeAttribute("data-floating-material");
+      else root.setAttribute("data-floating-material", savedMaterial);
       if (saved === null) root.removeAttribute("data-glass");
       else root.setAttribute("data-glass", saved);
     };
-  }, [mode]);
+  }, [mode, material]);
 }
 
-function GlassSystemGallery({ mode, scene = "levels" }: Props) {
-  useMode(mode);
+function GlassSystemGallery({ mode, scene = "levels", material = "levels" }: Props) {
+  useMode(mode, material);
   if (scene === "hover-input") return <HoverInputScene />;
   return (
     <div
@@ -280,6 +287,14 @@ export default componentEntry<Props>({
     glass: {
       note: "Liquid Glass on: chrome, popover, menu and chip from the design scale's levels, one saturation, one edge.",
       props: { mode: "glass" },
+    },
+    "floating-b1": {
+      note: "experiments floating-material, arm b1 (off by default; RFD 0207): popover, menu and chip on B1's one floating material, 88% in light and dark, blur 32, saturate 1. Compare with glass (today's levels: popover 72/24, menu 80/32, chip 60/24, saturate 1.6).",
+      props: { mode: "glass", material: "b1" },
+    },
+    "floating-b1-hover-input": {
+      note: "The same B1 material on the input box, tooltips and hover cards over a transcript.",
+      props: { mode: "glass", scene: "hover-input", material: "b1" },
     },
     "glass-off": {
       note: "Liquid Glass off (the default since cmux#46104): every level draws the opaque surface and its hairline.",
