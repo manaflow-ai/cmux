@@ -26,6 +26,13 @@ public struct CredentialResolver: Sendable {
         self.keys = keys
     }
 
+    /// SECRET with every space, tab, line break and invisible space (zero-width, word joiner, BOM) taken out.
+    public static func withoutWhitespace(_ secret: String) -> String {
+        String(String.UnicodeScalarView(secret.unicodeScalars.filter { scalar in
+            !scalar.properties.isWhitespace && ![0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF].contains(scalar.value)
+        }))
+    }
+
     /// `pasted` wins over the environment and the saved key.
     public func credential(for provider: AIProvider, pasted: String?, label: String? = nil) throws -> CodeRouterCredential {
         let pasted = pasted?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -43,7 +50,9 @@ public struct CredentialResolver: Sendable {
             guard Self.isWellFormedKey(key, for: provider) else { throw CredentialResolutionError.invalidFormat }
             return .anthropicAPIKey(key, label: label)
         case .claudeOAuthToken:
-            guard let token = pasted ?? environment.value("CLAUDE_CODE_OAUTH_TOKEN") else {
+            // cmux#57418: a setup token never holds whitespace, so a terminal's wrap, padding or a
+            // zero-width space a copy added inside it is dropped, not refused.
+            guard let token = (pasted ?? environment.value("CLAUDE_CODE_OAUTH_TOKEN")).map(Self.withoutWhitespace).flatMap(\.nilIfEmpty) else {
                 throw CredentialResolutionError.needsPastedSecret
             }
             guard token.hasPrefix("sk-ant-oat01-"), Self.looksLikeKey(token) else { throw CredentialResolutionError.invalidFormat }

@@ -893,6 +893,22 @@ fn replace_key(
     Ok(result)
 }
 
+/// `claude_token.add`'s refusal of a token Anthropic refused or that is no setup token
+/// (reason `claude_token.rejected`); none when it saves (accepted, or Anthropic not reached).
+fn claude_token_refusal(verdict: &key_check::Verdict) -> Result<(), RpcError> {
+    let message = match verdict {
+        key_check::Verdict::BadKey(_) => {
+            "Anthropic refused this Claude token: run claude setup-token again and paste the new one"
+        }
+        key_check::Verdict::BadShape => "That is not a Claude token: it starts with sk-ant-oat",
+        _ => return Ok(()),
+    };
+    Err(RpcError::invalid_params(message).with_data(json!({
+        "reason": "claude_token.rejected",
+        "result": verdict.as_str(),
+    })))
+}
+
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
 /// the daemon's own, `chatgpt::Service::token_lasting`).
@@ -977,11 +993,17 @@ fn not_cloud(id: &str) -> RpcError {
 /// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
 /// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
 fn delivered(kind: &str, value: String) -> String {
-    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
-        value.chars().filter(|c| !c.is_whitespace()).collect()
+    if kind == "claude-token" && value.chars().any(paste_noise) {
+        value.chars().filter(|c| !paste_noise(*c)).collect()
     } else {
         value
     }
+}
+
+/// Whitespace, and the invisible spaces a copy adds that Unicode does not call whitespace
+/// (zero-width space, non-joiner, joiner, word joiner, BOM; cmux#57418).
+pub(crate) fn paste_noise(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}')
 }
 
 /// The secret a reference names; the error says why it did not resolve, never a value.
@@ -1549,6 +1571,16 @@ pub(super) async fn handle(
         method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
+            // Asked of Anthropic before it is saved, so Settings never says Connected for Cloud on a
+            // token every Cloud chat then fails on (cmux#57418). Anthropic not answering saves anyway.
+            let reference = secret.clone();
+            let token = Zeroizing::new(delivered(
+                "claude-token",
+                blocking(move || resolve("the token", &reference)).await??,
+            ));
+            claude_token_refusal(
+                &key_check::check("anthropic", &token, None, key_check::CHECK_TIMEOUT).await,
+            )?;
             let state = blocking(move || {
                 let added = routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
                     .map_err(|e| route_error(&e))?;

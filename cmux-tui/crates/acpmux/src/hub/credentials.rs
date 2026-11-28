@@ -336,6 +336,10 @@ impl Hub {
             *held = Some(credential);
             changed
         };
+        if !session.read_meta(|m| m.owner_credential) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).owner_credential = true;
+            self.save_meta(&session);
+        }
         if !changed || session.child.lock().await.is_none() {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
@@ -849,6 +853,43 @@ mod tests {
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
         assert!(!only_here(&session));
         assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
+    }
+
+    /// cmux#57418: a fork of a Cloud chat started its agent with no credential (the parent's was
+    /// in memory only and the fork took none), so the fork said "Claude Code is signed out".
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_fork_of_a_credentialed_chat_starts_on_its_credential() {
+        let hub = hub();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        };
+        let parent = hub.new_session(req).await.unwrap();
+        hub.child_for(&parent).await.unwrap();
+        let fork =
+            hub.fork(&parent, None, None, Default::default(), None, None, false).await.unwrap();
+        assert_eq!(*fork.credential.lock().unwrap(), Some(credential(FIRST)));
+        hub.child_for(&fork).await.unwrap();
+        assert_eq!(launched(&fork).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
+        assert!(!written(&hub, &fork.id).contains(FIRST), "never written down");
+        // Both say they were given one (a fact, not the value), so a restart that loses it is
+        // said as that (`claude_auth::lost_credential_text`).
+        assert!(parent.read_meta(|m| m.owner_credential) && fork.read_meta(|m| m.owner_credential));
+        // A chat with none forks with none.
+        let plain = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        let fork =
+            hub.fork(&plain, None, None, Default::default(), None, None, true).await.unwrap();
+        assert!(fork.credential.lock().unwrap().is_none());
+        assert!(
+            !fork.read_meta(|m| m.owner_credential) && !plain.read_meta(|m| m.owner_credential)
+        );
+        // One the Mac sends later marks the chat too.
+        hub.update_credential(&plain.id, credential(SECOND)).await.unwrap();
+        assert!(plain.read_meta(|m| m.owner_credential));
     }
 
     #[cfg(unix)]

@@ -1,7 +1,9 @@
 public import CmuxNextDaemon
 public import Foundation
+import CmuxNextCompat
 import CryptoKit
 import CmuxNextWakeups
+import os
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
 /// (`_acpmux/connections/credential {id}` -> `{family, kind, env, expires_at}`,
@@ -252,32 +254,36 @@ public final class CloudAgentCredentials {
         return withdrawn.sorted()
     }
 
-    private func reconcile(_ chat: ChatKey, delivery: KeyDelivery, state: ConnectionState) async {
-        guard keyDeliveries[chat]?.id == delivery.id, let separator = delivery.binding.firstIndex(of: ":") else { return }
+    /// Whether it delivered the connection's credential now.
+    @discardableResult
+    private func reconcile(_ chat: ChatKey, delivery: KeyDelivery, state: ConnectionState) async -> Bool {
+        guard keyDeliveries[chat]?.id == delivery.id, let separator = delivery.binding.firstIndex(of: ":") else { return false }
         let id = String(delivery.binding[..<separator])
         let connection = state.connections.first { binding(connection: $0.id, instance: $0.credentialInstance) == delivery.binding }
         let disconnected = state.disconnected[id]?.contains { binding(connection: id, instance: $0) == delivery.binding } == true
         if disconnected || connection.map({ $0.canServeCloud && !$0.servesCloud }) == true {
             stopRefresh(chat)
             let outcome = await send(nil, to: chat, delivery: delivery)
-            guard keyDeliveries[chat]?.id == delivery.id else { return }
+            guard keyDeliveries[chat]?.id == delivery.id else { return false }
             keyDeliveries[chat]?.withdrawalPending = outcome == .failed
             if outcome == .delivered && disconnected { keyDeliveries[chat] = nil }
             // Keep an opted-out connection tracked so the same open chat resumes on re-enable.
-            return
+            return false
         }
-        guard let connection, connection.servesCloud else { return }
+        guard let connection, connection.servesCloud else { return false }
         keyDeliveries[chat]?.withdrawalPending = false
-        guard connection.enabled, connection.signedIn else { return }
+        guard connection.enabled, connection.signedIn else { return false }
         do {
-            guard let credential = try await boundCredential(delivery.binding, model: delivery.model, harness: delivery.harness) else { return }
+            guard let credential = try await boundCredential(delivery.binding, model: delivery.model, harness: delivery.harness) else { return false }
             guard await send(credential, to: chat, delivery: delivery) == .delivered,
-                  keyDeliveries[chat]?.id == delivery.id else { return }
+                  keyDeliveries[chat]?.id == delivery.id else { return false }
             trackRefresh(credential, chat: chat, delivery: delivery)
             delivery.onDelivered()
+            return true
         } catch let failure as Failure {
             if keyDeliveries[chat]?.id == delivery.id { delivery.onRefusal(failure) }
         } catch {}
+        return false
     }
 
     private func send(_ credential: CloudAgentCredential?, to chat: ChatKey, delivery: KeyDelivery) async
@@ -339,6 +345,58 @@ public final class CloudAgentCredentials {
                                          withdrawalPending: sameBinding && previous?.withdrawalPending == true)
         credentialConnectionsChanged()
         await keySync?.value
+    }
+
+    /// One Cloud machine's live daemon handshake as the app sees it (nil while none is live).
+    public struct MachineLink: Sendable, Equatable {
+        public let machine: String
+        public let handshake: String?
+        public init(machine: String, handshake: String?) { (self.machine, self.handshake) = (machine, handshake) }
+    }
+
+    /// The last live handshake seen per machine (``linked(machine:handshake:)``).
+    private var handshakes: [String: String] = [:]
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.credentials")
+
+    /// Follows the app's Cloud machines' handshakes (`links`, read under observation) until the app quits, and
+    /// sends each machine's chats their credentials again on every new one (cmux#57418): a VM that paused and
+    /// resumed, a daemon an update, crash or rollback restarted. The machine's acpmux keeps a launch
+    /// credential only in memory, so one restarted while the chat's agent slept lost it and the next turn ran
+    /// signed out ("Not logged in · Please run /login"). A refused daemon (`refused`) is no link.
+    @discardableResult
+    public func resendOnNewLinks(_ links: @escaping @MainActor @Sendable () -> [MachineLink]) -> Task<Void, Never> {
+        // task-owner: app lifetime (AppServices.afterFirstFrame); follows the Cloud machines' handshakes
+        Task { [weak self] in
+            for await snapshot in ObservationStream(links) {
+                guard let self else { return }
+                for link in snapshot where self.linked(machine: link.machine, handshake: link.handshake) {
+                    let sent = await self.resend(machine: link.machine)
+                    Self.logger.info("cloud machine \(link.machine, privacy: .public): new link, sent \(sent) chat credential(s) again")
+                }
+            }
+        }
+    }
+
+    /// Machine `machine`'s daemon answered handshake `handshake`: whether it is a new one (the first seen
+    /// counts too, as the app cannot know what the machine kept meanwhile) with chats whose credentials are due
+    /// again (``resend(machine:)``). Nil or `refused` is no link.
+    package func linked(machine: String, handshake: String?) -> Bool {
+        guard let handshake, handshake != "refused", handshakes[machine] != handshake else { return false }
+        handshakes[machine] = handshake
+        return keyDeliveries.keys.contains { $0.machine == machine }
+    }
+
+    /// Sends every chat on `machine` its bound connection's credential again, read now, by the same
+    /// reconciliation as a connection change (a connection turned off or disconnected is withdrawn, not sent).
+    /// How many were delivered; nothing when the connection list cannot be read (the next link tries again).
+    @discardableResult
+    package func resend(machine: String) async -> Int {
+        guard let readCredentialConnections, let state = await readCredentialConnections() else { return 0 }
+        var sent = 0
+        for (chat, delivery) in keyDeliveries where chat.machine == machine {
+            if await reconcile(chat, delivery: delivery, state: state) { sent += 1 }
+        }
+        return sent
     }
 
     public private(set) lazy var refresher = CloudAgentCredentialRefresher { [weak self] id in

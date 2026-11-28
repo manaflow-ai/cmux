@@ -128,6 +128,38 @@ struct CloudAgentCredentialRefresherTests {
         #expect(refresher.trackedCount == 0 && clock.sleeperCount == 0)
     }
 
+    /// cmux#57418: a Claude chat on a Cloud machine whose acpmux restarted while its agent slept (a VM
+    /// resumed, a machine update) lost its token ("Not logged in"). The machine's next handshake sends every
+    /// chat on it its bound connection's credential again, read now; the same handshake again, none, a refused
+    /// daemon or a machine with no chat sends nothing, and another machine's chats are left alone.
+    @Test func aNewLinkToTheMachineSendsItsChatsTheirCredentialsAgain() async throws {
+        let instance = UUID().uuidString
+        var reads = 0
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
+            reads += 1
+            return try keyReply(kind: "api-key", instance: instance, key: "fixture-\(reads)")
+        }
+        credentials.readCredentialConnections = {
+            .init(connections: [.init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)])
+        }
+        let launch = try await credentials.credential(forConnection: "anthropic-key")
+        let here = Machine(), there = Machine()
+        credentials.started(chat: "tab-1", machine: "m1", on: launch, push: here.push)
+        credentials.started(chat: "tab-2", machine: "m2", on: launch, push: there.push)
+        await credentials.keySync?.value
+        let (startedHere, startedThere) = (here.pushes.count, there.pushes.count)
+
+        #expect(credentials.linked(machine: "m1", handshake: "a"), "the first handshake seen")
+        #expect(!credentials.linked(machine: "m1", handshake: "a"))
+        #expect(!credentials.linked(machine: "m1", handshake: nil))
+        #expect(!credentials.linked(machine: "m1", handshake: "refused"))
+        #expect(!credentials.linked(machine: "m3", handshake: "x"), "no chat there")
+        #expect(credentials.linked(machine: "m1", handshake: "b"))
+        #expect(await credentials.resend(machine: "m1") == 1)
+        #expect(here.pushes.count == startedHere + 1 && there.pushes.count == startedThere)
+        #expect(here.pushes.last?.keys.sorted() == ["ANTHROPIC_API_KEY"])
+    }
+
     @Test func aFailedReadOrPushIsTriedAgainAMinuteLater() async throws {
         let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
         let refresher = make(clock, acpmux)

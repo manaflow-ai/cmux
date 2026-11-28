@@ -403,6 +403,11 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// The owner's Mac gave this chat a launch credential (`agent_credentials.rs`): a fact, never
+    /// the value or its name. The credential itself lives in memory only, so a chat that says this
+    /// and holds none lost it to a daemon restart, which its sign-in failure says (cmux#57418).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_credential: bool,
     /// A remote-origin session whose caller asked for the VM boundary
     /// (`hub/vm_boundary.rs`): its Claude Code runs without the platform
     /// sandbox while this machine takes the boundary. A fork or sub-session

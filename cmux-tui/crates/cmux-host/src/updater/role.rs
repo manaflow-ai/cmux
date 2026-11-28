@@ -1293,6 +1293,10 @@ pub fn install_pinned(paths: &Paths, file: &Path, commit: &str, committed_at: u6
 /// records the update as pending, arms the guard, relinks the work link, flips
 /// `/opt/cmux/current` and restarts the services. `what` names the verb in the log.
 fn flip_and_restart(paths: &Paths, plan: Plan, what: &str) -> Outcome {
+    // Honors no hold, but a chat whose launch credential only acpmux's memory keeps still gets its
+    // agent woken first, so the restart does not sign it out (cmux#57418: the app's update on every
+    // reconnect, a resumed VM's, restarted acpmux under a sleeping Claude chat: "Not logged in").
+    wake_credentials_before_restart(what);
     let pending = plan.pending(now());
     if let Err(e) = save_pending(paths, &pending) {
         return Outcome::Failed(format!("recording the update: {e}"));
@@ -1712,17 +1716,41 @@ fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
     let began = Instant::now();
     CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).before_flip(
         acpmux_look,
-        |id| {
-            if stopped() || began.elapsed() >= WAKES_WITHIN {
-                return credential_wake::Woke::NotReached;
-            }
-            match acpmux(&["--json", "session", "wake", id]) {
-                Some((ok, reply)) => credential_wake::woke(ok, &reply),
-                None => credential_wake::Woke::Failed,
-            }
-        },
+        |id| wake_session(id, began),
         log,
     )
+}
+
+/// One round of [`acpmux_busy_before_flip`]'s wakes for a flip that waits for nothing
+/// ([`flip_and_restart`]): every chat whose launch credential only acpmux's memory holds gets its agent
+/// started on it, within [`WAKES_WITHIN`], so the new acpmux adopts that agent and reads the credential
+/// back. A wake that fails or is not reached is logged, and the flip goes anyway.
+fn wake_credentials_before_restart(what: &str) {
+    let ls = match acpmux_look() {
+        Ok((_, Some(ls))) => ls,
+        Ok((_, None)) => return,
+        Err(e) => return log(&format!("{what}: no credential wakes ({e})")),
+    };
+    let began = Instant::now();
+    let looked = CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).look(
+        &ls,
+        |id| wake_session(id, began),
+        log,
+    );
+    if !looked.holding.is_empty() {
+        log(&format!("{what} goes on; not woken: {}", looked.holding.join(", ")));
+    }
+}
+
+/// `acpmux session wake ID`, unless the updater was told to stop or the look's time ran out.
+fn wake_session(id: &str, began: Instant) -> credential_wake::Woke {
+    if stopped() || began.elapsed() >= WAKES_WITHIN {
+        return credential_wake::Woke::NotReached;
+    }
+    match acpmux(&["--json", "session", "wake", id]) {
+        Some((ok, reply)) => credential_wake::woke(ok, &reply),
+        None => credential_wake::Woke::Failed,
+    }
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.

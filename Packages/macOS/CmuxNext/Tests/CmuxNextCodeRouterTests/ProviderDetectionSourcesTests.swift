@@ -272,6 +272,17 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.sources == [.environment("CLAUDE_CODE_OAUTH_TOKEN")])
     }
 
+    /// cmux#57418: a pasted setup token loses every space, line break and zero-width space a copy put in it.
+    @Test func aPastedClaudeTokenLosesAllItsWhitespace() throws {
+        let resolver = CredentialResolver(environment: Self.detector().environment, keys: NoSavedKeys())
+        let pasted = "\u{FEFF} sk-ant-oat01-abc\n  def\t\u{200B}ghi \r\n"
+        guard case .claudeOAuthToken(let token, _) = try resolver.credential(for: .claude, pasted: pasted) else {
+            Issue.record("not a Claude OAuth token"); return
+        }
+        #expect(token == "sk-ant-oat01-abcdefghi")
+        #expect(throws: CredentialResolutionError.needsPastedSecret) { try resolver.credential(for: .claude, pasted: " \n\u{200B} ") }
+    }
+
     @Test func claudeGatewayTokenInSettingsEnv() {
         let settings = "{\"env\": {\"ANTHROPIC_BASE_URL\": \"http://127.0.0.1:31415\", \"ANTHROPIC_AUTH_TOKEN\": \"t\"}}"
         let detection = Self.detector(files: ["/fixture/home/.claude/settings.json": settings]).detectClaudeCode()

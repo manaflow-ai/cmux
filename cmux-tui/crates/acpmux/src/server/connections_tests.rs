@@ -1022,6 +1022,19 @@ fn an_openrouter_key_is_local_even_with_cloud_enabled() {
     );
 }
 
+/// cmux#57418: Settings said Connected for Cloud on any pasted token; one Anthropic refuses
+/// is now refused at the paste, and only an unreachable Anthropic saves unasked.
+#[test]
+fn a_claude_token_anthropic_refuses_is_not_saved() {
+    use key_check::Verdict;
+    let refused = claude_token_refusal(&Verdict::BadKey(401)).unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "claude_token.rejected");
+    assert!(refused.message.contains("claude setup-token"), "{}", refused.message);
+    assert!(claude_token_refusal(&Verdict::BadShape).is_err());
+    assert!(claude_token_refusal(&Verdict::Ok).is_ok());
+    assert!(claude_token_refusal(&Verdict::Unreachable("HTTP 503".into())).is_ok());
+}
+
 #[test]
 fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
     let d = dirs();
@@ -1035,6 +1048,11 @@ fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
     let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
     assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
     assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
+    // cmux#57418: the invisible spaces a copy adds go too (zero-width space, joiners, BOM).
+    assert_eq!(
+        delivered("claude-token", "\u{FEFF}sk-ant-oat01-ab\u{200B}c\u{2060}d".into()),
+        "sk-ant-oat01-abcd"
+    );
 }
 
 #[test]

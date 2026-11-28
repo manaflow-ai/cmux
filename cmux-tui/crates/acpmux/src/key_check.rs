@@ -84,6 +84,9 @@ pub fn without_whitespace(secret: &str) -> String {
         .collect()
 }
 
+/// What a Claude Code setup token starts with.
+pub const CLAUDE_TOKEN_PREFIX: &str = "sk-ant-oat";
+
 /// The prefix a provider's keys start with; None: no shape is checked.
 fn prefix(provider: &str) -> Option<&'static str> {
     match provider {
@@ -124,6 +127,13 @@ fn probe(
     client: &reqwest::Client,
 ) -> reqwest::RequestBuilder {
     match provider {
+        // A Claude Code setup token (`claude setup-token`) is an OAuth bearer, not an API key:
+        // Anthropic reads it from Authorization with the OAuth beta header (cmux#57418).
+        "anthropic" if key.starts_with(CLAUDE_TOKEN_PREFIX) => client
+            .get(format!("{base}/v1/models?limit=1"))
+            .bearer_auth(key)
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .header("anthropic-version", "2023-06-01"),
         "anthropic" => client
             .get(format!("{base}/v1/models?limit=1"))
             .header("x-api-key", key)

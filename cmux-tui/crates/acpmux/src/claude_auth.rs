@@ -500,6 +500,17 @@ fn rc_file(shell: Option<&str>) -> &'static str {
     }
 }
 
+/// A Cloud chat's sign-in failure when the owner's Mac had given it a launch credential that this
+/// machine's acpmux no longer holds (memory only, `agent_credentials.rs`): a restart while the
+/// chat's agent slept lost it (cmux#57418). The real cause, where the generic text sent the person
+/// to set up an account they already have. The Mac sends it again on its next link to the machine.
+pub fn lost_credential_text(original: &str) -> String {
+    format!(
+        "Claude is not signed in here: this Cloud machine lost the Claude sign-in your Mac sent for this chat (its acpmux restarted while the chat was idle). Keep the cmux app open on your Mac: it sends the sign-in again when it reconnects to this machine. Then send the message again. (Claude said: {})",
+        original.trim()
+    )
+}
+
 /// A Cloud machine's sign-in failure. The machine never holds a Claude login: its Claude reaches
 /// models only through the Cloud service's model route (the machine's coderouter edge), which holds
 /// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a

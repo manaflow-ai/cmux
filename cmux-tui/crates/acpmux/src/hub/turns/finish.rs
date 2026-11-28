@@ -258,10 +258,17 @@ impl Hub {
                 && crate::claude_auth::spawned(&session.id)
                     .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
                 && self.use_gateway_now(session).await;
+            let lost = !route_arrived
+                && cloud_host
+                && session.read_meta(|m| m.owner_credential)
+                && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_none();
             e.message = if route_arrived {
                 tracing::info!(session = %session.id, "Claude started before this machine's model route resolved: the agent restarts on it");
                 self.restart_agent_after_turn(session);
                 crate::claude_auth::route_arrived_text(&e.message)
+            } else if lost {
+                tracing::warn!(session = %session.id, "the chat's launch credential was lost to a daemon restart");
+                crate::claude_auth::lost_credential_text(&e.message)
             } else if fell_back {
                 tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
                 crate::claude_auth::gateway_fallback_text(&e.message)

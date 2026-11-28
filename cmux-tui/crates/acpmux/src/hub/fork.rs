@@ -1057,6 +1057,8 @@ impl Hub {
             // onto another harness is that device's new chat ([`Retarget::remote`]).
             remote_origin: parent_meta.remote_origin || target.as_ref().is_some_and(|t| t.remote),
             vm_boundary: parent_meta.vm_boundary,
+            // Set below, with the credential the fork carries.
+            owner_credential: false,
             session_env,
             workspace_id,
             // The fork resumes the parent from its store, and its conversation lands there.
@@ -1170,7 +1172,18 @@ impl Hub {
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
         }
+        // A Cloud chat's launch credential lives in this daemon's memory only (`agent_credentials.rs`):
+        // a fork of it onto the same family carries it, or the fork's agent started on the machine's own
+        // route and said "Claude Code is signed out" (cmux#57418). Another family's fork goes without.
+        let carried =
+            session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|c| {
+                target.as_ref().is_none_or(|t| {
+                    crate::agent_credentials::Family::of_harness(&t.family) == Some(c.family())
+                })
+            });
+        meta.owner_credential = carried.is_some();
         let new = self.make_session(meta);
+        *new.credential.lock().unwrap_or_else(|e| e.into_inner()) = carried;
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             Made::AgentInFork => {
