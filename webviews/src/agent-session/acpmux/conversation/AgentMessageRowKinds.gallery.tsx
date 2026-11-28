@@ -19,7 +19,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import type { MessageRowLook } from "./messageRowLook";
-import type { GroupHoverLook } from "./MessageGroupHover";
+import type { GroupHoverLook } from "./messageGroupHoverModel";
 
 type Props = { look: MessageRowLook; hover?: GroupHoverLook };
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -105,7 +105,8 @@ export default componentEntry<Props>({
     const { acpmuxSendCall } = await import("./acpmuxSends");
     const { incomingPrompt } = await import("./incomingMessage");
     const { inboxNotice } = await import("./inboxNotice");
-    const { GroupHoverLookContext, MessageGroupHover, hoverMessages } = await import("./MessageGroupHover");
+    const { MessageGroupHover } = await import("./MessageGroupHover");
+    const { GroupHoverLookContext, hoverMessages } = await import("./messageGroupHoverModel");
     const { SubagentDoneLine } = await import("../subagents/SubagentDoneLine");
     const { DoneReportLookContext } = await import("../subagents/subagentDoneLineModel");
     const { SubagentNavContext } = await import("../subagents/subagentGroupModel");

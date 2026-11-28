@@ -6,7 +6,7 @@
 // Export saves what the view shows: CSV through acpmux to Downloads, JSON (the answer on screen)
 // through the host's save panel. Every number is the platform's; the page formats and orders them.
 // Built like History > Costs (ledger/LedgerScreen.tsx) and with its formatters; spend reads as time.
-import { useRef, useState } from "react";
+import { useState, useRef } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -38,6 +38,7 @@ import {
   type TeamAuditRow,
   type TeamAuditTotals,
 } from "./teamAuditModel";
+import { TEAM_AUDIT_VIEWS } from "./teamAuditViewList";
 import { EfficiencyView, OverviewView } from "./TeamAuditViews";
 import {
   USAGE_DRILL_ORDER,
@@ -50,7 +51,6 @@ import {
 import "../ledger/ledger.css";
 import "./teamAudit.css";
 
-export const TEAM_AUDIT_VIEWS = ["overview", "breakdown", "efficiency"] as const;
 export type TeamAuditView = (typeof TEAM_AUDIT_VIEWS)[number];
 
 type Props = {
