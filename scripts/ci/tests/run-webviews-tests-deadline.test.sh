@@ -50,6 +50,28 @@ files = {str(name).split(" > ", 1)[0] for name in names}
 sys.exit(0 if files == {"test/a-fast.test.ts"} else 1)
 PY
 
+# A file red at once whose alone retry comes after the deadline: shard 3 of batch run 46058976708 (11-27) ended at
+# `cat` of that retry's missing log, before the summary that prints every failure.
+retry="$WORK/retry"
+mkdir -p "$retry/webviews/test" "$WORK/bin2"
+echo "// e-red" > "$retry/webviews/test/e-red.test.ts"
+git -C "$retry" init -q
+git -C "$retry" add -A
+cat > "$WORK/bin2/bun" <<'EOF2'
+#!/usr/bin/env bash
+echo "(fail) e-red named failure"; sleep 3; exit 1
+EOF2
+chmod +x "$WORK/bin2/bun"
+status=0
+(cd "$retry/webviews" && PATH="$WORK/bin2:$PATH" CMUX_WEB_TEST_JOBS=1 CMUX_WEB_TEST_RETRIES=1 \
+  CMUX_WEB_TEST_RESULTS="$WORK/retry.json" CMUX_WEB_TEST_STOP_AT=$(($(date +%s) + 4)) \
+  bash "$ROOT/scripts/ci/run-webviews-tests.sh") > "$WORK/retry-out" 2>&1 || status=$?
+[ "$status" -ne 0 ] || fail "a red file must fail the run"
+grep -q "No such file" "$WORK/retry-out" && fail "an unrun retry must not cat a missing log"
+grep -q "its retry did not finish before CMUX_WEB_TEST_STOP_AT" "$WORK/retry-out" || fail "an unrun retry keeps the first verdict"
+grep -q "e-red named failure" "$WORK/retry-out" || fail "the final summary prints the first run's failure"
+[ "$fails" -eq 0 ] || cat "$WORK/retry-out" >&2
+
 if [ "$fails" -ne 0 ]; then
   cat "$WORK/out" >&2
   exit 1
