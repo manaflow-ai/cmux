@@ -50,6 +50,8 @@ EXEMPT = {
     "calls (one branch read, at most one dispatch a tick) are the dispatch path the floor keeps calls for",
     "ci-main-full-suite.yml:report": "runs on the three-hourly tick only (8 a day) and once per completed "
     "full-suite run; its reads go out as the cmux-bot App (gh_app_token.sh --reads-only)",
+    "cloud-vm-image-roll-tick-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
+    "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-perf-cron-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
     "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-post-merge-dispatch.yml:tick": "a dispatch path (two reads a tick); cmux#55829 moves it to the "

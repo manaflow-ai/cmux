@@ -172,6 +172,7 @@ WRITTEN_OUT: dict[str, set[str]] = {
     'cloud-vm-image-contract.yml': {'promote'},
     'cloud-vm-image-full-bake.yml': {'dispatch'},
     'cloud-vm-image-reachability.yml': {'reachable'},
+    'cloud-vm-image-roll-tick-dispatch.yml': {'dispatch'},
     'cloud-vm-migrate.yml': {'migrate-production', 'migrate-staging'},
     'cloud-vm-smoke-sweep.yml': {'sweep'},
     'cmux-browser.yml': {'host-tests'},
