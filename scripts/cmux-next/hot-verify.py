@@ -2306,12 +2306,27 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
+# Files under a Resources/ folder the complete app bundles as data, never as configuration or code: Info.plist,
+# entitlements and scripts change what the app is, so they stay an explicit build (a manifest's reason).
+RESOURCE_NOT_DATA = (".plist", ".entitlements", ".sh", ".py", ".dylib", ".so", ".a")
+
+
+def bundled_resource(path: str) -> bool:
+    """Whether PATH is a data file the complete app bundles from a Resources/ folder (a theme file, an image, a
+    JSON table). cmux#47278 changed only Resources/theme-files/*.json (Rust and web beside it): its plan named
+    `Swift, resources or manifests` with no .swift path, so no look was built and cmux/ui-proof held it pending."""
+    parts = path.split("/")
+    return ("Resources" in parts[:-1] and "bin" not in parts[:-1] and not parts[-1].startswith(".")
+            and not parts[-1].endswith(RESOURCE_NOT_DATA))
+
+
 def can_build_swift_app(planned: dict) -> bool:
     """Whether a complete fleet app can cover every build-required layer in the plan.
 
     A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. Other build reasons (FFI,
-    manifests, bundled helpers) remain an explicit build-required result.
+    that are live-swappable when they accompany a Swift change, and the data files it bundles from
+    Resources/ (bundled_resource). Other build reasons (FFI, manifests, Info.plist, bundled helpers)
+    remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
@@ -2321,7 +2336,8 @@ def can_build_swift_app(planned: dict) -> bool:
     # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
-    return all(paths and all(copy(path) if reason == "strings" else swift(path) for path in paths)
+    return all(paths and all(copy(path) if reason == "strings" else (swift(path) or bundled_resource(path))
+                             for path in paths)
                for reason, paths in build.items())
 
 
