@@ -95,6 +95,16 @@ public struct MobileHostDeviceIdentity: Sendable {
         return id
     }
 
+    /// Keeps `id` as this account's id on this computer: the service still lists this Mac as
+    /// `id` after a removal record turned out stale (``MobileHostRemovalMarker``).
+    public func adopt(_ id: String) throws {
+        guard let id = UUID(uuidString: id)?.uuidString.lowercased() else { return }
+        try write(id, to: file)
+        if let machine = hostUUID().map({ Self.machineTag(owner: owner, hostUUID: $0) }) {
+            try write(machine, to: machineFile)
+        }
+    }
+
     /// Forgets this account's id (the owner removed this Mac, or the service says another
     /// account owns it): the next ``deviceID()`` is new. Other accounts' ids stay.
     public func forget() {

@@ -62,6 +62,9 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// A tagged dev build's cloud data space: hostd sends it as `X-Cmux-Build-Space` on every mobile service
     /// request and its signaling socket (`CMUX_MOBILE_BUILD_SPACE`). Nil (nightly, stable): no variable, no header.
     public var buildSpace: CMUXBuildSpace?
+    /// A removal the app recorded (``MobileHostRemovalMarker/recordedValue()``): hostd checks it with
+    /// the service before registering (`CMUX_MOBILE_RECORDED_REMOVAL`). Nil: none recorded.
+    public var recordedRemoval: String?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -132,6 +135,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
         if let acpmuxHome, !acpmuxHome.isEmpty { environment["CMUX_MOBILE_ACPMUX_HOME"] = acpmuxHome }
         if let buildSpace { environment["CMUX_MOBILE_BUILD_SPACE"] = buildSpace.headerValue }
+        if let recordedRemoval, !recordedRemoval.isEmpty { environment["CMUX_MOBILE_RECORDED_REMOVAL"] = recordedRemoval }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
         if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }

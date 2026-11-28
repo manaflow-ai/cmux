@@ -285,6 +285,7 @@ public final class IPhoneHostService {
                 self.state = next
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 if next.phase == .deviceIDTaken, before.phase != .deviceIDTaken { self.renewDeviceID() }
+                if let cleared = next.clearedRemoval, cleared != before.clearedRemoval { self.clearStaleRemoval(deviceID: cleared) }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
@@ -496,12 +497,29 @@ public final class IPhoneHostService {
         setKeepAwake(false)
         guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
         resolvedDevice = nil
+        let marker = MobileHostRemovalMarker(directory: dependencies.stateDirectory)
+        // The id that was removed: the one an earlier record names (hostd confirmed it), else the
+        // one the stopped hostd registered.
+        let removedID = (marker.account() == key ? marker.deviceID() : nil) ?? state.stoppedDevice?.deviceID
         do {
-            try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
-                .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner))
+            try marker.record(account: key, deviceID: removedID,
+                              identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner))
         } catch {
             logger.error("could not record the removal: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// hostd checked the recorded removal and the service still lists this Mac as `deviceID`: the
+    /// record was stale. Forget it and keep that id, so the phones keep this Mac.
+    private func clearStaleRemoval(deviceID: String) {
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        logger.notice("iPhone host: the recorded removal was stale (the service still lists this Mac); connecting")
+        MobileHostRemovalMarker(directory: dependencies.stateDirectory).clear()
+        removed = false
+        resolvedDevice = (owner, deviceID)
+        let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner)
+        // task-owner: one file write off the main actor
+        Task.detached(priority: .utility) { try? identity.adopt(deviceID) }
     }
 
     /// The service refused this account's device id (another account registered it, say an id an
@@ -675,13 +693,13 @@ public final class IPhoneHostService {
                 await supervisor.stop(phase: .unavailable(IPhoneHostStrings.unavailable))
                 return
             }
-            // Removed by the owner (this launch or an earlier one): stay stopped.
-            if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
-                self?.removed = true
-                self?.setKeepAwake(false)
-                await supervisor.stop(phase: .removed)
-                return
-            }
+            // A removal recorded for this account (this launch or an earlier one) is checked, never
+            // trusted for good: hostd asks the service first (`CMUX_MOBILE_RECORDED_REMOVAL`) and stays
+            // stopped only when the Mac is no longer listed. A record an older hostd wrote for a 4002
+            // `silent` close kept this Mac off after every relaunch (2026-11-27).
+            let marker = MobileHostRemovalMarker(directory: dependencies.stateDirectory)
+            let recordedRemoval = key.flatMap { marker.account() == $0 ? marker.recordedValue() : nil }
+            let removedID = recordedRemoval == nil ? nil : marker.deviceID()
             let socket: String
             do {
                 socket = try await dependencies.daemonSocket()
@@ -717,7 +735,12 @@ public final class IPhoneHostService {
                 // This account's own id: another account signed in to this build has its own.
                 let identityFile = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: want.userID)
                 // task-owner: one file read (or first write) off the main actor; awaited here
-                let deviceID = try await Task.detached(priority: .medium) { try identityFile.deviceID() }.value
+                let deviceID = try await Task.detached(priority: .medium) {
+                    // Checking a recorded removal: hostd registers the removed id again only if the
+                    // service still lists it (a stale record), so the phones keep this Mac.
+                    if let removedID { try identityFile.adopt(removedID) }
+                    return try identityFile.deviceID()
+                }.value
                 self?.resolvedDevice = (want.userID, deviceID)
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
@@ -739,8 +762,9 @@ public final class IPhoneHostService {
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
-                let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
+                var launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
+                launch.recordedRemoval = recordedRemoval
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),

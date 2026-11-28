@@ -128,6 +128,11 @@ struct State {
     /// `POST /v1/devices`: device id → the user who registered it first (the real service
     /// answers `403 not_owner` to anyone else).
     owners: HashMap<String, String>,
+    /// `POST /v1/devices` bodies the service still lists (`GET /v1/me/devices`): device id →
+    /// (user, body). [`FakeSignaling::remove_device`] drops one, as `DELETE /v1/devices/:id` does.
+    registrations: HashMap<String, (String, Value)>,
+    /// How many times each device's signaling socket was admitted.
+    signal_connects: HashMap<String, u64>,
     /// When each signal was forwarded: (sessionId, payload kind, instant).
     forwarded: Vec<(String, String, std::time::Instant)>,
     /// The relay's joined sockets: sessionId → device → its socket.
@@ -291,6 +296,43 @@ impl FakeSignaling {
         state.devices.get(device).is_some_and(|d| d.out.send(Message::Text(frame.to_string().into())).is_ok())
     }
 
+    /// Close the socket of `device` with `code` and `reason`, as the backend does (team-hub.ts:
+    /// 4002 `silent` when its pings stopped, 4002 `removed` when the owner removed it).
+    pub fn close_device(&self, device: &str, code: u16, reason: &str) {
+        let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
+        if let Some(device) = removed {
+            let _ = device.out.send(Message::Close(Some(CloseFrame {
+                code: CloseCode::Library(code),
+                reason: reason.to_owned().into(),
+            })));
+        }
+    }
+
+    /// The owner removes `device` (`DELETE /v1/devices/:id`): it is no longer listed, and its
+    /// socket closes with 4002 `removed`.
+    pub fn remove_device(&self, device: &str) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).registrations.remove(device);
+        self.close_device(device, 4002, "removed");
+    }
+
+    /// Register `device` for `user` as `POST /v1/devices` would (a record the service lists).
+    pub fn seed_device(&self, user: &str, device: &str, body: Value) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.owners.insert(device.to_owned(), user.to_owned());
+        state.registrations.insert(device.to_owned(), (user.to_owned(), body));
+    }
+
+    /// How many times `device`'s signaling socket was admitted.
+    pub fn signal_connects(&self, device: &str) -> u64 {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .signal_connects
+            .get(device)
+            .copied()
+            .unwrap_or(0)
+    }
+
     /// Drop the socket of `device` (simulates a signaling outage).
     pub fn kick(&self, device: &str) {
         let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
@@ -351,6 +393,12 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                         reason: "replaced".into(),
                     })));
                 }
+                *state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .signal_connects
+                    .entry(device.clone())
+                    .or_default() += 1;
                 identity = Some((user, device));
                 Ok(response)
             }
@@ -961,10 +1009,29 @@ async fn answer_http(
                 json!({"error": {"code": "not_owner", "message": "this deviceId belongs to another user"}}),
             ),
             _ => {
-                state.owners.insert(id, user);
+                state.owners.insert(id.clone(), user.clone());
+                state.registrations.insert(id, (user, body.clone()));
                 ("200 OK", json!({"device": body}))
             }
         }
+    } else if line.starts_with("GET /v1/me/devices") {
+        let user = user.unwrap_or_default();
+        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        let devices: Vec<Value> = state
+            .registrations
+            .iter()
+            .filter(|(_, (owner, _))| *owner == user)
+            .map(|(id, (_, body))| {
+                json!({
+                    "deviceId": id,
+                    "kind": body.get("kind").cloned().unwrap_or(Value::Null),
+                    "name": body.get("name").cloned().unwrap_or(Value::Null),
+                    "machineId": body.get("machineId").cloned().unwrap_or(Value::Null),
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                })
+            })
+            .collect();
+        ("200 OK", json!({"devices": devices}))
     } else {
         ("404 Not Found", json!({"error": "not_found"}))
     };

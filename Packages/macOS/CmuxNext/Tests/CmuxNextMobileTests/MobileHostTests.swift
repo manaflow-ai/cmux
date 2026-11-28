@@ -307,13 +307,45 @@ import Testing
         let othersID = try other.deviceID()
         let marker = MobileHostRemovalMarker(directory: directory)
         #expect(marker.account() == nil)
-        try marker.record(account: "u\u{0}personal-u", identity: identity)
+        try marker.record(account: "u\u{0}personal-u", deviceID: first, identity: identity)
         #expect(marker.account() == "u\u{0}personal-u")
+        #expect(marker.deviceID() == first && marker.recordedValue() == first)
         // Allowing again registers a new device; another account's id is untouched.
         #expect(try identity.deviceID() != first)
         #expect(try other.deviceID() == othersID)
         marker.clear()
         #expect(marker.account() == nil)
+    }
+
+    /// A removal record is checked by hostd, never trusted for good: the launch hands it over
+    /// (`CMUX_MOBILE_RECORDED_REMOVAL`), a record from before ids were kept (the one-line file a
+    /// 2026-11-27 NIGHTLY wrote for a `4002 silent` close) as `legacy`, and hostd's
+    /// `removal_cleared` answer is folded into the state for the iPhone host to clear it.
+    @Test func aRecordedRemovalIsHandedToHostdToCheck() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-recorded-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = MobileHostRemovalMarker(directory: directory)
+        try Data("u\u{0}personal-u".utf8).write(to: marker.file)
+        #expect(marker.account() == "u\u{0}personal-u")
+        #expect(marker.deviceID() == nil && marker.recordedValue() == MobileHostRemovalMarker.legacyValue)
+
+        var launch = Self.launch(executable: URL(fileURLWithPath: "/bin/true"))
+        #expect(launch.environment(inherited: [:])["CMUX_MOBILE_RECORDED_REMOVAL"] == nil)
+        launch.recordedRemoval = marker.recordedValue()
+        #expect(launch.environment(inherited: [:])["CMUX_MOBILE_RECORDED_REMOVAL"] == "legacy")
+
+        let id = "332c755c-8866-479c-8a12-ed480b01c6d2"
+        let cleared = MobileHostEvent(line: #"{"type":"removal_cleared","device_id":"332c755c-8866-479c-8a12-ed480b01c6d2"}"#)
+        #expect(cleared == .removalCleared(deviceID: id))
+        #expect(MobileHostEvent(line: #"{"type":"removal_cleared"}"#) == nil)
+        var state = MobileHostState(phase: .connecting)
+        state.apply(try #require(cleared), at: Date())
+        #expect(state.clearedRemoval == id && state.phase == .connecting)
+
+        let identity = MobileHostDeviceIdentity(directory: directory, owner: "u", hostUUID: { Data(repeating: 7, count: 16) })
+        try identity.adopt(id)
+        #expect(try identity.deviceID() == id, "the still-listed id is kept, so the phones keep this Mac")
     }
 
     /// hostd reports a removal and exits 78: the supervisor shows it and never restarts.
