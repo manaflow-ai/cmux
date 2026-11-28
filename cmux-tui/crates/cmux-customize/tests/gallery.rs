@@ -247,7 +247,34 @@ fn the_thinking_dots_document_holds_together() {
         "the look names its glyph as a {{\"$file\": PATH}} reference"
     );
     let read = setup::read_dir(&dir).unwrap();
-    let doc = &read.manifest.settings["agentPane.display.thinking.glyph"];
+    glyph_holds_together(&read.manifest.settings["agentPane.display.thinking.glyph"]);
+}
+
+/// The claude-code look names its four-dot glyph by file in each folder that sets the glyph, and
+/// keeps two other takes beside it (`thinking-glyph-row.json`, `thinking-glyph-pulse.json`) that a
+/// person points the setting at to try; every one of them holds together the same way.
+#[test]
+fn the_claude_code_look_glyphs_hold_together() {
+    for folder in ["looks/claude-code/profile", "looks/claude-code/whole"] {
+        let dir = examples().join(folder);
+        let read = setup::read_dir(&dir).unwrap_or_else(|error| panic!("{folder}: {error}"));
+        glyph_holds_together(&read.manifest.settings["agentPane.display.thinking.glyph"]);
+        for take in ["thinking-glyph.json", "thinking-glyph-row.json", "thinking-glyph-pulse.json"]
+        {
+            let text = fs::read_to_string(dir.join("agent-pane").join(take))
+                .unwrap_or_else(|error| panic!("{folder}/agent-pane/{take}: {error}"));
+            let doc = cmux_config::jsonc::parse(&text).unwrap();
+            glyph_holds_together(&doc);
+            // The same check the setting gets when a person points it at this take.
+            let schema = cmux_config::schema::Schema::embedded();
+            let row = schema.row("agentPane.display.thinking.glyph").expect("the glyph row");
+            cmux_config::schema::accepts(row, &doc, &cmux_config::Domains::default())
+                .unwrap_or_else(|refusal| panic!("{folder}/agent-pane/{take}: {refusal:?}"));
+        }
+    }
+}
+
+fn glyph_holds_together(doc: &Value) {
     assert_eq!(doc["$schema"], "cmux.particles/1");
     let max = doc["particle"]["max"].as_u64().unwrap() as usize;
     let phases = doc["phases"].as_object().unwrap();

@@ -1627,7 +1627,11 @@ export default agentPaneEntry({
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread"));
+        // One loading look from the drop to the poster: the loading glass, never the neutral square
+        // between (Leo, 2026-11-08: "it is bad that there are 2+ loading states").
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-paste-loading"));
+        if (ctx.document.querySelector(".acpmux-attachment-video-unread"))
+          throw new Error("a video whose poster is on its way shows the neutral square");
       },
     },
     "attachment-loading": {
