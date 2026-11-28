@@ -25,7 +25,7 @@ jobs:
   bench:
     name: Benches against nightly baselines (not required)
     # The same label as bench-baselines-nightly.yml: its baselines are recorded per machine class.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     permissions:
       contents: read
