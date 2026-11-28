@@ -29,6 +29,7 @@ dependencies = [
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
+ "cmux-bytes",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -1604,9 +1605,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1780,6 +1783,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -3867,6 +3871,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
