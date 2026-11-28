@@ -184,14 +184,6 @@ ALLOWED: dict[str, str] = {
         'bounded retry: checks the expected workflow list with a finite retry budget',
     'nightly.yml: Ask the push group for the newest head':
         'bounded retry: asks the push group for its newest head with a finite retry budget',
-    'cmux-next-hot-verify.yml: Plan':
-        'retry only: ui_proof_verdict.py post_status POSTs once per token per round and returns on the first success; 3 rounds, 5/10/15 s apart, only after every token refused',
-    'cmux-next-hot-verify.yml: Post the proof record':
-        'retry only: ui_proof_verdict.py post_status POSTs once per token per round and returns on the first success; 3 rounds, 5/10/15 s apart, only after every token refused',
-    'pr-router.yml: Post the verdict':
-        'retry only: ui_proof_verdict.py post_status POSTs once per token per round and returns on the first success; 3 rounds, 5/10/15 s apart, only after every token refused',
-    'ui-proof-stale-sweep.yml: Turn stale pending into failure':
-        'retry only: ui_proof_verdict.py post_status POSTs once per token per round and returns on the first success; 3 rounds, 5/10/15 s apart, only after every token refused',
     'cmux-next-ios-verify-auto.yml: Dispatch the verify run on feat-cmux-next':
         'retry only: one workflow dispatch, exits on success; 3 tries 10/20 s apart only after a refusal (#63833)',
     "customize-prompts-cold-model.yml: Install feat-cmux-next's published cmux-tui client":
