@@ -120,6 +120,10 @@ jobs:
         run: |
           set -euo pipefail
           df -h "$GITHUB_WORKSPACE" "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE}" 2>/dev/null || true
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): uncapped, the kernel
+          # SIGKILLed the acpmux lib rustc twice (run 46177212071, both attempts, cmux-runner-pool-w1a-0246).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           (cd cmux-tui && cargo build -p acpmux --features tailnet --locked --bin acpmux)
           bin="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/acpmux"
           test -x "$bin"
