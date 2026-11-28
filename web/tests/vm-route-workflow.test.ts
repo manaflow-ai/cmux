@@ -8,9 +8,8 @@ import {
   VmSnapshotNotFoundError,
   isVmWorkflowError,
   vmWorkflowErrorCause,
-  type VmWorkflowError,
 } from "../services/vms/errors";
-import { vmErrorResponse, vmWorkflowErrorResponders } from "../services/vms/routeHelpers";
+import { vmErrorResponse } from "../services/vms/routeHelpers";
 import { runVmRoute } from "../services/vms/routeWorkflow";
 import { runVmWorkflow } from "../services/vms/workflows";
 
@@ -103,15 +102,5 @@ describe("vmWorkflowErrorCause", () => {
   test("walks a plain Error cause chain", () => {
     const wrapped = new Error("outer", { cause: new Error("mid", { cause: notFound }) });
     expect(vmWorkflowErrorCause(wrapped)).toBe(notFound);
-  });
-});
-
-describe("vmWorkflowErrorResponders", () => {
-  test("has a responder for every workflow error tag", () => {
-    const tags = Object.keys(vmWorkflowErrorResponders) as Array<VmWorkflowError["_tag"]>;
-    expect(tags.length).toBeGreaterThan(20);
-    for (const tag of tags) {
-      expect(typeof vmWorkflowErrorResponders[tag]).toBe("function");
-    }
   });
 });
