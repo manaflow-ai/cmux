@@ -107,6 +107,8 @@ pub(super) async fn serve_connection_from(
         preparation_cancels: StdMutex::new(HashMap::new()),
         media: crate::hub::media_handles::Handles::default(),
         remote_media: media_forward::RemoteMedia::default(),
+        outgoing_presence: Default::default(),
+        incoming_presence: Default::default(),
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
@@ -218,6 +220,9 @@ pub(super) async fn serve_connection_from(
                 );
             }
             Message::Request { id, method: m, mut params } => {
+                if m == method::MUX_SHUTDOWN {
+                    tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: read");
+                }
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
                 if m != method::INITIALIZE {
@@ -567,6 +572,7 @@ pub(super) async fn serve_connection_from(
     conn.interest.forget();
     conn.media.close_all();
     conn.remote_media.close_all();
+    conn.outgoing_presence.close(&hub);
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep

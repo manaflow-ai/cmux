@@ -380,7 +380,6 @@ pub(crate) fn take_received() -> Received {
     RECEIVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().unwrap_or_default()
 }
 
-<<<<<<< ours
 /// The received unix listener, ready to serve `socket`; else why not.
 pub(crate) fn usable(listener: UnixListener, socket: &Path) -> Result<UnixListener, String> {
     if !serves_path(&listener, socket) {
@@ -395,13 +394,6 @@ pub(crate) fn usable(listener: UnixListener, socket: &Path) -> Result<UnixListen
     Ok(listener)
 }
 
-/// A received unix listener serves `socket` only when it is bound at that path, or at the staged
-/// name `server/unix_bind.rs` binds before it moves the socket into place (`<dir>/.b<hex>/s`, the
-/// name the kernel keeps reporting). Before, every listener the daemon bound that way was refused
-/// here, so a take-over bound again while the old daemon's handed queue was still open, met it
-/// ("another acpmux daemon owns ..."), and exited after the old daemon had stopped: an update's
-/// swap left no daemon.
-=======
 /// A received unix listener serves `socket` when it is bound at that path, or at the staging name
 /// `server::bind_unix` binds it at before it renames it into place (`<dir>/.b<hex>/s`, `dir` the
 /// socket's own folder): the kernel keeps the name a socket was bound at, so every listener the
@@ -409,28 +401,7 @@ pub(crate) fn usable(listener: UnixListener, socket: &Path) -> Result<UnixListen
 /// handed listener, and the start that took over then bound again, met its own copy at the socket
 /// and exited with "another acpmux daemon owns" (18 of 19 daemon deaths in one home, 11-24 to
 /// 11-27).
->>>>>>> theirs
 pub(crate) fn serves_path(listener: &UnixListener, socket: &Path) -> bool {
-<<<<<<< ours
-    let Some(bound) =
-        listener.local_addr().ok().and_then(|a| a.as_pathname().map(Path::to_path_buf))
-    else {
-        return false;
-    };
-    super::same_path(&bound, socket) || staged_for(&bound, socket)
-}
-
-/// Whether `bound` is `server/unix_bind.rs`'s staging name for `socket`: `s` in a `.b<hex>`
-/// folder beside it.
-fn staged_for(bound: &Path, socket: &Path) -> bool {
-    let (Some(stage), Some(dir)) = (bound.parent(), socket.parent()) else { return false };
-    let stage_name = stage.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-    bound.file_name() == Some(std::ffi::OsStr::new("s"))
-        && stage_name
-            .strip_prefix(".b")
-            .is_some_and(|hex| !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()))
-        && stage.parent().is_some_and(|p| super::same_path(p, dir))
-=======
     listener
         .local_addr()
         .ok()
@@ -470,7 +441,6 @@ pub(crate) fn note_took_over_from(pid: u32) {
 /// a process that no longer runs (a copy something else kept open).
 pub(crate) fn listener_is_ours_or_gone(pid: u32) -> bool {
     pid == std::process::id() || pid == TOOK_OVER_FROM.load(Ordering::SeqCst) || !alive(pid)
->>>>>>> theirs
 }
 
 #[cfg(test)]

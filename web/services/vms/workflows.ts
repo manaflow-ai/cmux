@@ -123,6 +123,7 @@ import {
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
 import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { admitNetworkAddress } from "./networkAdmission";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
@@ -1549,6 +1550,25 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       }
       const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
       return vmEntryFromRow(existingWithReservation);
+    }
+
+    // Free-address admission (networkAdmission.ts): a full network refuses
+    // here, before the credit, the cleanup intent and the provider start, with
+    // the same vm_network_full answer the provider's own refusal maps to.
+    const admission = yield* Effect.either(admitNetworkAddress(repo, providers, {
+      provider: input.provider,
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      network: { providerNetworkId: network.providerNetworkId, cidr: network.cidr, scope: network.scope },
+      vmId: create.vm.id,
+    }));
+    if (Either.isLeft(admission)) {
+      yield* repo.markCreateFailed({
+        id: create.vm.id,
+        code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+        message: errorMessage(admission.left.cause),
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return yield* Effect.fail(admission.left);
     }
 
     // A failed row may have become retryable between the preflight lookup and
