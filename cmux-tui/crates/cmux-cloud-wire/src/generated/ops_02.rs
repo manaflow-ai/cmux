@@ -419,6 +419,61 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Answer this team's Cloud allotment proposal (a team admin): down or up moves the pooled monthly commit (to the proposal's figure when it is the proposal, one step otherwise), hold keeps it and snoozes proposals. Without action only auto and auto_max_micros change (the commit and any snooze stay). auto: true applies later proposals without asking, up to auto_max_micros of commit (null: up to the spending cap). person_hold_seconds (300, 900 or 1800; null clears it) keeps a person's machine running that long after their chat, so their next message does not wait on a resume; the held time is metered as running time, and an agent's machine pauses as before. Agent principals are refused; the client asks a person first.
+    CloudAllotmentSetOp {
+        name: "cloud.allotment.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudAllotmentSetParams,
+        result: CloudAllotmentSetResult,
+        error: CloudAllotmentSetError,
+    }
+}
+
+wire_enum! {
+    CloudAllotmentSetParamsAction {
+        Down = "down",
+        Hold = "hold",
+        Up = "up",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<CloudAllotmentSetParamsAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub auto_max_micros: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub person_hold_seconds: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentSetResult {
+    pub allotment: CloudAllotmentSetting,
+}
+
+wire_errors! {
+    /// The error codes cloud.allotment.set declares.
+    CloudAllotmentSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudAllotmentOff = "cloud.allotment.off",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first.
     CloudBillingCheckoutOp {
         name: "cloud.billing.checkout",
@@ -826,81 +881,4 @@ pub struct CloudMachineCreateParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineCreateResult {
     pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.create declares.
-    CloudMachineCreateError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudMemberBudgetReached = "cloud.member_budget.reached",
-        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudQuotaVmLimit = "cloud.quota.vm_limit",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSizeLocked = "cloud.size.locked",
-        CloudSnapshotNotFound = "cloud.snapshot.not_found",
-        CloudSpendCapReached = "cloud.spend_cap.reached",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudMachineDeleteOp {
-        name: "cloud.machine.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: CloudMachineDeleteParams,
-        result: CloudMachineDeleteResult,
-        error: CloudMachineDeleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineDeleteParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineDeleteResult {
-    pub deleted: BoolLit<true>,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.delete declares.
-    CloudMachineDeleteError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudRateLimited = "cloud.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

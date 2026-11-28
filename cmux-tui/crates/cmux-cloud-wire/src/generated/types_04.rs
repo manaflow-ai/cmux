@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    SsoConnectionJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SsoConnectionJit {
     pub enabled: bool,
@@ -889,12 +896,4 @@ pub struct TriggerInputMessage {
     pub r#type: LitMessage,
     pub conversation: String,
     pub rule: String,
-}
-
-wire_enum! {
-    TriggerInputContinueUntilItem {
-        GoalMet = "goal_met",
-        Budget = "budget",
-        Stop = "stop",
-    }
 }

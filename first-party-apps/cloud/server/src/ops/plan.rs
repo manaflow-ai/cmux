@@ -4,12 +4,16 @@
 //! billing owner; the server computes no limit itself (contract 1.5).
 //! `cloud.allotment.get` (the team's allotment and the scheduler's proposal,
 //! for the Settings Compute card) is a read of the same kind.
+//! `cloud.allotment.set` passes on only the team's hold for its people
+//! (`person_hold_seconds`); the keys that move the monthly commit are refused.
 //! `cloud.retention.set` (the team's cleanup numbers and the caller's email
 //! heads-up, answered by `cloud.plan.get` as `retention`) lives here too.
 
 use crate::api::args;
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
-use cmux_cloud_wire::{CloudAllotmentGetOp, CloudPlanGetOp, CloudUsageCurrentOp, Op};
+use cmux_cloud_wire::{
+    CloudAllotmentGetOp, CloudAllotmentSetOp, CloudPlanGetOp, CloudUsageCurrentOp, Op,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -54,6 +58,18 @@ pub(super) fn run<C: ControlPlane>(
                 decode_answer(name, ctx.wire(name, json!({}))?.value)?;
             Ok(json!(view))
         }
+        // Only the team's hold for its people. The platform's op also takes action, auto and
+        // auto_max_micros, which move the monthly commit (money): refused here until the app has a
+        // flow for them, so nothing in the app can move money through this op.
+        "cloud.allotment.set" => {
+            let map = args::object(raw, &["person_hold_seconds"])?;
+            person_hold_arg(map)?;
+            let answer: <CloudAllotmentSetOp as Op>::Result = decode_answer(
+                name,
+                ctx.wire(name, args::params(map, &["person_hold_seconds"]))?.value,
+            )?;
+            Ok(json!(answer))
+        }
         // The team's usage this month and its price, from the billing owner
         // (cmux-platform metering): checked against the catalog shape, then
         // passed through. The server prices nothing.
@@ -85,6 +101,22 @@ pub(super) fn run<C: ControlPlane>(
             Ok(json!({ "changed": changed.changed }))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
+    }
+}
+
+/// The holds a team may choose for its people, seconds (the platform's
+/// PERSON_HOLD_CHOICES_S).
+const PERSON_HOLD_CHOICES: &[u64] = &[300, 900, 1800];
+
+/// `cloud.allotment.set {person_hold_seconds}`: required, one of the choices
+/// or null (null clears it).
+fn person_hold_arg(map: &serde_json::Map<String, Value>) -> Result<(), CloudError> {
+    match map.get("person_hold_seconds") {
+        Some(Value::Null) => Ok(()),
+        Some(value) if value.as_u64().is_some_and(|n| PERSON_HOLD_CHOICES.contains(&n)) => Ok(()),
+        _ => {
+            Err(CloudError::invalid("person_hold_seconds is 300, 900 or 1800, or null to clear it"))
+        }
     }
 }
 

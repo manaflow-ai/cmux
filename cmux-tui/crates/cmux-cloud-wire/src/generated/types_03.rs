@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HomeLinkPreviewImageMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeMessage {
     pub id: MessageId,
@@ -894,11 +901,4 @@ pub struct SsoConnectionOidc {
     pub authorization_endpoint: Option<String>,
     pub token_endpoint: Option<String>,
     pub jwks_uri: Option<String>,
-}
-
-wire_enum! {
-    SsoConnectionJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
 }

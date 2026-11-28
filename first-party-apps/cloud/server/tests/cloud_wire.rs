@@ -790,6 +790,49 @@ fn snapshots_plan_billing_migration_and_upgrade() {
 }
 
 #[test]
+fn allotment_set_passes_only_the_person_hold() {
+    let mut s = server();
+    let held = s.handle(&mutation(
+        "cloud.allotment.set",
+        json!({ "person_hold_seconds": 900 }),
+        "key-allot-hold-1",
+    ));
+    assert!(held.is_ok(), "{held:?}");
+    let held = held.unwrap();
+    assert_eq!(held["allotment"]["person_hold_seconds"].as_f64(), Some(900.0));
+    assert_eq!(held["allotment"]["mode"], "ask", "the platform's stored setting comes back");
+    let cleared = s.handle(&mutation(
+        "cloud.allotment.set",
+        json!({ "person_hold_seconds": null }),
+        "key-allot-hold-clear",
+    ));
+    assert!(cleared.is_ok(), "{cleared:?}");
+    assert!(cleared.unwrap()["allotment"]["person_hold_seconds"].is_null(), "null clears the hold");
+    let sent: Vec<Value> = s.control_plane().calls.iter().map(|c| c.params.clone()).collect();
+    assert_eq!(
+        sent,
+        [json!({ "person_hold_seconds": 900 }), json!({ "person_hold_seconds": null })]
+    );
+
+    // The keys that move the monthly commit (money), a missing hold, or a hold
+    // the platform does not offer never reach the wire.
+    for bad in [
+        json!({ "action": "up" }),
+        json!({ "auto": true }),
+        json!({ "person_hold_seconds": 900, "auto_max_micros": 0 }),
+        json!({ "person_hold_seconds": 900, "action": "hold" }),
+        json!({}),
+        json!({ "person_hold_seconds": 600 }),
+        json!({ "person_hold_seconds": 900.5 }),
+        json!({ "person_hold_seconds": "900" }),
+    ] {
+        let out = s.handle(&mutation("cloud.allotment.set", bad.clone(), "key-allot-bad"));
+        assert_eq!(err_json(out)["code"], "cmux.cloud.invalid_args", "{bad}");
+    }
+    assert_eq!(s.control_plane().count("cloud.allotment.set"), 2, "nothing refused is sent");
+}
+
+#[test]
 fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
     // Each served vector case, sent as the vectors say, is answered from
     // that case (no `vector.missing`): the server forwards params unchanged.

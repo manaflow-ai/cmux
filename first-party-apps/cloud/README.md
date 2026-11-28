@@ -54,6 +54,7 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | `cloud.snapshot.delete` | mutation, destructive | never | `snapshot delete` (hidden) | `cloud.snapshot.delete {snapshot}` | origin `user` only, gesture required |
 | `cloud.plan.get` | read | default | `plan get` | `cloud.plan.get` | limits and usage in one record; no plan logic in cmux |
 | `cloud.allotment.get` | read | default | `allotment get` | `cloud.allotment.get` | the team's allotment and the scheduler's proposal, as the platform computed them (Settings Compute card) |
+| `cloud.allotment.set` | mutation, money | never | `allotment set` (hidden) | `cloud.allotment.set {person_hold_seconds}` | only the team's hold for its people (300, 900, 1800, or null to clear); the keys that move the monthly commit are refused here; origin `user` only, gesture required |
 | `cloud.usage.current` | read | default | `usage current` | `cloud.usage.current` | this month's usage and its price from the billing owner, and whether a card is on file; the server prices nothing |
 | `cloud.billing.checkout` | mutation, mutate-own | never | `billing checkout` (hidden) | `cloud.billing.checkout` | an https URL the host opens; origin `user` only, gesture required |
 | `cloud.migration.status` | read | default | `migration status` | `cloud.migration.status` | |

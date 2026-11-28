@@ -76,6 +76,8 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.plan.get", Kind::Read),
     // The team's allotment and the scheduler's proposal (Settings Compute card): a read.
     ("cloud.allotment.get", Kind::Read),
+    // The team's hold for its people: a money op on the platform, so a person sets it.
+    ("cloud.allotment.set", Kind::UserOnly),
     ("cloud.usage.current", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.

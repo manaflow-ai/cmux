@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    CloudSessionScope {
+        Mine = "mine",
+        Team = "team",
+        Following = "following",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudSessionView {
     pub key: String,
@@ -895,11 +903,4 @@ pub struct HomeLinkPreviewImage {
     pub hash: HomeSha256,
     pub mime_type: HomeLinkPreviewImageMimeType,
     pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeLinkPreviewImageMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
 }

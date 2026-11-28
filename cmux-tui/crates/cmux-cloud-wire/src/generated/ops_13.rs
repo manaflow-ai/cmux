@@ -4,6 +4,111 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes tunnel.attach declares.
+    TunnelAttachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Detach an owned WireGuard tunnel from an owned private network.
+    TunnelDetachOp {
+        name: "tunnel.detach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelDetachParams,
+        result: TunnelDetachResult,
+        error: TunnelDetachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.detach declares.
+    TunnelDetachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rotate an owned tunnel's WireGuard public key without changing its address.
+    TunnelRotateKeyOp {
+        name: "tunnel.rotate-key",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelRotateKeyParams,
+        result: TunnelRotateKeyResult,
+        error: TunnelRotateKeyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelRotateKeyParams {
+    pub device_fingerprint: String,
+    pub client_public_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelRotateKeyResult {
+    pub tunnel_id: String,
+    pub client_public_key: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.rotate-key declares.
+    TunnelRotateKeyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off).
+    UsageCapSetOp {
+        name: "usage.cap.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UsageMeterDO",
+        risk: "money",
+        principals: [Session],
+        params: UsageCapSetParams,
+        result: UsageCapSetResult,
+        error: UsageCapSetError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UsageCapSetParams {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]

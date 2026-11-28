@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TriggerInputContinueUntilItem {
+        GoalMet = "goal_met",
+        Budget = "budget",
+        Stop = "stop",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TriggerInputContinue {
     pub r#type: LitContinue,
