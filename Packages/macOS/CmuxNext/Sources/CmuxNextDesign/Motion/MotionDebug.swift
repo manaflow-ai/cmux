@@ -29,6 +29,10 @@ public struct MotionDebug {
     public init() {}
     /// Samplers other modules add for `trace_*` (the layout's pane hosts), after the caller's.
     @MainActor public static var registeredSamplers: [@MainActor (NSView) -> [String: [Any]]?] = []
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Whether a `trace_*` run samples now: views note what the trace reads only then.
+    @MainActor public static var isTracing: Bool { MotionFrameTrace.shared.isRunning }
+    #endif
     /// `samplers` read the animated geometry of the views they know (DEBUG builds: ``MotionFrameTrace``).
     /// `commitProbe` (the handler's own) times each Core Animation commit from `start` to `stop`
     /// (`work` `ca.commit`).
