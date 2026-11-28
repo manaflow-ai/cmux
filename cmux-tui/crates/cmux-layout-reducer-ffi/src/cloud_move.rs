@@ -792,15 +792,36 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             to_value(place::view(&request.flow, request.now_ms))?
         }
+        // The Auto rule on the daemon's host budget verdict (memory, battery, over budget) and
+        // the app's own sleep, disk and idle readings; `shadowLine`, when the verdict alone would
+        // move the chat, is the line the app appends to `auto-shadow.jsonl`.
         b"cloud_move_place_auto" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Request {
                 mode: place::Mode,
                 chat: place::ChatState,
-                signals: place::Signals,
+                #[serde(default)]
+                session: String,
+                #[serde(default)]
+                now_ms: u64,
+                own: place::verdict::Own,
+                #[serde(default)]
+                verdict: Option<place::verdict::Verdict>,
             }
             let request: Request = read(request)?;
-            to_value(place::auto(request.mode, &request.chat, &request.signals))?
+            let judgment = place::verdict::judge(
+                request.mode,
+                &request.chat,
+                &request.own,
+                request.verdict.as_ref(),
+            );
+            let line = place::verdict::shadow_line(request.now_ms, &request.session, &judgment);
+            let mut answer = to_value(judgment)?;
+            if let (Some(line), Some(obj)) = (line, answer.as_object_mut()) {
+                obj.insert("shadowLine".into(), Value::String(line));
+            }
+            answer
         }
         b"cloud_move_place_evacuate" => {
             #[derive(Deserialize)]
