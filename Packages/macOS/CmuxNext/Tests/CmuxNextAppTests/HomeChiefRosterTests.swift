@@ -95,6 +95,8 @@ struct HomeChiefRosterTests {
         #expect(card.hostSwitch.isHidden)
     }
 
+    /// The Hosted Chief rules' FFI smoke test: `otherHost` runs `chiefs_other_host` in Rust through
+    /// `cmux_home_call`; the rules themselves are tested in cmux-home-rules (`tests/cloud_home.rs`).
     @Test func theOtherHostIsOfferedOnlyOnTheChiefsOwnConversations() {
         let chiefs = HomeCloudChiefs(hosted: CloudChief(id: "h", displayName: "Chief", isDefault: true, mainConversation: Self.hosted.rawValue, rev: 1),
                                      placed: CloudChief(id: "p", displayName: "Chief", isDefault: false, mainConversation: Self.placed.rawValue,

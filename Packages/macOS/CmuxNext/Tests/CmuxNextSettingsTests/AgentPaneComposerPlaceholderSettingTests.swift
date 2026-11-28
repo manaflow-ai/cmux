@@ -2,7 +2,7 @@ import CmuxNextSettings
 import Testing
 
 /// `agentPane.composerPlaceholder`: the empty message box's text, a setting a profile can carry
-/// (examples/looks/t3code). Empty, the default, keeps cmux's own; it reaches the page on the
+/// (examples/looks/studio-app). Empty, the default, keeps cmux's own; it reaches the page on the
 /// `composer` event (webviews composerSettings.ts, Composer.tsx).
 struct AgentPaneComposerPlaceholderSettingTests {
     @Test func defaultIsEmpty() {
