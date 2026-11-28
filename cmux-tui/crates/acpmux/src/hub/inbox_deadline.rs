@@ -62,7 +62,11 @@ pub(in crate::hub) fn review_after_restore(session: &Session) {
 pub(in crate::hub) fn grace_ms(session: &Session) -> u64 {
     let meta = session.meta();
     let folder_gone = !meta.cwd.as_os_str().is_empty() && !meta.cwd.exists();
-    if meta.status == SessionStatus::Closed || folder_gone { 0 } else { EXPIRE_AFTER_MS }
+    if meta.status == SessionStatus::Closed || folder_gone {
+        0
+    } else {
+        EXPIRE_AFTER_MS
+    }
 }
 
 /// The new messages of `items` that expire at `now`: past their deadline by `grace` ms
