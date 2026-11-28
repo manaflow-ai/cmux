@@ -105,6 +105,7 @@ impl Hub {
                 lane_gh_broker,
                 lane_gh_carrier,
                 direct_port,
+                iroh_direct,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -211,6 +212,8 @@ impl Hub {
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;
+            // The iroh endpoint too (`hub_carrier_iroh.rs`).
+            current.iroh_direct = iroh_direct;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
@@ -224,6 +227,10 @@ impl Hub {
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            self.auto_resume_disabled.store(
+                current.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty),
+                std::sync::atomic::Ordering::SeqCst,
+            );
             current.capacity_fallback_after = capacity_fallback_after;
             // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
             current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;

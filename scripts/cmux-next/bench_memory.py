@@ -293,6 +293,43 @@ def process_table():
     return rows
 
 
+# Gates a measurement depends on, read from the app process itself (memory-agents-cron.py refuses rows taken with one
+# off): a default that lives in the code and in the docs can drift, and a number measured with the feature off must not
+# be recorded as the feature's number (memory-per-chat, 2026-11-28).
+APP_GATES = ("CMUX_NEXT_CHAT_RENDERER_RECYCLE",)
+
+
+def env_gates(ps_env_output: str, names=APP_GATES) -> dict | None:
+    """The gates' values in `ps -E -ww -o command=` output for one process (pure): {name: value or None (unset)}, or
+    None when the output holds no environment at all (another user's or a protected process: no HOME= word)."""
+    words = ps_env_output.split()
+    if not any(w.startswith("HOME=") for w in words):
+        return None
+    found = {}
+    for w in words:
+        name, sep, value = w.partition("=")
+        if sep and name in names:
+            found[name] = value  # the environment follows the command, so the last match is the env's own
+    return {name: found.get(name) for name in names}
+
+
+def app_gates(pid: int | None, launch_env: dict) -> dict:
+    """What the app process runs with for each of APP_GATES: read from its environment (`source: process`), else the
+    environment this run gave it plus launchd's (`open` merges `launchctl setenv` values in; `source: launch`)."""
+    if pid:
+        out = subprocess.run(["ps", "-E", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+        read = env_gates(out)
+        if read is not None:
+            return {"source": "process", "values": read}
+    values = {}
+    for name in APP_GATES:
+        value = launch_env.get(name)
+        if value is None and not _direct_launch:
+            value = subprocess.run(["launchctl", "getenv", name], capture_output=True, text=True).stdout.strip() or None
+        values[name] = value
+    return {"source": "launch", "values": values}
+
+
 def in_bundle(cmd: str, bundle: str) -> str | None:
     """`cmd` relative to the bundle, or None. The app runs from the real
     path (/private/tmp/...) while its daemons keep the path it handed them
@@ -903,6 +940,20 @@ def wait_chief_steady(app_pid: int, bundle: str, bound: float, quiet: float = 10
             "waited_s": round(time.monotonic() - start, 1)}
 
 
+# The windows whose --chief-up wait ended with no Chief (the run then exits 1, after writing its report).
+CHIEF_UP_MISSES: list[str] = []
+
+
+def wait_chief_up(app_pid: int, bundle: str, bound: float, step: float = 2.0) -> dict:
+    """--chief-up: before the window, wait (at most `bound` s) until the Chief's brain (optchat-chief) runs. The
+    empty app's number counts the Chief (goal ram-baseline, decision B 2026-11-28): a launch the Chief has not
+    started in yet is launch state A, about 145 MB under the state the goal judges. Returns {up, waited_s}."""
+    start = time.monotonic()
+    while chief_processes(app_pid, bundle) == 0 and time.monotonic() - start < bound:
+        time.sleep(step)  # sleep-ok: a bounded wait for the Chief's process to appear (no event for it)
+    return {"up": chief_processes(app_pid, bundle) > 0, "waited_s": round(time.monotonic() - start, 1)}
+
+
 def launch_state(result: dict, before: dict | None) -> dict:
     """The state an idle window measured: whether the Chief was up (at the window's end, and whether that
     changed in it) and how many agent pages were on screen (attribution's page list; None without it)."""
@@ -914,6 +965,9 @@ def launch_state(result: dict, before: dict | None) -> dict:
     if before is not None:
         state.update(chief_before=before["chief_processes"], chief_steady=before["steady"],
                      chief_wait_s=before["waited_s"], chief_changed_in_window=before["chief_processes"] != chief)
+    up = result.get("chief_up_wait")
+    if up is not None:
+        state.update(chief_up_wait_s=up["waited_s"], chief_up_timed_out=not up["up"])
     return state
 
 
@@ -1957,9 +2011,9 @@ def shipped_isolation(bundle: str, env: dict, relaunch: bool) -> None:
     home = env["HOME"]
     env["CFFIXED_USER_HOME"] = home
     env[smoke.UPDATER_OFF_VARIABLE] = "1"
-    # Short: a Unix socket path holds at most 104 bytes, and a step's TMPDIR is long. Named cmux*.sock in /tmp,
+    # Short: a Unix socket path holds at most 104 bytes, and a step's TMPDIR is long. Named cmux-next*.sock in /tmp,
     # where launch() looks.
-    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
+    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-next-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         os.makedirs(os.path.join(home, sub), exist_ok=True)
     try:
@@ -2486,6 +2540,10 @@ def main():
     parser.add_argument("--chief-steady", type=float, default=0, metavar="SECONDS",
                         help="before each window, wait at most SECONDS until the Chief's process count has not changed "
                              "for 10 s (the sample's launch_state records it); 0 does not wait")
+    parser.add_argument("--chief-up", type=float, default=0, metavar="SECONDS",
+                        help="before each window (and before --chief-steady), wait at most SECONDS until the Chief's "
+                             "brain (optchat-chief) runs; a window it never came up for is recorded in launch_state "
+                             "(chief_up_timed_out) and the run exits 1 after writing its report; 0 does not wait")
     parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
                         "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
@@ -2648,6 +2706,7 @@ def main():
         report["child_time_check"] = child_check
     if args.env:
         report["env"] = args.env
+    report["app_gates"] = app_gates(app_pid, dict(pair.split("=", 1) for pair in args.env))
     if args.relaunch_restored:
         report["relaunch"] = relaunch
     if gpu_no_app is not None:
@@ -2657,6 +2716,13 @@ def main():
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
         # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
         time.sleep(args.settle if settle is None else settle)
+        chief_up_wait = None  # the window's result does not exist yet; it carries this once sample() returns
+        if args.chief_up > 0:
+            chief_up_wait = wait_chief_up(app_pid, bundle, args.chief_up)
+            if not chief_up_wait["up"]:
+                CHIEF_UP_MISSES.append(label)
+                print(f"bench-memory: {label}: the Chief did not start within {args.chief_up:g} s; this window is "
+                      f"launch state A, not the Chief-up state --chief-up asked for", file=sys.stderr, flush=True)
         chief_before = wait_chief_steady(app_pid, bundle, args.chief_steady) if args.chief_steady > 0 else None
         measure, scroller = args.measure, None
         if diff_tab is not None:
@@ -2677,6 +2743,8 @@ def main():
         frames_before = PAGES.snapshot() if PAGES else None
         try:
             result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
+            if chief_up_wait is not None:
+                result["chief_up_wait"] = chief_up_wait
             if frames_before is not None:
                 result["page_frames"] = PageFrames.window(frames_before, PAGES.snapshot(), measure)
                 print(f"   page frames: {json.dumps(result['page_frames'])}", flush=True)
@@ -2887,6 +2955,8 @@ def main():
     crash = report.get("chat_renderer_crash")
     if crash is not None and not crash.get("pass"):
         sys.exit(2 if crash.get("setup_failed") else 1)
+    if CHIEF_UP_MISSES:
+        sys.exit(f"bench-memory: --chief-up: no Chief in {', '.join(CHIEF_UP_MISSES)}")
 
 
 if __name__ == "__main__":

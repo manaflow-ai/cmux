@@ -55,6 +55,10 @@ fn main() -> ExitCode {
 /// Runs the helper with `arguments` (argv without the program name).
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     if let [mode] = arguments.as_slice()
         && let Some(source) = mode.strip_prefix("--plugin-stream=")
@@ -219,11 +223,6 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         }
     };
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
-    // A Claude Code chat in this terminal takes an acpmux name (acpmux_register.rs); it runs
-    // beside the journal handoff and the inbox delivery below.
-    let session_id = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
-    let registering =
-        acpmux_register::start(&args.source, &args.native_event, session_id.as_deref());
     let delivery = plugin_stream::one_shot_identity(&args.source);
     let (request_id, encoded) =
         encode_native(&args.source, &args.native_event, terminal.as_deref(), native, delivery)?;
@@ -251,7 +250,6 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
     }
-    registering.finish();
     Ok(())
 }
 
@@ -309,10 +307,6 @@ use journal_append::{
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
-
-/// A Claude Code chat in a cmux terminal takes an acpmux name.
-#[path = "cmux-tui-hook/acpmux_register.rs"]
-mod acpmux_register;
 
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]

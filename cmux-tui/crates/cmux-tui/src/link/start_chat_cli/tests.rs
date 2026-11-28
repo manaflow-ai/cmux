@@ -2447,16 +2447,21 @@ fn a_projection_goes_first_and_only_a_folder_not_projected_is_seeded_or_copied()
     // Projected: the seed or copy never runs.
     let projected = json!({"mode": "projected", "projected": {"name": "chat-k"}});
     let answer = super::projected_or(
-        || Some(Ok(projected.clone())),
+        || Ok(projected.clone()),
         || panic!("a projected folder is never seeded or copied too"),
     );
     assert_eq!(answer, Ok(projected));
 
     // Not projected (off, a machine without projection-v1, or projecting failed): the
     // head-first seed or held copy runs, and its answer or failure is the push's.
+    // A projection that failed is never silent: its first error line rides on the answer.
     let ran = std::cell::Cell::new(false);
+    let fell = crate::link::sync_cli::project::Fallback {
+        code: "projection.failed",
+        why: "the machine did not mount the manifest".into(),
+    };
     let answer = super::projected_or(
-        || None,
+        || Err(Some(fell.clone())),
         || {
             ran.set(true);
             Err(anyhow::anyhow!("the machine went away"))
@@ -2465,6 +2470,12 @@ fn a_projection_goes_first_and_only_a_folder_not_projected_is_seeded_or_copied()
     assert!(ran.get(), "a folder not projected is seeded or copied");
     let failure = answer.unwrap_err();
     assert_eq!(failure["ok"], json!(false), "{failure}");
+    assert_eq!(failure["projection_fallback"]["code"], json!("projection.failed"), "{failure}");
+
+    // Projection off is a choice, not a fallback: the copy's answer carries none.
+    let answer =
+        super::projected_or(|| Err(None), || Err(anyhow::anyhow!("the machine went away")));
+    assert!(answer.unwrap_err().get("projection_fallback").is_none());
 }
 
 #[test]

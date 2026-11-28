@@ -1,71 +1,12 @@
 import Foundation
 
-/// A tab group inside one pane's strip (`tab-groups-v1`): named,
-/// colored, collapsible, members contiguous. Wire shape `Pane.tab_groups[]`:
-/// `{id, name, color, collapsed, saved_id, start, count, surfaces, icon}`. Command
-/// results carry the same object without the run fields.
-public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
-    public var id: TabGroupID
-    public var name: String
-    /// One of the nine group colors (`grey`, `blue`, `red`, `yellow`, `green`, `pink`,
-    /// `purple`, `cyan`, `orange`).
-    public var color: String?
-    public var collapsed: Bool
-    /// The saved record this live group is linked to (`saved-tab-groups-v1`).
-    public var savedID: SavedTabGroupID?
-    /// Strip index of the first member.
-    public var start: Int
-    public var count: Int
-    /// Member tabs in strip order.
-    public var surfaces: [SurfaceID]
-    /// The pane, in `list-tab-groups` rows only.
-    public var pane: PaneID?
-    /// The group's icon (`tab-group-icon-v1`): the shared icon string
-    /// (emoji, SF Symbol name or stored asset); nil is none.
-    public var icon: String?
+/// `TabGroupSnapshot` itself is generated from the schema's `TabGroupRun` (swift_app/bindings.json, Tree family).
+extension TabGroupSnapshot {
+    /// Member count; the wire's `count` always equals `surfaces.count`.
+    public var count: Int { surfaces.count }
 
     /// Members as `TabGroupMember`s (the pre-15518 shape).
     public var tabs: [TabGroupMember] { surfaces.map(TabGroupMember.surface) }
-
-    public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, savedID: SavedTabGroupID? = nil,
-                start: Int = 0, surfaces: [SurfaceID] = [], pane: PaneID? = nil, icon: String? = nil) {
-        self.id = id
-        self.name = name
-        self.color = color
-        self.collapsed = collapsed
-        self.savedID = savedID
-        self.start = start
-        self.count = surfaces.count
-        self.surfaces = surfaces
-        self.pane = pane
-        self.icon = icon
-    }
-
-    @available(*, deprecated, message: "Use init(id:name:color:collapsed:savedID:start:surfaces:pane:)")
-    public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, tabs: [TabGroupMember]) {
-        self.init(id: id, name: name, color: color, collapsed: collapsed, surfaces: tabs.compactMap {
-            if case .surface(let surface) = $0 { surface } else { nil }
-        })
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, color, collapsed, start, count, surfaces, pane, icon
-        case savedID = "saved_id"
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(TabGroupID.self, forKey: .id)
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        color = try c.decodeIfPresent(String.self, forKey: .color)
-        collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
-        savedID = try c.decodeIfPresent(SavedTabGroupID.self, forKey: .savedID)
-        surfaces = try c.decodeIfPresent([SurfaceID].self, forKey: .surfaces) ?? []
-        start = try c.decodeIfPresent(Int.self, forKey: .start) ?? 0
-        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? surfaces.count
-        pane = try c.decodeIfPresent(PaneID.self, forKey: .pane)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-    }
 }
 
 /// A group member, named by numeric surface or durable tab resource id.

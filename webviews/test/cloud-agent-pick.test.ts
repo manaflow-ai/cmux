@@ -28,7 +28,7 @@ test("Cloud keeps its own effort with its pick: a model pick keeps the level, an
   expect(cloudAgentPick()).toEqual({ harness: "claude", model: "opus" });
 });
 
-test("the Cloud pick is kept in its own store, apart from This Mac's remembered pick", async () => {
+test("the Cloud pick is kept in Cloud's own store, apart from This Mac's remembered pick", async () => {
   const values = new Map<string, string>();
   const prior = globalThis.localStorage;
   (globalThis as { localStorage?: unknown }).localStorage = {
@@ -38,10 +38,9 @@ test("the Cloud pick is kept in its own store, apart from This Mac's remembered 
   };
   try {
     holdCloudAgentPick({ harness: "codex", model: "gpt-6", effort: "medium" });
-    expect(JSON.parse(values.get("cmux.acpmux.cloudPick") ?? "null")).toEqual({
-      harness: "codex",
-      model: "gpt-6",
-      effort: "medium",
+    expect(JSON.parse(values.get("cmux.acpmux.cloudLastPick") ?? "null")).toEqual({
+      pick: { harness: "codex", model: "gpt-6", effort: "medium" },
+      picked: true,
     });
     expect(values.has("cmux.acpmux.lastPick")).toBe(false);
   } finally {

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
 import { MOVE_MS } from "../src/auto-sessions/model.ts"
-import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, open, person, post, runIn, setMachine, starts, takenOver, VM, vmBearer, type Person } from "./auto-sessions-support.ts"
+import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, M2, open, person, post, runIn, setMachine, starts, takenOver, VM, vmBearer, type Person } from "./auto-sessions-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -47,8 +47,38 @@ describe("auto sessions: moving a chat by hand", { timeout: 60_000 }, () => {
     await setMachine(a)
     await takenOver(a, "away")
     expect(refused(await move(a.installToken, "away", { to: "local" }))).toEqual([409, "auto.no_laptop"])
-    // A machine cannot ask for a move.
-    expect((await move(await vmBearer(a, M), "away", { to: "local" })).status).toBe(403)
+    // The machine that holds the chat asks the same, and is refused the same; another machine is not let in.
+    expect(refused(await move(await vmBearer(a, M), "away", { to: "local" }))).toEqual([409, "auto.no_laptop"])
+    expect((await move(await vmBearer(a, M2), "away", { to: "local" })).status).toBe(404)
+  })
+
+  it("the machine that holds a chat moves it and says whether it is kept in the Cloud, for the agent in it; a machine that does not hold it cannot", async () => {
+    const a = await person("machine-moves")
+    await fakeCloud(a.user)
+    await setMachine(a)
+    const vm = await vmBearer(a, M)
+    const other = await vmBearer(a, M2)
+    // Held by the laptop: the machine is only assigned, and is not let in.
+    await open(a.installToken, "near")
+    expect((await move(vm, "near", { to: "cloud" })).status).toBe(404)
+    expect((await post(vm, "near", "keep", { keepInCloud: true })).status).toBe(404)
+    expect((await session(a, "near")).keepInCloud).toBe(false)
+    // Held by the machine.
+    await takenOver(a, "far")
+    expect((await post(vm, "far", "assignment/ack", { holder: VM, epoch: 2 })).status).toBe(200)
+    expect((await post(vm, "far", "keep", { keepInCloud: true })).body.session).toMatchObject({ holder: VM, keepInCloud: true })
+    expect((await post(vm, "far", "keep", { keepInCloud: false })).body.session).toMatchObject({ holder: VM, keepInCloud: false })
+    expect((await post(other, "far", "keep", { keepInCloud: true })).status).toBe(404)
+    expect((await move(other, "far", { to: "local" })).status).toBe(404)
+    expect((await session(a, "far")).keepInCloud).toBe(false)
+    // To the laptop that stands by: the wish is written, the chat is not kept in the Cloud, and the machine gives at its renewal.
+    expect((await lease(a.installToken, "far", LAPTOP, 1, { standby: true })).body.role).toBe("standby")
+    const moved = await move(vm, "far", { to: "local" })
+    expect(moved.status).toBe(200)
+    expect(moved.body.session).toMatchObject({ holder: VM, epoch: 2, keepInCloud: false, move: { to: "local" } })
+    expect((await lease(vm, "far", VM, 2, { needsRun: true })).body).toMatchObject({ role: "holder", move: "local" })
+    // Back to the Cloud while it still holds it: kept there, the wish dropped.
+    expect((await move(vm, "far", { to: "cloud" })).body.session).toMatchObject({ holder: VM, keepInCloud: true })
   })
 
   it("a give is refused with no wish, and until the store has a snapshot that covers the last event", async () => {

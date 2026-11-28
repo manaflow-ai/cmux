@@ -12,6 +12,7 @@ import unittest
 import unittest.mock
 from argparse import Namespace
 from unittest import mock
+import io
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -164,6 +165,32 @@ class WebTickTest(unittest.TestCase):
             self.assertEqual(pmb.cmd_tick(args), 0)
         self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
 
+    def test_a_tick_that_cannot_reach_github_goes_red(self) -> None:
+        # 2026-11-27 23:55Z on: every tick's reads were rate limited on every token, each run ended green with
+        # "::warning::tick skipped", and no batch ran for over 2 h. An error that dispatched nothing is red now;
+        # a tick with nothing to do (a batch already in flight) stays green.
+        def limited(path, method="GET", fields=None, **_):
+            raise RuntimeError(f"gh api {method} {path}: API rate limit exceeded for installation ID 175618676. (HTTP 403)")
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=False)
+        out = io.StringIO()
+        with unittest.mock.patch.object(pmb, "gh_api", limited), unittest.mock.patch("sys.stdout", out):
+            self.assertEqual(pmb.cmd_tick(args), 1)
+        self.assertIn("::error::tick dispatched nothing", out.getvalue())
+
+        dispatched = []
+
+        def covered(path, method="GET", fields=None, **_):
+            if method == "POST":
+                dispatched.append(path)
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        with unittest.mock.patch.object(pmb, "gh_api", covered), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "b" * 40, "2026-11-21T11:00:00Z", status="in_progress")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([p for p in dispatched if pmb.WORKFLOW in p])
+
 
 class PlanAndJudgeTest(unittest.TestCase):
     suites = {
@@ -209,6 +236,31 @@ class PlanAndJudgeTest(unittest.TestCase):
         found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
+
+    def test_a_red_on_other_steps_is_another_red(self) -> None:
+        # Run 46058976708 (11-27): web-typecheck red on `Install dependencies` after a batch that was red on `Typecheck`.
+        # They are two reds: the install red looks past the typecheck one to the green (one confirm probe, not a
+        # seven-probe bisect of a stuck red), and the typecheck red is still the typecheck red's own known red.
+        verdicts = {"web / check": ("web", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        older = {3: ({"web / check": ("web", "failure")}, True), 2: ({"web / check": ("web", "failure")}, True),
+                 1: ({"web / check": ("web", "success")}, True)}
+        typecheck = {"web / check": frozenset({"Typecheck"})}
+        install = {"web / check": frozenset({"Install dependencies"})}
+        steps = {3: typecheck, 2: typecheck, 1: {}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, install, steps.get)
+        self.assertEqual(found, [("web / check", "web", "d" * 40)])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=install, steps_of=steps.get), [])
+        found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, typecheck, steps.get)
+        self.assertEqual(found, [])
+        self.assertIn("known red", notes[0])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=typecheck, steps_of=steps.get), [("web / check", "web", "d" * 40, "c" * 40)])
+        # Unknown steps on either side keep the job-level reading.
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, {}, steps.get)
+        self.assertEqual(found, [])
 
     def stuck_setup(self):
         verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
@@ -353,6 +405,38 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(used, ["app", "job"])
         self.assertEqual(slept, [])
 
+    def test_a_spent_write_token_falls_to_the_fallback_budget(self) -> None:
+        # The tick's dispatch: the bot App's budget spent, the job token (GH_FALLBACK_TOKEN) still has room.
+        limited = "gh: API rate limit exceeded for installation ID 175618676. (HTTP 403)"
+        replies = [(1, limited), (0, "")]
+        used: list[str] = []
+
+        def fake_run(argv, env=None, **_):
+            used.append((env or {}).get("GH_TOKEN", ""))
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr=text if code else "")
+
+        keys = ("GH_TOKEN", "GH_READ_TOKEN", "GH_FALLBACK_TOKEN")
+        saved = {k: os.environ.get(k) for k in keys}
+        os.environ.update({"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "job"})
+        os.environ.pop("GH_READ_TOKEN", None)
+        try:
+            self.assertEqual(pmb.write_tokens(), ["app", "job"])
+            self.assertEqual(pmb.read_tokens(), ["app", "job"])
+            slept: list[float] = []
+            pmb.gh_api("repos/x/y/actions/workflows/w.yml/dispatches", method="POST", fields={}, run=fake_run,
+                       sleep=slept.append, clock=lambda: 1000.0, reset_at=lambda: 1100.0)
+            self.assertEqual(used, ["app", "job"])
+            self.assertEqual(slept, [])
+            os.environ["GH_FALLBACK_TOKEN"] = "app"
+            self.assertEqual(pmb.write_tokens(), ["app"])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
 
     def test_plan_runs_every_suite_when_the_runs_are_unreadable(self) -> None:
         def refused(*_a, **_k):
@@ -388,7 +472,7 @@ class BisectTest(unittest.TestCase):
         runs = 0
         while True:
             runs += 1
-            red = commits.index(probe.sha) >= commits.index(culprit)
+            red = probe.sha != good and commits.index(probe.sha) >= commits.index(culprit)
             head = probe.bad or probe.sha
             span = commits[: commits.index(head) + 1] if probe.good == good else commits[commits.index(probe.good) + 1 : commits.index(head) + 1]
             step, value = pmb.next_step(probe, "failure" if red else "success", span)
@@ -397,12 +481,20 @@ class BisectTest(unittest.TestCase):
             self.assertEqual(step, "probe")
             probe = value
 
-    def test_every_culprit_in_31_commits_in_six_runs(self) -> None:
+    def test_every_culprit_in_31_commits_in_seven_runs(self) -> None:
         commits = [f"c{i:02d}" for i in range(31)]
         for culprit in commits:
             found, runs = self.walk(commits, culprit)
             self.assertEqual(found, culprit)
-            self.assertLessEqual(runs, 6, culprit)  # one confirming run, then log2(31) = 5
+            self.assertLessEqual(runs, 7, culprit)  # one confirming run, the good anchor, then log2(31) = 5
+
+    def test_every_culprit_in_31_commits_in_six_runs_with_the_anchor_off(self) -> None:
+        commits = [f"c{i:02d}" for i in range(31)]
+        with mock.patch.dict(os.environ, {"POST_MERGE_GOOD_ANCHOR": "0"}):
+            for culprit in commits:
+                found, runs = self.walk(commits, culprit)
+                self.assertEqual(found, culprit)
+                self.assertLessEqual(runs, 6, culprit)  # one confirming run, then log2(31) = 5
 
     def test_one_commit_needs_no_bisect(self) -> None:
         self.assertEqual(self.walk(["c0"], "c0"), ("c0", 1))
@@ -440,6 +532,51 @@ class BisectTest(unittest.TestCase):
             self.assertEqual(pmb.PR_RE.search(g("log", "-1", "--format=%s")).group(1), "103")
 
 
+class GoodAnchorTest(unittest.TestCase):
+    """A new red's bisect probes its last green once before walking good..bad (good_anchor_on): 13 of 30 confirm
+    rounds in the 24 h to 11-27 23:30Z found the parent (good itself) red too, after a walk where every probe failed."""
+
+    span = ["c1", "c2", "c3", "c4"]
+
+    def test_the_red_repeating_on_the_batch_commit_probes_good_next(self) -> None:
+        first = pmb.Probe("s", "s / j", "j", "c4", "g", "", "1", step="build")
+        step, anchor = pmb.next_step(first, "failure", self.span)
+        self.assertEqual(step, "probe")
+        self.assertEqual((anchor.sha, anchor.good, anchor.bad, anchor.step), ("g", "g", "c4", "build"))
+        self.assertTrue(pmb.is_anchor(anchor))
+
+    def test_good_red_too_ends_the_bisect_with_no_culprit(self) -> None:
+        anchor = pmb.Probe("s", "s / j", "j", "g", "g", "c4", "1")
+        self.assertEqual(pmb.next_step(anchor, "failure", self.span), ("anchored", None))
+
+    def test_good_green_walks_the_range_as_before(self) -> None:
+        anchor = pmb.Probe("s", "s / j", "j", "g", "g", "c4", "1")
+        step, nxt = pmb.next_step(anchor, "success", self.span)
+        self.assertEqual((step, nxt.sha, nxt.good, nxt.bad), ("probe", "c2", "g", "c4"))
+        self.assertFalse(pmb.is_anchor(nxt))
+        self.assertEqual(pmb.next_step(pmb.Probe("s", "s / j", "j", "g", "g", "c1", "1"), "success", ["c1"]), ("culprit", "c1"))
+
+    def test_a_one_commit_range_and_the_off_switch_skip_the_anchor(self) -> None:
+        first = pmb.Probe("s", "s / j", "j", "c1", "g", "", "1")
+        self.assertEqual(pmb.next_step(first, "failure", ["c1"]), ("culprit", "c1"))
+        with mock.patch.dict(os.environ, {"POST_MERGE_GOOD_ANCHOR": "0"}):
+            step, nxt = pmb.next_step(pmb.Probe("s", "s / j", "j", "c4", "g", "", "1"), "failure", self.span)
+        self.assertEqual((step, nxt.sha), ("probe", "c2"))
+
+    def test_probe_refusal_takes_the_anchor_at_the_last_green(self) -> None:
+        origin = {"id": 9, "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "main", "head_sha": "c4",
+                  "display_title": "batch", "event": "schedule"}
+        found = [("s / j", "s", "g")]
+        covered = lambda good, head: self.span
+        with mock.patch.object(pmb, "is_batch", return_value=True):
+            self.assertEqual(pmb.probe_refusal(pmb.Probe("s", "s / j", "j", "g", "g", "c4", "9"), "main", origin, found, covered), "")
+            # Only the last green itself: another commit outside the range is still refused.
+            self.assertIn("not in the commits", pmb.probe_refusal(pmb.Probe("s", "s / j", "j", "x", "x", "c4", "9"), "main", origin, found, covered))
+
+    def test_the_judge_step_passes_the_switch(self) -> None:
+        self.assertIn("POST_MERGE_GOOD_ANCHOR: ${{ vars.POST_MERGE_GOOD_ANCHOR }}", WORKFLOW.read_text())
+
+
 class WiringTest(unittest.TestCase):
     """The manifest, the caller jobs and the callees agree."""
 
@@ -459,6 +596,10 @@ class WiringTest(unittest.TestCase):
             self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
+                # A literal is the called workflow's own constant (swift-acpmux-protocol.yml's `check: acpmux`,
+                # #61885 folded several Swift checks into one workflow); an expression is plan's output of its name.
+                if isinstance(v, str) and "${{" not in v:
+                    continue
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             if key == "gallery-health":
                 self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
@@ -984,6 +1125,61 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
         self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
 
 
+
+class DeeperReachTest(unittest.TestCase):
+    """Run 45971503699 (11-27): eight reds red on every batch run in the 24-batch reach, first red at 0e0818af (11-24),
+    were "a known red, no bisect": stuck_reds had no last green. The judges now read further back for such a red."""
+    job = "cmux-tui-sdks / protocol contract"
+    suites = {"cmux-tui-sdks": pmb.Suite("cmux-tui-sdks", "s.yml", ["x/**"], {"protocol contract": "contract"})}
+
+    def setUp(self) -> None:
+        self.reach = [run(50, "5" * 40, "2026-11-27T08:00:00Z"), run(40, "4" * 40, "2026-11-26T08:00:00Z")]
+        self.deep = [run(30, "3" * 40, "2026-11-25T08:00:00Z"), run(20, "2" * 40, "2026-11-24T08:00:00Z")]
+        self.jobs = {50: ({self.job: ("cmux-tui-sdks", "failure")}, True), 40: ({self.job: ("cmux-tui-sdks", "failure")}, True),
+                     30: ({self.job: ("cmux-tui-sdks", "failure")}, True), 20: ({self.job: ("cmux-tui-sdks", "success")}, True)}
+        self.verdicts = {self.job: ("cmux-tui-sdks", "failure")}
+
+    def test_a_red_with_no_green_in_reach_is_bisected_from_a_deeper_green(self) -> None:
+        jobs_of = lambda rid: self.jobs[rid]
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites), [])
+        self.assertEqual(pmb.unreached_reds("6" * 40, self.verdicts, self.reach, jobs_of), [self.job])
+        asked: list = []
+
+        def deeper(repo, branch, **kw):
+            asked.append(kw)
+            return self.reach + self.deep  # a mock that ignores the filter: the reach's own runs are not added twice
+        with mock.patch.object(pmb, "list_runs", deeper):
+            runs = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, jobs_of)
+        self.assertEqual(asked, [{"batches": pmb.DEEP_LOOKBACK_BATCHES, "created_before": "2026-11-26T08:00:00Z"}])
+        self.assertEqual([r["id"] for r in runs], [50, 40, 30, 20])
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
+                         [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
+
+    def test_a_skipped_red_says_why(self) -> None:
+        """Run 45987000605 said only "a known red, no bisect" for 23 of its 25 known reds."""
+        jobs_of = lambda rid: self.jobs[rid]
+        skipped: dict = {}
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites, skipped=skipped), [])
+        self.assertEqual(list(skipped), [self.job])
+        self.assertIn("no green batch run in reach (2 read)", skipped[self.job])
+        note = f"`{self.job}` was already red on `44444444444` (run 40): a known red, no bisect."
+        self.assertEqual(pmb.with_skip_reason(note, skipped), note[:-1] + ": " + skipped[self.job] + ".")
+        self.assertEqual(pmb.with_skip_reason("`other / job` was already red: a known red, no bisect.", skipped),
+                         "`other / job` was already red: a known red, no bisect.")
+
+    def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
+        self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
+        with mock.patch.object(pmb, "list_runs", side_effect=AssertionError("read deeper")):
+            got = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, lambda rid: self.jobs[rid])
+        self.assertEqual(got, self.reach)
+
+    def test_list_runs_filters_by_creation(self) -> None:
+        calls: list = []
+        pmb.list_runs("o/r", "feat", api=lambda path, **_: calls.append(path) or {"workflow_runs": []}, batches=3,
+                      created_before="2026-11-26T08:00:00Z")
+        self.assertIn("&created=%3C2026-11-26T08:00:00Z", calls[0])
+
+
 class KnownVerdictTest(unittest.TestCase):
     commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
 
@@ -1107,6 +1303,56 @@ class FlakeAwareConfirmTest(unittest.TestCase):
         self.assertIn("parent", ok("c1", "c1", "c3", "green-1"))
         self.assertIn("culprit or parent", ok("c4", "c2", "c3", "red-1"))
         self.assertIn("bad", ok("x", "x0", "x", "red-1"))
+
+
+class EarlierConfirmRoundTest(unittest.TestCase):
+    """A stuck red's re-bisect reaches the same culprit: its confirm round already finished, so it is read, not rendered
+    again (web agent-pane-real-acpmux at 4dbaa78f, three identical rounds on 11-27)."""
+
+    job = "web / Web tests (2/4)"
+    culprit, parent = "d" * 40, "c" * 40
+
+    def round_(self):
+        return pmb.confirm_probes(pmb.Probe("web", self.job, "web-tests", "", "", "", "60"), self.culprit, self.parent)
+
+    def runs(self, verdicts: dict[str, tuple[str, str]]):
+        runs, jobs = [], {}
+        for n, p in enumerate(self.round_()):
+            if p.confirm not in verdicts:
+                continue
+            verdict, status = verdicts[p.confirm]
+            rid = 100 - n
+            runs.append({"id": rid, "status": status, "display_title": pmb.probe_title(p)})
+            jobs[rid] = ({self.job: ("web", verdict)} if verdict else {}, status == "completed")
+        return runs, (lambda rid: jobs[int(rid)])
+
+    def test_a_finished_agreeing_round_names_the_culprit(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("success", done)})
+        self.assertEqual(pmb.earlier_confirm_round(self.round_(), runs, jobs_of)[0], "culprit")
+
+    def test_a_finished_round_with_a_disagreeing_run_is_a_flake(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("success", done), "green-2": ("success", done)})
+        self.assertEqual(pmb.earlier_confirm_round(self.round_(), runs, jobs_of)[0], "flake")
+
+    def test_a_missing_unfinished_or_verdictless_run_dispatches_the_round(self) -> None:
+        done = "completed"
+        for verdicts in ({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done)},
+                         {"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("", "in_progress")},
+                         {"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("cancelled", done)}):
+            runs, jobs_of = self.runs(verdicts)
+            self.assertIsNone(pmb.earlier_confirm_round(self.round_(), runs, jobs_of))
+
+    def test_the_off_switch_renders_the_round_again(self) -> None:
+        done = "completed"
+        runs, jobs_of = self.runs({"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done), "green-2": ("success", done)})
+        with mock.patch.dict(pmb.os.environ, {pmb.CONFIRM_REUSE_ENV: "0"}):
+            self.assertIsNone(pmb.earlier_confirm_round(self.round_(), runs, jobs_of))
+
+    def test_the_workflow_passes_the_off_switch_to_the_judge(self) -> None:
+        text = (pmb.ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
+        self.assertIn("POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}", text)
 
 
 class SkippedProbeTest(unittest.TestCase):
@@ -1326,3 +1572,88 @@ class SameRedTest(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('--step "$STEP"', text)
         self.assertIn("STEP: ${{ inputs.step }}", text)
+
+
+class RevertHoldTest(unittest.TestCase):
+    """A stuck red whose post-merge revert is open is not bisected again: the bisect would name the same culprit."""
+
+    CULPRIT = "7d02c95c0e47a36a9959689c8094e2c76d61baed"
+
+    def revert(self, job: str, culprit: str, branch: str = "feat-cmux-next", hold: bool = False) -> dict:
+        body = (pmb.TEAMMATE_HOLD.format(login="someone") + "\n\n" if hold else "") + \
+            f"Reverts #57280 (`{culprit}`): the post-merge batch run x found `{job}` red on {branch}; ..."
+        return {"title": pmb.revert_title("a.rows in Rust (#57280)", job, branch), "body": body}
+
+    def test_open_reverts_reads_title_and_body(self):
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            return {"items": [self.revert("cmux-tui-spec / changes (2)", self.CULPRIT, hold=True),
+                              self.revert("web / web-typecheck", "a" * 40, branch="main"),
+                              {"title": "post-merge batch: a red on other steps is another red", "body": ""}]}
+
+        got = pmb.open_reverts("o/r", "feat-cmux-next", api=api)
+        self.assertEqual(got, {"cmux-tui-spec / changes": {self.CULPRIT}})
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].startswith("search/issues?"))
+
+    def test_held_only_when_culprit_in_range(self):
+        reverts = {"cmux-tui-spec / changes": {self.CULPRIT}}
+        span = lambda good, bad: ["b" * 40, self.CULPRIT, bad]
+        self.assertEqual(pmb.held_by_revert("cmux-tui-spec / changes (1)", "g" * 40, "c" * 40, reverts, span), self.CULPRIT)
+        self.assertEqual(pmb.held_by_revert("cmux-tui-spec / changes", "g" * 40, "c" * 40, reverts, lambda g, b: [b]), "")
+        self.assertEqual(pmb.held_by_revert("web / web-tests", "g" * 40, "c" * 40, reverts, span), "")
+
+    def test_off_switch(self):
+        with mock.patch.dict(os.environ, {"POST_MERGE_REVERT_HOLD": "0"}):
+            self.assertFalse(pmb.revert_hold_on())
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("POST_MERGE_REVERT_HOLD", None)
+            self.assertTrue(pmb.revert_hold_on())
+
+    def test_workflow_passes_the_switch_to_the_judge(self):
+        text = (ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
+        self.assertIn("POST_MERGE_REVERT_HOLD: ${{ vars.POST_MERGE_REVERT_HOLD }}", text)
+
+
+class JobProbeCapTest(unittest.TestCase):
+    """A suite job with POST_MERGE_JOB_PROBES_PER_DAY probes in 24 h starts no new bisect from a batch run."""
+    job = "web / Web tests (2/4)"
+
+    def judge(self, probes: int, env: dict) -> tuple[list, list[str]]:
+        now = pmb.datetime.now(pmb.timezone.utc)
+        at = (now - pmb.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        old = (now - pmb.timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        runs = [{"id": 500 + i, "display_title": f"{pmb.PROBE} web web-tests at {'c' * 40} confirm red-1", "created_at": at,
+                 "status": "completed"} for i in range(probes)]
+        runs.append({"id": 400, "display_title": f"{pmb.PROBE} web web-tests at {'c' * 40}", "created_at": old, "status": "completed"})
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as out:
+            args = Namespace(mode="batch", manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                             sha="f" * 40, reds_dir="", dry_run=False, summary=out.name, github_output=None)
+            sent: list = []
+            with mock.patch.dict(os.environ, env), mock.patch.object(pmb, "run_jobs", return_value=[]), \
+                    mock.patch.object(pmb, "list_runs", return_value=runs), \
+                    mock.patch.object(pmb, "new_reds", return_value=([(self.job, "web", "a" * 40)], [])), \
+                    mock.patch.object(pmb, "stuck_reds", return_value=[]), \
+                    mock.patch.object(pmb, "red_states", return_value=""), \
+                    mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)):
+                self.assertEqual(pmb.cmd_judge(args), 0)
+            return sent, out.read().splitlines()
+
+    def test_under_the_cap_bisects(self) -> None:
+        sent, _ = self.judge(pmb.DEFAULT_JOB_PROBES_PER_DAY - 1, {})
+        self.assertEqual([p.job for p in sent], [self.job])
+
+    def test_at_the_cap_names_only(self) -> None:
+        sent, lines = self.judge(pmb.DEFAULT_JOB_PROBES_PER_DAY, {})
+        self.assertEqual(sent, [])
+        self.assertTrue(any("named only, no new bisect" in line for line in lines), lines)
+
+    def test_probes_older_than_a_day_do_not_count_and_the_var_sets_the_cap(self) -> None:
+        self.assertEqual(len(self.judge(3, {pmb.JOB_PROBES_ENV: "4"})[0]), 1)
+        self.assertEqual(self.judge(4, {pmb.JOB_PROBES_ENV: "4"})[0], [])
+
+    def test_zero_turns_the_cap_off(self) -> None:
+        sent, _ = self.judge(200, {pmb.JOB_PROBES_ENV: "0"})
+        self.assertEqual(len(sent), 1)
