@@ -237,6 +237,12 @@ fn is_zero_u32(n: &u32) -> bool {
     *n == 0
 }
 
+/// `request`'s `_meta.acpmux.KEY`, read without the allocations of [`Value::pointer`], which
+/// every delivery paid on every change (2026-11-28, 63% of the hot thread on a control plane).
+fn acpmux_meta<'a>(request: &'a Value, key: &str) -> Option<&'a Value> {
+    request.get("_meta")?.get("acpmux")?.get(key)
+}
+
 impl Delivery {
     /// Whether it is the record of a message this daemon posted to the mesh hub, a team one or
     /// a direct `HOST/NAME` send (`record_mesh_origin`): bookkeeping, never a delivery.
@@ -251,11 +257,24 @@ impl Delivery {
     }
 
     pub fn prompt_id(&self) -> &str {
-        self.request.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).unwrap_or_default()
+        acpmux_meta(&self.request, "promptId").and_then(Value::as_str).unwrap_or_default()
     }
 
     pub fn projection_only(&self) -> bool {
-        self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
+        acpmux_meta(&self.request, "forwardProjection").is_some()
+    }
+
+    /// When a sweep of [`Book::changed`] can next change it: it lapses open on its peer, or
+    /// ages out settled. `u64::MAX`: never on its own (it waits; only a change moves it).
+    fn sweep_due(&self) -> u64 {
+        if self.open_on_peer {
+            self.created_at.saturating_add(OPEN_ON_PEER_FOR_MS)
+        } else if self.settled() {
+            let keep = if self.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
+            self.updated_at.saturating_add(keep)
+        } else {
+            u64::MAX
+        }
     }
 
     /// A message (not a projection intent, which keeps its own schedule) past [`RETRY_FOR_MS`]
@@ -448,6 +467,14 @@ struct Book {
     dirty: BTreeSet<String>,
     /// The counters every change here moves (`outbox_stats.rs`).
     stats: super::outbox_stats::Counters,
+    /// The soonest any delivery can lapse or age out ([`Delivery::sweep_due`]): until then a
+    /// change does not walk every delivery for that. 0: the next change sweeps.
+    sweep_at: u64,
+    /// Changes left before a settled class can pass its count bound (`outbox_cap.rs`): a
+    /// change settles at most the one delivery it touched, so none can before this many.
+    cap_room: usize,
+    /// Whole walks of the deliveries for the bounds in this launch (`stress/outbox.rs`).
+    sweeps: u64,
 }
 
 /// Distinct destinations and pins of unfinished messages. Both keep a link alive when a
@@ -521,6 +548,8 @@ impl OutboxState {
         let mut book = self.book();
         book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
+        // Every delivery read in: the next change sweeps them all.
+        (book.sweep_at, book.cap_room) = (0, 0);
         // A file over the bounds is rewritten within them now, not at the first change a day on.
         let trimmed = book.cap_settled() > 0;
         if trimmed {
@@ -579,6 +608,12 @@ impl OutboxState {
         }
         let change = self.book().changed();
         self.save(change);
+    }
+
+    /// Whole walks of the deliveries for the bounds in this launch (`stress/outbox.rs`).
+    #[cfg(test)]
+    pub(crate) fn sweeps(&self) -> u64 {
+        self.book().sweeps
     }
 
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
@@ -643,7 +678,7 @@ impl OutboxState {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
                 && d.target == delivery.target
-                && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
+                && d.projection_only() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
                         && projected_message(d) == projected_message(&delivery)))
@@ -655,7 +690,7 @@ impl OutboxState {
         }
         book.deliveries.insert(delivery.id.clone(), delivery.clone());
         book.dirty.insert(delivery.id.clone());
-        let change = book.changed();
+        let change = book.changed_one(&delivery.id);
         (delivery, change, true)
     }
 
@@ -799,8 +834,8 @@ impl OutboxState {
             created_at: now,
             updated_at: now,
         });
+        let change = book.changed_one(&key);
         book.dirty.insert(key);
-        let change = book.changed();
         drop(book);
         self.save(change);
         let in_memory = self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none();
@@ -904,7 +939,7 @@ impl OutboxState {
             let _ = failed.send(d.clone());
         }
         book.dirty.insert(id.to_owned());
-        Some((book.changed(), ran))
+        Some((book.changed_one(id), ran))
     }
 
     /// [`Outbox::update`], answering whether the change is on disk, and waiting for that: a
@@ -1245,10 +1280,38 @@ fn read_saved(path: &Path) -> Saved {
 }
 
 impl Book {
-    /// Counts a change and drops what settled long ago; returns the change's number.
+    /// Counts a change that may have touched any delivery, and sweeps; returns its number.
     fn changed(&mut self) -> u64 {
+        self.sweep_at = 0;
+        self.note_change()
+    }
+
+    /// Counts a change to delivery `id` alone; returns its number. It sweeps only when that
+    /// delivery or the one due soonest can lapse or age out now, or a class can be over its
+    /// bound: a daemon holding 25,000 deliveries walked them all on every change
+    /// (2026-11-28, 160% CPU on a control plane, every peer snapshot write a change).
+    fn changed_one(&mut self, id: &str) -> u64 {
+        if let Some(d) = self.deliveries.get(id) {
+            self.sweep_at = self.sweep_at.min(d.sweep_due());
+        }
+        self.cap_room = self.cap_room.saturating_sub(1);
+        self.note_change()
+    }
+
+    fn note_change(&mut self) -> u64 {
         self.pending_targets = None;
         let now = crate::store::now_ms();
+        if now >= self.sweep_at || self.cap_room == 0 {
+            self.sweep(now);
+        }
+        self.changes += 1;
+        self.changes
+    }
+
+    /// Fails what lapsed open, drops what settled long ago and what is past the count bounds,
+    /// and notes when the next of those can be due.
+    fn sweep(&mut self, now: u64) {
+        self.sweeps += 1;
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
             let before = (d.state, d.attempts);
@@ -1274,8 +1337,8 @@ impl Book {
             !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
         self.cap_settled();
-        self.changes += 1;
-        self.changes
+        self.sweep_at = self.deliveries.values().map(Delivery::sweep_due).min().unwrap_or(u64::MAX);
+        self.cap_room = self.cap_room();
     }
 }
 
