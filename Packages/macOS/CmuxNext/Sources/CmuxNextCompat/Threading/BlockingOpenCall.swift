@@ -25,7 +25,7 @@ public struct BlockingOpenCall: Sendable, Equatable {
     /// The call open on the main thread now. Two atomic loads, so the watchdog may call it while the main
     /// thread is suspended. A call that opened or closed between the loads reads as ``none``.
     public static func current() -> BlockingOpenCall {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         let table = BlockingViolationTable.shared  // never a test's scoped table: this is the real main thread
         let before = table.openFileID.load(ordering: .acquiring)
         let packed = table.openPacked.load(ordering: .acquiring)
@@ -36,7 +36,7 @@ public struct BlockingOpenCall: Sendable, Equatable {
         #endif
     }
 
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 
     /// Opens `kind` at `fileID`:`line` and returns the call it replaced. Main thread only.
     @usableFromInline
