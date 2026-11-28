@@ -788,12 +788,25 @@ fn warms_every_origin_its_calls_go_to() {
 /// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
 #[test]
 fn call_line_splits_head_from_stream() {
-    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
-    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
-    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
-    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
-    let longest =
-        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    let at = 1_795_900_000_123;
+    let timing = |total_ms, head_ms, first_ms, taken_at| CallTiming {
+        total_ms,
+        head_ms,
+        first_ms,
+        taken_at,
+    };
+    let line = call_line("m-1", "POST", "/v1/messages", 200, &timing(2057, 1900, Some(1902), at));
+    assert_eq!(
+        line,
+        "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms, at 1795900000123)"
+    );
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, &timing(30, 29, None, at));
+    assert!(
+        empty.ends_with("-> 204 (30 ms, head 29 ms, first data none, at 1795900000123)"),
+        "{empty}"
+    );
+    let longest = &timing(600_000, 600_000, Some(600_000), u128::from(u64::MAX));
+    let longest = call_line(&"m".repeat(64), "POST", "/v1/messages", 200, longest);
     assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
 }
 
