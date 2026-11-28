@@ -69,6 +69,8 @@ pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
+#[path = "session_move_interrupts.rs"]
+mod interrupts;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
@@ -416,6 +418,9 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    /// What the move interrupts, as the chat's daemon answered (`session_move_interrupts.rs`);
+    /// None from a daemon older than the question.
+    interrupts: Option<Value>,
 }
 
 impl Outcome {
@@ -435,6 +440,7 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            interrupts: None,
         }
     }
 }
@@ -582,7 +588,7 @@ pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "interrupts": o.interrupts, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -834,6 +840,17 @@ async fn move_steps(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+    // What the move would interrupt, said before anything begins (RFD 0063 item 6). A failed
+    // ask never stops the move: it is a statement, not a gate.
+    if info.get("peer").is_none_or(Value::is_null) {
+        o.interrupts = interrupts::ask(src, &id).await.unwrap_or_else(|e| {
+            tracing::debug!("move: what {id} interrupts was not read: {e:#}");
+            None
+        });
+        for line in interrupts::text(&o.name, o.interrupts.as_ref(), args.dry_run) {
+            eprintln!("{line}");
+        }
+    }
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",

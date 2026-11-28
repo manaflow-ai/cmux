@@ -2790,7 +2790,8 @@ IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (gith
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None):
+              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None,
+              runners=None):
     calls = []
 
     def measured():
@@ -2805,7 +2806,8 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
         swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork,
-        queue_rounds=queue_rounds, log=log or (lambda message: None))
+        queue_rounds=queue_rounds, log=log or (lambda message: None),
+        list_runners=None if runners is None else (lambda: runners))
     return route, len(calls)
 
 
@@ -3158,6 +3160,29 @@ class IOSRouting(unittest.TestCase):
                 ios_route(requested="owned", slots=slots)
         with self.assertRaisesRegex(ValueError, "seed_cache"):
             ios_route(requested="owned", seed_cache="true")
+
+    def test_owned_takes_the_first_pin_pool_an_online_simulator_runner_carries(self):
+        # hosted#1034: the first pin pool's every carrier was offline and the job
+        # queued 46 minutes. A label routes while one online runner carries it.
+        def carrier(status, *labels):
+            return {"status": status, "busy": True, "labels": [{"name": name} for name in labels]}
+
+        light_live = [carrier("offline", MINI, IOS_SIM), carrier("online", MINI),
+                      carrier("online", LIGHT, IOS_SIM)]
+        route, _ = ios_route(requested="owned", runners=light_live)
+        self.assertEqual(json.loads(route.runs_on), [LIGHT, IOS_SIM])
+        route, _ = ios_route(requested="owned", runners=[carrier("online", MINI, IOS_SIM), *light_live])
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        with self.assertRaisesRegex(ValueError, f"{MINI} 0 of 1 registered, {LIGHT} 0 of 0 registered"):
+            ios_route(requested="owned", runners=[carrier("offline", MINI, IOS_SIM), carrier("online", MINI)])
+        # An unread listing (None) is not a dead pool: keep the first pin pool.
+        route, _ = ios_route(requested="owned", runners=None)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+
+    def test_owned_refuses_when_the_listing_answers_with_no_runners(self):
+        # An empty listing is the API's answer, not a failed read: zero carriers registered.
+        with self.assertRaisesRegex(ValueError, f"{MINI} 0 of 0 registered, {LIGHT} 0 of 0 registered"):
+            ios_route(requested="owned", runners=[])
 
     def test_a_package_only_run_needs_no_simulator(self):
         self.assertEqual(ios_pool.sim_jobs("test-ios", "", "CmuxMobileShell"), 0)
@@ -4118,7 +4143,7 @@ class IOSRouting(unittest.TestCase):
                 self.assertEqual(ios_pool.main(args, env=env), 0)
             return dict(line.split("=", 1) for line in out.getvalue().splitlines())
 
-        full = [{"name": "mini-a-glaeda", "status": "online", "busy": True, "labels": [{"name": MINI}]}]
+        full = [{"name": "mini-a-glaeda", "status": "online", "busy": True, "labels": [{"name": MINI}, {"name": IOS_SIM}]}]
         # runner: owned (every cmux-next lane) reads no queue: one runners listing, with the route token.
         outputs = run(full + [self.sim_first_runner("mini-a")])
         self.assertEqual(json.loads(outputs["build_runs_on"]), self.SIM_FIRST)
@@ -4129,13 +4154,28 @@ class IOSRouting(unittest.TestCase):
         # None idle: build_runs_on is runs_on.
         outputs = run(full + [self.sim_first_runner("mini-a", busy=True)])
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
-        # A Swift package run has no build and lists nothing more; nor does a run without the route token.
+        # A Swift package run has no build: its one listing proves only the pool's carrier;
+        # a run without the route token lists nothing and keeps the first pin pool.
         reads.clear()
         outputs = run(full + [self.sim_first_runner("mini-a")], package="CmuxHomeCore")
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
+        self.assertEqual(reads, ["route"])
+        reads.clear()
         outputs = run(full + [self.sim_first_runner("mini-a")], env_extra={"ROUTE_TOKEN": ""})
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
         self.assertEqual(reads, [])
+        # Every carrier of the pin pools offline: refuse with the counts, never queue silently (hosted#1034).
+        offline = [{**full[0], "status": "offline"}]
+        with unittest.mock.patch.object(pool, "GitHub", type("C", (), {
+                "__init__": lambda self, token, repo: None, "runners": lambda self: offline})), \
+                unittest.mock.patch("sys.stdout", io.StringIO()), unittest.mock.patch("sys.stderr", io.StringIO()) as err:
+            self.assertEqual(ios_pool.main(["--lane", "test-ios", "--requested", "owned", "--owned", "1",
+                                            "--ios-owned", "1", "--owned-slots", json.dumps(IOS_SLOTS),
+                                            "--pr-xcode-app", PR_XCODE, "--order", MINI, "--queue-rounds", "0",
+                                            "--swift-package", ""],
+                                           env={"GH_TOKEN": "job", "ROUTE_TOKEN": "route",
+                                                "GH_REPO": "manaflow-ai/cmux"}), 1)
+        self.assertIn(f"{MINI} 0 of 1 registered", err.getvalue())
         # The auto live path reuses its own listing: still one read.
         idle = [{"name": "mini-a-glaeda", "status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]},
                 {"name": "mini-b-glaeda", "status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]},
