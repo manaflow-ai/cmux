@@ -12,6 +12,7 @@
  */
 import { Effect } from "effect";
 import { UpstreamError } from "./client.ts";
+import type { CallTrail } from "./live-http.ts";
 
 export const BACKGROUND_AFTER_HEADER = "x-freestyle-background-after-secs";
 const BACKGROUND_ID_HEADER = "x-freestyle-background-request-id";
@@ -79,6 +80,8 @@ export const awaitBackground = (
   deadlineAt: number,
   pollMs: number,
   outageMs: number = DEFAULT_BACKGROUND_OUTAGE_MS,
+  /** Counts the polls, the failed ones and the last one's status (live-http.ts CallTrail). */
+  trail?: CallTrail,
 ): Effect.Effect<Response, UpstreamError> =>
   Effect.gen(function* () {
     const path = yield* Effect.promise(() => resultPath(accepted, origin));
@@ -92,6 +95,11 @@ export const awaitBackground = (
       yield* Effect.sleep(wait);
       const timeoutMs = Math.max(1, Math.min(POLL_TIMEOUT_MS, until - Date.now()));
       const answer = yield* poll(operation, path, { method: "GET", timeoutMs }).pipe(Effect.either);
+      if (trail !== undefined) {
+        trail.polls = (trail.polls ?? 0) + 1;
+        trail.lastPollStatus = answer._tag === "Right" ? answer.right.status : answer.left.status ?? "none";
+        if (answer._tag === "Left") trail.pollFails = (trail.pollFails ?? 0) + 1;
+      }
       if (answer._tag === "Right") {
         if (answer.right.status !== 202) return answer.right;
         yield* Effect.promise(async () => void (await answer.right.body?.cancel()));
