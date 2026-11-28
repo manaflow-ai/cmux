@@ -81,6 +81,7 @@ test("a busy page and a registered hold keep it invisible until they clear", asy
   startSwapRestore(next.document);
   let shown = false;
   void swapRestored().then(() => (shown = true));
+  // fixed-wait: proves the reveal does NOT happen while held; there is no event for an absence.
   await new Promise((done) => setTimeout(done, 200));
   expect(shown).toBe(false);
   next.document.querySelector("main")!.removeAttribute("aria-busy");

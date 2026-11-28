@@ -30,7 +30,9 @@ import {
   triggerKey,
 } from "./placeModel";
 import { evacuateActions, placeActions } from "./usePlace";
-import { ComputerStatusLine, MoveDock, PlaceChip } from "./PlaceMounts";
+import { ComputerStatusLine, MoveDock, PlaceChip, AutoSizeDock } from "./PlaceMounts";
+import { autoSizeRowsOf } from "../autosize/autosizeModel";
+import { GREW_FOR_MEMORY, HELD_AT_PLAN_LIMIT, SHRANK_IDLE } from "../autosize/autosizeModel.fixtures";
 import { HybridChip } from "../hybrid/HybridMounts";
 import { setExperimentSwitches } from "../../../experiments/switches";
 
@@ -186,6 +188,44 @@ test("the chat's cloud controls draw only while Settings > Experiments' Cloud To
   expect(off.textContent).not.toBe("");
   await act(async () => setExperimentSwitches({}));
   expect(off.textContent).toBe("");
+});
+
+test("with AutoCloud on in Settings and Cloud Toggle off, the chip offers this chat AutoCloud off and on, both ways", async () => {
+  // Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and
+  // "we're not putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
+  expect(placeOf({ mode: "local", at: "local", modes: ["auto", "bogus", "local"] })?.modes).toEqual(["local", "auto"]);
+  expect(placeOf({ mode: "local", at: "local" })?.modes).toBeUndefined();
+  setExperimentSwitches({});
+  setHeaderState({ place: { mode: "local", at: "local" } });
+  const chip = await draw(<PlaceChip session="s1" />);
+  expect(chip.textContent).toBe("");
+  await act(async () => setHeaderState({ place: { mode: "local", at: "local", modes: ["local", "auto"] } }));
+  expect(chip.textContent).not.toBe("");
+  expect(chip.querySelector('button[data-menu="Place"]')?.textContent).toBe("Local");
+  await act(async () => root!.unmount());
+  root = undefined;
+  // The two choices, picked both ways: AutoCloud on, then off again.
+  const picks: string[] = [];
+  const two = await draw(<PlaceControl place={PLACES.twoLocal} look="segmented" onMode={(m) => picks.push(m)} />);
+  const radios = [...two.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+  expect(radios).toHaveLength(2);
+  await act(async () => radios[1]!.click());
+  await act(async () => radios[0]!.click());
+  expect(picks).toEqual(["auto", "local"]);
+  const calls: unknown[] = [];
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "action.run": (params: unknown) => {
+      calls.push(params);
+      return Promise.resolve();
+    },
+  };
+  const actions = placeActions("s1");
+  actions.setMode("auto");
+  actions.setMode("local");
+  expect(calls).toEqual([
+    { id: "chatPlace.set", session: "s1", mode: "auto" },
+    { id: "chatPlace.set", session: "s1", mode: "local" },
+  ]);
 });
 
 test("the status line beside the place button says place.status, and runs only the actions the app has", async () => {
@@ -365,7 +405,7 @@ test("the control offers Local, Cloud and Auto, marks the choice, and a pick cal
 test("the rule of Auto is one line and says what moves it", () => {
   const rule = translate("placeAuto.rule");
   expect(rule).not.toContain("\n");
-  for (const word of ["sleeps", "power", "memory", "disk", "10 min", "15 min", "idle"]) expect(rule).toContain(word);
+  for (const word of ["sleeps", "runs low", "10 min", "15 min", "idle"]) expect(rule).toContain(word);
 });
 
 test("the chip's face says the choice, where Auto runs, and a move's destination", async () => {
@@ -699,4 +739,77 @@ test("a pick and a Retry send the queue and draft the page holds then", async ()
     { id: "chatMove.retry", queued: 0, hasDraft: false, session: "s-1" },
     { id: "chatMove.cancel", session: "s-1" },
   ]);
+});
+
+test("place.autosize is Rust's rows, oldest first, a malformed row dropped and none at all undefined", () => {
+  const wire = JSON.parse(JSON.stringify([GREW_FOR_MEMORY, HELD_AT_PLAN_LIMIT])) as unknown[];
+  const place = placeOf({ mode: "auto", at: "cloud", autosize: [...wire, { key: "x", kind: "grow" }, null, 7] });
+  expect(place?.autosize).toEqual(
+    [GREW_FOR_MEMORY, { ...HELD_AT_PLAN_LIMIT, to: undefined }].map((row) => JSON.parse(JSON.stringify(row))),
+  );
+  expect(place?.autosize?.[1]?.offer).toEqual({ do: "upgrade", plan: "next_pro", label: "Pro", vcpu: 8, mem_gib: 32 });
+  expect(autoSizeRowsOf([{ ...GREW_FOR_MEMORY, kind: "explode" }])).toBeUndefined();
+  expect(autoSizeRowsOf([{ ...GREW_FOR_MEMORY, from: { vcpu: 2 } }])).toBeUndefined();
+  expect(autoSizeRowsOf([{ ...HELD_AT_PLAN_LIMIT, offer: { do: "upgrade", plan: "" } }])?.[0]?.offer).toBeUndefined();
+  expect(autoSizeRowsOf([])).toBeUndefined();
+  expect(autoSizeRowsOf("rows")).toBeUndefined();
+  expect(placeOf({ mode: "auto", at: "cloud", autosize: [] })).not.toHaveProperty("autosize");
+});
+
+test("the AutoSize dock draws only with the Cloud Toggle on and a row", async () => {
+  setExperimentSwitches({});
+  setHeaderState({ place: { mode: "auto", at: "cloud", autosize: [GREW_FOR_MEMORY] } });
+  const dock = await draw(<AutoSizeDock />);
+  expect(text(dock)).toBe("");
+  await act(async () => setExperimentSwitches({ cloudToggle: true }));
+  expect(dock.querySelectorAll(".autosize-row")).toHaveLength(1);
+  // One row: no fold.
+  expect(dock.querySelector(".autosize-fold-toggle")).toBeNull();
+  await act(async () => setHeaderState({ place: { mode: "auto", at: "cloud" } }));
+  expect(text(dock)).toBe("");
+  await act(async () => setExperimentSwitches({}));
+});
+
+test("the AutoSize dock shows the newest row and folds the rest behind N earlier", async () => {
+  setExperimentSwitches({ cloudToggle: true });
+  setHeaderState({
+    place: { mode: "auto", at: "cloud", autosize: [GREW_FOR_MEMORY, SHRANK_IDLE, HELD_AT_PLAN_LIMIT] },
+  });
+  const dock = await draw(<AutoSizeDock />);
+  const keys = () => [...dock.querySelectorAll(".autosize-row")].map((row) => row.getAttribute("data-autosize-key"));
+  expect(keys()).toEqual([HELD_AT_PLAN_LIMIT.key]);
+  const fold = dock.querySelector<HTMLButtonElement>(".autosize-fold-toggle");
+  expect(fold?.textContent).toBe(translate("autosize.earlier", { count: "2" }, "en"));
+  expect(fold?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => fold!.click());
+  expect(keys()).toEqual([GREW_FOR_MEMORY.key, SHRANK_IDLE.key, HELD_AT_PLAN_LIMIT.key]);
+  expect(fold?.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => fold!.click());
+  expect(keys()).toEqual([HELD_AT_PLAN_LIMIT.key]);
+  await act(async () => setExperimentSwitches({}));
+});
+
+test("the dock's Upgrade asks for the row's plan, and a refusal is said", async () => {
+  setExperimentSwitches({ cloudToggle: true });
+  setHeaderState({ place: { mode: "auto", at: "cloud", autosize: [HELD_AT_PLAN_LIMIT] } });
+  const said: string[] = [];
+  const dock = await draw(<AutoSizeDock say={(line) => said.push(line)} />);
+  const calls: unknown[] = [];
+  let refuse = false;
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "cloud.plan.subscribe": (params: unknown) => {
+      calls.push(params);
+      return refuse ? Promise.reject(new Error("Checkout isn't available for this team.")) : Promise.resolve();
+    },
+  };
+  const upgrade = dock.querySelector<HTMLButtonElement>(".autosize-row-upgrade");
+  expect(upgrade?.disabled).toBe(false);
+  await act(async () => upgrade!.click());
+  expect(calls).toEqual([{ plan: "next_pro" }]);
+  expect(said).toEqual([]);
+  refuse = true;
+  await act(async () => upgrade!.click());
+  expect(calls).toHaveLength(2);
+  expect(said).toEqual(["Checkout isn't available for this team."]);
+  await act(async () => setExperimentSwitches({}));
 });

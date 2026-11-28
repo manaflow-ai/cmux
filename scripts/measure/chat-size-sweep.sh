@@ -31,6 +31,11 @@ if [ "${CHAT_SIZE_DHAT:-}" = 1 ]; then
   features=(--features dhat-heap)
   export ACPMUX_GOD_DHAT=1 CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
 fi
+# The allocator behind a number: CHAT_SIZE_ALLOC=mimalloc builds a gnu daemon with mimalloc (the shipped
+# musl packages' allocator) in place of glibc's, so a gap glibc keeps and mimalloc returns shows as such.
+if [ "${CHAT_SIZE_ALLOC:-}" = mimalloc ]; then
+  features+=(--features mimalloc-gnu)
+fi
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
 mkdir -p "$out_dir"
@@ -54,7 +59,7 @@ run_log="$(mktemp)"
 trap 'rm -f "$run_log"' EXIT
 code=0
 ACPMUX_CHAT_SIZES="$sizes" ACPMUX_CHAT_SIM_BIN="$sim_bin" \
-  cargo test -p acpmux --release "${features[@]}" --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
+  cargo test -p acpmux --release ${features[@]+"${features[@]}"} --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
   || code=$?
 # The row any runner publishes: the harness's last `infinite_chat_size_ratio_max <ratio> <axis> <size>` line.
 python3 - "$run_log" "$out_dir/chat-size-row.json" "$sizes" "$head_sha" "$(hostname -s 2>/dev/null || hostname)" <<'PY'

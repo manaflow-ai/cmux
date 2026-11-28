@@ -16,10 +16,10 @@ const familyOf = (entry: Entry) => entry.family ?? agentKey(entry.id) ?? entry.i
 /// none when acpmux does not list it. A folder's profiles stay out: the picker lists them on their own.
 export function familyProfiles(catalog: readonly Entry[], acpmuxHarness: string | null | undefined): PickerProfile[] {
   const chosen = catalog.find((entry) => entry.id === acpmuxHarness && !entry.folder);
-  if (!chosen) return [];
+  if (!chosen || chosen.endpoint) return [];
   const family = familyOf(chosen);
   return catalog
-    .filter((entry) => !entry.folder && entry.pickable !== false && familyOf(entry) === family)
+    .filter((entry) => !entry.folder && !entry.endpoint && entry.pickable !== false && familyOf(entry) === family)
     .map((entry) => ({
       id: entry.id,
       // A profile named only by its id is shown by it ("claude-sr"): its brand's name would read as

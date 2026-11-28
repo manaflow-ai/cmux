@@ -447,3 +447,135 @@ async fn the_owners_phone_forks_a_chat_the_mac_started() {
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// The Cloud VM's cmux link (`cmux-tui/src/link/phone_chat.rs`, RFD 0135 gate 4) admits a phone
+/// only after its owner check, then reaches this daemon over the owner-only local socket, its
+/// prompts marked `via: cloud-mobile` with the phone's id as `ownerPhone`. A local socket client
+/// sending that claim: what the owner's paired phone is under D13, never with Full access.
+fn cloud_phone(hub: &Arc<Hub>, origin: Origin) -> Client {
+    let mut c = Client::new(hub, origin);
+    c.3 = Some("cloud-mobile");
+    c
+}
+
+fn owner_claim(device: &str, full: bool) -> Value {
+    json!({"device": device, "fullAccess": full})
+}
+
+async fn claimed(c: &mut Client, m: &str, mut params: Value, claim: &Value) -> Value {
+    params["_meta"] = json!({"acpmux": {"ownerPhone": claim}});
+    c.call(m, params).await
+}
+
+async fn claimed_prompt(c: &mut Client, s: &str, text: &str, claim: &Value) -> Value {
+    let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    claimed(c, "session/prompt", p, claim).await
+}
+
+/// Accepted on the owner-checked path: the local socket, a Cloud mobile prompt, the claim.
+#[tokio::test]
+async fn the_owner_checked_cloud_phone_sends_to_a_claude_chat_the_vm_started() {
+    let d = dir("cloud-phone");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut phone = cloud_phone(&hub, Origin::Local);
+    let r = claimed_prompt(&mut phone, &s, "from the phone", &owner_claim("phone-1", false)).await;
+    assert!(r.get("error").is_none(), "{r}");
+    // The same Cloud mobile prompt with no claim (no owner check behind it) is refused.
+    let mut other = cloud_phone(&hub, Origin::Local);
+    let r = other.prompt(&s, "no claim").await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The claim from anything but the local socket (or the owner's peer daemon, which vouches for
+/// its own paired phone) counts for nothing: a Web or dashboard client, a paired machine that
+/// is not a phone forwarding a Web client (`via: web`, held to the Web's rules; without it a
+/// paired machine already controls every chat as `Control::Peer`).
+#[tokio::test]
+async fn the_owner_phone_claim_from_a_non_local_connection_is_refused() {
+    let d = dir("cloud-phone-remote");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let laptop = hub.pairing.issue("laptop", Role::Client).unwrap().1;
+    let mut laptop = Client::device(&hub, &laptop, false);
+    laptop.3 = Some("web");
+    for (who, mut c) in [("web", cloud_phone(&hub, Origin::Web)), ("client machine", laptop)] {
+        let r = claimed_prompt(&mut c, &s, "hi", &owner_claim("phone-1", true)).await;
+        assert!(r.get("error").is_some(), "{who}: {r}");
+        assert_eq!(reason(&r), "remote.local_claude_session", "{who}: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The local socket's claim never carries Full access, whatever it says: a chat out of the Web's
+/// policy (the stand-in Claude runs `bypassPermissions`) is held at the asking rule, not run;
+/// the peer-only Full-access notice is not this connection's to send. Its copy is allowed, as a
+/// paired phone's is (`the_owners_phone_forks_a_chat_the_mac_started`, cmux#43251 F4).
+#[tokio::test]
+async fn the_cloud_phone_claim_grants_no_full_access() {
+    let d = dir("cloud-phone-full");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let mut phone = cloud_phone(&hub, Origin::Local);
+    let claim = owner_claim("phone-1", true);
+    let r = claimed_prompt(&mut phone, &s, "bypass", &claim).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_ne!(reason(&r), "remote.local_claude_session", "D13 passed, Full access did not: {r}");
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []});
+    let r = claimed(&mut phone, "session/fork", p, &claim).await;
+    assert!(r["result"]["sessionId"].is_string(), "{r}");
+    let p = json!({"device": "phone-1", "fullAccess": true});
+    let r = claimed(&mut phone, "_acpmux/owner_phone_changed", p, &claim).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A prompt the owner's own phone sends through this machine's cmux-tui: the unix socket,
+/// stamped `via: cloud-mobile` (Cloud mobile's owner-scoped client, the Mac's mobile relay).
+fn cloud_mobile_prompt(s: &str, id: &str) -> Value {
+    json!({
+        "sessionId": s,
+        "prompt": [{"type": "text", "text": "from the phone"}],
+        "_meta": {"acpmux": {"promptId": id, "via": "cloud-mobile"}},
+    })
+}
+
+/// The phone starts a Claude chat on its Cloud VM and prompts it (HQ cloud-start-matrix row
+/// "Phone start", run 46073596651, refused `remote.local_claude_session`): the chat is this
+/// machine's own (cmux-tui's `session/new`), and the phone's prompt comes over the unix socket,
+/// so it runs, in a mode that asks. In a mode that does not ask it is still refused, by the
+/// Cloud mobile floor, not D13; a Web client that claims the marker is still refused by D13.
+#[tokio::test]
+async fn the_owners_phone_prompts_the_claude_chat_it_started_through_cmux_tui() {
+    let d = dir("cloud-mobile-own");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = local.call("session/prompt", cloud_mobile_prompt(&s, "phone-1")).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let r = local
+        .call("session/set_mode", json!({"sessionId": s, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = local.call("session/prompt", cloud_mobile_prompt(&s, "phone-2")).await;
+    assert!(r.get("error").is_some(), "a phone prompt ran in bypassPermissions: {r}");
+    assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
+    assert!(local.prompt(&s, "mine").await.get("error").is_none());
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        Client::new(&hub, Origin::Web).call("session/prompt", cloud_mobile_prompt(&s, "w-1")).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}

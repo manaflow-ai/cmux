@@ -12,8 +12,22 @@
 //! search path, never the default search order (no current directory, no
 //! PATH).
 
+// The daemon's `identify` reply: a leaf of the build, so editing it rebuilds this
+// crate and the link only (cmux-tui-core server/identify_reply.rs).
+#[cfg(not(all(windows, feature = "windows-thin-exe")))]
+#[path = "cmux-tui/identify.rs"]
+mod identify;
+
 #[cfg(not(all(windows, feature = "windows-thin-exe")))]
 fn main() -> std::process::ExitCode {
+    // The library reads the build identity at run time: cmux-build-identity's
+    // build script reruns on every source edit, so only this crate and the
+    // link rebuild, not the library (cmux-tui-lib src/build_identity.rs).
+    cmux_tui::build_identity::install(
+        cmux_build_identity::BUILD_IDENTITY,
+        cmux_build_identity::BUILD_TIME,
+    );
+    cmux_tui_core::server::install_identify(identify::identify);
     cmux_tui::main()
 }
 
@@ -38,7 +52,7 @@ mod thin {
         LoadLibraryExW,
     };
 
-    /// The library file name `cargo rustc -p cmux-tui --lib --crate-type
+    /// The library file name `cargo rustc -p cmux-tui-lib --lib --crate-type
     /// cdylib` writes; packaging ships it under this name beside the exe.
     const DLL_NAME: &str = "cmux_tui.dll";
     const ENTRY: &[u8] = b"cmux_tui_dll_main\0";

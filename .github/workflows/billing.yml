@@ -200,7 +200,7 @@ permissions:
 concurrency:
   # github.workflow is the caller's name when billing-nightly.yml calls this,
   # so a push or dispatch here never queues against (and cancels) the nightly.
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -209,7 +209,7 @@ env:
 
 jobs:
   billing:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: billing
     # The routing App's secrets (the macOS pool pick below) live in this
     # environment for non-pull-request runs, as in ios-reliability-matrix.yml.
@@ -403,8 +403,22 @@ jobs:
           bun-version: "1.4.4"
           no-cache: true
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
-        if: ${{ steps.route.outputs.web == 'true' }}
+        if: ${{ (steps.route.outputs.web == 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -431,6 +445,36 @@ jobs:
           echo "Running ${#files[@]} billing test file(s):"
           printf '  %s\n' "${files[@]}"
           bun test --isolate "${files[@]}"
+
+      # The service container can vanish mid-job on a shared Linux host: run
+      # 46132702035 had it healthy at 09:55Z and gone ("No such
+      # container" at teardown) when the migrations got ECONNREFUSED at 10:01Z.
+      # So the database steps check it first: when it is down, the step logs
+      # what docker knows of it (for the cause) and starts a job-owned postgres,
+      # same image and port, removed by the last step.
+      - name: Postgres still up
+        if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
+        env:
+          SERVICE_ID: ${{ job.services.postgres.id }}
+          PG_IMAGE: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        run: |
+          set -uo pipefail
+          up() { timeout 3 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; }
+          if up; then echo "postgres is up"; exit 0; fi
+          echo "::warning::the postgres service container ${SERVICE_ID:0:12} is unreachable; starting a job-owned one (docker state below)"
+          docker ps -a --no-trunc --filter "id=$SERVICE_ID" --format '{{.ID}} {{.Status}}' || true
+          docker events --since 40m --until "$(date -u +%s)" --filter "container=$SERVICE_ID" || true
+          name="cmux-billing-pg-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker run -d --rm --name "$name" -p 5432:5432 \
+            -e POSTGRES_DB=cmux_test -e POSTGRES_PASSWORD=cmux -e POSTGRES_USER=cmux "$PG_IMAGE"
+          for _ in $(seq 1 60); do
+            if docker exec "$name" pg_isready -U cmux -d cmux_test >/dev/null 2>&1 && up; then
+              echo "job-owned postgres $name is up"; exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$name" 2>&1 | tail -40
+          exit 1
 
       # The second pass proves every migration is idempotent, as in ci-web.yml.
       # The database URL is set only on the database steps: with it, the unit
@@ -512,6 +556,10 @@ jobs:
               chown -R "$OWNER" /w/Packages
               exit "$status"'
 
+      - name: Remove the job-owned postgres
+        if: ${{ always() && steps.route.outputs.web == 'true' }}
+        run: docker rm -f "cmux-billing-pg-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >/dev/null 2>&1 || true
+
   ios-billing:
     name: ios-billing
     needs: billing
@@ -520,7 +568,7 @@ jobs:
     # glaeda-ios-sim; Blacksmith macOS 26 only while vars.CI_BLACKSMITH_MACOS
     # is `on`, also for a re-run), Blacksmith macOS 26 for a fork: never a
     # plain Mac label, which may have no iOS 26 runtime for the StoreKit slot.
-    if: ${{ (!cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (!cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && vars.CI_BLACKSMITH_MACOS == 'on' && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
     # The timeout also counts the time an owned mini's glaeda hook holds the job
     # in "Set up runner" for capacity: nightly run 45336672494 waited about

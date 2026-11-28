@@ -546,10 +546,11 @@ struct SummaryReply {
 
 /// `mapping.summary {summary, chiefName?}` → `{summary}`.
 pub fn summary_op(request: &Value) -> Result<Value, OpError> {
-    let request: SummaryRequest = ops::parse(request)?;
-    ops::reply(&SummaryReply {
-        summary: summary(&request.summary, chief_name(&request.chief_name)),
-    })
+    ops::reply(&summary_reply(ops::parse(request)?)?)
+}
+
+fn summary_reply(request: SummaryRequest) -> Result<SummaryReply, OpError> {
+    Ok(SummaryReply { summary: summary(&request.summary, chief_name(&request.chief_name)) })
 }
 
 #[derive(Deserialize)]
@@ -579,8 +580,11 @@ struct ThreadPageRequest {
 
 /// `mapping.threadPage {page, identity?}` → `{root, replies, hasMore, summary}`.
 pub fn thread_page_op(request: &Value) -> Result<Value, OpError> {
-    let request: ThreadPageRequest = ops::parse(request)?;
-    ops::reply(&thread_page(&request.page, request.identity.as_ref()))
+    ops::reply(&thread_page_reply(ops::parse(request)?)?)
+}
+
+fn thread_page_reply(request: ThreadPageRequest) -> Result<home::ThreadPage, OpError> {
+    Ok(thread_page(&request.page, request.identity.as_ref()))
 }
 
 /// `ConversationSnapshot` and `ConversationHistoryPage` as the daemon sends them.
@@ -607,12 +611,15 @@ struct PageRequest {
 /// `mapping.conversationPage {page: {conversation, messages, threads}, chiefName?}` →
 /// `{conversation, messages, threads}` (`DaemonHomeSource.snapshot`).
 pub fn conversation_page_op(request: &Value) -> Result<Value, OpError> {
-    let request: PageRequest = ops::parse(request)?;
+    ops::reply(&conversation_page_reply(ops::parse(request)?)?)
+}
+
+fn conversation_page_reply(request: PageRequest) -> Result<home::ConversationPage, OpError> {
     let identity = request.identity.as_ref();
     let Some(head) = request.page.conversation.as_ref() else {
         return Err(OpError::Invalid("page.conversation is required".into()));
     };
-    ops::reply(&home::ConversationPage {
+    Ok(home::ConversationPage {
         conversation: summary(head, chief_name(&request.chief_name)),
         messages: request.page.messages.iter().map(|m| message(m, identity)).collect(),
         threads: request.page.threads.iter().map(|t| thread(t, identity)).collect(),
@@ -621,12 +628,28 @@ pub fn conversation_page_op(request: &Value) -> Result<Value, OpError> {
 
 /// `mapping.historyPage {page: {messages, threads}, identity?}` → `{messages, threads}`.
 pub fn history_page_op(request: &Value) -> Result<Value, OpError> {
-    let request: PageRequest = ops::parse(request)?;
+    ops::reply(&history_page_reply(ops::parse(request)?)?)
+}
+
+fn history_page_reply(request: PageRequest) -> Result<home::HistoryPage, OpError> {
     let identity = request.identity.as_ref();
-    ops::reply(&home::HistoryPage {
+    Ok(home::HistoryPage {
         messages: request.page.messages.iter().map(|m| message(m, identity)).collect(),
         threads: request.page.threads.iter().map(|t| thread(t, identity)).collect(),
     })
+}
+
+/// The ops above from request bytes to reply bytes, with no `Value` tree either way: the ops
+/// the app calls per listed conversation (`summary`) or per page of messages. `None`: not one of
+/// them, or a request the typed read refused (the `Value` path then answers, its error included).
+pub fn call_bytes(name: &str, bytes: &[u8]) -> Option<Result<Vec<u8>, OpError>> {
+    match name {
+        "summary" => ops::typed_bytes(bytes, summary_reply),
+        "threadPage" => ops::typed_bytes(bytes, thread_page_reply),
+        "conversationPage" => ops::typed_bytes(bytes, conversation_page_reply),
+        "historyPage" => ops::typed_bytes(bytes, history_page_reply),
+        _ => None,
+    }
 }
 
 #[derive(Deserialize)]

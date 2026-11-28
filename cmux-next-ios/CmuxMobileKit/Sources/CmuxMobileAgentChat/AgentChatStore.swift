@@ -320,6 +320,18 @@ public final class AgentChatStore {
 
     public nonisolated static let untitledName = "New session"
 
+    /// The composer's placeholder for a started chat: "Reply to <the chat's title>", else
+    /// "Reply…". Only a title the agent or acpmux gave the chat (`sessionTitle`, from the
+    /// harness's `session_info_update` or acpmux's `AcpmuxSession.chatName`), never the tab's
+    /// title or the session's name, which are the first prompt until the chat is named: the
+    /// field read "Reply to Take over https://github.com/manaflow-…" (issue 51331).
+    public var replyPlaceholder: String { Self.replyPlaceholder(sessionTitle: sessionTitle) }
+
+    public nonisolated static func replyPlaceholder(sessionTitle: String?) -> String {
+        guard let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return "Reply…" }
+        return "Reply to \(title)"
+    }
+
     public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
         if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -386,6 +398,32 @@ public final class AgentChatStore {
     @ObservationIgnored private var mentionCache: (key: MentionKey, at: ContinuousClock.Instant, generation: Int, artifacts: [TerminalArtifact])?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// The terminal this chat's prompts and Stop go to instead of its acpmux session, when set: a
+    /// terminal's Chat face (Toggle Terminal and Chat) is a View Only chat (acpmux
+    /// `watch.read_only`) of the session that terminal runs.
+    @ObservationIgnored public var terminalRoute: TerminalRoute?
+    public struct TerminalRoute {
+        /// Types a prompt into the terminal with Return; true when it took it.
+        public var prompt: @MainActor (String) -> Bool
+        /// Interrupts the terminal's turn (Esc, as in Claude Code and Codex); true when it took it.
+        public var interrupt: @MainActor () -> Bool
+
+        public init(prompt: @escaping @MainActor (String) -> Bool, interrupt: @escaping @MainActor () -> Bool) {
+            self.prompt = prompt
+            self.interrupt = interrupt
+        }
+    }
+    /// A prompt or Stop `terminalRoute` could not hand to its terminal (not attached now).
+    public static let terminalNotTakingPromptNotice = "Not sent: the terminal isn't connected. Try again in a moment."
+    /// Attachments on a terminal's Chat face: the terminal's own composer uploads them.
+    public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
+    /// `/fork` or `/continue` on a terminal's Chat face: the terminal runs the session.
+    public static let terminalCommandNotice = "This chat runs in its terminal: fork or continue it from the Terminal face."
+    /// A permission, sudo or other question waiting on a terminal's Chat face: the terminal shows
+    /// it as a menu, where typed text and Return would pick an option, so it is answered there.
+    public static let terminalQuestionNotice = "Answer this in the Terminal face: the terminal is asking it."
+    /// The model, mode or settings on a terminal's Chat face: the terminal's agent owns them.
+    public static let terminalSettingsNotice = "This chat runs in its terminal: change it from the Terminal face."
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
     /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
     /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
@@ -840,6 +878,20 @@ public final class AgentChatStore {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
+        if let terminalRoute {
+            // A terminal's Chat face: the terminal runs the session, so the prompt is typed there.
+            // Not while it asks a question: its menu would take the text and Return as a choice.
+            if pendingPermission != nil || pendingElevation != nil {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
+                clientError = Self.terminalQuestionNotice
+                return
+            }
+            if !attachments.isEmpty || !terminalRoute.prompt(text) {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: nil)
+                clientError = attachments.isEmpty ? Self.terminalNotTakingPromptNotice : Self.terminalAttachmentsNotice
+            }
+            return
+        }
         if denyingPermission, let permission = pendingPermission {
             let options = permission.request.phoneOptions
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
@@ -929,9 +981,17 @@ public final class AgentChatStore {
 
     private var retryRequested = false
 
-    public func cancel() { source.send(.cancel) }
+    public func cancel() {
+        if let terminalRoute {
+            if !terminalRoute.interrupt() { clientError = Self.terminalNotTakingPromptNotice }
+            return
+        }
+        source.send(.cancel)
+    }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
+        // A View Only chat cannot answer for the terminal that runs the session.
+        if terminalRoute != nil { clientError = Self.terminalQuestionNotice; return }
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
@@ -947,6 +1007,7 @@ public final class AgentChatStore {
     /// Answers the sudo card: Approve with the password (signed with the approval key), or Deny.
     /// The card stays until acpmux records its decision; a failed send says why (``clientError``).
     public func answerElevation(_ ask: AgentElevationAsk, password: String?) {
+        if terminalRoute != nil { clientError = Self.terminalQuestionNotice; return }
         clientError = nil
         sendingElevation = password != nil
         source.send(.answerElevation(ask, password: password.map(AgentSecretText.init)))
@@ -1095,7 +1156,10 @@ public final class AgentChatStore {
         source.send(.answerQuestion(questionId: question.id, answer: answer))
     }
 
-    public func setModel(_ id: String) { source.send(.setModel(id)) }
+    public func setModel(_ id: String) {
+        if terminalRoute != nil { clientError = Self.terminalSettingsNotice; return }
+        source.send(.setModel(id))
+    }
 
     /// Retry on a finished turn: its prompt goes again with what it attached. An image only
     /// the Mac's record holds is read back first; one that can't be read goes without its
@@ -1137,7 +1201,10 @@ public final class AgentChatStore {
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
     public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
-    public func setMode(_ id: String) { source.send(.setMode(id)) }
+    public func setMode(_ id: String) {
+        if terminalRoute != nil { clientError = Self.terminalSettingsNotice; return }
+        source.send(.setMode(id))
+    }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
 
@@ -2196,7 +2263,7 @@ public final class AgentChatStore {
         case .usage(let used, let size):
             if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
-            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
+            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != sessionTitle { sessionTitle = title }
         }
     }
 
@@ -2269,14 +2336,21 @@ extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
     /// wanna see connecting to cosmic-gray... with the spinner").
     public var loadingText: String {
-        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        showsStarting ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// A start in progress: its first send still going, or a start whose Mac is reachable. A start
+    /// whose send is over while its Mac is unreachable loads like any chat, never "Starting <agent>…"
+    /// for good (live run 12: a task that never left the phone).
+    var showsStarting: Bool {
+        awaitsFirstPrompt || isStarting && !isOffline && summary.status != .disconnected
     }
 
     /// The loading state's words show. A start says so at once (the person just asked for
     /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
     /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
     /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
-    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+    public var loadingTextShows: Bool { showsStarting || quietStatus.isShown }
 
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {

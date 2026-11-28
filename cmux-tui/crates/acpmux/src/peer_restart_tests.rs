@@ -111,7 +111,7 @@ async fn a_stable_link_that_restarts_starts_its_backoff_over() {
 /// daemon that updates does.
 async fn answer(stream: tokio::net::TcpStream, mut restart: tokio::sync::watch::Receiver<u32>) {
     use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
-    let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
+    let Ok(mut ws) = crate::server::accept_ws(stream).await else { return };
     restart.borrow_and_update();
     loop {
         let frame = tokio::select! {
@@ -309,7 +309,7 @@ async fn answer_pages(
     mut restart: tokio::sync::watch::Receiver<u32>,
     pages: mpsc::UnboundedSender<(usize, usize)>,
 ) {
-    let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
+    let Ok(mut ws) = crate::server::accept_ws(stream).await else { return };
     restart.borrow_and_update();
     let gap = if conn == 0 { Duration::ZERO } else { PAGE_GAP };
     loop {

@@ -34,6 +34,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -51,7 +52,12 @@ GATE_LOG = ('process == "syspolicyd" OR process BEGINSWITH[c] "xprotect" OR proc
 GATE_WORDS = ("assess", "xprotect", "scan", "ticket", "notar", "prompt", "quarantine", "translocat", "gatekeeper",
               "malware", "yara", "evaluat")
 SETTLE_MARKS = ("first_window_frame_committed", "reveal.sidebar", "reveal.tabs")
-CUA = Path("~/.local/bin/cua-driver").expanduser()
+# The console's CuaDriver, which holds the Accessibility grant a measure step lacks. A fleet step's HOME is the step's
+# own, so `~/.local/bin/cua-driver` is not there and the driver's daemon socket is under another home: the lookup
+# found no driver, fell back to System Events (no Automation grant: each look hung 20 s) and no fresh-install round
+# ever pressed Open (startup-matrix gamut, 2026-11-28). launch-fresh-install.sh's cua_pick does the same.
+CUA_PATHS = (Path("/Applications/CuaDriver.app/Contents/MacOS/cua-driver"), Path("~/.local/bin/cua-driver").expanduser())
+SYSTEM_EVENTS_S = 20
 STARTUP_S = 150.0
 SETTLE_GRACE_S = 10.0
 
@@ -106,8 +112,58 @@ def app_pid(executable: str, known: set[int]) -> tuple[int, str] | None:
     return max(fresh) if fresh else None
 
 
+_CUA: list | None = None
+_SYSTEM_EVENTS_DEAD: str | None = None
+
+
+def cua_argv() -> list[str]:
+    """The argv that runs CuaDriver with the HOME whose daemon socket exists (this HOME, this user's home, the console
+    user's), or [] when no driver is installed. Looked up once per run."""
+    global _CUA
+    if _CUA is None:
+        real = next((p for p in CUA_PATHS if os.access(p, os.X_OK)), None)
+        _CUA = []
+        if real is not None:
+            import pwd
+            homes = [os.environ.get("HOME", "")]
+            for uid in (os.getuid(), _console_uid()):
+                try:
+                    if uid is not None:
+                        homes.append(pwd.getpwuid(uid).pw_dir)
+                except KeyError:
+                    pass
+            home = next((h for h in homes if h and (Path(h) / "Library/Caches/cua-driver/cua-driver.sock").is_socket()),
+                        None)
+            _CUA = ["/usr/bin/env", f"HOME={home}", str(real)] if home else [str(real)]
+    return _CUA
+
+
+def _console_uid() -> int | None:
+    try:
+        return os.stat("/dev/console").st_uid
+    except OSError:
+        return None
+
+
+def prompt_driver_failure(prompt: dict) -> str | None:
+    """The row's cause when the first-launch prompt could not be pressed at all: no CuaDriver and System Events
+    refused or hung (the step's process lacks the Automation or Accessibility grant)."""
+    if prompt.get("clicked_ms"):
+        return None
+    answer = prompt.get("answer") or {}
+    if answer.get("by") == "cua-driver" and answer.get("windows"):
+        return (f"first-launch prompt on screen from {prompt.get('shown_ms')} ms, Open never pressed: buttons seen "
+                f"{answer.get('seen') or 'none'}{'; ' + answer['error'] if answer.get('error') else ''}")
+    error = prompt.get("look_error")
+    if error is None:
+        return None
+    return (f"first-launch prompt never pressed: no CuaDriver at {', '.join(str(p) for p in CUA_PATHS)} and System "
+            f"Events failed ({str(error)[-120:]}); grant this host's step Automation (System Events) and "
+            f"Accessibility, or install CuaDriver")
+
+
 def cua(tool: str, args: dict) -> dict:
-    code, out = run_text([str(CUA), "call", tool, json.dumps(args)], timeout=60)
+    code, out = run_text(cua_argv() + ["call", tool, json.dumps(args)], timeout=60)
     try:
         return json.loads(out) if code == 0 else {"error": out[-300:]}
     except ValueError:
@@ -123,6 +179,93 @@ def walk(obj, pred, out=None) -> list:
     return out
 
 
+def open_button(state: dict) -> tuple[dict | None, list[str]]:
+    """The Open button in a get_window_state reply, and every button's role and name seen. cua-driver's AX tree
+    gives each element an element_token and not always a frame, so either one makes it pressable."""
+    labels, hit = [], None
+    for element in walk(state, lambda o: isinstance(o, dict) and "role" in o
+                        and ("element_token" in o or "element_index" in o or "frame" in o)):
+        if "button" not in str(element.get("role", "")).lower():
+            continue
+        name = next((str(element.get(k)).strip() for k in ("title", "label", "description", "value")
+                     if str(element.get(k) or "").strip()), "")
+        labels.append(f"{element.get('role')}:{name}"[:60])
+        if hit is None and name == "Open":
+            hit = element
+    if hit is None:
+        # Some cua-driver builds give the tree as text lines (`[12] AXButton "Open"`), not as element objects.
+        for text in walk(state, lambda o: isinstance(o, str) and "button" in o.lower()):
+            for line in text.splitlines():
+                for index, role, name in TEXT_TREE_BUTTON.findall(line):
+                    labels.append(f"{role}:{name}"[:60])
+                    if hit is None and name.strip() == "Open":
+                        hit = {"role": role, "element_index": int(index), "name": name.strip(), "line": line.strip()[:200]}
+                        token = TEXT_TREE_TOKEN.search(line)
+                        if token:
+                            hit["element_token"] = token.group(1)
+    return hit, labels
+
+
+TEXT_TREE_BUTTON = re.compile(r'\[(\d+)\]\s*(AX\w*Button)\b[^"\n]*"([^"\n]*)"')
+# A token on a text-tree line (`token=ab12`, `token: ab12`, `element_token ab12`), the key newer drivers press by.
+TEXT_TREE_TOKEN = re.compile(r'(?:element_token|token)\s*[:=]?\s*"?([\w.:-]+)')
+# A driver's refusal of an unknown argument lists the ones it takes: `...; accepted: action, button, ..., y"`.
+ACCEPTED_ARGS = re.compile(r'accepted:\s*([\w, ]+)')
+
+
+def tree_shape(state) -> str:
+    """What a get_window_state reply held when no button was found in it: its top keys, how many element objects
+    and of which roles, and how long its text was, so the round names why Open was never pressed."""
+    elements = walk(state, lambda o: isinstance(o, dict) and "role" in o)
+    roles: dict[str, int] = {}
+    for element in elements:
+        roles[str(element.get("role"))] = roles.get(str(element.get("role")), 0) + 1
+    texts = walk(state, lambda o: isinstance(o, str) and len(o) > 40)
+    top = sorted(state)[:10] if isinstance(state, dict) else type(state).__name__
+    return (f"tree: keys {top}, {len(elements)} elements {dict(sorted(roles.items(), key=lambda kv: -kv[1])[:6])}, "
+            f"text {sum(len(t) for t in texts)} chars{': ' + texts[0][:160] if texts else ''}")
+
+
+def press_candidates(element: dict) -> list[dict]:
+    """The ways to name ELEMENT to the driver's click, best first: its token (an AX press, no pointer move), its
+    text-tree index (older drivers), the index as a token, its name as the click target, then its frame's middle."""
+    out = []
+    if "element_token" in element:
+        out.append({"element_token": element["element_token"]})
+    if "element_index" in element:
+        out += [{"element_index": element["element_index"]}, {"element_token": str(element["element_index"])}]
+    if element.get("name"):
+        out.append({"target": element["name"]})
+    f = element.get("frame")
+    if f:
+        w, h = f.get("w", f.get("width", 0)), f.get("h", f.get("height", 0))
+        out.append({"x": f["x"] + w / 2, "y": f["y"] + h / 2, "scope": "desktop"})
+    return out
+
+
+def press_element(pid: int, window_id: int, element: dict) -> dict:
+    """Press ELEMENT by the first of its press_candidates the driver takes. A driver that refuses an argument names
+    the ones it accepts, so a refused key skips every later candidate that uses one it does not take (CuaDriver
+    builds that print the tree as text lines take element_token, not element_index: startup-matrix fresh-install,
+    2026-11-28, both rounds refused and Open was never pressed). The reply keeps each refusal, so a round says why."""
+    accepted: set[str] | None = None
+    tried = []
+    for args in press_candidates(element):
+        if accepted is not None and not set(args) <= accepted:
+            continue
+        extra = {} if "scope" in args else {"pid": pid, "window_id": window_id}
+        if "element_token" in args or "element_index" in args:
+            extra["action"] = "press"
+        reply = cua("click", {**extra, **args})
+        if not reply.get("error"):
+            return {**reply, "pressed_by": sorted(args)[0], **({"refused": tried} if tried else {})}
+        tried.append(f"{sorted(args)[0]}: {str(reply['error'])[-120:]}")
+        listed = ACCEPTED_ARGS.search(str(reply["error"]))
+        if listed:
+            accepted = {k.strip() for k in listed.group(1).split(",") if k.strip()}
+    return {"error": " | ".join(tried)[-400:] or "no way to press it", "element": element.get("line") or element.get("role")}
+
+
 def answer_prompt() -> dict | None:
     """When the first-launch prompt is on screen, press its Open button; None while there is none. cua-driver holds
     the Accessibility grant a measure step lacks; System Events only without it (a first System Events call may ask
@@ -131,27 +274,36 @@ def answer_prompt() -> dict | None:
     agents = [int(p) for p in out.split() if p.isdigit()] if code == 0 else []
     if not agents:
         return None
-    if CUA.exists():
+    global _SYSTEM_EVENTS_DEAD
+    if cua_argv():
         wins = [w for w in walk(cua("list_windows", {"pid": agents[0]}), lambda o: isinstance(o, dict) and "window_id" in o)
                 if w.get("is_on_screen")]
+        seen: list[str] = []
         for win in wins:
-            state = cua("get_window_state", {"pid": agents[0], "window_id": win["window_id"],
-                                             "include_screenshot": False, "max_depth": 30, "max_elements": 400})
-            buttons = [e for e in walk(state, lambda o: isinstance(o, dict) and "frame" in o and "role" in o)
-                       if "button" in str(e.get("role", "")).lower()
-                       and str(e.get("label") or e.get("title") or "").strip() == "Open"]
-            if buttons:
-                f = buttons[0]["frame"]
-                click = cua("click", {"x": f["x"] + f["w"] / 2, "y": f["y"] + f["h"] / 2, "scope": "desktop"})
-                return {"by": "cua-driver", "click": None if click.get("error") else click}
-        return {"by": "cua-driver", "click": None, "windows": len(wins)} if wins else None
+            state = cua("get_window_state", {"pid": agents[0], "window_id": win["window_id"], "include_screenshot": False,
+                                             "include_accessibility_tree": True, "max_depth": 30, "max_elements": 400})
+            hit, labels = open_button(state)
+            seen += labels
+            if hit is not None:
+                click = press_element(agents[0], win["window_id"], hit)
+                return {"by": "cua-driver", "click": None if click.get("error") else click,
+                        **({"error": str(click["error"])[-200:]} if click.get("error") else {})}
+            if state.get("error"):
+                seen.append(f"error: {str(state['error'])[-160:]}")
+            elif not labels:
+                seen.append(tree_shape(state))
+        # On screen with no Open found: name what the window held, so the round says why it never pressed.
+        return {"by": "cua-driver", "click": None, "windows": len(wins), "seen": seen[:12]} if wins else None
     script = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
               'if (count of windows) is 0 then return "none"\n'
               'click button "Open" of window 1\nreturn "clicked"\nend tell')
-    code, out = run_text(["osascript", "-e", script], timeout=20)
+    if _SYSTEM_EVENTS_DEAD is not None:  # it hung or refused once: every later look would block the round 20 s
+        return {"by": "system-events", "shown": False, "error": _SYSTEM_EVENTS_DEAD}
+    code, out = run_text(["osascript", "-e", script], timeout=SYSTEM_EVENTS_S)
     if code == 0 and out == "none":
         return None
     if code != 0:  # no grant: it cannot see a prompt, so none is counted
+        _SYSTEM_EVENTS_DEAD = out[-200:]
         return {"by": "system-events", "shown": False, "error": out[-200:]}
     return {"by": "system-events", "click": out}
 
@@ -256,6 +408,9 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
         shutil.rmtree(root, ignore_errors=True)
     if not row["failures"]:
         row["failures"] += defaults_leak_failures(row)
+        cause = prompt_driver_failure(row.get("prompt") or {})
+        if cause and row.get("first_window_ms") is None:
+            row["failures"].append(cause)
         if row.get("first_window_ms") is None:
             row["failures"].append("no first window frame")
         if row.get("home_ms") is None:
@@ -478,6 +633,33 @@ def self_test() -> int:
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3}) is None
     assert settled({"first_window_frame_committed": 1, "reveal.sidebar": 2, "reveal.tabs": 3, "reveal.pane": 9}) == 9
     assert timings({}, {}, None, {})["first_window_ms"] is None
+    assert prompt_driver_failure({}) is None
+    assert prompt_driver_failure({"look_error": "timed out", "clicked_ms": 900}) is None
+    assert "Automation" in prompt_driver_failure({"look_error": "osascript timed out after 20 seconds"})
+    assert isinstance(cua_argv(), list)
+    hit, labels = open_button({"tree": '[3] AXStaticText "Open cmux?"\n[7] AXButton "Cancel"\n[8] AXButton "Open"'})
+    assert hit == {"role": "AXButton", "element_index": 8, "name": "Open", "line": '[8] AXButton "Open"'} \
+        and labels == ["AXButton:Cancel", "AXButton:Open"], (hit, labels)
+    hit, _ = open_button({"tree_markdown": '[8] AXButton "Open" token=k9x'})
+    assert hit["element_token"] == "k9x", hit
+    assert [sorted(c)[0] for c in press_candidates({"element_index": 8, "name": "Open"})] == \
+        ["element_index", "element_token", "target"]
+    global cua
+    calls, real = [], cua
+    refusal = 'unknown argument element_index; accepted: action, element_token, pid, target, window_id, x, y"'
+    def fake(tool, args):
+        calls.append(args)
+        return {"error": refusal} if "element_index" in args or args.get("element_token") == "8" else {"ok": True}
+    cua = fake
+    try:
+        reply = press_element(1, 2, {"role": "AXButton", "element_index": 8, "name": "Open"})
+    finally:
+        cua = real
+    assert reply.get("ok") and reply["pressed_by"] == "target" and len(reply["refused"]) == 2, (reply, calls)
+    hit, labels = open_button({"elements": [{"role": "AXButton", "title": "Open", "element_token": "t1"}]})
+    assert hit and hit["element_token"] == "t1" and labels == ["AXButton:Open"], (hit, labels)
+    shape = tree_shape({"window": {"role": "AXWindow"}, "markdown": "x" * 50})
+    assert "1 elements {'AXWindow': 1}" in shape and "text 50 chars" in shape, shape
     print("startup_paths self-test: ok")
     return 0
 

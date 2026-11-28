@@ -32,6 +32,13 @@ mkdir -p "$work/mnt"
 hdiutil attach -nobrowse -readonly -mountpoint "$work/mnt" "$work/nightly.dmg" >/dev/null || exit 3
 src="$(find "$work/mnt" -maxdepth 1 -name '*.app' | head -1)"
 commit="$(plutil -extract CMUXCommit raw -o - "$src/Contents/Info.plist")"
+# nightly.yml stamps CMUXCommit with the short sha; live-code-variant.sh build takes the full one.
+if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+  full="$(git -C "$root" rev-parse --verify -q "$commit^{commit}" 2>/dev/null \
+    || curl -fsSL --proto '=https' --retry 3 "https://api.github.com/repos/manaflow-ai/cmux/commits/$commit" \
+      | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["sha"])' 2>/dev/null)" || full=""
+  [[ "$full" =~ ^[0-9a-f]{40}$ ]] && commit="$full"
+fi
 version="$(plutil -extract CFBundleVersion raw -o - "$src/Contents/Info.plist")"
 hdiutil detach "$work/mnt" >/dev/null
 echo "LCV-NIGHTLY $nightly version=$version commit=$commit"

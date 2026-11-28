@@ -173,3 +173,52 @@ fn a_checkout_with_no_origin_moves_as_a_bundle_at_the_same_path() {
     let e = plan_folder(Path::new("/srv/demo"), home, Some(&outside), "/h", true, None);
     assert!(e.unwrap_err().contains("outside this machine's home"));
 }
+
+/// A checkout whose `origin` is not an owner/name remote (a local path, a `file://` URL, a nested
+/// group) moves as one with no origin does, as a bundle, instead of failing once a fresh Cloud
+/// machine runs ("origin of PATH is not an owner/name remote").
+#[test]
+fn a_checkout_whose_origin_is_not_owner_name_moves_as_a_bundle() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo");
+    for origin in ["/Users/me/bare/demo.git", "file:///Users/me/bare/demo.git", "../demo.git"] {
+        let mut c = checkout("/Users/me/scratch/demo", Some("main"), true);
+        c.origin = Some(origin.into());
+        let f = plan_folder(cwd, home, Some(&c), "/home/cmux", true, None).unwrap();
+        assert_eq!(
+            f,
+            Folder::Bundle {
+                top: "/home/cmux/scratch/demo".into(),
+                branch: "main".into(),
+                subdir: String::new(),
+                dirty: true,
+            },
+            "{origin}"
+        );
+    }
+}
+
+/// RFD 0181 B7: the folder plan names the target's folder the chat's own only when it is the
+/// same checkout with nothing left behind, or a plain folder whose files go with it.
+#[test]
+fn the_folder_is_the_chats_own_only_when_nothing_stays_behind() {
+    let tree = |dirty| Folder::Worktree {
+        repo: "o/n".into(),
+        url: "https://github.com/o/n".into(),
+        branch: "feat".into(),
+        subdir: String::new(),
+        dirty,
+        snapshot: false,
+    };
+    let bundle =
+        |dirty| Folder::Bundle { top: "/h/w".into(), branch: "b".into(), subdir: "".into(), dirty };
+    let plain = Folder::Plain { cwd: "/h/notes".into() };
+    assert!(same_folder(&tree(false), false, false, false));
+    assert!(same_folder(&bundle(false), false, false, false));
+    assert!(same_folder(&tree(true), false, false, true), "--carry-changes brings them");
+    assert!(!same_folder(&tree(true), false, false, false), "--leave-dirty leaves them");
+    assert!(!same_folder(&bundle(true), false, false, false));
+    assert!(same_folder(&plain, false, true, false), "its files went");
+    assert!(!same_folder(&plain, false, false, false), "made empty there");
+    assert!(!same_folder(&plain, true, true, false), "--cwd names a folder as it is there");
+}

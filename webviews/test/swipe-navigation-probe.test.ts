@@ -2,7 +2,9 @@
 // fingers keeps a horizontal gesture for itself, so the swipe scrolls or edits there instead.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { keepsSwipe } from "../src/swipeNavigation/probe";
+import { importWithDom } from "./support/importWithDom";
+
+const { keepsSwipe } = await importWithDom(() => import("../src/swipeNavigation/probe"));
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/", pretendToBeVisual: true });
 const doc = dom.window.document;

@@ -567,7 +567,7 @@ impl ServedSession {
 /// pipe or a closed transport. The CLI reads `type: "refused"`.
 pub(super) const REFUSED_BUSY_LINE: &str = concat!(
     r#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy","#,
-    r#""message":"the session is at its connection limit; retry"}"#,
+    r#""message":"the session is at its connection limit"}"#,
     "\n"
 );
 

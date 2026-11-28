@@ -467,6 +467,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "moss",
         "meadow",
         "lily-pond",
+        "sakura",
+        "sakura-yoru",
+        "sumi",
+        "frutiger-aero-2027",
+        "one-bit",
+        "earthly-delights",
         "minimal-sessions",
         "miku",
     ] {

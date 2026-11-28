@@ -7,10 +7,11 @@
 //! before its id is checked: the manifest against the id the pointer named, every chunk file
 //! against its BLAKE3, the assembled files against the manifest's file hashes.
 
-use crate::manifest::Manifest;
+use crate::manifest::{File, Manifest};
+use crate::patch::{self, List};
 use crate::publish::{index_path, manifest_path, pack_path, parse_index};
 use crate::{Id, Result, Store, assemble, pack, plan};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// A manifest is a few hundred KiB for a 50 MB tree; reading more is refused.
@@ -61,8 +62,14 @@ pub struct Report {
     pub ranges: usize,
     /// Bytes those ranges read.
     pub range_bytes: u64,
-    /// Bytes of the manifest and index.
+    /// Bytes of the manifest, index and patch list.
     pub meta_bytes: u64,
+    /// Files rebuilt from a `zstd --patch-from` patch against a file held ([`crate::patch`]).
+    pub patches: usize,
+    /// Bytes those patches read.
+    pub patch_bytes: u64,
+    /// Patches read that did not rebuild their file (the chunks were fetched instead).
+    pub patch_misses: usize,
 }
 
 /// Fetch the tree of `manifest` into `out` (which must not exist), reading chunks from `store`,
@@ -84,8 +91,9 @@ pub fn fetch(
         ..Report::default()
     };
     let mut want = plan::want(&m, |id| store.has(id));
+    let mut held = HashMap::new();
     if !want.is_empty() && !have.is_empty() {
-        seed(store, have, &want.iter().map(|c| c.id).collect())?;
+        held = seed(store, have, &want.iter().map(|c| c.id).collect())?;
         want.retain(|c| !store.has(&c.id));
     }
     report.reused = report.chunks - want.len();
@@ -93,6 +101,10 @@ pub fn fetch(
         let idx_bytes = source.get(&index_path(pack_id), MAX_INDEX)?;
         report.meta_bytes += idx_bytes.len() as u64;
         let index = parse_index(&idx_bytes, pack_id)?;
+        if !held.is_empty() {
+            patch_in(source, store, &m, manifest, &index, &held, &mut report)?;
+            want.retain(|c| !store.has(&c.id));
+        }
         let (ranges, missing) = pack::ranges(&[index], &want, pack::GAP);
         if let Some(id) = missing.first() {
             return Err(format!("chunk {id} is in no pack the pointer names").into());
@@ -108,23 +120,94 @@ pub fn fetch(
     Ok(report)
 }
 
-/// Put into `store` every chunk of `want` that a file under one of the `have` trees holds. The
-/// trees are cut with the same FastCDC, so an unchanged run of bytes yields the same chunk.
-fn seed(store: &Store, have: &[PathBuf], want: &HashSet<Id>) -> Result<()> {
+/// Put into `store` every chunk of `want` that a file under one of the `have` trees holds, and
+/// say where each file held is, by its hash. The trees are cut with the same FastCDC, so an
+/// unchanged run of bytes yields the same chunk.
+fn seed(store: &Store, have: &[PathBuf], want: &HashSet<Id>) -> Result<HashMap<Id, PathBuf>> {
     let mut found = HashSet::new();
+    let mut held = HashMap::new();
     for root in have {
         if !root.is_dir() {
             continue;
         }
-        Manifest::of_dir(root, |id, bytes| {
+        let m = Manifest::of_dir(root, |id, bytes| {
             if want.contains(&id) && found.insert(id) {
                 store.put(&id, bytes)?;
             }
             Ok(())
         })?;
-        if found.len() == want.len() {
-            break;
+        for f in m.files {
+            held.entry(f.hash).or_insert_with(|| root.join(&f.path));
         }
+    }
+    Ok(held)
+}
+
+/// Rebuild from a patch, against a file held, every file of `m` whose missing chunks cost more
+/// by Range GET than its smallest patch, and put its chunks into `store`. No patch list, or a
+/// patch that does not rebuild its file, leaves the chunks to the pack.
+fn patch_in(
+    source: &mut dyn Source,
+    store: &Store,
+    m: &Manifest,
+    manifest: &Id,
+    index: &pack::Index,
+    held: &HashMap<Id, PathBuf>,
+    report: &mut Report,
+) -> Result<()> {
+    let Ok(bytes) = source.get(&patch::list_path(manifest), patch::MAX_LIST) else {
+        return Ok(());
+    };
+    report.meta_bytes += bytes.len() as u64;
+    let Ok(list) = List::from_bytes(&bytes) else {
+        return Ok(());
+    };
+    let cost: HashMap<Id, u64> = index.entries.iter().map(|e| (e.id, u64::from(e.len))).collect();
+    let mut done = HashSet::new();
+    for f in &m.files {
+        if !done.insert(f.hash) {
+            continue;
+        }
+        let missing: HashSet<Id> =
+            f.chunks.iter().map(|c| c.id).filter(|id| !store.has(id)).collect();
+        let by_chunks: u64 = missing.iter().filter_map(|id| cost.get(id)).sum();
+        let best = list
+            .patches
+            .iter()
+            .filter(|p| p.to == f.hash && p.len < by_chunks && held.contains_key(&p.from))
+            .min_by_key(|p| p.len);
+        let Some(p) = best else { continue };
+        let Some(base_path) = held.get(&p.from) else { continue };
+        match patch_file(source, store, f, p, base_path) {
+            Ok(()) => {
+                report.patches += 1;
+                report.patch_bytes += p.len;
+            }
+            Err(_) => report.patch_misses += 1,
+        }
+    }
+    Ok(())
+}
+
+fn patch_file(
+    source: &mut dyn Source,
+    store: &Store,
+    f: &File,
+    p: &patch::Entry,
+    base_path: &Path,
+) -> Result<()> {
+    let base = std::fs::read(base_path)?;
+    if Id::of(&base) != p.from {
+        return Err(format!("{} changed on disk", base_path.display()).into());
+    }
+    let body = source.get(&patch::patch_path(&p.to, &p.from), usize::try_from(p.len)?)?;
+    let bytes = patch::apply(&base, &body, &f.hash, f.size)?;
+    let mut at = 0usize;
+    for c in &f.chunks {
+        let end = at.checked_add(c.len as usize).ok_or("chunk offset overflow")?;
+        let piece = bytes.get(at..end).ok_or("chunk outside file")?;
+        store.put(&c.id, piece)?;
+        at = end;
     }
     Ok(())
 }

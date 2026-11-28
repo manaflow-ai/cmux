@@ -233,10 +233,21 @@ fn read_record(hosts: &Path, session: &str) -> Record {
 /// the Bash hook.
 pub fn is_acpmux_own(argv: &[String]) -> bool {
     let own = [agent_host::HOST_ARG, crate::bg_run::RUN_ARG, crate::bg_hook::HOOK_ARG];
-    argv.iter().skip(1).any(|a| own.contains(&a.as_str())) || is_daemon_run(argv)
+    argv.iter().skip(1).any(|a| own.contains(&a.as_str()) || is_pipe_host(a)) || is_daemon_run(argv)
 }
 
 pub(crate) use super::is_daemon_run;
+
+/// The held pipes' host (`hub_carrier_pipe_host.rs`).
+fn is_pipe_host(arg: &str) -> bool {
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    return arg == crate::hub_carrier_pipe_host::PIPE_HOST_ARG;
+    #[cfg(not(all(unix, feature = "hub-carrier")))]
+    {
+        let _ = arg;
+        false
+    }
+}
 
 /// Whether the nearest acpmux process above `proc` is the daemon itself, not an agent host or a
 /// task runner: the daemon's own helpers (MCP servers, git, peer links) carry whatever marks the

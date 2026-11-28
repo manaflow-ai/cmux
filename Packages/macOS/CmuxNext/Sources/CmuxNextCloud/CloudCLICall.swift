@@ -29,6 +29,19 @@ public struct CloudCLICall: Sendable {
         return Data(line)
     }
 
+    /// A long-running `cmux` call answering in lines: arguments, stdin, environment (nil: the app's), each stdout line.
+    public typealias Lines = @Sendable (_ arguments: [String], _ stdin: Data, _ environment: [String: String]?,
+                                        _ line: @escaping @Sendable (Data) -> Void) async -> Void
+
+    /// ``Lines`` on this build's `cmux`, bounded by `timeout`; cancelling the caller ends the child.
+    public func lines(timeout: Duration) -> Lines {
+        { [cli] arguments, stdin, environment, line in
+            guard let binary = await cli.resolve() else { return }
+            _ = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: environment, stdin: stdin,
+                                             timeout: timeout, stdoutLine: { if !$0.isEmpty { line(Data($0.utf8)) } }, clock: ContinuousClock())
+        }
+    }
+
     /// `cmux cloud automation-relay` as the signed-in person of `auth`: what `cmux automation
     /// --target cloud`, the Automations page and the Chief's automation tool call (the app's
     /// `cloud.automation`). The forward takes `{op, params?, idempotency_key?}` as JSON bytes and
@@ -145,6 +158,46 @@ public struct CloudCLICall: Sendable {
         let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
         guard let answer = await Self.answer(Answer.self, from: line) else { return ("transport", "") }
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
+    }
+
+    /// One Artifacts page read (`path`: `/v1/artifacts/tree`, `history` or `file`, and its `query`) of cmux-platform: the
+    /// cmux-cloud-api crate's `artifacts.read` (`artifacts.rs`) on this Mac's daemon at `socket`, which checks `args`,
+    /// sends the bearer only to the platform origin, follows no redirect, keeps no cache or cookie and stops at 60 s.
+    /// The platform's answer for every status; signed out, a 401. Throws when there is no platform origin, no
+    /// daemon, or the call fails.
+    @MainActor
+    public func artifactsRead(path: String, query: [URLQueryItem], signedIn auth: CloudAuth,
+                              socket: String) async throws -> ArtifactsAnswer {
+        guard auth.configuration.artifactsAPIBaseURL() != nil else { throw CloudCallRefusal(code: "no_platform", message: "") }
+        guard auth.isSignedIn else { return ArtifactsAnswer(status: 401, body: Data(), size: 0) }
+        struct Answer: Decodable, Sendable {
+            struct Body: Decodable, Sendable {
+                var status: Int
+                var content_type: String?
+                var commit: String?
+                var size: Int
+                var body_base64: String?
+            }
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
+            var ok: Bool
+            var body: Body?
+            var error: Failure?
+        }
+        // The route is the path's last segment; each query value goes whole (Rust encodes and checks it), limit as a number.
+        var call: [String: any Sendable] = ["route": String(path.split(separator: "/").last ?? "")]
+        for item in query {
+            guard let value = item.value else { continue }
+            call[item.name] = item.name == "limit" ? (Int(value) ?? 0) : value
+        }
+        // The Rust read stops at 60 s; this outlasts it so its own answer comes back.
+        let line = await cloudAPI("artifacts.read", args: call, signedIn: auth, socket: socket, timeout: .seconds(75))
+        guard let answer = await Self.answer(Answer.self, from: line) else { throw CloudCallRefusal(code: "transport", message: "") }
+        guard answer.ok, let body = answer.body else {
+            if answer.error?.kind == "not_signed_in" { return ArtifactsAnswer(status: 401, body: Data(), size: 0) }
+            throw CloudCallRefusal(code: answer.error?.code ?? answer.error?.kind ?? "transport", message: answer.error?.message ?? "")
+        }
+        let bytes = body.body_base64.flatMap { Data(base64Encoded: $0) } ?? Data()
+        return ArtifactsAnswer(status: body.status, body: bytes, size: body.size, contentType: body.content_type, commit: body.commit)
     }
 
     /// A Chief on its own Cloud machine (New Chief's "On its own Cloud machine"): the cmux-cloud-api crate's
@@ -265,6 +318,22 @@ public struct CloudCLICall: Sendable {
 public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
     public var code: String
     public var message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
+}
+
+/// The platform's answer to ``CloudCLICall/artifactsRead(path:query:signedIn:socket:)``: `body` is empty when the
+/// daemon left a body over its limit out; `size` is the body's length either way.
+public nonisolated struct ArtifactsAnswer: Sendable {
+    public var status: Int
+    public var body: Data
+    public var size: Int
+    public var contentType: String?
+    /// `X-Artifacts-Commit`.
+    public var commit: String?
 }
 
 /// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`) through the bundled cmux's `cmux cloud api` (cmux-tui
@@ -391,7 +460,7 @@ public struct CloudDaemon: Sendable {
     /// child (a child past it is killed: `timedOut`, since the call may have run).
     /// `auth` is the credential's kind as cmux-cloud-api reads it: `owner` (the Stack session) or `worker`
     /// (this Mac's install token). A misconfigured dev build refuses before anything runs.
-    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner", tail: Data? = nil) async throws -> Data {
         try buildSpace.check()
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
@@ -408,7 +477,9 @@ public struct CloudDaemon: Sendable {
         if let team = await teamID() { request["team"] = team }
         let output: Data
         do {
-            output = try await run(try JSONSerialization.data(withJSONObject: request), timeout)
+            var input = try JSONSerialization.data(withJSONObject: request)
+            if let tail { input.append(0x0A); input.append(tail) }
+            output = try await run(input, timeout)
         } catch let noAnswer as CloudMachineIO.NoAnswer {
             // Never started: nothing ran. Started and then killed or crashed: the call may have run.
             if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }

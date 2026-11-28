@@ -565,8 +565,9 @@ mod probe_in_a_shell {
 [ "$1" = --user ] || exit 2; shift
 case "$1" in
 show-environment) [ {no_manager} = 0 ] || exit 1; [ -z "{manager_xdg}" ] || echo "XDG_CONFIG_HOME={manager_xdg}"; exit 0 ;;
-is-enabled) echo "{enabled}" ;;
+is-enabled) echo "{enabled}"; [ "{enabled}" = enabled ] ;;
 is-active) exit {active} ;;
+daemon-reload | enable) exit 0 ;;
 show) [ "$2" = -p ] && [ "$3" = UnitPath ] && {{ [ "{unit_path}" = FAIL ] && exit 1; echo "{unit_path}"; exit 0; }}
   case "$4" in
   LoadState) echo {load} ;;

@@ -40,17 +40,24 @@ fn a_session_timeout_past_its_tries_posts_no_notice() {
          its agent process (pid 26742) is alive",
         "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal\"}}",
     ] {
-        assert_eq!(stuck_notice(&status(LINE, error)), None, "{error}");
+        assert_eq!(
+            stuck_notice(&status(LINE, error), "claude"),
+            None,
+            "{error}"
+        );
     }
 }
 
 #[test]
 fn a_repeating_request_error_names_its_class() {
-    let text = stuck_notice(&status(
-        LINE,
-        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\
+    let text = stuck_notice(
+        &status(
+            LINE,
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\
          \"message\":\"A maximum of 4 blocks with cache_control may be provided.\"}}",
-    ))
+        ),
+        "claude",
+    )
     .expect("a notice");
     assert!(text.contains("line 1634+1"), "{text}");
     assert!(text.contains("400 invalid_request_error"), "{text}");
@@ -59,10 +66,13 @@ fn a_repeating_request_error_names_its_class() {
 
 #[test]
 fn a_setup_error_posts_the_notice() {
-    let text = stuck_notice(&status(
-        LINE,
-        "setup error: the compactor preset claude-haiku is missing in acpmux",
-    ))
+    let text = stuck_notice(
+        &status(
+            LINE,
+            "setup error: the compactor preset claude-haiku is missing in acpmux",
+        ),
+        "claude",
+    )
     .expect("a notice");
     assert!(text.contains("a setup error"), "{text}");
 }
@@ -134,4 +144,85 @@ fn a_stuck_clear_leaves_the_probes_notice() {
     h.brain.step(Input::CompactorStatus(Ok(())));
     h.settle_posts();
     assert_eq!(retracts(&h), 1);
+}
+
+/// A notice harness whose Chief turns run on `turn_harness`.
+fn turns_on(turn_harness: &str, state: &std::path::Path) -> Harness {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = optchat_chief::brain::Settings {
+        harness: turn_harness.to_owned(),
+        ..common::settings(dir.path())
+    };
+    let owner = std::sync::Arc::new(std::sync::Mutex::new(common::Owner {
+        summary: Some(common::summary()),
+        ..common::Owner::default()
+    }));
+    let mut h = Harness::configured(
+        dir,
+        default_script(),
+        owner,
+        settings,
+        std::sync::Arc::new(|_: &str| {}),
+    );
+    h.brain = h.brain.with_compactor_messages(true).with_settle_status(
+        optchat_chief::settle_status::SettleStatus::new(&state.join("state/settle.json")),
+    );
+    h.connect();
+    h
+}
+
+/// What the compactor probe said on a clean Mac (first-run findings, macOS 26 VM): Claude Code
+/// was not installed yet.
+const NO_CLAUDE_CODE: &str = "The memory compactor cannot build summaries (acpmux route: the compactor model: the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude). Replies go on and read the lines it cannot summarize unsummarized (a turn waits at most 10 s on compaction) until it can.";
+
+/// First-run findings: a clean Mac's Chief conversation showed "Chief memory summaries are
+/// paused. The Chief still answers." under the Set Up card from the first launch on. A compactor
+/// whose agent is not installed writes no fault for the app and posts no notice; the Set Up card
+/// says Claude Code is missing. Any other setup error still does.
+#[test]
+fn a_missing_claude_code_is_the_set_up_cards_not_a_memory_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let fault = dir.path().join("state/compactor.json");
+    let mut h = turns_on("claude", dir.path());
+    h.brain
+        .step(Input::CompactorStatus(Err(NO_CLAUDE_CODE.to_owned())));
+    h.settle_posts();
+    assert!(!fault.exists(), "no memory notice in the app");
+    assert!(sends(&h).is_empty(), "{:?}", sends(&h));
+    assert_eq!(
+        stuck_notice(
+            &status(LINE, &format!("setup error: {NO_CLAUDE_CODE}")),
+            "claude"
+        ),
+        None,
+        "a stuck line for the same reason is quiet too"
+    );
+
+    h.brain.step(Input::CompactorStatus(Err(
+        "The memory compactor cannot build summaries (setup error).".to_owned(),
+    )));
+    h.settle_posts();
+    assert!(fault.exists(), "another setup error is still shown");
+}
+
+/// Review of the first-run fixes: a Chief that answers through Codex compacts on Claude Code
+/// (`host::default_compactor_harness`). With Claude Code missing, no Set Up card shows (the turns'
+/// agent is there), so the memory notice and the app's fault stay.
+#[test]
+fn a_missing_compactor_agent_the_turns_do_not_use_keeps_the_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let fault = dir.path().join("state/compactor.json");
+    let mut h = turns_on("codex", dir.path());
+    h.brain
+        .step(Input::CompactorStatus(Err(NO_CLAUDE_CODE.to_owned())));
+    h.settle_posts();
+    assert!(fault.exists(), "the memory notice is shown");
+    assert!(
+        stuck_notice(
+            &status(LINE, &format!("setup error: {NO_CLAUDE_CODE}")),
+            "codex"
+        )
+        .is_some(),
+        "a stuck line for it posts its notice"
+    );
 }
