@@ -8,16 +8,15 @@ extension AgentPaneView {
     /// Puts the files at `urls` into this chat's composer as an unsent draft, as if the person had
     /// dropped them on it, and gives the composer the keyboard. `claimed`: the bundle id of the app
     /// they came from, when known (a file's own metadata, a screenshot's, still says first). The page
-    /// takes them when it gets the command (`chat.attach.external`); a page still loading gets it
-    /// once its client is ready (`pane.clientReady`).
+    /// takes them when it gets the command (`chat.attach.external`); a page still loading, or one whose
+    /// connection restarts before it takes them, gets it again each time its client is ready
+    /// (`pane.clientReady`) while they are held.
     public func attachExternal(_ urls: [URL], claimed: String?) {
         guard !urls.isEmpty else { return }
         model.droppedPaths.hold(external: urls, claimed: claimed)
+        model.sendHeldExternal = { [weak self] in self?.sendAttachExternal() }
         focusChat()
-        guard model.clientReady else {
-            model.whenClientReady = { [weak self] in self?.sendAttachExternal() }
-            return
-        }
+        guard model.clientReady else { return }
         sendAttachExternal()
     }
 

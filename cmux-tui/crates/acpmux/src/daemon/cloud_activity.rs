@@ -568,17 +568,5 @@ mod tests;
 /// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
 /// (`hub/agent_timer_tests.rs`).
 #[cfg(test)]
-pub(crate) mod probe {
-    use super::*;
-
-    pub(crate) fn line(at_work: &[SessionAtWork], now_ms: u64) -> Value {
-        let mut tracker = Tracker::new("/probe.sock".into());
-        tracker.observe(at_work, now_ms);
-        tracker.line(at_work.len() as u64, true, now_ms).expect("a renewal always sends")
-    }
-
-    /// Whether the Cloud may pause the machine on `line` (no session at work).
-    pub(crate) fn pausable(line: &Value) -> bool {
-        flushes_before(line)
-    }
-}
+#[path = "cloud_activity_probe_tests.rs"]
+pub(crate) mod probe;
