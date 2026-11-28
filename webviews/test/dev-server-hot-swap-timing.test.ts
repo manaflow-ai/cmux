@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import vm from "node:vm";
 import {
   CLIENT_SOURCE,
   formatHotSwap,
@@ -88,13 +89,7 @@ describe("dev server hot swap timing", () => {
       window: { addEventListener() {} },
     };
     // The page half is source text the dev server serves; running it on stand-ins is the test.
-    // oxlint-disable-next-line no-implied-eval
-    new Function("hot", "document", "location", "window", CLIENT_SOURCE.replaceAll("import.meta.hot", "hot"))(
-      hot,
-      page.document,
-      page.location,
-      page.window,
-    );
+    vm.runInNewContext(CLIENT_SOURCE.replaceAll("import.meta.hot", "hot"), { hot, ...page });
     expect(dataset).toEqual({ cmuxHmrOrigin: "cmux-agent://pane", cmuxHmr: "connecting" });
     expect(sent).toEqual([HMR_HELLO_EVENT]);
     handlers.get(HMR_ACK_EVENT)!({});
