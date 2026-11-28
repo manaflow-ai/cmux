@@ -56,6 +56,10 @@ path = "tests/test_ci_app_input_digest.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_store_shelf_cargo_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_apt_ensure.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_apt_ensure.py yourself after changing the workflow steps it reads."
@@ -415,6 +419,10 @@ path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hot_verify_checkout_bounded.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hot_verify_dispatch_wait_capped.py"
 lane = "linux-guard"
 
@@ -424,6 +432,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_hot_verify_mirror_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_posts_proof_record.py"
 lane = "linux-guard"
 
 [[test]]
@@ -471,6 +483,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_kit_sim_fleet.py"
 lane = "linux-guard"
 
 [[test]]
@@ -758,11 +774,19 @@ path = "tests/test_ci_post_merge_batch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_batch_gallery_states.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_post_merge_call_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_post_merge_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_diff_first_parent.py"
 lane = "linux-guard"
 
 [[test]]
@@ -811,6 +835,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_private_names_fetch_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_private_names_local.py"
 lane = "linux-guard"
 
 [[test]]
@@ -985,8 +1013,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_router_web_exact.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_run_guards.py"
@@ -1032,6 +1059,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_workspaces_disk.py"
 lane = "linux-guard"
 
 [[test]]

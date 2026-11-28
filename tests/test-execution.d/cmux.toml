@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "tests/test_ci_same_tree_status_pool_tokens.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_binaries_prune.py"
 lane = "linux-guard"
 
@@ -37,19 +41,23 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
 
 [[test]]
+path = "tests/test_cmux_machine_channel_lane.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_machine_channel_pr_head.py"
 lane = "manual"
 reason = "Checks scripts/ci/cmux_machine_channel_pr_head.py find (PR_HEAD_FAST_LANE): the merge takes its PR head's thin build only for a same-repo squash into feat-cmux-next with the same v2 tree key and both artifacts, waits a bounded time for a build still running, and otherwise builds; run python3 tests/test_cmux_machine_channel_pr_head.py yourself after changing it (no network)."
 
 [[test]]
-path = "tests/test_cmux_machine_channel_twin.py"
-lane = "manual"
-reason = "Checks scripts/ci/cmux_machine_channel_twin.py (TWIN_BUILD): a push takes the newest same-v2-tree-key first-parent ancestor's live or passed x86_64 build, stops at the first other key, bounds its job reads, and its wait returns the run once every target's artifact is there and nothing when a build ended without one or the wait runs out; and cmux-machine-channel.yml wires twin_run into the twin waiters and the points. Run python3 tests/test_cmux_machine_channel_twin.py yourself after changing them (no network)."
-
-[[test]]
 path = "tests/test_cmux_machine_channel_router_plan.py"
 lane = "manual"
 reason = "Checks that pr-router.yml's route job answers the machine channel's pull request plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and cmux-machine-channel.yml takes it with no plan runner, and runs the plan and the finder's tree key on a fixture repo; run python3 tests/test_cmux_machine_channel_router_plan.py yourself after changing them (under 1 s, no network)."
+
+[[test]]
+path = "tests/test_cmux_machine_channel_twin.py"
+lane = "manual"
+reason = "Checks scripts/ci/cmux_machine_channel_twin.py (TWIN_BUILD): a push takes the newest same-v2-tree-key first-parent ancestor's live or passed x86_64 build, stops at the first other key, bounds its job reads, and its wait returns the run once every target's artifact is there and nothing when a build ended without one or the wait runs out; and cmux-machine-channel.yml wires twin_run into the twin waiters and the points. Run python3 tests/test_cmux_machine_channel_twin.py yourself after changing them (no network)."
 
 [[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
@@ -365,10 +373,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_same_tree_status_never_silent.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_same_tree_status_pool_tokens.py"
 lane = "linux-guard"
 
 [[test]]

@@ -397,6 +397,70 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_apt_skips_baked_packages.py
 
+      - name: Validate the App Store shelf cargo cache
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_store_shelf_cargo_cache.py
+
+      - name: Validate the warm Bun cache wiring
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_bun_cache_warm.py
+
+      - name: Validate hot-verify checkout stays bounded
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_checkout_bounded.py
+
+      - name: Validate hot-verify posts its proof record
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_posts_proof_record.py
+
+      - name: Validate iOS launch TTI intent
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_launch_tti_intent.py
+
+      - name: Validate jobs keep their own HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_own_home.py
+
+      - name: Validate kit simulator fleet routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_kit_sim_fleet.py
+
+      - name: Validate post-merge batch gallery states
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_post_merge_batch_gallery_states.py
+
+      - name: Validate PR diffs read the first parent
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_diff_first_parent.py
+
+      - name: Validate private names stay local
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_local.py
+
+      - name: Validate exact web routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_router_web_exact.py
+
+      - name: Validate rust-workspaces disk headroom
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_workspaces_disk.py
+
+      - name: Validate the cmux machine channel lane
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_machine_channel_lane.py
+
+      - name: Validate the journey key migration wiring
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_migrate_journey_key.py
+
+      - name: Validate the web bundle matrix
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_bundle_matrix.py
+
+      - name: Validate the What's New gallery heal
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_whats_new_gallery_heal.py
+
       - name: Validate commands on owned Mac runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_mac_jobs_no_sudo.py
