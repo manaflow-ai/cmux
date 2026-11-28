@@ -1445,7 +1445,7 @@ impl Hub {
             let (program, args, routed) = sr2::sr2_plan(profile, plan.args, claude, route)
                 .map_err(|why| {
                     self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
-                    refused(why)
+                    refused(Refused::Start(why))
                 })?;
             self.append(
                 session,
