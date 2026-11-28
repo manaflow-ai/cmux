@@ -289,6 +289,9 @@ pub fn rescan(repo: &Repo, path: &Path) -> Result<Worktree, String> {
     Ok(worktree(entry, &repo.common_dir, &repo.overrides, &repo.bases, &repo.finished, false))
 }
 
+/// Why a locked worktree has no facts: none are read for it.
+pub const LOCKED_UNREAD: &str = "locked: its facts are not read";
+
 fn worktree(
     entry: ListEntry,
     common_dir: &Path,
@@ -299,6 +302,11 @@ fn worktree(
 ) -> Worktree {
     let facts = if entry.prunable || !entry.path.is_dir() {
         Err("its folder is gone".to_string())
+    } else if entry.locked {
+        // A locked worktree is kept before its facts are looked at
+        // (`policy::decide`, `archive`), so reading them is a dozen git
+        // runs, a full-tree `git status` among them, for nothing.
+        Err(LOCKED_UNREAD.to_string())
     } else if memo && crate::walk_memo::is_open() {
         let now = now_ms();
         match crate::walk_memo::facts(&entry.path, now, |f| {

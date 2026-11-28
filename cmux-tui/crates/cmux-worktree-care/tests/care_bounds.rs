@@ -400,3 +400,60 @@ fn finished_scan_perf_harness() {
     restore_home(old_home);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A locked worktree is kept before its facts are looked at, so a scan runs
+/// no git in it: one full-tree `git status` per worktree was most of a care
+/// pass on a host with mostly locked worktrees.
+#[test]
+fn locked_worktrees_cost_no_git_runs() {
+    let _environment = ENV_LOCK.lock().unwrap();
+    let (root, main) = repository("locked");
+    let mut locked = Vec::new();
+    for index in 0..4 {
+        let path = root.join(format!("wt-{index}"));
+        git(&main, &["worktree", "add", "-b", &format!("b-{index}"), path.to_str().unwrap()]);
+        if index > 0 {
+            git(&main, &["worktree", "lock", path.to_str().unwrap()]);
+            locked.push(path);
+        }
+    }
+    let common_dir = common(&main);
+    let (trace, old_path) = trace_git(&root);
+    prepend_path(&root, old_path.as_ref());
+    let old_home = isolate_home(&root);
+    let repo = inventory::scan(&common_dir, &[]).unwrap();
+    let statuses = trace_count(&trace, "status");
+    unsafe { std::env::set_var("PATH", old_path.unwrap_or_default()) };
+    restore_home(old_home);
+    assert_eq!(statuses, 1, "only the unlocked worktree is read");
+    for worktree in &repo.worktrees {
+        let is_locked = locked.iter().any(|path| {
+            std::fs::canonicalize(path).ok() == std::fs::canonicalize(&worktree.path).ok()
+        });
+        assert_eq!(worktree.locked, is_locked);
+        if is_locked {
+            assert_eq!(worktree.facts.as_ref().err().map(String::as_str), Some(inventory::LOCKED_UNREAD));
+        } else {
+            assert!(worktree.facts.is_ok());
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Wall time of one read-only scan of a real repository's worktrees
+/// (`CARE_SCAN_COMMON_DIR`), for a before/after on a loaded host:
+/// `CARE_SCAN_COMMON_DIR=<git common dir> cargo test --test care_bounds scan_wall_harness -- --ignored --nocapture`.
+#[test]
+#[ignore = "measures a real repository named by CARE_SCAN_COMMON_DIR"]
+fn scan_wall_harness() {
+    let Some(common_dir) = std::env::var_os("CARE_SCAN_COMMON_DIR") else { return };
+    let started = Instant::now();
+    let repo = inventory::scan(Path::new(&common_dir), &[]).unwrap();
+    let locked = repo.worktrees.iter().filter(|w| w.locked).count();
+    let read = repo.worktrees.iter().filter(|w| w.facts.is_ok()).count();
+    println!(
+        "scan_wall_ms={} worktrees={} locked={locked} facts_read={read}",
+        started.elapsed().as_millis(),
+        repo.worktrees.len()
+    );
+}
