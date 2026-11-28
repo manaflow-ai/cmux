@@ -96,6 +96,7 @@ describe("provider start-capacity refusals", () => {
     const refused = await run(admitFleetCapacity({}, { provider: "freestyle", operation: "create", quota: { maxLiveMachines: null, maxStarting: null } }));
     if (!Either.isLeft(refused)) throw new Error("expected a refusal");
     const response = await vmWorkflowErrorResponse(refused.left);
+    if (!response) throw new Error("expected a route response");
     expect(response.status).toBe(503);
     const body = await response.json() as { error: string; retryable: boolean };
     expect(body.error).toBe("vm_provider_capacity");
@@ -107,6 +108,7 @@ describe("provider start-capacity refusals", () => {
 
   test("the provider's own 429 overload reaches the route as vm_provider_capacity, not a generic provider error", async () => {
     const response = await vmWorkflowErrorResponse(overloaded());
+    if (!response) throw new Error("expected a route response");
     expect(response.status).toBe(503);
     expect((await response.json() as { error: string }).error).toBe("vm_provider_capacity");
   });
