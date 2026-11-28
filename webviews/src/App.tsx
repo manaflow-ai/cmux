@@ -1881,6 +1881,12 @@ function FilesSidebar({
         <span id="files-title">
           <span>{label("files")}</span>
           <span id="files-count">{state.treeSource?.pathCount ?? 0}</span>
+          {state.treeSource ? (
+            <span id="files-diff-stats" title={label("diffStats")}>
+              <span id="files-added-lines">+{state.treeSource.diffStats.addedLines}</span>
+              <span id="files-deleted-lines">-{state.treeSource.diffStats.deletedLines}</span>
+            </span>
+          ) : null}
         </span>
         <span id="files-header-actions">
           <button
