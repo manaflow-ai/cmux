@@ -283,7 +283,7 @@ bench() {
     # Live as they come, so a run cut at its deadline still shows how far it got.
     { sed -un -e "s/^NETCOND /NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
   sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
-  grep -E '^NETCOND-(ERROR|FIXTURE)' "$log" | sed "s/^/$label /" || true
+  grep -E '^NETCOND-(ERROR|FIXTURE|SKIP)' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label $surface exit=$code log=$log"
   [[ "$surface" == chat && ( "$mode" == links || "$mode" == duress ) ]] && { r1 "$label" "$tree" || code=1; }
   if (( code != 0 )); then

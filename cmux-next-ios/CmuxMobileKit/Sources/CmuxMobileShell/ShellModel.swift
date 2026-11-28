@@ -122,6 +122,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// The Macs that install a pull request's cmux Dev on this phone (Settings → Developer).
+    var tryPullRequestService: (any TryPullRequestService)? { live }
     /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
