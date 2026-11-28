@@ -998,7 +998,7 @@ def work_machine(j):
 VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued", "readMs", "startMs", "ownMs", "gateMs")
+               "admitQueued", "readMs", "startMs", "ownMs", "gateMs", "rateMs", "ownReadMs")
 # vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
 VM_START_ROUTES = ("start", "resume")
 VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
