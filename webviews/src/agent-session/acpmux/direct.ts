@@ -7456,9 +7456,12 @@ export class AcpmuxDirectClient {
     };
     const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
       .requestIdleCallback;
-    // After the frame the first page paints in, then when the main thread is idle.
+    // After the frame the first page paints in (the pane renders the attach's snapshot in a task of its own,
+    // so the first frame can come before its rows: a second frame is after them), then when the main thread
+    // is idle. With one frame, the god chat's backfill page folded before its newest row painted (A/B
+    // 46151212950: god attach_to_latest p95 109.5 -> 120.2 ms).
     const later = () => (idle ? idle(run, { timeout: BACKFILL_IDLE_MS }) : setTimeout(run, 0));
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(later);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(later));
     else setTimeout(later, 0);
   }
 
