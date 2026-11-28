@@ -311,9 +311,9 @@ calls = run([dev_run(8, "8" * 40, "success")], {8: app_job("success")},
               "status": "completed", "conclusion": "skipped"}])
 check(published(calls) == ["8"], f"a skipped publisher must be retried, got {published(calls)}")
 
-# A DEV build that is still queued or running holds the line: a push kick for a
-# newer tip waits for the first push or tick after it ends instead of starting
-# another (one build in flight; 2026-11-28 had three at once under 5-min spacing).
+# One DEV build in flight (2026-11-28: the old five-minute rule let up to four 20-minute Release
+# builds run side by side, about 22 runner-minutes per merged PR): a push kick for a newer tip
+# waits for the next push or tick after the running build instead of starting another.
 def built(calls):
     return [c[2]["dev_daily_sha"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next.yml"]
 
@@ -327,16 +327,36 @@ def active_run(run_id, sha, age_s, status="in_progress", title=None, name="cmux-
 
 for status in ("queued", "requested", "waiting", "pending", "in_progress"):
     calls = run([active_run(20, "2" * 40, 60, status=status)], {})
-    check(built(calls) == [], f"a {status} DEV build must hold the next one, got {built(calls)}")
+    check(built(calls) == [], f"a {status} DEV build must space the next one, got {built(calls)}")
 calls = run([active_run(20, "2" * 40, 60, title="cmux-next", name=f"cmux NEXT DEV daily · {'2' * 40}")], {})
 check(built(calls) == [], f"a DEV build named by run.name must space the next one, got {built(calls)}")
 for title in ("cmux NEXT DEV daily · publish 123", "cmux NEXT DEV daily · abc", f"cmux NEXT DEV daily · {'2' * 40} extra"):
     calls = run([active_run(20, "2" * 40, 60, title=title)], {})
     check(built(calls) == [TIP], f"{title!r} is not a dispatched DEV build and must not space the tip, got {built(calls)}")
-calls = run([active_run(21, "2" * 40, 30 * 60)], {})
-check(built(calls) == [], f"a DEV build still running after 30 minutes must hold the tip, got {built(calls)}")
-calls = run([active_run(21, "2" * 40, 91 * 60)], {})
-check(built(calls) == [TIP], f"a DEV build over 90 minutes old must not hold the tip, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 25 * 60)], {})
+check(built(calls) == [], f"a DEV build still running after 25 minutes must hold the tip, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 4 * 60 * 60)], {})
+check(built(calls) == [TIP], f"a DEV build in flight past 3 hours is stuck and must not hold the tip, got {built(calls)}")
+
+
+def done_run(run_id, sha, age_s, conclusion="success", head=None):
+    r = active_run(run_id, head or sha, age_s, status="completed", title=f"cmux NEXT DEV daily · {sha}")
+    r["conclusion"] = conclusion
+    return r
+
+
+# At most one new DEV build per interval (vars.CI_DEV_BUILD_MIN_INTERVAL_MIN, default 30 minutes).
+calls = run([done_run(23, "2" * 40, 10 * 60)], {23: app_job("success")})
+check(built(calls) == [], f"a DEV build that succeeded 10 minutes ago must space the next one, got {built(calls)}")
+calls = run([done_run(24, "2" * 40, 31 * 60)], {24: app_job("success")})
+check(built(calls) == [TIP], f"a DEV build that succeeded over 30 minutes ago must not hold the tip, got {built(calls)}")
+calls = run([done_run(25, "2" * 40, 10 * 60, head="3" * 40)], {25: app_job("skipped")})
+check(built(calls) == [TIP], f"a green superseded DEV run (built nothing) must not space the tip, got {built(calls)}")
+calls = run([done_run(26, "2" * 40, 10 * 60, conclusion="failure")], {26: app_job("failure")})
+check(built(calls) == [TIP], f"a red DEV run must not space the tip, got {built(calls)}")
+wf_text = WORKFLOW.read_text()
+check("DEV_BUILD_MIN_INTERVAL_MIN: ${{ vars.CI_DEV_BUILD_MIN_INTERVAL_MIN || '30' }}" in wf_text,
+      "the interval must come from vars.CI_DEV_BUILD_MIN_INTERVAL_MIN, default 30 minutes")
 finished = dev_run(22, "2" * 40, "failure")
 finished["created_at"] = active_run(22, "2" * 40, 60)["created_at"]
 calls = run([finished], {22: app_job("failure")})
