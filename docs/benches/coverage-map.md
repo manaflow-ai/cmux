@@ -280,6 +280,8 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/turn-end-fold-timing.bench.ts` | streaming | no |
 | `webviews/bench/hidden-stream-heap.bench.ts` | memory | no |
 | `webviews/bench/state-growth.bench.ts` | memory | no |
+| `webviews/bench/renderer-idle-growth.bench.ts` | agent pane renderer memory while idle (RFD 0062) | no |
+| `webviews/bench/webkit-push-growth.bench.ts` | WebKit memory per agent pane push (RFD 0062) | no |
 | `webviews/bench/page-row-store.bench.ts` | row store | no |
 | `webviews/bench/height-index.bench.ts` | row store | no |
 | `webviews/bench/virtual-list-item-keys.bench.ts` | lists | no |
