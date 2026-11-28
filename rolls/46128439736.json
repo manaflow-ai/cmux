@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46128439736",
+  "recorded_at": "2026-11-28T09:21:04Z",
+  "reason": "cmux-tui c6cd14b59ba5 changes the image's cmux-tui (pinned c6c1585a5f49)",
+  "dry_run": false,
+  "cmux_tui": "c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa",
+  "fixes": [
+    {
+      "sha": "f76fccd8d65c9b89db2fa06dd4c1de079c672eb9",
+      "mergedAt": "2026-11-28T07:36:00Z",
+      "subject": "screen-share-vs: a copy-paste trial reads its round trip, not a decoded frame (#64016)"
+    },
+    {
+      "sha": "b1c34e3ea87d4a548dfa745a6aa385371d712a75",
+      "mergedAt": "2026-11-28T07:27:19Z",
+      "subject": "cmux-tui tests: every test home's Drop ends its processes (chief_script, apps_store, all_sessions_scope) (#64161)"
+    },
+    {
+      "sha": "c85d844d1a88feab29ee2fca19dd4d3774a82302",
+      "mergedAt": "2026-11-28T07:21:13Z",
+      "subject": "cmux-tui: server status asks a restoring owner for its restore progress, so a restore reads as starting with its phase, not busy (#64149)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T09:21:04Z",
+    "snapshot_id": "sh-75511b0918d141c683529df595bcdb6e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46128439736): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6c189111fcfafa565a0e1a96ac26d80886d9b868",
+    "image": "cloud-native-auto-c6cd14b5-46128439736-1",
+    "revision": "ci-46128439736-1",
+    "at": "2026-11-28T09:21:04Z"
+  },
+  "rolled_back": false
+}
