@@ -8,6 +8,8 @@ export type BrowserDeviceIdentity = {
   cacheKey: string;
   enrollment?: BrowserDeviceEnrollment;
   credential?: string;
+  /** The device key (RFD 0083): a non-extractable ECDSA P-256 key the hub bound the credential to. */
+  signingKey?: CryptoKey;
   enrolling?: Promise<string>;
 };
 
@@ -34,6 +36,7 @@ export function clearBrowserDeviceIdentity(): void {
   if (identity) {
     identity.enrollment = undefined;
     identity.credential = undefined;
+    identity.signingKey = undefined;
     identity.enrolling = undefined;
   }
   identity = undefined;
@@ -80,6 +83,39 @@ async function deviceRequest(request: RawRequest, method: string, params: Record
   }
 }
 
+const base64url = (bytes: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+/**
+ * The device key the hub binds the credential to (RFD 0083, "Known gap: the device credential is a bearer"): ECDSA
+ * P-256, the one signing algorithm every WebCrypto has had for years. The private half is non-extractable and lives
+ * only with this page's identity, like the credential; the hub gets the raw public point.
+ */
+async function deviceKeyPair(): Promise<{ key: CryptoKey; deviceKey: string } | undefined> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return undefined;
+  const pair = await subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+  return { key: pair.privateKey, deviceKey: base64url(await subtle.exportKey("raw", pair.publicKey)) };
+}
+
+/** Proves the key for this connection: signs the hub's nonce and the daemon's binding for it. */
+async function deviceProof(request: RawRequest, credential: string, key: CryptoKey) {
+  const challenge = (await deviceRequest(request, "_acpmux/device_challenge", { credential })) as {
+    machineId?: unknown;
+    nonce?: unknown;
+    binding?: unknown;
+  };
+  const { machineId, nonce, binding } = challenge ?? {};
+  if (typeof machineId !== "string" || typeof nonce !== "string" || typeof binding !== "string")
+    throw browserDeviceError("device.unauthorized");
+  const message = new TextEncoder().encode(`cmux-device-hello/v1\n${machineId}\n${nonce}\n${binding}`);
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, message);
+  return { credential, nonce, signature: base64url(signature) };
+}
+
 /** Enrollment and hello use the actual client's socket; every fresh socket presents hello anew. */
 export async function connectBrowserDevice(device: BrowserDeviceIdentity, request: RawRequest): Promise<void> {
   const current = () => {
@@ -93,20 +129,32 @@ export async function connectBrowserDevice(device: BrowserDeviceIdentity, reques
         if (!enrollment) throw browserDeviceError();
         device.enrollment = undefined;
         device.enrolling = (async () => {
-          const result = (await deviceRequest(request, "_acpmux/device_enroll", enrollment)) as {
+          const pair = await deviceKeyPair();
+          const params = pair ? { ...enrollment, deviceKey: pair.deviceKey } : enrollment;
+          const result = (await deviceRequest(request, "_acpmux/device_enroll", params)) as {
             credential?: unknown;
           };
           current();
           if (typeof result?.credential !== "string" || !result.credential.startsWith("cmm_"))
             throw browserDeviceError("device.enroll_refused");
           device.credential = result.credential;
+          device.signingKey = pair?.key;
           return result.credential;
         })();
       }
       await device.enrolling;
     }
     current();
-    const result = (await deviceRequest(request, "_acpmux/device_hello", { credential: device.credential })) as {
+    const credential = device.credential!;
+    // A daemon from before the proof has no challenge; it also enrolled without the key, so the bearer hello stands.
+    const hello = device.signingKey
+      ? await deviceProof(request, credential, device.signingKey).catch((error) => {
+          if ((error as { code?: unknown } | null)?.code === -32601) return { credential };
+          throw error;
+        })
+      : { credential };
+    current();
+    const result = (await deviceRequest(request, "_acpmux/device_hello", hello)) as {
       auth?: unknown;
     };
     current();
