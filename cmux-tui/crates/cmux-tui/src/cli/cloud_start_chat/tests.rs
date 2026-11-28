@@ -565,7 +565,8 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["reply"], "pong");
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
-    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // `prompt_at` is the prompt's own `at`, which the Cloud probe sets against the inference gateway's call line.
+    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000, "prompt_at": 1_000}));
     // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
     // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);

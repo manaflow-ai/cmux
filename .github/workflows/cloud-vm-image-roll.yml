@@ -5,6 +5,8 @@ run-name: Cloud VM image roll ${{ inputs.commit || github.sha }}
 #
 #   1. plan     cmux-tui-artifacts.yml dispatches this run for every feat-cmux-next build it published and
 #               verified (input commit); a feat-cmux-next push that changes the image inputs starts it too.
+#               main's cloud-vm-image-roll-tick-dispatch.yml starts a newest roll every 20 min (input newest), so
+#               a failed roll or a lost request is retried on the newest build within one tick.
 #               images/cmux-vm/auto-roll.ts plan rolls only a build of the branch that changes the binaries
 #               the lock pins, and never an older one; it lists the fix commits the roll carries. A push run
 #               also pins files.cmux.com's newest published build when it is on the tip and newer than the pin.
@@ -46,6 +48,11 @@ on:
         options: [auto, "true", "false"]
       large_image:
         description: Also bake and smoke the large image (4 vCPU / 16 GiB / 64 GiB) and list it on staging's entry, so a development create at that size boots at its final size with no resize. Production's entry never lists it. A large image that fails is a warning; the roll goes on without it
+        required: false
+        default: false
+        type: boolean
+      newest:
+        description: Roll the newest build (the one the Cloud machine channel serves, else the newest published on the tip) when it is newer than the pin; otherwise nothing runs. main's cloud-vm-image-roll-tick-dispatch.yml sends this every 20 min
         required: false
         default: false
         type: boolean
@@ -229,8 +236,8 @@ jobs:
       - name: Plan the roll
         id: plan
         env:
-          EVENT: ${{ github.event_name == 'push' && 'push' || 'dispatch' }}
-          COMMIT: ${{ github.event_name == 'push' && github.sha || inputs.commit }}
+          EVENT: ${{ github.event_name == 'push' && 'push' || inputs.newest && 'newest' || 'dispatch' }}
+          COMMIT: ${{ github.event_name == 'push' && github.sha || !inputs.newest && inputs.commit || '' }}
           BEFORE: ${{ github.event.before }}
           DRY_RUN: ${{ inputs.dry_run || 'auto' }}
         run: |
