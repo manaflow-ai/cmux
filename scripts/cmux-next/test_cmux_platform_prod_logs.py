@@ -665,6 +665,14 @@ class NeverBoundTests(unittest.TestCase):
         self.assertNotIn("index.js", json.dumps(row))
         bare = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 9, "at": "nonsense"}))
         self.assertNotIn("callers", bare["log"])
+        # cmux-platform#2546: the bundled stack named no caller (every 05-10Z line read caller < eachRow < next),
+        # so each ledger scan names its site and the pages it read.
+        named = logs.line(event({"msg": "cloud.rows.scan_large", "table": "ledger", "site": "prune_at", "rows": 41860,
+                                 "yielded": 41818, "pages": 42, "ms": 0}))
+        self.assertEqual(named["log"], {"msg": "cloud.rows.scan_large", "table": "ledger", "site": "prune_at",
+                                        "rows": 41860, "yielded": 41818, "pages": 42, "ms": 0})
+        dotted = logs.line(event({"msg": "cloud.rows.scan_large", "table": "ledger", "site": "reap_target.done"}))
+        self.assertEqual(dotted["log"].get("site"), "reap_target.done")
 
     def test_a_spare_fill_keeps_its_machine_and_refill_timing(self):
         """Production 2026-11-27 02:37Z (hq#31487): a create missed the spare after a 20 s fill wait; the fill lines

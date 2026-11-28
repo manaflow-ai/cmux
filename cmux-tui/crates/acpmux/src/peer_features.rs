@@ -76,6 +76,9 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
         gates: &[m::MUX_WORKTREE_REPORT, m::MUX_WORKTREE_CLEAN, m::MUX_WORKTREE_RESTORE],
     },
     PeerFeature { id: "harnessInventory", gates: &[m::MUX_HARNESS_INVENTORY] },
+    // `acpmux last` asks the daemon for a session's replies only once it lists this
+    // (`cli/last_reply.rs`); before, it pages `_acpmux/events`.
+    PeerFeature { id: crate::cli::last_reply::LAST_REPLY_FEATURE, gates: &[m::MUX_LAST] },
     // `server/inventory_watch.rs` `FEATURE` (private to the server).
     PeerFeature { id: "harnessInventoryWatch", gates: &[m::MUX_HARNESS_INVENTORY_WATCH] },
     PeerFeature {
