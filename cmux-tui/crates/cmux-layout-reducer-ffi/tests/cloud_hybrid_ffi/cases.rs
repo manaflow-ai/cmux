@@ -311,3 +311,36 @@ fn the_size_row_is_empty_while_more_room_is_off_and_offers_one_step_when_on() {
     assert_eq!(shown["view"]["raises_to"], json!({"vcpu": 8.0, "memory_gib": 32.0}));
     assert_eq!(call(c"cloud_size_row", &json!({"home": "moon"})).0, ERR_INVALID);
 }
+
+#[test]
+fn a_cloud_wire_autosize_frame_feeds_its_chats_rows() {
+    let frame = |machine: &str, at: u64| {
+        json!({
+            "t": "ephemeral", "stream": "cloud:t_feed", "event": "cloud.machine.autosize",
+            "data": {
+                "v": 1, "machine": machine, "record": "rec_feed", "team": "t_feed", "creator": "u1",
+                "kind": "grow", "reason": "memory", "reason_text": "it ran out of memory",
+                "from": {"vcpu": 2, "mem_gib": 4, "disk_gib": 20, "hourly_usd": 0.148},
+                "to": {"vcpu": 4, "mem_gib": 8, "disk_gib": 20, "hourly_usd": 0.296},
+                "hourly_usd": 0.296, "line": "Machine grew to 4 vCPU / 8 GiB", "at": at
+            }
+        })
+    };
+    let ask = json!({"frame": frame("vm_feed_a", 1), "team": "t_feed"});
+    let (code, fed) = call(c"cloud_autosize_frame", &ask);
+    assert_eq!((code, fed), (OK, json!({"added": true, "machine": "vm_feed_a"})));
+    assert_eq!(call(c"cloud_autosize_frame", &ask).1, json!({"added": false}), "a resend");
+    let other_team = json!({"frame": frame("vm_feed_a", 2), "team": "t_other"});
+    assert_eq!(call(c"cloud_autosize_frame", &other_team).1["added"], false);
+    let not_autosize = json!({"frame": {"t": "ephemeral", "event": "cloud.machine.pausing"}});
+    assert_eq!(call(c"cloud_autosize_frame", &not_autosize).1["added"], false);
+
+    let (code, chat) = call(c"cloud_autosize_chat", &json!({"machine": "vm_feed_a"}));
+    assert_eq!(code, OK);
+    assert_eq!(chat["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(chat["rows"][0]["key"], "rec_feed:grow:1");
+    let none = call(c"cloud_autosize_chat", &json!({"machine": "vm_feed_none"})).1;
+    assert_eq!(none, json!({"rows": []}));
+    assert_eq!(call(c"cloud_autosize_chat", &json!({})).0, ERR_INVALID);
+    assert_eq!(call(c"cloud_autosize_frame", &json!({})).0, ERR_INVALID);
+}

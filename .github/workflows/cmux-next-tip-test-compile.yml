@@ -54,7 +54,9 @@ permissions: {}
 
 concurrency:
   # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
-  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:

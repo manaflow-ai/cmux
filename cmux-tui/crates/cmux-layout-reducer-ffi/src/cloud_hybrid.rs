@@ -15,11 +15,14 @@
 //! frame) to the chat's AutoSize rows (cmux-cloud-start-core `autosize_row`, RFD 0080 piece 4).
 //! `cloud_size_row` answers the read-only Size row and whether it offers More room
 //! (cmux-cloud-start-core `size_row`, RFD 0144 piece 9; `{}` while `cloud.moreRoom` is off).
+//! `cloud_autosize_frame` feeds one Cloud wire frame into the app's one AutoSize feed, and
+//! `cloud_autosize_chat` answers a chat's machine's rows from it (`autosize_row::feed`).
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
-use cmux_cloud_start_core::autosize_row::{self, Row};
+use cmux_cloud_start_core::autosize_row::{self, Row, feed::Feed};
 use cmux_cloud_start_core::balance;
 use cmux_cloud_start_core::computer_status::{self, Facts, HybridFacts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
@@ -41,6 +44,8 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
                 | b"cloud_computer_status_live"
                 | b"cloud_autosize_rows"
                 | b"cloud_size_row"
+                | b"cloud_autosize_frame"
+                | b"cloud_autosize_chat"
         )
 }
 
@@ -64,6 +69,29 @@ struct RowsAsk {
     event: autosize_row::Event,
     #[serde(default)]
     viewer: Option<String>,
+}
+
+/// The app's one AutoSize feed: every chat's rows, by machine record, as the Cloud wire sent them.
+static AUTOSIZE: LazyLock<Mutex<Feed>> = LazyLock::new(Mutex::default);
+
+fn autosize() -> MutexGuard<'static, Feed> {
+    AUTOSIZE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `cloud_autosize_frame`'s ask: one Cloud wire frame as it came, the socket's team, who looks.
+#[derive(Deserialize)]
+struct FrameAsk {
+    frame: serde_json::Value,
+    #[serde(default)]
+    team: Option<String>,
+    #[serde(default)]
+    viewer: Option<String>,
+}
+
+/// `cloud_autosize_chat`'s ask: the chat's machine id.
+#[derive(Deserialize)]
+struct ChatAsk {
+    machine: String,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +212,20 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Some(next) => json!({ "rows": autosize_row::push(ask.rows, next), "added": true }),
                 None => json!({ "rows": ask.rows, "added": false }),
             }
+        }
+        // One Cloud wire frame into the AutoSize feed: `{added, machine?}`; `added` is false for any
+        // frame that is not a new AutoSize notice of the socket's team (the feed is as it was).
+        b"cloud_autosize_frame" => {
+            let ask: FrameAsk = read(request)?;
+            match autosize().add_frame(&ask.frame, ask.team.as_deref(), ask.viewer.as_deref()) {
+                Some(machine) => json!({ "added": true, "machine": machine }),
+                None => json!({ "added": false }),
+            }
+        }
+        // A chat's AutoSize rows from the feed: `{rows}`, oldest first, empty for none.
+        b"cloud_autosize_chat" => {
+            let ask: ChatAsk = read(request)?;
+            json!({ "rows": autosize().rows(&ask.machine) })
         }
         // The keep-running switch's count (RFD 0135): `{plan?, kept, on, hoursUsed?}` answers the
         // plan's slots and hours, how many are kept, and what flipping this chat's switch does.

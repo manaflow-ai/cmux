@@ -585,6 +585,7 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1208,7 +1209,8 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
     let config = seed.config.read().await.clone();
     seed.shutdown_all().await;
     meta.status = SessionStatus::Idle;
-    for by_name in [false, true] {
+    for (by_name, owner_boundary) in [(false, false), (true, false), (false, true), (true, true)] {
+        meta.vm_boundary = owner_boundary;
         let store = MemoryStore::default();
         store.save(&meta).unwrap();
         for (seq, kind, msg) in [
@@ -1250,8 +1252,14 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
             Some(ledger_dir.path().join("mesh-controls.json")),
         );
         let ack = hook.control(&receiver, &resume).await.unwrap();
-        assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
-        assert!(!receiver.resolve(&id).unwrap().queue_paused());
+        // This hook has an explicit daemon grant, not a same-person grant. Its read may
+        // inspect a boundary session, but the subsequent queue write must retain that mark.
+        assert_eq!(
+            ack.state,
+            if owner_boundary { AckState::Refused } else { AckState::Delivered },
+            "{ack:?}"
+        );
+        assert_eq!(receiver.resolve(&id).unwrap().queue_paused(), owner_boundary);
         receiver.shutdown_all().await;
     }
 }
@@ -1548,6 +1556,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1599,6 +1608,7 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1669,6 +1679,7 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1716,6 +1727,7 @@ async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_tur
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     });
     // Missing startWork is information even if mode asks to steer.
     assert_eq!(
@@ -1806,6 +1818,58 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     fake.until("delivered", |s| s.receipts[&message].state == "delivered").await;
     relay.stop().await;
     b.shutdown_all().await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "webRoots": [dir.path()], "defaultHarness": "fake", "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    for (name, same_person, policy, boundary, mixed_grant, user) in [
+        ("own-full", true, "approve-all", None, false, Some("person-1")),
+        ("own-asking", true, "ask", None, false, Some("person-1")),
+        ("own-opt-out", true, "approve-all", Some(false), false, Some("person-1")),
+        ("team-forged", false, "approve-all", Some(true), false, Some("person-2")),
+        ("mixed-other", false, "approve-all", Some(true), true, Some("person-2")),
+        ("mixed-missing", false, "approve-all", Some(true), true, None),
+        ("mixed-empty", false, "approve-all", Some(true), true, Some("")),
+        ("mixed-own", true, "approve-all", None, true, Some("person-1")),
+    ] {
+        let grant: MeshControlFrom = serde_json::from_value(if mixed_grant {
+            json!({"sameUser": true, "daemonId": "inst_a", "ops": ["start"]})
+        } else if same_person {
+            json!({"sameUser": true})
+        } else {
+            json!({"daemonId": "inst_a", "ops": ["start"]})
+        })
+        .unwrap();
+        let hook = MeshControlHook::new(vec![grant], Some(dir.path().join(format!("{name}.json"))))
+            .with_own_user(Arc::new(|| Some("person-1".into())));
+        let mut request = message(name, "", Kind::Control);
+        request.from.user = user.map(str::to_owned);
+        let mut body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": name, "policy": policy,
+                "via": "peer"}}}});
+        if let Some(boundary) = boundary {
+            body["params"]["_meta"]["acpmux"]["vmBoundary"] = json!(boundary);
+        }
+        request.body = body.to_string();
+        let ack = hook.control(&hub, &request).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{name}: {ack:?}");
+        let session = hub.resolve(ack.detail.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            session.meta().vm_boundary,
+            same_person && policy == "approve-all" && boundary != Some(false),
+            "{name}"
+        );
+    }
+    hub.shutdown_all().await;
 }
 
 /// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one

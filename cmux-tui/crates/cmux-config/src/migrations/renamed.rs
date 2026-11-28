@@ -78,16 +78,22 @@ fn backdrop_art(value: &Value) -> Value {
 
 /// The old key's value as the new row shows it: what the app applies from it.
 pub fn legacy_value(path: &[String], root: &Value) -> Option<Value> {
+    // As the retired-keys table maps it: the first old key, in read order, whose value it
+    // lists (a row may replace several, `updates.automatic`); any other old value is the
+    // row's default (Swift `RenamedSettingKeys.legacyValue`).
+    let mut replaced = replaced_by_row(path).peekable();
+    if replaced.peek().is_some() {
+        return replaced.find_map(|replaced| {
+            let value = value_at(root, &replaced.old)?;
+            // An old `"enabled": false` reads as mode "off" until the person picks a mode.
+            if replaced.old == COMPUTER_USE_ENABLED {
+                return (value == &Value::Bool(false)).then(|| Value::String("off".to_owned()));
+            }
+            replaced.read(value).cloned()
+        });
+    }
     let legacy = legacy_path(path)?;
     let value = value_at(root, &legacy)?;
-    // An old `"enabled": false` reads as mode "off" until the person picks a mode.
-    if legacy == COMPUTER_USE_ENABLED {
-        return (value == &Value::Bool(false)).then(|| Value::String("off".to_owned()));
-    }
-    // As the retired-keys table maps it; any other old value is the row's default.
-    if let Some(replaced) = replaced_by_row(path).find(|replaced| replaced.old == legacy) {
-        return replaced.read(value).cloned();
-    }
     if legacy == BACKDROP_ART {
         return Some(backdrop_art(value));
     }
@@ -122,6 +128,28 @@ mod tests {
             assert_eq!(legacy_path(&row), Some(old));
         }
         assert!(legacy_paths().iter().any(|(row, _)| *row == path("appearance.background")));
+    }
+
+    #[test]
+    fn automatic_updates_reads_the_first_toggle_the_table_lists() {
+        let automatic = path("updates.automatic");
+        let read = |updates: Value| legacy_value(&automatic, &json!({ "updates": updates }));
+        assert_eq!(
+            read(json!({ "checkAutomatically": false, "installWhenIdle": true })),
+            Some(json!("off"))
+        );
+        // checkAutomatically: true lists nothing, so the next toggle answers.
+        assert_eq!(
+            read(json!({ "checkAutomatically": true, "installWhenIdle": true })),
+            Some(json!("idle"))
+        );
+        assert_eq!(read(json!({ "downloadAutomatically": false })), Some(json!("notify")));
+        assert_eq!(
+            read(json!({ "installWhenIdle": false, "downloadAutomatically": true })),
+            Some(json!("download"))
+        );
+        assert_eq!(read(json!({ "checkAutomatically": true })), None);
+        assert_eq!(read(json!({})), None);
     }
 
     #[test]

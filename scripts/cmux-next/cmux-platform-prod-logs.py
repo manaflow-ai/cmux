@@ -66,6 +66,8 @@ ALL_ID_KEYS = frozenset(k for keys in ID_KEYS.values() for k in keys)
 # cloud.machine.edge_dns (cmux-platform#2242), so a read of the 2026-11-26 21:46Z signed-out machine could not say
 # whether its edge DNS check ran. A read's header now names each dropped msg that is a plain token (unlisted_msgs).
 # A template or computed msg is never here; add one only when it is a literal written by our code.
+# cloud.pass.slow, cloud.verify.slow and cloud.divergence.slow (CloudCore.ts boundedWait) name the machine whose
+# alarm pass outran PASS_WAIT_MS; read at 2026-11-27 10:38Z they were dropped while the drill team's object was overloaded.
 PLATFORM_MSGS = frozenset({
     "after-response work failed",
     "alarm time not finite",
@@ -125,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_read_failed",
     "cloud.claim_fence_retry_reset_failed",
     "cloud.claim_fence_retry_write_failed",
+    "cloud.commit_probe.size",
     "cloud.connect.read",
     "cloud.create.adopted",
     "cloud.create.approved",
@@ -135,11 +138,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.create.trace_unsent",
     "cloud.divergence.read",
     "cloud.divergence.read_failed",
+    "cloud.divergence.slow",
     "cloud.egress.failed",
     "cloud.egress.org_invalid",
     "cloud.egress.read",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
+    "cloud.flight_join.long",
     "cloud.fold.parked",
     "cloud.fold.read",
     "cloud.fold.read_failed",
@@ -190,6 +195,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.parked_wake",
     "cloud.parked_wake_failed",
     "cloud.pass.abandoned",
+    "cloud.pass.slow",
     "cloud.pause.page_cache",
     "cloud.person_layer.expired",
     "cloud.platform_stop_allocations_failed",
@@ -198,6 +204,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.pool.refused",
     "cloud.pool.spend_limit_set",
     "cloud.pool.warning",
+    "cloud.prune_probe.long",
+    "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
     "cloud.record.stale",
     "cloud.record.unknown",
@@ -227,8 +235,10 @@ PLATFORM_MSGS = frozenset({
     "cloud.submit.cut_off",
     "cloud.usage.report_failed",
     "cloud.usage.reported",
+    "cloud.verify.slow",
     "cloud.wake_echo.note_failed",
     "cloud.wake_served.note_failed",
+    "cloud.wake_probe.long",
     "cloud.work_machine.failed",
     "cloud.work_machine.not_ready",
     "cloud.work_machine.ready",
@@ -466,11 +476,17 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
                  # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
                  # call, claim to fill start, the fill's age; and how many spares a claim could take.
-                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT}
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
+                 # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
+                 "walked": INT, "abandoned": INT,
+                 # cmux-platform#2407's busy-object probe: cloud.commit_probe.size (state and last event's sizes, commits
+                 # in the minute), cloud.wake_probe.long (an alarm run split drain/onWake), cloud.flight_join.long.
+                 "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
+                 "waited_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled", "found")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
@@ -574,6 +590,10 @@ HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 AGENT_LAST = frozenset({
     "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
     "updater", "no_line", "cloud_other",
+    # cmux-platform NeverBoundProbe updaterClasses: which updater line it was.
+    "updater_flipped", "updater_channel_timeout", "updater_gate_refused", "updater_gate_unreadable",
+    "updater_failed", "updater_updating", "updater_current", "updater_connect_hold", "updater_busy", "updater_off",
+    "updater_exec_failed", "updater_first_ready", "updater_other",
 })
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
@@ -625,6 +645,11 @@ def probe_facts(out):
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_flips=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_flips"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_cloud_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_cloud_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_last="):
             v = ln.split("=", 1)[1]
             facts["agent_last"] = v if v in AGENT_LAST else "other"
@@ -690,14 +715,51 @@ PROVIDER_STEP_HTTP = re.compile(r"^(file write|mesh ACL apply|mesh ACL read|mesh
 PROVIDER_JS_ERROR = re.compile(r"^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError)(?=:|$)")
 
 
+# cmux-platform src/server/cloud/ownhost/CloudProvider.ts: every call names its step ("find VM", "create VM",
+# `${verb} VM`), then a fixed tail. Dev 2026-11-27 12:26Z: twelve creates in a row read only "own-host: other" while
+# the host's origin no longer resolved, so the class never said whether the daemon answered at all.
+OWN_HOST_STEPS = frozenset({"create VM", "delete VM", "exec", "find VM", "list VMs", "power VM", "read VM",
+                            "resume VM", "pause VM", "write file"})
+OWN_HOST_TAILS = frozenset({
+    "no readable answer", "no VM in the answer", "no VM state in the answer", "no receipt in the answer",
+    "the receipt names another request", "the receipt names another VM", "the host answered refused",
+    "the host answered failed", "wrong VM answer", "no such VM", "invalid answer", "unreadable resources",
+    "HTTP 409 and no VM under the name", "the VM is failed", "the VM is deleted", "invalid path or mode",
+    "unconfirmed write", "invalid timeout",
+})
+OWN_HOST_WHOLE = frozenset({
+    "invalid VM id", "invalid VM name", "invalid report selector", "no snapshots", "no resize", "no TLS edge rules",
+    "no machine without internet", "only the configured template boots", "no disk-depth pause",
+})
+# A step's daemon status and its safe error code (codeOf: the daemon's own token, never its message).
+OWN_HOST_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?: \(([a-z][a-z0-9_.]{0,63})\))?$")
+
+
+def _own_host_class(rest):
+    if rest in OWN_HOST_WHOLE:
+        return rest
+    step, sep, tail = rest.partition(": ")
+    if not sep or step not in OWN_HOST_STEPS:
+        return "other"
+    if tail in OWN_HOST_TAILS:
+        return f"{step}: {tail}"
+    m = OWN_HOST_HTTP.match(tail)
+    if m:
+        return f"{step}: HTTP {m.group(1)}" + (f" ({m.group(2)})" if m.group(2) else "")
+    return f"{step}: other"
+
+
 def provider_error_class(message):
     """A fixed class for a provider call's error message: its source prefix (PROVIDER_SOURCES) and then a
     PROVIDER_ERROR_PHRASES phrase, "HTTP <status>", "<step> HTTP <status>", "boot image is not listed yet", a JS
-    error name, or other. No text past a known phrase is ever kept."""
+    error name, or other. An own-host message keeps its step and fixed tail (OWN_HOST_*). No text past a known
+    phrase is ever kept."""
     if not isinstance(message, str):
         return "other"
     source = next((p for p in PROVIDER_SOURCES if message.startswith(p)), "")
     rest = message[len(source):]
+    if source == "own-host: ":
+        return source + _own_host_class(rest)
     return source + _provider_phrase_class(rest) if source else _provider_phrase_class(rest)
 
 
