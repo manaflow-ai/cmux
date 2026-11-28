@@ -223,6 +223,11 @@ jobs:
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
           TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
           ROUTER_ONLY: ${{ inputs.only }}
+          # guard-steps-reached (scripts/ci/guards_reached.sh) reads a red step's recorded base verdict from
+          # feat-cmux-next's push run instead of re-running it on the base. vars.CI_GUARDS_REACHED_BASE_VERDICTS=1
+          # turns it on; unset or 0 re-runs every red on the base, as before, and passes no token to the steps.
+          CI_GUARDS_REACHED_BASE_VERDICTS: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS || '0' }}
+          GH_TOKEN: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS == '1' && github.token || '' }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
