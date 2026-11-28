@@ -10864,6 +10864,18 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "wchan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Wchan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What it sleeps on (RFD 0179 idea 12): its oldest tool call in flight; null while none is."
         }
       },
       "required": [
@@ -10874,7 +10886,8 @@
         "stalledSince",
         "startedAt",
         "turnId",
-        "turnSeq"
+        "turnSeq",
+        "wchan"
       ],
       "type": "object"
     },
@@ -11293,6 +11306,43 @@
         "ifLive": true,
         "sessionId": true
       },
+      "type": "object"
+    },
+    "Wchan": {
+      "description": "A running turn's oldest tool call in flight (`TurnSummary::wchan`, `hub/activity.rs`).",
+      "properties": {
+        "boundMs": {
+          "description": "The bound it declared at its start (`rawInput.timeout`, ms); null when it declared none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "startedAt": {
+          "description": "When acpmux first saw it, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "description": "Its title, masked (`secret_scan`) and cut; null while untitled.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolCallId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "boundMs",
+        "startedAt",
+        "title",
+        "toolCallId"
+      ],
       "type": "object"
     }
   },

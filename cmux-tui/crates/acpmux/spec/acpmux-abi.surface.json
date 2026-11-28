@@ -1596,6 +1596,29 @@
         "ty": "uint64",
         "required": true
       },
+      "/session/turn/wchan": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/session/turn/wchan/boundMs": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/session/turn/wchan/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/session/turn/wchan/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/session/turn/wchan/toolCallId": {
+        "ty": "string",
+        "required": true
+      },
       "/session/turnCount": {
         "ty": "uint64",
         "required": true
@@ -35227,6 +35250,29 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/session/turn/wchan": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/turn/wchan/boundMs": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/turn/wchan/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/session/turn/wchan/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/turn/wchan/toolCallId": {
+        "ty": "string",
+        "required": true
+      },
       "/data/session/turnCount": {
         "ty": "uint64",
         "required": true
@@ -38559,6 +38605,29 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/turn/wchan": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/turn/wchan/boundMs": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/turn/wchan/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/turn/wchan/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/turn/wchan/toolCallId": {
+        "ty": "string",
+        "required": true
+      },
       "/data/turnCount": {
         "ty": "uint64",
         "required": true
@@ -40403,6 +40472,29 @@
       },
       "/data/sessions/*/turn/turnSeq": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/sessions/*/turn/wchan": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/boundMs": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/sessions/*/turn/wchan/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/toolCallId": {
+        "ty": "string",
         "required": true
       },
       "/data/sessions/*/turnCount": {
@@ -42406,6 +42498,29 @@
       },
       "/data/sessions/*/turn/turnSeq": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/sessions/*/turn/wchan": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/boundMs": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/sessions/*/turn/wchan/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/turn/wchan/toolCallId": {
+        "ty": "string",
         "required": true
       },
       "/data/sessions/*/turnCount": {
