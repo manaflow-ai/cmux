@@ -1216,13 +1216,13 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known`, `limit` and `after`: server/list_workspaces_page.rs; `since`:
-    /// server/list_workspaces_delta.rs.
+    /// `since`: server/list_workspaces_delta.rs; else: server/list_workspaces_page.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
         after: Option<usize>,
         since: Option<list_workspaces_delta::DeltaCursor>,
+        rows: Option<String>,
     },
     GetFrontendProjection {
         frontend: String,

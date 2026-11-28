@@ -325,20 +325,25 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
 /// [`workspaces_json`] with only the workspaces at `indices` of `state.workspaces`, in that
 /// order, and `total`, how many the client may see (`list-workspaces` `limit`). Builds only
 /// those rows, and stops at the first row past `budget` bytes of rows (a row longer than the
-/// budget alone still goes out when it is first). Returns how many rows it took.
+/// budget alone still goes out when it is first). Returns how many rows it took. With `slim`
+/// (`list-workspaces-slim-v1`) each row is [`slim_workspace_row`].
 pub(crate) fn workspaces_json_at(
     state: &State,
     notifications: &TreeDecorations,
     indices: &[usize],
     total: usize,
     budget: usize,
+    slim: bool,
 ) -> (Value, usize) {
     let short_ids = ShortIds::of(state);
     let mut rows = Vec::new();
     let mut bytes = 0usize;
     for index in indices {
         let Some(workspace) = state.workspaces.get(*index) else { continue };
-        let row = workspace_json(state, workspace, *index, &short_ids, notifications);
+        let mut row = workspace_json(state, workspace, *index, &short_ids, notifications);
+        if slim {
+            row = slim_workspace_row(row);
+        }
         let size = serde_json::to_vec(&row).map_or(0, |line| line.len()) + 1;
         if !rows.is_empty() && bytes + size > budget {
             break;
@@ -355,6 +360,90 @@ pub(crate) fn workspaces_json_at(
     });
     value.insert("workspaces", Value::Array(rows));
     (value, taken)
+}
+
+/// The fields of a slim row (`list-workspaces` `rows: "slim"`, `list-workspaces-slim-v1`):
+/// what a phone's Home and Workspaces rows draw (title, color, icon, pin, unread, kind, the
+/// front tab's directory and branch, each tab's surface for its agent state), never the
+/// layouts, columns, resource and terminal ids and the rest of a tab, which the whole tree
+/// that follows carries.
+const SLIM_WORKSPACE_FIELDS: &[&str] = &[
+    "id",
+    "resource_id",
+    "key",
+    "name",
+    "title",
+    "group",
+    "color",
+    "icon",
+    "pinned",
+    "marked_unread",
+    "kind",
+    "app",
+    "unread_count",
+    "active",
+    "screens",
+];
+const SLIM_SCREEN_FIELDS: &[&str] = &["id", "active", "active_pane", "panes"];
+const SLIM_PANE_FIELDS: &[&str] = &["id", "dead", "active_tab", "focused_at", "tabs"];
+const SLIM_TAB_FIELDS: &[&str] = &[
+    "surface",
+    "kind",
+    "name",
+    "title",
+    "cwd",
+    "git_branch",
+    "dead",
+    "pinned",
+    "notification",
+    "conversation",
+];
+/// Of a tab's `conversation`: what tells an agent chat (its session) and a phone tab apart.
+const SLIM_CONVERSATION_FIELDS: &[&str] = &["page", "agent_session"];
+
+/// A [`workspace_json`] row cut to [`SLIM_WORKSPACE_FIELDS`], its screens, panes and tabs to
+/// theirs, with no null field: a client reads a missing field as it reads a null one.
+pub(crate) fn slim_workspace_row(row: Value) -> Value {
+    fn keep(value: Value, fields: &[&str], inner: &dyn Fn(&str, Value) -> Value) -> Value {
+        let Value::Object(map) = value else { return value };
+        Value::Object(
+            map.into_iter()
+                .filter(|(key, value)| !value.is_null() && fields.contains(&key.as_str()))
+                .map(|(key, value)| {
+                    let value = inner(&key, value);
+                    (key, value)
+                })
+                .collect(),
+        )
+    }
+    fn each(value: Value, item: &dyn Fn(Value) -> Value) -> Value {
+        match value {
+            Value::Array(items) => Value::Array(items.into_iter().map(item).collect()),
+            other => other,
+        }
+    }
+    let tab = |tab: Value| {
+        keep(tab, SLIM_TAB_FIELDS, &|key, value| match key {
+            "conversation" => keep(value, SLIM_CONVERSATION_FIELDS, &|_, value| value),
+            _ => value,
+        })
+    };
+    let pane = |pane: Value| {
+        keep(pane, SLIM_PANE_FIELDS, &|key, value| match key {
+            "tabs" => each(value, &tab),
+            _ => value,
+        })
+    };
+    let screen = |screen: Value| {
+        keep(screen, SLIM_SCREEN_FIELDS, &|key, value| match key {
+            "panes" => each(value, &pane),
+            _ => value,
+        })
+    };
+    keep(row, SLIM_WORKSPACE_FIELDS, &|key, value| match key {
+        "screens" => each(value, &screen),
+        _ => value,
+    })
 }
 
 pub(crate) fn tree_short_ids(state: &State) -> HashMap<u64, String> {

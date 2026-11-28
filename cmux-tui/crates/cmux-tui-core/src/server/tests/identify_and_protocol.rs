@@ -66,7 +66,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let before = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None, rows: None },
         &writer,
     )
     .unwrap();
@@ -89,7 +89,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None, rows: None },
         &writer,
     )
     .unwrap();
@@ -119,7 +119,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let after = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None, rows: None },
         &writer,
     )
     .unwrap();
@@ -159,7 +159,7 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None, rows: None },
         &writer,
     )
     .unwrap();
@@ -193,7 +193,7 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None, rows: None },
         &writer,
     )
     .unwrap();

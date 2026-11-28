@@ -19122,6 +19122,7 @@ type Tree struct {
 	PaneRevision           *uint64     `json:"pane_revision,omitempty"`
 	RegistryID             *string     `json:"registry_id,omitempty"`
 	Removed                *[]ID       `json:"removed,omitempty"`
+	Rows                   *string     `json:"rows,omitempty"`
 	Seq                    *uint64     `json:"seq,omitempty"`
 	TerminalRevision       *uint64     `json:"terminal_revision,omitempty"`
 	Total                  *uint64     `json:"total,omitempty"`
@@ -19147,6 +19148,7 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 		PaneRevision           optionalNonNullJSON[uint64]           `json:"pane_revision"`
 		RegistryID             optionalNonNullJSON[string]           `json:"registry_id"`
 		Removed                optionalNonNullJSON[[]ID]             `json:"removed"`
+		Rows                   optionalNonNullJSON[string]           `json:"rows"`
 		Seq                    optionalNonNullJSON[uint64]           `json:"seq"`
 		TerminalRevision       optionalNonNullJSON[uint64]           `json:"terminal_revision"`
 		Total                  optionalNonNullJSON[uint64]           `json:"total"`
@@ -19225,6 +19227,12 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 	}
 	if fields.Removed.set {
 		decoded.Removed = &fields.Removed.value
+	}
+	if fields.Rows.null {
+		return fmt.Errorf("decode Tree: non-nullable field rows is null")
+	}
+	if fields.Rows.set {
+		decoded.Rows = &fields.Rows.value
 	}
 	if fields.Seq.null {
 		return fmt.Errorf("decode Tree: non-nullable field seq is null")

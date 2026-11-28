@@ -2049,6 +2049,7 @@ export type Tree = {
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "removed"?: Array<Id>;
+  "rows"?: string;
   "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;

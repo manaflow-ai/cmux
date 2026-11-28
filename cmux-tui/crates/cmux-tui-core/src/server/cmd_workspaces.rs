@@ -50,6 +50,7 @@ pub(super) struct KnownTree {
 /// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
 /// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
 /// order and `total`, up to a byte budget, from `after` with `next` (`list-workspaces-page-v1`).
+/// With `limit` and `rows: "slim"` (`list-workspaces-slim-v1`), slim rows.
 /// Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
@@ -58,9 +59,12 @@ pub(super) fn list_workspaces(
     known: Option<&KnownTree>,
     limit: Option<usize>,
     after: Option<usize>,
+    rows: Option<&str>,
 ) -> anyhow::Result<Value> {
-    // `after` pages only with `limit` (`list-workspaces-page-v1`).
+    // `after` pages only with `limit` (`list-workspaces-page-v1`), and so do slim rows
+    // (`list-workspaces-slim-v1`): a whole tree is always whole rows.
     let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
+    let slim = limit.is_some() && rows == Some("slim");
     // Each form of the request draws the git HEADs from the cache, stale or not, and never waits on
     // a read of one: the watch of the HEAD files keeps them current (git_heads.rs).
     // A remote device that must not see some workspaces (#31210) is answered
@@ -68,10 +72,10 @@ pub(super) fn list_workspaces(
     // the others, all read with one view of them.
     let mut reply = match (known, limit) {
         (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            list_workspaces_reply_since(mux, known, limit, after, view)
+            list_workspaces_reply_since(mux, known, limit, after, slim, view)
         })?,
         (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            Ok(list_workspaces_reply_first(mux, limit, after, view)?.0)
+            Ok(list_workspaces_reply_first(mux, limit, after, slim, view)?.0)
         })?,
         (None, None) => list_workspaces_reply(mux)?,
     };

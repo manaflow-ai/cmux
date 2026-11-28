@@ -2598,6 +2598,19 @@
       "With limit: the after of the next page, on every page that is not the last."
      ]
     },
+    "rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-slim-v1",
+     "constraints": [
+      "\"slim\" when the request asked for slim rows: the rows are slim, the page is not a tree to hold."
+     ]
+    },
     "delta": {
      "type": {
       "kind": "scalar",
@@ -13573,6 +13586,20 @@
       "capability": "list-workspaces-page-v1",
       "constraints": [
        "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
+      ]
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-slim-v1",
+      "constraints": [
+       "With limit: \"slim\" for slim rows, only what a phone's Home and Workspaces rows draw (no layouts, ids or tab details; no null fields). A slim page carries rows: \"slim\" and never tree_revision. Ignored without limit, with since, or for any other value."
       ]
      },
      "since": {

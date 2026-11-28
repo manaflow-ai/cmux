@@ -667,7 +667,7 @@ fn a_request_with_no_known_tree_reads_no_cached_git_head_in_its_reply() {
             app.command(mux, json!({"id": 1, "cmd": "list-workspaces", "limit": 3}))
         }),
         ("the reply value", &|| {
-            cmd_workspaces::list_workspaces(mux, app.client, None, None, None, None)
+            cmd_workspaces::list_workspaces(mux, app.client, None, None, None, None, None)
                 .unwrap()
                 .to_string()
         }),

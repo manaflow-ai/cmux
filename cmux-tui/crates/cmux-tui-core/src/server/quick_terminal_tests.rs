@@ -62,7 +62,13 @@ impl Wire {
         handle_command(
             &self.mux,
             self.mux.local_test_client(0),
-            Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+            Command::ListWorkspaces {
+                known: None,
+                limit: None,
+                after: None,
+                since: None,
+                rows: None,
+            },
             &self.writer,
         )
         .unwrap()["workspaces"][0]["screens"][0]

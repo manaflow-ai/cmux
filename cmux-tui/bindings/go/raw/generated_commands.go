@@ -16987,6 +16987,7 @@ type ListWorkspacesRequest struct {
 	After Presence[uint64]              `json:"-"`
 	Known Presence[ListWorkspacesKnown] `json:"-"`
 	Limit Presence[uint64]              `json:"-"`
+	Rows  Presence[string]              `json:"-"`
 	Since Presence[ListWorkspacesSince] `json:"-"`
 }
 
@@ -17036,6 +17037,18 @@ func (value ListWorkspacesRequest) MarshalJSON() ([]byte, error) {
 		}
 		object["limit"] = encodedField
 	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListWorkspacesRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
 	if value.Since.IsAbsent() {
 		delete(object, "since")
 	} else if value.Since.IsNull() {
@@ -17059,6 +17072,7 @@ func (value *ListWorkspacesRequest) UnmarshalJSON(data []byte) error {
 		After Presence[uint64]              `json:"after"`
 		Known Presence[ListWorkspacesKnown] `json:"known"`
 		Limit Presence[uint64]              `json:"limit"`
+		Rows  Presence[string]              `json:"rows"`
 		Since Presence[ListWorkspacesSince] `json:"since"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -17069,6 +17083,7 @@ func (value *ListWorkspacesRequest) UnmarshalJSON(data []byte) error {
 	decoded.After = fields.After
 	decoded.Known = fields.Known
 	decoded.Limit = fields.Limit
+	decoded.Rows = fields.Rows
 	decoded.Since = fields.Since
 	*value = ListWorkspacesRequest(decoded)
 	return nil
