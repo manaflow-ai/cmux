@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b"
+	SDKIRSHA256        = "5c25e6dd7abdc0b2abba8c1912525fa0b3bc5fae75e00d8e207b821f39eaf738"
 )
 
 type Authority string
@@ -146,6 +146,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"conversation-live":                  {Name: "conversation-live", GoMethod: "ConversationLive", Authority: AuthorityLocalAdmin, Since: 12, Capability: "chief-live-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"conversation-live-publish":          {Name: "conversation-live-publish", GoMethod: "ConversationLivePublish", Authority: AuthorityLocalAdmin, Since: 12, Capability: "chief-live-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"conversation-op":                    {Name: "conversation-op", GoMethod: "ConversationOp", Authority: AuthorityLocalAdmin, Since: 12, Capability: "local-conversations-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"conversation-question-decision":     {Name: "conversation-question-decision", GoMethod: "ConversationQuestionDecision", Authority: AuthorityControl, Since: 12, Capability: "conversation-question-decision-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"conversation-run":                   {Name: "conversation-run", GoMethod: "ConversationRun", Authority: AuthorityLocalAdmin, Since: 12, Capability: "conversation-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"conversation-run-append":            {Name: "conversation-run-append", GoMethod: "ConversationRunAppend", Authority: AuthorityLocalAdmin, Since: 12, Capability: "conversation-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"conversation-runs":                  {Name: "conversation-runs", GoMethod: "ConversationRuns", Authority: AuthorityLocalAdmin, Since: 12, Capability: "conversation-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: map[string]string{"answers": "conversation-run-answers-v1"}},
@@ -528,7 +529,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 316)
+	result := make([]CommandMetadata, 0, 317)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -613,6 +614,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-live"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-live-publish"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-op"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["conversation-question-decision"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-run"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-run-append"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["conversation-runs"]))

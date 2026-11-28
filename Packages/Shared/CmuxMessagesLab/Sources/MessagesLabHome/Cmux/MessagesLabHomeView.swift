@@ -56,6 +56,7 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         HomeApprovalRowProvider.install()
+        HomeQuestionRowProvider.install()
         HomeTurnFailureRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops

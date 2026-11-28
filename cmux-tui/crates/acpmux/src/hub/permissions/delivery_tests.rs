@@ -85,3 +85,137 @@ async fn live_question_receiver_gets_the_answer_once() {
     let duplicate = answer(&hub, &session, None).await.unwrap_err();
     assert_eq!(duplicate.code, -32002);
 }
+
+fn attempt(hub: &Hub, session: &Session, id: &str) -> receipt::Attempt {
+    let guard = session.permissions.lock().unwrap();
+    let pending = &guard.pending["question-1"];
+    serde_json::from_value(json!({"id":id, "instance":hub.person.instance(),
+        "decisionNonce":pending.decision_nonce,
+        "requestDigest":super::super::approvers::answers_digest(Some(&pending.request)),
+        "answersDigest":super::super::approvers::answers_digest(Some(&json!({"Which card?":"Glass"})))
+    })).unwrap()
+}
+
+#[tokio::test]
+async fn receipt_marks_only_successful_delivery_and_rejects_stale_binding() {
+    for alive in [true, false] {
+        let (hub, session, receiver) = pending_question();
+        let binding = attempt(&hub, &session, "attempt1");
+        let receiver = if alive {
+            Some(receiver)
+        } else {
+            drop(receiver);
+            None
+        };
+        let result = hub
+            .respond_permission_receipted(
+                &session,
+                "question-1",
+                Some("allow_once".into()),
+                Some(json!({"Which card?":"Glass"})),
+                None,
+                None,
+                super::super::person::Answerer { person: true, ..Default::default() },
+                Control::Local,
+                Some(binding),
+            )
+            .await;
+        let status = hub.permission_delivery_status(&session, "attempt1").unwrap();
+        if let Some(receiver) = receiver {
+            result.unwrap();
+            assert_eq!(receiver.await.unwrap()["outcome"], "selected");
+            assert_eq!(status["state"], "delivered");
+        } else {
+            assert_eq!(result.unwrap_err().data.unwrap()["reason"], "agent_gone");
+            assert_eq!(status["state"], "refused");
+            assert_eq!(status["reason"], "agent_gone");
+        }
+    }
+    for field in
+        ["requestDigest", "answersDigest", "annotationsDigest", "decisionNonce", "instance"]
+    {
+        let (hub, session, mut receiver) = pending_question();
+        let mut bad = serde_json::to_value(attempt(&hub, &session, "stale")).unwrap();
+        bad[field] = json!("changed");
+        let result = hub
+            .respond_permission_receipted(
+                &session,
+                "question-1",
+                Some("allow_once".into()),
+                Some(json!({"Which card?":"Glass"})),
+                None,
+                None,
+                super::super::person::Answerer { person: true, ..Default::default() },
+                Control::Local,
+                Some(serde_json::from_value(bad).unwrap()),
+            )
+            .await;
+        assert_eq!(result.unwrap_err().data.unwrap()["reason"], "question.stale");
+        assert!(matches!(receiver.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+        assert!(session.permissions.lock().unwrap().pending.contains_key("question-1"));
+    }
+}
+
+#[tokio::test]
+async fn rejected_receipt_claim_neither_spends_proof_nor_delivers() {
+    let (hub, session, mut receiver) = pending_question();
+    let binding = attempt(&hub, &session, "claimed");
+    {
+        let mut guard = session.permissions.lock().unwrap();
+        let prepared = receipt::Receipt::prepare(
+            binding.clone(),
+            &session.id,
+            "question-1",
+            hub.person.instance(),
+            &guard.pending["question-1"],
+            Some("allow_once"),
+            Some(&json!({"Which card?":"Glass"})),
+            None,
+        )
+        .unwrap();
+        guard.deliveries.claim(&prepared, None).unwrap();
+    }
+    let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    hub.person.install_spawn_key(key).unwrap();
+    let answers = json!({"Which card?":"Glass"});
+    let proof = super::super::person::decision_answers_proof(
+        key,
+        hub.person.instance(),
+        &session.id,
+        "question-1",
+        "allow_once",
+        "question-nonce",
+        &answers,
+        None,
+    )
+    .unwrap();
+    let result = hub
+        .respond_permission_receipted(
+            &session,
+            "question-1",
+            Some("allow_once".into()),
+            Some(answers.clone()),
+            None,
+            None,
+            super::super::person::Answerer {
+                decision: Some(("question-nonce", &proof)),
+                ..Default::default()
+            },
+            Control::Local,
+            Some(binding),
+        )
+        .await;
+    assert_eq!(result.unwrap_err().data.unwrap()["reason"], "question.delivery_claimed");
+    assert!(hub.person.decision_proves(
+        &session.id,
+        "question-1",
+        "allow_once",
+        "question-nonce",
+        Some(&answers),
+        None,
+        &proof
+    ));
+    assert!(matches!(receiver.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+    assert!(session.permissions.lock().unwrap().pending.contains_key("question-1"));
+    assert_eq!(hub.permission_delivery_status(&session, "claimed").unwrap()["state"], "unknown");
+}

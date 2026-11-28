@@ -86,7 +86,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
                                               openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") }) // window_usable: the next key goes in (piece 8)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
-                                             work: services.work, environment: ChiefHomeAcpmux.environment)
+                                             work: services.work, environment: ChiefHomeAcpmux.environment, questions: service.homeSource)
         transcript.approvals = approvals
         let person = PersonInputCheck(sources: services.personInput.sources)
         transcript.isPersonApprovalEvent = { person.isPerson($0) }

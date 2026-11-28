@@ -4,6 +4,9 @@
 //! only after that commit and never for a replay. Rejects carry `error_code`
 //! `conversation_rejected` and the reason code as the error text.
 
+#[path = "conversation_question.rs"]
+mod question;
+
 use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
@@ -27,6 +30,9 @@ use crate::conversation_store::{
 /// `conversation-changed` and `conversation-typing` events, on trusted local
 /// connections only.
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
+/// Question answers require person proof and reach ACP before the answer is recorded.
+#[cfg(unix)]
+pub const CONVERSATION_QUESTION_DELIVERY_CAPABILITY: &str = "conversation-question-delivery-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 /// `conversation-draft`: the v1 command of `conversation.draft` for a bound
@@ -316,6 +322,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<question::Refusal>().map(|r| r.0.clone()))
         .or_else(|| error.downcast_ref::<ScheduleRejected>().map(|r| r.0.to_string()))
 }
 
@@ -329,8 +336,15 @@ pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    let rejected = error.downcast_ref::<ConversationRejected>().is_some()
-        || error.downcast_ref::<ConversationSearchRejected>().is_some();
+    if error.downcast_ref::<question::Refusal>().is_some_and(|r| r.0 == "question.delivery_unknown")
+    {
+        return Some("conversation_indeterminate".to_owned());
+    }
+    let rejected =
+        error.downcast_ref::<crate::conversation_store::QuestionDeliveryBusy>().is_some()
+            || error.downcast_ref::<question::Refusal>().is_some()
+            || error.downcast_ref::<ConversationRejected>().is_some()
+            || error.downcast_ref::<ConversationSearchRejected>().is_some();
     if error.downcast_ref::<AttachmentRejected>().is_some() {
         return Some(AttachmentRejected::CODE.to_string());
     }
@@ -826,6 +840,7 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
     let OpParams { conversation, idempotency_key, actor, transaction, op } = params;
     let actor = resolve_actor(mux, client, actor)?;
     validate_client_transaction(transaction.as_deref())?;
+    let decision = op.pointer("/answer/decision").cloned();
     let op: Op = decode(op, "op")?;
     if let Op::ParticipantsAdd { participant } = &op
         && is_device_id(&participant.id)
@@ -833,7 +848,20 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
         return Err(device_id_refused());
     }
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?;
+    let outcome = if matches!(&op, Op::QuestionAnswer { .. }) {
+        question::answer(
+            mux,
+            client,
+            &conversation,
+            &idempotency_key,
+            &actor,
+            &op,
+            decision.as_ref(),
+            &transaction,
+        )?
+    } else {
+        commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?
+    };
     Ok(op_reply(&outcome, outcome.result.change.clone(), transaction))
 }
 

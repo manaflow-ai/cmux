@@ -14,12 +14,30 @@ public struct AgentQuestion: Hashable, Sendable, Codable, Identifiable {
     public var source: Source
     public var items: [Item]
     public var state: State
+    /// The conversation part's own JSON text as it was read (set by `init(conversationPart:...)`),
+    /// so a decision can name the exact question the person was shown. Not part of the question's
+    /// identity: it is not compared, hashed or encoded.
+    public var displayedJSON: String?
 
-    public init(id: String, source: Source, items: [Item], state: State = .pending) {
+    public init(id: String, source: Source, items: [Item], state: State = .pending, displayedJSON: String? = nil) {
         self.id = id
         self.source = source
         self.items = items
         self.state = state
+        self.displayedJSON = displayedJSON
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, source, items, state }
+
+    public static func == (lhs: AgentQuestion, rhs: AgentQuestion) -> Bool {
+        lhs.id == rhs.id && lhs.source == rhs.source && lhs.items == rhs.items && lhs.state == rhs.state
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(source)
+        hasher.combine(items)
+        hasher.combine(state)
     }
 
     /// The first item's prompt, for notifications, previews and search.

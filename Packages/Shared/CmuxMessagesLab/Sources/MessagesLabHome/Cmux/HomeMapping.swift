@@ -168,6 +168,9 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            // A Chief's question in a local conversation: its options and Send (HomeQuestionRowProvider).
+            else if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
+                    let card = HomeQuestionRowProvider.part(question) { shown = [card] }
             // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
             else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
                     let card = HomeTurnFailureRowProvider.part(failure) {

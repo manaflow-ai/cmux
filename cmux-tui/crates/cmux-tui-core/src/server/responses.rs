@@ -143,6 +143,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::computer_use_command::error_code(error))
         .or_else(|| super::tab_restart::error_code(error))
         .or_else(|| super::conversation_tabs_wire::error_code(error))
+        .or_else(|| super::conversation_question_decision::error_code(error))
 }
 
 /// `permanent-dock-v1`: a close, move or undo the permanent-column guard

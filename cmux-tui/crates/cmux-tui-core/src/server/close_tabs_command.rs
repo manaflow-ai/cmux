@@ -4,7 +4,7 @@
 //! itself) commits the same way but leaves no closed-history record.
 
 use super::{
-    MAX_CLOSE_TABS_SURFACES, MutationRequest, Mux, TabRef, batch_close_terminals_json,
+    MAX_CLOSE_TABS_SURFACES, MutationRequest, Mux, TabRef, cmd_tabs::batch_close_terminals_json,
     resolve_tab_refs, validate_client_transaction, workspace_mutation,
 };
 use crate::mux::CloseReason;

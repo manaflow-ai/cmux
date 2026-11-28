@@ -367,6 +367,13 @@
       "Local conversations owned by the daemon (Home, plans/cmux-next/home.md):",
       "the `conversation-*` commands and `conversation-changed`/`conversation-typing` events."
     ]},
+    {"case": "conversationQuestionDelivery", "wire": "conversation-question-delivery-v1", "tier": "optional", "doc": [
+      "Local question answers reach ACP with a person proof before being recorded."
+    ]},
+    {"case": "conversationQuestionDecision", "wire": "conversation-question-decision-v1", "tier": "optional", "doc": [
+      "`conversation-question-decision`: what Home's native card has the person sign to answer a",
+      "Chief question (the live prompt's run, nonce, option and exact answers)."
+    ]},
     {"case": "conversationDraftEvents", "wire": "conversation-draft-events-v1", "tier": "optional", "doc": [
       "`conversation-draft` events on `subscribe`: the Chief's running reply,",
       "which Home grows in the Chief's bubble until the reply is posted."
