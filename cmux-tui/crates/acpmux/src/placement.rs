@@ -17,7 +17,7 @@
 //! The smallest of the four is its room. Among hosts with room, lanes against the cap decide
 //! first, in lane_admission's pick order: under `max_lanes` (or no cap configured), then past it
 //! on measured headroom, then a host with a cap whose reading has no live count, then full. Then
-//! the registry's `lane_place.placement_preference`, as leo-workspace's lane-place does
+//! the registry's `lane_place.placement_preference`, as the lane placer does
 //! (`tiers`): a list best first of providers (`freestyle`, `gcp`) and machine names, so a
 //! Freestyle lane VM with room beats a less-loaded GCP one (Leo, 2026-10-29: Freestyle is
 //! "pound for pound just cheaper than GCP"; 2026-10-31: "WHY GCP IF WE HAVE FREESTYLE???").
