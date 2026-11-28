@@ -1201,6 +1201,20 @@ class RepositoryBindingsTests(unittest.TestCase):
         ))
         self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
 
+    def test_a_key_written_twice_in_one_object_is_refused_not_dropped(self) -> None:
+        """Two `enums` blocks in one family (a merge of two PRs) used to keep only the last block's enums."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "'enums' appears twice"):
+                generate.load_bindings(path)
+
+    def test_every_family_enum_in_the_repository_bindings_is_generated(self) -> None:
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        self.assertIn("Creation/ColumnSide.generated.swift", files)
+        self.assertIn("Creation/ColumnDockEdge.generated.swift", files)
+
     def test_create_terminal_omits_the_detached_selector_but_keeps_workspace(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)

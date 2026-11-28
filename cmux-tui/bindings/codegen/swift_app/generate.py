@@ -47,9 +47,20 @@ _DECLARATION = re.compile(
 )
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # json keeps the last of two equal keys, so a merge that leaves two `enums` blocks in one family drops the
+    # first block's enums without a word; the build then fails far away ("neither generated ... nor bound").
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise BindingError(f"key {key!r} appears twice in one object; merge the two into one")
+        value[key] = item
+    return value
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
